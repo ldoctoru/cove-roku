@@ -9,14 +9,15 @@ namespace Items
         return "Fields=Overview,ProductionYear,PrimaryImageAspectRatio,OfficialRating,CommunityRating&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb&EnableUserData=true"
     end function
 
-    function imageUrl(server as object, id as string, kind as string, tag as string, maxWidth as integer) as string
-        if id = "" or tag = "" then return ""
+    ' (the tag parameter must not be called "tag": BrighterScript would read it as the tag() function below)
+    function imageUrl(server as object, id as string, kind as string, imageTag as string, maxWidth as integer) as string
+        if id = "" or imageTag = "" then return ""
         path = "/Items/" + id + "/Images/" + kind
         if kind = "Backdrop" then path = path + "/0"
-        return Util.toText(server.url) + path + "?maxWidth=" + maxWidth.toStr() + "&quality=85&tag=" + tag
+        return Util.toText(server.url) + path + "?maxWidth=" + maxWidth.toStr() + "&quality=85&tag=" + imageTag
     end function
 
-    function tag(tags as dynamic, kind as string) as string
+    function tagOf(tags as dynamic, kind as string) as string
         if tags = invalid or GetInterface(tags, "ifAssociativeArray") = invalid then return ""
         return Util.toText(tags[kind])
     end function
@@ -31,19 +32,19 @@ namespace Items
         if Util.toText(it.Type) = "Episode" and Util.toText(it.SeriesPrimaryImageTag) <> ""
             return imageUrl(server, Util.toText(it.SeriesId), "Primary", Util.toText(it.SeriesPrimaryImageTag), w)
         end if
-        return imageUrl(server, Util.toText(it.Id), "Primary", tag(it.ImageTags, "Primary"), w)
+        return imageUrl(server, Util.toText(it.Id), "Primary", tagOf(it.ImageTags, "Primary"), w)
     end function
 
     ' Landscape (16:9): an episode's own still, otherwise Thumb, then backdrop, then the poster
     function landscape(server as object, it as object, w as integer) as string
         id = Util.toText(it.Id)
         t = Util.toText(it.Type)
-        if t = "Episode" and tag(it.ImageTags, "Primary") <> "" then return imageUrl(server, id, "Primary", tag(it.ImageTags, "Primary"), w)
-        if tag(it.ImageTags, "Thumb") <> "" then return imageUrl(server, id, "Thumb", tag(it.ImageTags, "Thumb"), w)
+        if t = "Episode" and tagOf(it.ImageTags, "Primary") <> "" then return imageUrl(server, id, "Primary", tagOf(it.ImageTags, "Primary"), w)
+        if tagOf(it.ImageTags, "Thumb") <> "" then return imageUrl(server, id, "Thumb", tagOf(it.ImageTags, "Thumb"), w)
         if Util.toText(it.ParentThumbImageTag) <> "" then return imageUrl(server, Util.toText(it.ParentThumbItemId), "Thumb", Util.toText(it.ParentThumbImageTag), w)
         b = backdrop(server, it, w)
         if b <> "" then return b
-        if t = "CollectionFolder" or t = "UserView" then return imageUrl(server, id, "Primary", tag(it.ImageTags, "Primary"), w)
+        if t = "CollectionFolder" or t = "UserView" then return imageUrl(server, id, "Primary", tagOf(it.ImageTags, "Primary"), w)
         return poster(server, it, w)
     end function
 
