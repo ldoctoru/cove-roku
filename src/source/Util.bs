@@ -61,6 +61,30 @@ namespace Util
         return lines
     end function
 
+    ' Sets a query parameter, removing any existing one with the same name (case-insensitive)
+    function setQuery(url as string, name as string, value as string) as string
+        q = url.instr("?")
+        if q < 0 then return url + "?" + name + "=" + value
+        base = url.left(q)
+        kept = []
+        for each p in url.mid(q + 1).split("&")
+            if p <> "" and LCase(p.split("=")[0]) <> LCase(name) then kept.push(p)
+        end for
+        kept.push(name + "=" + value)
+        return base + "?" + join(kept, "&")
+    end function
+
+    ' A URL with its access token hidden, for the debug console
+    function redact(url as string) as string
+        out = []
+        for each p in url.split("&")
+            k = LCase(p.split("=")[0])
+            if k.instr("api_key") >= 0 or k.instr("apikey") >= 0 or k.endsWith("?api_key") then p = p.split("=")[0] + "=***"
+            out.push(p)
+        end for
+        return join(out, "&")
+    end function
+
     function appVersion() as string
         return createObject("roAppInfo").getVersion()
     end function

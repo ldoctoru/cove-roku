@@ -17,6 +17,7 @@ sub init()
     m.started = false
     m.closing = false
     m.lastPos = 0
+    m.failed = false
 end sub
 
 sub begin()
@@ -70,7 +71,8 @@ sub onState()
     else if st = "paused"
         report("/Sessions/Playing/Progress", true)
     else if st = "finished"
-        close()
+        ' (the Video node also reports "finished" right after an error: only a real end closes the player)
+        if m.started and not m.failed then close()
     else if st = "error"
         onVideoError()
     end if
@@ -78,6 +80,7 @@ end sub
 
 ' The Roku couldn't play the stream: once, have the server convert the video and continue at the same position
 sub onVideoError()
+    m.failed = true
     print "Cove: video error "; m.video.errorCode; " "; m.video.errorMsg; " | "; formatJson(m.video.errorInfo)
     if m.session <> invalid then print "Cove: was "; m.session.method; " "; m.session.streamFormat
     atSec = m.video.position
@@ -89,6 +92,7 @@ sub onVideoError()
         m.progressTimer.control = "stop"
         m.status.text = "Converting the video for this Roku..."
         m.status.visible = true
+        m.failed = false
         start(atSec, true)
         return
     end if

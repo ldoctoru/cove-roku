@@ -103,8 +103,10 @@ namespace Playback
         if t = "" then return invalid
         if not t.startsWith("http") then t = base + t
         if LCase(t).instr("api_key=") < 0 and LCase(t).instr("apikey=") < 0 then t = t + "&" + key
+        print "Cove: stream "; Util.redact(t.mid(base.len()))
         ' An H.264 conversion must stay within 1080p (the Roku's H.264 limit); a copied HEVC video is left alone
-        if r.sourceVideoCodec <> "hevc" or forceTranscode then t = t + "&MaxWidth=1920"
+        ' (replaced, not appended: a repeated parameter reaches the server as "3840,1920" and it answers 500)
+        if r.sourceVideoCodec <> "hevc" or forceTranscode then t = Util.setQuery(t, "MaxWidth", "1920")
         r.url = t
         r.streamFormat = "hls"
         r.method = "Transcode"
