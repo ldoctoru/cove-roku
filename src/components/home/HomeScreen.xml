@@ -23,8 +23,8 @@
         <Poster id="scrimBottom" width="1920" height="1080" />
         <!-- under the rows when they are up: a fade into the page colour, then solid (card corners sit on it) -->
         <Group id="rowsBg" opacity="0">
-            <Poster id="rowsFade" width="1920" height="200" translation="[0,300]" />
-            <Rectangle id="rowsSolid" width="1920" height="580" translation="[0,500]" />
+            <Poster id="rowsFade" width="1920" height="140" translation="[0,290]" />
+            <Rectangle id="rowsSolid" width="1920" height="650" translation="[0,430]" />
         </Group>
 
         <!-- hero text, bottom-left -->
@@ -81,9 +81,9 @@
             <Label id="ov2" width="1150" height="38" translation="[0,222]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
         </Group>
 
-        <RowList id="rows" translation="[96,980]" itemComponentName="PosterItem" numRows="3"
-                 itemSize="[1824,460]" rowHeights="[460]" rowItemSize="[[240,434]]" rowItemSpacing="[[30,0]]"
-                 itemSpacing="[0,40]" showRowLabel="[true]" rowLabelOffset="[[0,18]]" rowLabelColor="0xFFFFFFFF"
+        <RowList id="rows" translation="[78,985]" itemComponentName="PosterItem" numRows="3"
+                 itemSize="[1842,466]" rowHeights="[466]" rowItemSize="[[276,466]]" rowItemSpacing="[[0,0]]"
+                 itemSpacing="[0,16]" showRowLabel="[true]" rowLabelOffset="[[18,0]]" rowLabelColor="0xFFFFFFFF"
                  focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
                  drawFocusFeedback="false" visible="false">
             <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />

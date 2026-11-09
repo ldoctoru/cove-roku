@@ -76,12 +76,13 @@ sub onContent()
     heights = []
     sizes = []
     for i = 0 to content.getChildCount() - 1
+        ' (tiles include an 18 px margin around each card for its focus zoom and ring: see PosterItem)
         if content.getChild(i).landscape
-            sizes.push([480, 270])
-            heights.push(300)
+            sizes.push([516, 306])
+            heights.push(306)
         else
-            sizes.push([240, 434])
-            heights.push(460)
+            sizes.push([276, 466])
+            heights.push(466)
         end if
     end for
     m.rows.rowHeights = heights
@@ -330,7 +331,7 @@ end sub
 sub animateTo(rowsY as integer, heroOp as float, infoOp as float, navOp as float, bdOp as float, rowsBgOp as float)
     m.slide.control = "stop"
     cur = m.rows.translation
-    m.top.findNode("rowsMove").keyValue = [[96, cur[1]], [96, rowsY]]
+    m.top.findNode("rowsMove").keyValue = [[78, cur[1]], [78, rowsY]]
     m.top.findNode("heroFadeI").keyValue = [m.top.findNode("hero").opacity, heroOp]
     m.top.findNode("infoFadeI").keyValue = [m.top.findNode("info").opacity, infoOp]
     m.top.findNode("navFadeI").keyValue = [m.nav.opacity, navOp]
@@ -364,11 +365,11 @@ end sub
 ' Hero and nav: rows peek at the bottom, full backdrop, nav visible
 sub goTop(animate as boolean)
     rowsY = 985
-    if m.heroes.count() = 0 then rowsY = 470
+    if m.heroes.count() = 0 then rowsY = 400
     if animate
         animateTo(rowsY, 1.0, 0.0, 1.0, 1.0, 0.0)
     else
-        m.rows.translation = [96, rowsY]
+        m.rows.translation = [78, rowsY]
         m.top.findNode("hero").opacity = 1.0
         m.top.findNode("info").opacity = 0.0
         m.nav.opacity = 1.0
@@ -384,9 +385,9 @@ sub enterRows(animate = true as boolean)
     m.heroTimer.control = "stop"
     m.rows.setFocus(true)
     if animate
-        animateTo(470, 0.0, 1.0, 0.0, 0.6, 1.0)
+        animateTo(400, 0.0, 1.0, 0.0, 0.6, 1.0)
     else
-        m.rows.translation = [96, 470]
+        m.rows.translation = [78, 400]
         m.top.findNode("hero").opacity = 0.0
         m.top.findNode("info").opacity = 1.0
         m.nav.opacity = 0.0

@@ -13,15 +13,21 @@ sub init()
     m.landscape = false
 end sub
 
-' Image area: 16:9 cards fill the tile; poster cards keep 2:3 and put title + year underneath
+' The tile keeps a margin of PAD around the card, because a list clips each item to its own area: without
+' it the zoomed card, its ring and shadow are cut off (the gap between cards = 2 x PAD + the list's spacing).
+' Image area: 16:9 cards fill the tile; poster cards keep 2:3 and put title + year underneath.
 sub onSize()
-    w = m.top.width
+    pad = 18
+    w = m.top.width - 2 * pad
     if w <= 0 or m.top.height <= 0 then return
     c = m.top.itemContent
     m.landscape = c <> invalid and c.hasField("landscape") and c.landscape
-    h = m.top.height
+    h = m.top.height - 2 * pad
     if not m.landscape then h = Int(w * 1.5)
-    if h > m.top.height then h = m.top.height
+    if h > m.top.height - 2 * pad then h = m.top.height - 2 * pad
+    m.card.translation = [pad, pad]
+    m.title.translation = [pad, pad + h + 14]
+    m.year.translation = [pad, pad + h + 46]
     m.w = w
     m.h = h
     m.card.scaleRotateCenter = [w / 2, h / 2]
@@ -60,9 +66,7 @@ sub onSize()
     m.top.findNode("miniTrack").width = 64
     m.top.findNode("miniFill").translation = [21, h - 26]
     m.top.findNode("miniLeft").translation = [100, h - 40]
-    m.title.translation = [0, h + 14]
     m.title.width = w
-    m.year.translation = [0, h + 46]
     m.year.width = w
     onContent()
     onFocus()
@@ -80,7 +84,7 @@ sub onContent()
     m.image.uri = c.hdPosterUrl
     played = c.hasField("played") and c.played
     m.image.opacity = 1.0
-    if played then m.image.opacity = 0.6
+    if played and not m.landscape then m.image.opacity = 0.6
     p = 0.0
     if c.hasField("progress") then p = c.progress
     hasProgress = p > 0.01 and p < 0.99
@@ -126,6 +130,10 @@ sub onContent()
     bt = m.top.findNode("badgeText")
     unplayed = 0
     if c.hasField("unplayed") then unplayed = c.unplayed
+    if m.landscape
+        played = false
+        unplayed = 0
+    end if
     if played
         badge.uri = "pkg:/images/ui/badge_circle.png"
         badge.width = 36
@@ -137,6 +145,7 @@ sub onContent()
         bt.visible = false
     else if unplayed > 0
         s = unplayed.toStr()
+        if unplayed > 99 then s = "99+"
         bw = 36 + (s.len() - 1) * 12
         badge.uri = "pkg:/images/ui/badge_capsule.9.png"
         badge.width = bw
@@ -165,7 +174,9 @@ sub onFocus()
     listFocus = m.top.rowListHasFocus or m.top.gridHasFocus
     f = 0.0
     if listFocus then f = m.top.focusPercent * m.top.rowFocusPercent
-    s = 1 + 0.06 * f
+    zoom = 0.06
+    if m.landscape then zoom = 0.04
+    s = 1 + zoom * f
     m.card.scale = [s, s]
     m.top.findNode("ring").opacity = f
     m.top.findNode("shadow").opacity = f
