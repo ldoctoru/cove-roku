@@ -7,7 +7,7 @@ import "pkg:/source/DeviceCaps.bs"
 namespace Playback
 
     ' Quoted keys keep their case in the JSON sent to the server (unquoted AA keys are lower-cased)
-    function profile(caps as object) as object
+    function profile(caps as object, maxBitrate as integer) as object
         video = ["h264"]
         if caps.hevc then video.push("hevc")
         audio = ["aac", "mp3", "flac"]
@@ -42,8 +42,8 @@ namespace Playback
 
         return {
             "Name": "Cove Roku",
-            "MaxStreamingBitrate": 120000000,
-            "MaxStaticBitrate": 120000000,
+            "MaxStreamingBitrate": maxBitrate,
+            "MaxStaticBitrate": maxBitrate,
             "MusicStreamingTranscodingBitrate": 192000,
             "DirectPlayProfiles": [
                 { "Container": "mkv,mp4,m4v,mov,ts", "Type": "Video", "VideoCodec": Util.join(video, ","), "AudioCodec": Util.join(audio, ",") }
@@ -58,26 +58,58 @@ namespace Playback
             "ContainerProfiles": [],
             "CodecProfiles": codecProfiles,
             "ResponseProfiles": [],
-            "SubtitleProfiles": [],
+            "SubtitleProfiles": subtitleProfiles(),
             "MaxWidth": maxW
         }
     end function
 
-    ' JSON for POST /Items/{id}/PlaybackInfo
-    function infoBody(caps as object) as string
-        return formatJson({ "DeviceProfile": profile(caps) })
+    ' Text subtitles are shown by the Roku (fetched separately as SRT); image subtitles are burned in
+    function subtitleProfiles() as object
+        out = []
+        for each f in ["srt", "subrip", "ass", "ssa", "vtt", "webvtt", "mov_text"]
+            out.push({ "Format": f, "Method": "External" })
+        end for
+        for each f in ["pgs", "pgssub", "dvdsub", "dvbsub", "vobsub"]
+            out.push({ "Format": f, "Method": "Encode" })
+        end for
+        return out
     end function
 
-    ' Query for PlaybackInfo. forceTranscode: after a playback error, the server converts the video
-    function infoQuery(server as object, forceTranscode as boolean) as string
-        q = "UserId=" + Util.toText(server.userId) + "&IsPlayback=true&AutoOpenLiveStream=true&MaxStreamingBitrate=120000000&SubtitleStreamIndex=-1"
-        if forceTranscode then q = q + "&EnableDirectPlay=false&EnableDirectStream=false&AllowVideoStreamCopy=false"
+    ' Choices for one playback: audio / sub = stream index (-1: default audio / no subtitles), burn = the
+    ' subtitle is an image the server burns in, maxBitrate = 0 for automatic, defaultAudio = the file's default
+    function options() as object
+        return { audio: -1, sub: -1, burn: false, maxBitrate: 0, defaultAudio: -1 }
+    end function
+
+    function bitrateOf(opts as object) as integer
+        if opts <> invalid and opts.maxBitrate <> invalid and opts.maxBitrate > 0 then return opts.maxBitrate
+        return 120000000
+    end function
+
+    ' JSON for POST /Items/{id}/PlaybackInfo
+    function infoBody(caps as object, opts as object) as string
+        return formatJson({ "DeviceProfile": profile(caps, bitrateOf(opts)) })
+    end function
+
+    ' Query for PlaybackInfo. forceTranscode: after a playback error, the server converts the video.
+    ' Another audio track than the file's default, or burned-in subtitles, need the server too (remux / convert).
+    function infoQuery(server as object, forceTranscode as boolean, opts as object) as string
+        q = "UserId=" + Util.toText(server.userId) + "&IsPlayback=true&AutoOpenLiveStream=true&MaxStreamingBitrate=" + bitrateOf(opts).toStr()
+        if opts.audio >= 0 then q = q + "&AudioStreamIndex=" + opts.audio.toStr()
+        if opts.burn and opts.sub >= 0
+            q = q + "&SubtitleStreamIndex=" + opts.sub.toStr()
+        else
+            q = q + "&SubtitleStreamIndex=-1"
+        end if
+        noDirect = forceTranscode or (opts.burn and opts.sub >= 0) or (opts.audio >= 0 and opts.audio <> opts.defaultAudio)
+        if noDirect then q = q + "&EnableDirectPlay=false"
+        if forceTranscode then q = q + "&EnableDirectStream=false&AllowVideoStreamCopy=false"
         return q
     end function
 
     ' The stream to play from a PlaybackInfo answer → { url, streamFormat, method, mediaSourceId, playSessionId,
     ' sourceVideoCodec } or invalid
-    function streamFrom(server as object, itemId as string, info as dynamic, forceTranscode as boolean) as dynamic
+    function streamFrom(server as object, itemId as string, info as dynamic, forceTranscode as boolean, opts as object) as dynamic
         if info = invalid or GetInterface(info, "ifAssociativeArray") = invalid then return invalid
         sources = info.MediaSources
         if type(sources) <> "roArray" or sources.count() = 0 then return invalid
@@ -90,7 +122,8 @@ namespace Playback
         base = Util.toText(server.url)
         key = "api_key=" + Util.toText(server.token)
         container = LCase(Util.toText(src.Container))
-        if not forceTranscode and Util.flag(src, "SupportsDirectPlay") and container <> ""
+        noDirect = forceTranscode or (opts.burn and opts.sub >= 0) or (opts.audio >= 0 and opts.audio <> opts.defaultAudio)
+        if not noDirect and Util.flag(src, "SupportsDirectPlay") and container <> ""
             fmt = "mp4"
             if container.instr("mkv") >= 0 or container.instr("matroska") >= 0 then fmt = "mkv"
             if container = "ts" or container = "mpegts" then fmt = "ts"
@@ -106,11 +139,19 @@ namespace Playback
         print "Cove: stream "; Util.redact(t.mid(base.len()))
         ' An H.264 conversion must stay within 1080p (the Roku's H.264 limit); a copied HEVC video is left alone
         ' (replaced, not appended: a repeated parameter reaches the server as "3840,1920" and it answers 500)
-        if r.sourceVideoCodec <> "hevc" or forceTranscode then t = Util.setQuery(t, "MaxWidth", "1920")
+        if r.sourceVideoCodec <> "hevc" or forceTranscode or (opts.burn and opts.sub >= 0) then t = Util.setQuery(t, "MaxWidth", "1920")
+        ' The chosen subtitle: burned in when it's an image, otherwise none in the video (the Roku shows text ones).
+        ' (Set explicitly: some servers otherwise burn in the user's default subtitle.)
+        if opts.burn and opts.sub >= 0
+            t = Util.setQuery(Util.setQuery(t, "SubtitleStreamIndex", opts.sub.toStr()), "SubtitleMethod", "Encode")
+        else
+            t = Util.removeQuery(Util.removeQuery(t, "SubtitleStreamIndex"), "SubtitleMethod")
+        end if
+        if opts.audio >= 0 then t = Util.setQuery(t, "AudioStreamIndex", opts.audio.toStr())
         r.url = t
         r.streamFormat = "hls"
         r.method = "Transcode"
-        if LCase(t).instr("videocodec=") >= 0 and r.sourceVideoCodec = "hevc" and not forceTranscode then r.method = "DirectStream"
+        if r.sourceVideoCodec = "hevc" and not forceTranscode and not (opts.burn and opts.sub >= 0) then r.method = "DirectStream"
         return r
     end function
 
@@ -147,6 +188,11 @@ namespace Playback
             "CanSeek": true,
             "PlayMethod": s.method
         })
+    end function
+
+    ' The server's SRT version of a text subtitle (the Roku shows it over the video)
+    function subtitleUrl(server as object, itemId as string, sourceId as string, index as integer) as string
+        return Util.toText(server.url) + "/Videos/" + itemId + "/" + sourceId + "/Subtitles/" + index.toStr() + "/Stream.srt?api_key=" + Util.toText(server.token)
     end function
 
     ' "1:02:05" / "34:12"

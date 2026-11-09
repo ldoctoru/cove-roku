@@ -1,0 +1,45 @@
+sub init()
+    m.list = m.top.findNode("list")
+    m.list.observeField("itemSelected", "onSelected")
+    m.top.observeField("focusedChild", "onFocusChanged")
+end sub
+
+sub onTitle()
+    m.top.findNode("title").text = m.top.title
+end sub
+
+' The current choice is marked with "> " and focused
+sub onOptions()
+    c = createObject("roSGNode", "ContentNode")
+    focusAt = 0
+    for i = 0 to m.top.options.count() - 1
+        o = m.top.options[i]
+        n = c.createChild("ContentNode")
+        if o.id = m.top.selectedId
+            n.title = "> " + o.label
+            focusAt = i
+        else
+            n.title = "   " + o.label
+        end if
+    end for
+    m.list.content = c
+    m.list.jumpToItem = focusAt
+end sub
+
+sub onSelected()
+    i = m.list.itemSelected
+    if i >= 0 and i < m.top.options.count() then m.top.chosen = { id: m.top.options[i].id, purpose: m.top.purpose }
+end sub
+
+sub onFocusChanged()
+    if m.top.hasFocus() then m.list.setFocus(true)
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if key = "back" or key = "left" or key = "options"
+        m.top.cancelled = true
+        return true
+    end if
+    return true
+end function
