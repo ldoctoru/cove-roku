@@ -6,6 +6,9 @@ import "pkg:/source/Items.bs"
 
 sub init()
     m.video = m.top.findNode("video")
+    ' The remote goes to this node, not to the Video node: a focused Video node with its own controls off
+    ' lets Roku open its system Options panel on *, so our audio / subtitle menu never got the key.
+    m.keys = m.top.findNode("keys")
     m.status = m.top.findNode("status")
     m.action = m.top.findNode("action")
     m.actionLabel = m.top.findNode("actionLabel")
@@ -131,7 +134,7 @@ sub onStream()
     m.video.content = c
     applySubtitle(subUrl)
     m.video.control = "play"
-    m.video.setFocus(true)
+    m.keys.setFocus(true)
 end sub
 
 sub applySubtitle(url as string)
@@ -231,7 +234,7 @@ end sub
 sub hideAction()
     m.actionKind = ""
     m.action.visible = false
-    if m.picker = invalid then m.video.setFocus(true)
+    if m.picker = invalid then m.keys.setFocus(true)
 end sub
 
 sub useAction()
@@ -341,7 +344,7 @@ end sub
 
 sub onPickerCancelled()
     closePicker()
-    m.video.setFocus(true)
+    m.keys.setFocus(true)
     if m.video.state = "paused" then m.video.control = "resume"
 end sub
 
@@ -394,7 +397,7 @@ sub onPicked(ev as object)
             applySubtitle("")
         end if
     end if
-    m.video.setFocus(true)
+    m.keys.setFocus(true)
     if restart
         restartAt(m.video.position)
     else if m.video.state = "paused"
@@ -636,6 +639,6 @@ sub onFocusChanged()
     else if m.action.visible
         m.action.setFocus(true)
     else
-        m.video.setFocus(true)
+        m.keys.setFocus(true)
     end if
 end sub

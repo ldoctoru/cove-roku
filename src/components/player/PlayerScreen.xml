@@ -15,6 +15,7 @@
     <children>
         <Rectangle width="1920" height="1080" color="0x000000FF" />
         <Video id="video" width="1920" height="1080" enableUI="false" />
+        <Group id="keys" focusable="true" />
 
         <!-- controls -->
         <Group id="osd" opacity="0">
