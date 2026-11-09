@@ -26,6 +26,9 @@ namespace Tracks
             kind = Util.toText(s.Type)
             label = Util.toText(s.DisplayTitle)
             if label = "" then label = Util.toText(s.Language) + " " + UCase(Util.toText(s.Codec))
+            ' no language: "(SUBRIP)" -> "Unknown language (SUBRIP)"
+            if label.trim().startsWith("(") or label.trim() = UCase(Util.toText(s.Codec)) then label = "Unknown language  " + label.trim()
+            if Util.toText(s.Title) <> "" and label.instr(Util.toText(s.Title)) < 0 then label = label + "  ·  " + Util.toText(s.Title)
             entry = { index: s.Index, label: label.trim(), language: LCase(Util.toText(s.Language)), isDefault: Util.flag(s, "IsDefault") }
             if kind = "Audio"
                 t.audio.push(entry)

@@ -403,20 +403,17 @@ sub onPicked(ev as object)
         m.opts.burn = s <> invalid and not s.isText
         if s <> invalid then m.subLang = s.language
         if s = invalid then m.subLang = ""
-        ' A text subtitle switches on the spot; burning one in (or removing a burned one) needs a new stream
-        if m.opts.burn or wasBurned
-            restart = true
-        else if s <> invalid and m.session <> invalid
-            url = Playback.subtitleUrl(m.top.server, m.top.item.id, m.session.mediaSourceId, s.index)
-            lang = s.language
-            if lang = "" then lang = "und"
-            m.video.content.subtitleTracks = [{ Language: lang, TrackName: url, Description: s.label }]
-            applySubtitle(url)
-        else
+        ' Turning a subtitle on restarts the stream at the same position with it attached (as at the start):
+        ' changing the subtitle tracks of the playing video froze playback on the Streambar.
+        ' Turning one off (when it isn't burned in) works on the spot.
+        if s = invalid and not wasBurned
             applySubtitle("")
+        else
+            restart = true
         end if
-    end if
     m.keys.setFocus(true)
+    print "Cove: picked "; c.purpose; " "; c.id; " restart="; restart
+    drawControls()
     if restart
         restartAt(m.video.position)
     else if m.video.state = "paused"
