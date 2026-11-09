@@ -83,7 +83,7 @@
 
         <RowList id="rows" translation="[78,985]" itemComponentName="PosterItem" numRows="3"
                  itemSize="[1842,466]" rowHeights="[466]" rowItemSize="[[276,466]]" rowItemSpacing="[[0,0]]"
-                 itemSpacing="[0,16]" showRowLabel="[true]" rowLabelOffset="[[18,0]]" rowLabelColor="0xFFFFFFFF"
+                 itemSpacing="[0,44]" showRowLabel="[true]" rowLabelOffset="[[18,0]]" rowLabelColor="0xFFFFFFFF"
                  focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
                  drawFocusFeedback="false" visible="false">
             <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />
