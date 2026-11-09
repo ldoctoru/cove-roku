@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- One page of items for a grid: GET "path" (falls back to "fallback" on 404), builds tiles.
+     "result" = { nodes: ContentNode with the tiles, total, startIndex, gen } or "error". -->
+<component name="ItemsTask" extends="Task">
+    <script type="text/brightscript" uri="ItemsTask.bs" />
+    <interface>
+        <field id="server" type="assocarray" />
+        <field id="path" type="string" />
+        <field id="fallback" type="string" />
+        <field id="startIndex" type="integer" />
+        <field id="gen" type="integer" />
+        <field id="result" type="assocarray" />
+        <field id="error" type="string" />
+    </interface>
+</component>

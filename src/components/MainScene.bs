@@ -135,21 +135,41 @@ sub onHomeAction(ev as object)
         openSignIn(m.server, "Your sign-in has expired. Please sign in again.")
     else if a.id = "open"
         openItem(a)
+    else if a.id = "search"
+        s = createObject("roSGNode", "SearchScreen")
+        s.server = m.server
+        s.observeField("action", "onHomeAction")
+        push(s)
     end if
 end sub
 
 ' Movies, episodes, series and videos open their details; whole libraries come in a later update
 sub openItem(a as object)
     t = a.itemType
-    if t = "CollectionFolder" or t = "UserView" or t = "Folder" or t = "BoxSet" or t = "Playlist"
-        showNotice(a.title, "Browsing a whole library comes in a later update.")
+    if t = "Playlist"
+        showNotice(a.title, "Playlists come in a later update.")
+        return
+    end if
+    ' A library, folder or collection: its titles as a grid
+    if t = "CollectionFolder" or t = "UserView" or t = "Folder" or t = "BoxSet"
+        l = createObject("roSGNode", "LibraryScreen")
+        l.server = m.server
+        l.observeField("action", "onHomeAction")
+        push(l)
+        l.library = { id: a.itemId, title: a.title, itemType: t, collectionType: Util.toText(a.collectionType) }
         return
     end if
     d = createObject("roSGNode", "DetailsScreen")
     d.server = m.server
     d.observeField("play", "onPlay")
+    d.observeField("changed", "onDetailsChanged")
     push(d)
     d.itemId = a.itemId
+end sub
+
+' A favourite changed: the home rows reload when we get back there
+sub onDetailsChanged()
+    m.homeStale = true
 end sub
 
 sub onPlay(ev as object)

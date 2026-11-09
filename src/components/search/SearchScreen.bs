@@ -1,0 +1,83 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Items.bs"
+
+sub init()
+    m.keyboard = m.top.findNode("keyboard")
+    m.grid = m.top.findNode("grid")
+    m.status = m.top.findNode("status")
+    m.debounce = m.top.findNode("debounce")
+    m.keyboard.observeField("text", "onText")
+    m.debounce.observeField("fire", "search")
+    m.grid.observeField("itemSelected", "onSelected")
+    m.top.observeField("focusedChild", "onFocusChanged")
+    m.gen = 0
+    m.task = invalid
+end sub
+
+' Search once typing pauses
+sub onText()
+    m.debounce.control = "stop"
+    m.debounce.control = "start"
+end sub
+
+sub search()
+    term = m.keyboard.text.trim()
+    m.gen = m.gen + 1
+    if term.len() < 2
+        m.grid.content = invalid
+        m.status.text = "Type to search your libraries."
+        return
+    end if
+    m.status.text = "Searching for " + chr(34) + term + chr(34) + "..."
+    uid = Util.toText(m.top.server.userId)
+    q = "SearchTerm=" + term.encodeUriComponent() + "&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&Limit=40&" + Items.fields()
+    t = createObject("roSGNode", "ItemsTask")
+    t.server = m.top.server
+    t.path = "/Users/" + uid + "/Items?" + q
+    t.fallback = "/Items?userId=" + uid + "&" + q
+    t.gen = m.gen
+    t.observeField("result", "onResult")
+    t.observeField("error", "onError")
+    m.task = t
+    t.control = "RUN"
+end sub
+
+sub onResult(ev as object)
+    r = ev.getData()
+    if r.gen <> m.gen then return
+    m.grid.content = r.nodes
+    n = r.nodes.getChildCount()
+    if n = 0
+        m.status.text = "No results for " + chr(34) + m.keyboard.text.trim() + chr(34) + "."
+    else if n = 1
+        m.status.text = "1 result   ·   press Right to choose"
+    else
+        m.status.text = n.toStr() + " results   ·   press Right to choose"
+    end if
+end sub
+
+sub onError(ev as object)
+    m.status.text = ev.getData()
+end sub
+
+sub onSelected()
+    it = m.grid.content.getChild(m.grid.itemSelected)
+    if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    hasResults = m.grid.content <> invalid and m.grid.content.getChildCount() > 0
+    if key = "right" and m.keyboard.isInFocusChain() and hasResults
+        m.grid.setFocus(true)
+        return true
+    else if key = "left" and m.grid.hasFocus()
+        m.keyboard.setFocus(true)
+        return true
+    end if
+    return false
+end function
+
+sub onFocusChanged()
+    if m.top.hasFocus() then m.keyboard.setFocus(true)
+end sub

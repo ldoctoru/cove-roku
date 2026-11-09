@@ -36,6 +36,7 @@ sub load()
     if m.top.authFailed then return
     addRow(root, "Continue Watching", resume, true)
     addRow(root, "Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20&" + f, ""), true)
+    addRow(root, "Favourites", getList("/Users/" + uid + "/Items?Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f, "/Items?userId=" + uid + "&Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f), false)
 
     views = getList("/Users/" + uid + "/Views", "/UserViews?userId=" + uid)
     for each v in views

@@ -100,10 +100,24 @@ namespace Items
         return f
     end function
 
+    ' What a library holds, for /Items?IncludeItemTypes= (movies, shows, videos; "" = everything in it)
+    function typesFor(collectionType as string) as string
+        ct = LCase(collectionType)
+        if ct = "movies" then return "Movie"
+        if ct = "tvshows" then return "Series"
+        if ct = "homevideos" or ct = "musicvideos" then return "Video,MusicVideo"
+        if ct = "boxsets" then return "BoxSet"
+        return ""
+    end function
+
+    function isFolder(itemType as string) as boolean
+        return itemType = "CollectionFolder" or itemType = "UserView" or itemType = "Folder" or itemType = "BoxSet"
+    end function
+
     ' One ContentNode for a row tile. landscape: 16:9 tile (Continue Watching, Next Up, libraries)
     function node(server as object, it as object, isLandscape as boolean) as object
         c = createObject("roSGNode", "ContentNode")
-        c.addFields({ itemId: "", itemType: "", meta: "", overview: "", backdrop: "", progress: 0.0, landscape: false })
+        c.addFields({ itemId: "", itemType: "", collectionType: "", meta: "", overview: "", backdrop: "", progress: 0.0, landscape: false })
         t = Util.toText(it.Type)
         title = Util.toText(it.Name)
         line2 = ""
@@ -118,6 +132,7 @@ namespace Items
         c.shortDescriptionLine2 = line2
         c.itemId = Util.toText(it.Id)
         c.itemType = t
+        c.collectionType = LCase(Util.toText(it.CollectionType))
         c.meta = meta(it)
         c.overview = Util.toText(it.Overview)
         c.landscape = isLandscape

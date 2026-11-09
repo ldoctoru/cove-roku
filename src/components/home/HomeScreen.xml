@@ -16,7 +16,7 @@
         <Label id="server" width="900" height="40" translation="[180,60]" color="0x9AA0B0FF">
             <Font role="font" uri="font:MediumSystemFontFile" size="28" />
         </Label>
-        <Label id="hint" width="700" height="40" translation="[1120,60]" horizAlign="right" color="0x7A8090FF" text="Press * for options">
+        <Label id="hint" width="700" height="40" translation="[1120,60]" horizAlign="right" color="0x7A8090FF" text="Press * for search and options">
             <Font role="font" uri="font:MediumSystemFontFile" size="24" />
         </Label>
         <Label id="title" width="1400" height="80" translation="[100,140]" color="0xFFFFFFFF">

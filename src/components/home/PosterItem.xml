@@ -8,6 +8,7 @@
         <field id="height" type="float" onChange="onSize" />
         <field id="focusPercent" type="float" onChange="onFocus" />
         <field id="rowListHasFocus" type="boolean" onChange="onFocus" />
+        <field id="gridHasFocus" type="boolean" onChange="onFocus" />
     </interface>
     <children>
         <Rectangle id="frame" color="0x1C2030FF" />

@@ -108,7 +108,7 @@ end sub
 
 sub onItemSelected()
     it = focusedItem()
-    if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, title: it.title }
+    if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
 end sub
 
 sub onFocusChanged()
@@ -127,7 +127,7 @@ sub showOptions()
     d = createObject("roSGNode", "StandardMessageDialog")
     d.title = Util.toText(m.top.server.name)
     d.message = ["Signed in as " + Util.toText(m.top.server.userName) + "  ·  " + Servers.typeName(m.top.server) + " " + Util.toText(m.top.server.version)]
-    d.buttons = ["Reload", "Switch server", "Sign out", "Cancel"]
+    d.buttons = ["Search", "Reload", "Switch server", "Sign out", "Cancel"]
     d.observeField("buttonSelected", "onOptionsButton")
     d.observeField("wasClosed", "onOptionsClosed")
     m.top.getScene().dialog = d
@@ -141,11 +141,13 @@ sub onOptionsButton(ev as object)
     d.close = true
     m.top.setFocus(true)
     if b = 0
+        m.top.action = { id: "search" }
+    else if b = 1
         m.rows.visible = false
         load()
-    else if b = 1
-        m.top.action = { id: "switch" }
     else if b = 2
+        m.top.action = { id: "switch" }
+    else if b = 3
         m.top.action = { id: "signout" }
     end if
 end sub
