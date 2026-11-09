@@ -1,24 +1,51 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Servers.bs"
+import "pkg:/source/Api.bs"
 
 sub init()
+    t = m.global.theme
     m.rows = m.top.findNode("rows")
     m.status = m.top.findNode("status")
-    m.backdrop = m.top.findNode("backdrop")
-    m.timer = m.top.findNode("backdropTimer")
-    m.timer.observeField("fire", "onBackdropTimer")
+    m.nav = m.top.findNode("nav")
+    m.bdA = m.top.findNode("bdA")
+    m.bdB = m.top.findNode("bdB")
+    m.heroLogo = m.top.findNode("heroLogo")
+    m.top.findNode("scrimBottom").uri = t.scrimBottom
+    m.top.findNode("rowsFade").uri = t.fade
+    m.top.findNode("rowsSolid").color = t.bg
+    m.backdropTimer = m.top.findNode("backdropTimer")
+    m.heroTimer = m.top.findNode("heroTimer")
+    m.watchdog = m.top.findNode("watchdog")
+    m.slide = m.top.findNode("slide")
+    m.xfade = m.top.findNode("xfade")
+    m.backdropTimer.observeField("fire", "onBackdropTimer")
+    m.heroTimer.observeField("fire", "onHeroTimer")
+    m.watchdog.observeField("fire", "onWatchdog")
+    m.bdA.observeField("loadStatus", "onBackdropLoaded")
+    m.bdB.observeField("loadStatus", "onBackdropLoaded")
+    m.heroLogo.observeField("loadStatus", "onLogoLoaded")
     m.rows.observeField("rowItemFocused", "onItemFocused")
     m.rows.observeField("rowItemSelected", "onItemSelected")
+    m.nav.observeField("chosen", "onNavChosen")
     m.top.observeField("focusedChild", "onFocusChanged")
     m.task = invalid
+    m.pending = []
+    m.heroes = []
+    m.heroIndex = 0
+    m.btn = 0
+    m.state = "loading"
+    m.front = invalid         ' the backdrop Poster on screen
+    m.wantBackdrop = ""
     m.pendingBackdrop = ""
-    m.watchdog = m.top.findNode("watchdog")
-    m.watchdog.observeField("fire", "onWatchdog")
+    m.libraries = []
+    m.nav.items = [{ id: "home", label: "Home" }, { id: "search", label: "Search" }]
+    m.top.findNode("hero").visible = false
 end sub
+
+' ---------------------------------------------------------------- loading
 
 sub load()
     s = m.top.server
-    m.top.findNode("server").text = Util.toText(s.name) + "   ·   " + Util.toText(s.userName)
     if m.reloading <> true
         m.status.text = "Loading your libraries..."
         m.status.visible = true
@@ -45,26 +72,34 @@ end sub
 sub onContent()
     m.watchdog.control = "stop"
     content = m.task.content
-    ' Per-row sizes: 16:9 tiles for Continue Watching / Next Up / Libraries, 2:3 posters for the library rows
+    ' Per row: 16:9 cards for Continue Watching / Next Up / Libraries, 2:3 posters with title and year otherwise
     heights = []
     sizes = []
     for i = 0 to content.getChildCount() - 1
-        row = content.getChild(i)
-        if row.landscape
-            sizes.push([400, 287])
-            heights.push(345)
+        if content.getChild(i).landscape
+            sizes.push([480, 270])
+            heights.push(300)
         else
-            sizes.push([220, 392])
-            heights.push(450)
+            sizes.push([240, 434])
+            heights.push(460)
         end if
     end for
     m.rows.rowHeights = heights
     m.rows.rowItemSize = sizes
+    wasReload = m.reloading = true
     m.reloading = false
     m.rows.content = content
     m.rows.visible = true
     m.status.visible = false
-    if m.top.isInFocusChain() then m.rows.setFocus(true)
+    buildNav()
+    buildHeroes(content)
+    if not wasReload or m.state = "loading"
+        if m.heroes.count() > 0
+            enterHero(false)
+        else
+            enterRows(false)
+        end if
+    end if
 end sub
 
 sub onError()
@@ -76,6 +111,306 @@ sub onAuthFailed()
     if m.task.authFailed then m.top.action = { id: "expired" }
 end sub
 
+sub buildNav()
+    items = [{ id: "home", label: "Home" }, { id: "search", label: "Search" }]
+    m.libraries = []
+    libs = m.task.libraries
+    if libs <> invalid
+        for i = 0 to libs.count() - 1
+            m.libraries.push(libs[i])
+            items.push({ id: "lib:" + i.toStr(), label: Util.toText(libs[i].title) })
+        end for
+    end if
+    m.nav.items = items
+end sub
+
+' The hero shows up to 8 titles: the first two with a backdrop from each row, as on the Mac
+sub buildHeroes(content as object)
+    keep = invalid
+    if m.heroes.count() > 0 then keep = m.heroes[m.heroIndex].itemId
+    m.heroes = []
+    seen = {}
+    for i = 0 to content.getChildCount() - 1
+        row = content.getChild(i)
+        taken = 0
+        for j = 0 to row.getChildCount() - 1
+            it = row.getChild(j)
+            if taken < 2 and m.heroes.count() < 8 and it.backdrop <> "" and not isFolderKind(it.itemType) and not seen.doesExist(it.itemId)
+                seen[it.itemId] = true
+                m.heroes.push(it)
+                taken = taken + 1
+            end if
+        end for
+    end for
+    m.heroIndex = 0
+    for i = 0 to m.heroes.count() - 1
+        if m.heroes[i].itemId = keep then m.heroIndex = i
+    end for
+    buildDots()
+    m.top.findNode("hero").visible = m.heroes.count() > 0
+    if m.heroes.count() > 0 then showHero(m.heroIndex)
+end sub
+
+function isFolderKind(t as string) as boolean
+    return t = "CollectionFolder" or t = "UserView" or t = "Folder" or t = "BoxSet" or t = "Playlist"
+end function
+
+' ---------------------------------------------------------------- hero
+
+sub buildDots()
+    dots = m.top.findNode("dots")
+    dots.removeChildrenIndex(dots.getChildCount(), 0)
+    n = m.heroes.count()
+    if n < 2 then return
+    x = Int((1920 - (n * 10 + (n - 1) * 14)) / 2)
+    for i = 0 to n - 1
+        d = dots.createChild("Poster")
+        d.uri = "pkg:/images/ui/dot_10.png"
+        d.width = 10
+        d.height = 10
+        d.translation = [x + i * 24, 0]
+    end for
+end sub
+
+sub showHero(i as integer)
+    n = m.heroes.count()
+    if n = 0 then return
+    m.heroIndex = (i + n) mod n
+    it = m.heroes[m.heroIndex]
+    dots = m.top.findNode("dots")
+    for k = 0 to dots.getChildCount() - 1
+        dots.getChild(k).opacity = 0.4
+        if k = m.heroIndex then dots.getChild(k).opacity = 1.0
+    end for
+    m.top.findNode("heroTitle").text = it.title
+    m.top.findNode("heroMeta").text = it.heroMeta
+    lines = Util.wrapLines(it.overview, 58, 3)
+    for k = 0 to 2
+        line = ""
+        if k < lines.count() then line = lines[k]
+        m.top.findNode("hov" + k.toStr()).text = line
+    end for
+    m.lines = lines.count()
+    chip = m.top.findNode("chipText")
+    chip.text = it.chip
+    m.top.findNode("chipBg").width = it.chip.len() * 14 + 28
+    m.top.findNode("chip").visible = it.chip <> ""
+    label = "Play"
+    if it.resumeAt > 30 then label = "Resume"
+    m.top.findNode("playLabel").text = label
+    ' title text until the logo has loaded
+    m.logoReady = false
+    m.heroLogo.visible = false
+    m.top.findNode("heroTitle").visible = true
+    m.heroLogo.uri = it.logo
+    layoutHero()
+    paintButtons()
+    if m.state = "hero" or m.state = "nav" then showBackdrop(it.backdrop)
+end sub
+
+' Bottom-anchored: buttons end at y=880, overview above them, then details, then logo or title, then the chip
+sub layoutHero()
+    btnY = 811
+    m.top.findNode("buttons").translation = [96, btnY]
+    ovY = btnY - 30 - m.lines * 38
+    m.top.findNode("heroOv").translation = [96, ovY]
+    metaY = ovY - 50
+    m.top.findNode("heroMeta").translation = [96, metaY]
+    topY = metaY - 104
+    m.top.findNode("heroTitle").translation = [96, topY]
+    if m.logoReady
+        topY = metaY - 16 - m.heroLogo.height
+        m.heroLogo.translation = [96, topY]
+    end if
+    m.top.findNode("chip").translation = [96, topY - 50]
+end sub
+
+' Fit the logo into 630 x 135, keeping its proportions, aligned bottom-left
+sub onLogoLoaded()
+    if m.heroLogo.loadStatus <> "ready" then return
+    bw = m.heroLogo.bitmapWidth
+    bh = m.heroLogo.bitmapHeight
+    if bw <= 0 or bh <= 0 then return
+    s = 630 / bw
+    if 135 / bh < s then s = 135 / bh
+    m.heroLogo.width = Int(bw * s)
+    m.heroLogo.height = Int(bh * s)
+    m.logoReady = true
+    m.heroLogo.visible = true
+    m.top.findNode("heroTitle").visible = false
+    layoutHero()
+end sub
+
+sub paintButtons()
+    focused = m.state = "hero"
+    it = invalid
+    if m.heroes.count() > 0 then it = m.heroes[m.heroIndex]
+    play = m.top.findNode("btnPlay")
+    play.scaleRotateCenter = [127, 34]
+    s = 1.0
+    if focused and m.btn = 0 then s = 1.06
+    play.scale = [s, s]
+    m.top.findNode("playRing").visible = focused and m.btn = 0
+    paintCircle("fav", focused and m.btn = 1)
+    paintCircle("info", focused and m.btn = 2)
+    favIcon = m.top.findNode("favIcon")
+    favIcon.uri = "pkg:/images/ui/icon_plus_28.png"
+    if it <> invalid and it.favorite then favIcon.uri = "pkg:/images/ui/icon_check_28.png"
+end sub
+
+sub paintCircle(name as string, isFocused as boolean)
+    bg = m.top.findNode(name + "Bg")
+    icon = m.top.findNode(name + "Icon")
+    g = m.top.findNode("btn" + UCase(name.left(1)) + name.mid(1))
+    g.scaleRotateCenter = [34, 34]
+    if isFocused
+        bg.uri = "pkg:/images/ui/white_circle_69.png"
+        icon.blendColor = "0x000000FF"
+        g.scale = [1.06, 1.06]
+    else
+        bg.uri = "pkg:/images/ui/glass_circle_69.png"
+        icon.blendColor = "0xFFFFFFFF"
+        g.scale = [1.0, 1.0]
+    end if
+end sub
+
+sub onHeroTimer()
+    if (m.state = "hero" or m.state = "nav") and m.heroes.count() > 1 then showHero(m.heroIndex + 1)
+end sub
+
+sub useButton()
+    it = m.heroes[m.heroIndex]
+    if m.btn = 1
+        toggleFavourite(it)
+    else if m.btn = 2 or it.itemType = "Series"
+        m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
+    else
+        start = 0.0
+        if it.resumeAt > 30 then start = it.resumeAt
+        m.top.action = { id: "play", itemId: it.itemId, title: it.title, subtitle: it.episode, start: start }
+    end if
+end sub
+
+' ---------------------------------------------------------------- backdrop crossfade
+
+sub showBackdrop(uri as string)
+    if uri = "" or uri = m.wantBackdrop then return
+    m.wantBackdrop = uri
+    back = m.bdA
+    if m.front <> invalid and m.front.isSameNode(m.bdA) then back = m.bdB
+    if back.uri = uri and back.loadStatus = "ready"
+        crossfadeTo(back)
+    else
+        back.uri = uri
+    end if
+end sub
+
+sub onBackdropLoaded(ev as object)
+    p = ev.getRoSGNode()
+    if ev.getData() = "ready" and p.uri = m.wantBackdrop and (m.front = invalid or not m.front.isSameNode(p)) then crossfadeTo(p)
+end sub
+
+sub crossfadeTo(p as object)
+    m.xfade.control = "stop"
+    ia = m.top.findNode("xfadeA")
+    ib = m.top.findNode("xfadeB")
+    if p.isSameNode(m.bdA)
+        ia.keyValue = [m.bdA.opacity, 1.0]
+        ib.keyValue = [m.bdB.opacity, 0.0]
+    else
+        ia.keyValue = [m.bdA.opacity, 0.0]
+        ib.keyValue = [m.bdB.opacity, 1.0]
+    end if
+    m.front = p
+    m.xfade.control = "start"
+end sub
+
+' ---------------------------------------------------------------- focus areas
+
+sub animateTo(rowsY as integer, heroOp as float, infoOp as float, navOp as float, bdOp as float, rowsBgOp as float)
+    m.slide.control = "stop"
+    cur = m.rows.translation
+    m.top.findNode("rowsMove").keyValue = [[96, cur[1]], [96, rowsY]]
+    m.top.findNode("heroFadeI").keyValue = [m.top.findNode("hero").opacity, heroOp]
+    m.top.findNode("infoFadeI").keyValue = [m.top.findNode("info").opacity, infoOp]
+    m.top.findNode("navFadeI").keyValue = [m.nav.opacity, navOp]
+    m.top.findNode("bdDimI").keyValue = [m.top.findNode("bdLayer").opacity, bdOp]
+    m.top.findNode("rowsBgI").keyValue = [m.top.findNode("rowsBg").opacity, rowsBgOp]
+    m.slide.control = "start"
+end sub
+
+sub enterHero(animate = true as boolean)
+    if m.heroes.count() = 0
+        enterRows(animate)
+        return
+    end if
+    m.state = "hero"
+    m.btn = 0
+    m.top.setFocus(true)
+    goTop(animate)
+    showBackdrop(m.heroes[m.heroIndex].backdrop)
+    m.heroTimer.control = "start"
+    paintButtons()
+end sub
+
+sub enterNav()
+    m.state = "nav"
+    m.nav.setFocus(true)
+    goTop(true)
+    if m.heroes.count() > 0 then showBackdrop(m.heroes[m.heroIndex].backdrop)
+    paintButtons()
+end sub
+
+' Hero and nav: rows peek at the bottom, full backdrop, nav visible
+sub goTop(animate as boolean)
+    rowsY = 985
+    if m.heroes.count() = 0 then rowsY = 470
+    if animate
+        animateTo(rowsY, 1.0, 0.0, 1.0, 1.0, 0.0)
+    else
+        m.rows.translation = [96, rowsY]
+        m.top.findNode("hero").opacity = 1.0
+        m.top.findNode("info").opacity = 0.0
+        m.nav.opacity = 1.0
+        m.top.findNode("bdLayer").opacity = 1.0
+        m.top.findNode("rowsBg").opacity = 0.0
+        if m.heroes.count() = 0 then m.top.findNode("rowsBg").opacity = 1.0
+    end if
+end sub
+
+' Rows: they slide up, the hero fades, the backdrop dims and follows the focused card
+sub enterRows(animate = true as boolean)
+    m.state = "rows"
+    m.heroTimer.control = "stop"
+    m.rows.setFocus(true)
+    if animate
+        animateTo(470, 0.0, 1.0, 0.0, 0.6, 1.0)
+    else
+        m.rows.translation = [96, 470]
+        m.top.findNode("hero").opacity = 0.0
+        m.top.findNode("info").opacity = 1.0
+        m.nav.opacity = 0.0
+        m.top.findNode("bdLayer").opacity = 0.6
+        m.top.findNode("rowsBg").opacity = 1.0
+    end if
+    paintButtons()
+    onItemFocused()
+end sub
+
+sub onNavChosen(ev as object)
+    id = ev.getData().id
+    if id = "home"
+        enterHero()
+    else if id = "search"
+        m.top.action = { id: "search" }
+    else if id.startsWith("lib:")
+        l = m.libraries[id.mid(4).toInt()]
+        m.top.action = { id: "open", itemId: l.id, itemType: l.itemType, collectionType: l.collectionType, title: l.title }
+    end if
+end sub
+
+' ---------------------------------------------------------------- rows
+
 function focusedItem() as dynamic
     f = m.rows.rowItemFocused
     if f = invalid or m.rows.content = invalid then return invalid
@@ -85,11 +420,13 @@ function focusedItem() as dynamic
 end function
 
 sub onItemFocused()
+    if m.state <> "rows" then return
     it = focusedItem()
     if it = invalid then return
     m.top.findNode("title").text = it.title
-    m.top.findNode("meta").text = it.meta
-    print "Cove: focus "; it.title; " (overview "; it.overview.len(); " chars)"
+    meta = it.heroMeta
+    if it.episode <> "" then meta = it.episode
+    m.top.findNode("meta").text = meta
     lines = Util.wrapLines(it.overview, 88, 3)
     for i = 0 to 2
         line = ""
@@ -98,12 +435,12 @@ sub onItemFocused()
     end for
     ' The backdrop follows only once the focus rests, so scrolling doesn't load every image
     m.pendingBackdrop = it.backdrop
-    m.timer.control = "stop"
-    m.timer.control = "start"
+    m.backdropTimer.control = "stop"
+    m.backdropTimer.control = "start"
 end sub
 
 sub onBackdropTimer()
-    if m.backdrop.uri <> m.pendingBackdrop then m.backdrop.uri = m.pendingBackdrop
+    if m.state = "rows" then showBackdrop(m.pendingBackdrop)
 end sub
 
 sub onItemSelected()
@@ -111,17 +448,111 @@ sub onItemSelected()
     if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
 end sub
 
+' ---------------------------------------------------------------- keys
+
 sub onFocusChanged()
-    if m.top.hasFocus() and m.rows.visible then m.rows.setFocus(true)
+    if not m.top.hasFocus() then return
+    if m.state = "rows" and m.rows.visible
+        m.rows.setFocus(true)
+    else if m.state = "nav"
+        m.nav.setFocus(true)
+    else if m.state = "hero"
+        paintButtons()
+    end if
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
-    if press and key = "options"
+    if not press then return false
+    if key = "options"
         showOptions()
         return true
     end if
+    if m.state = "hero"
+        m.heroTimer.control = "stop"
+        m.heroTimer.control = "start"
+        if key = "left"
+            if m.btn > 0
+                m.btn = m.btn - 1
+                paintButtons()
+            else
+                showHero(m.heroIndex - 1)
+            end if
+            return true
+        else if key = "right"
+            if m.btn < 2
+                m.btn = m.btn + 1
+                paintButtons()
+            else
+                m.btn = 0
+                showHero(m.heroIndex + 1)
+            end if
+            return true
+        else if key = "up"
+            enterNav()
+            return true
+        else if key = "down"
+            if m.rows.visible then enterRows()
+            return true
+        else if key = "OK"
+            useButton()
+            return true
+        end if
+    else if m.state = "nav"
+        if key = "down" or key = "back"
+            enterHero()
+            return true
+        end if
+    else if m.state = "rows"
+        if key = "up" or key = "back"
+            if m.heroes.count() > 0
+                enterHero()
+            else
+                enterNav()
+            end if
+            return true
+        end if
+    end if
     return false
 end function
+
+' ---------------------------------------------------------------- favourite (hero +)
+
+sub toggleFavourite(it as object)
+    method = "POST"
+    if it.favorite then method = "DELETE"
+    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/FavoriteItems/" + it.itemId, { kind: "fav", method: method, newRoute: false, itemId: it.itemId })
+end sub
+
+sub send(method as string, path as string, tag as object)
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: "", tag: tag, timeout: 15000 }
+    t.observeField("response", "onFavResponse")
+    m.pending.push(t)
+    t.control = "RUN"
+end sub
+
+sub onFavResponse(ev as object)
+    t = ev.getRoSGNode()
+    for i = 0 to m.pending.count() - 1
+        if m.pending[i].isSameNode(t)
+            m.pending.delete(i)
+            exit for
+        end if
+    end for
+    r = ev.getData()
+    if r.code = 404 and not r.tag.newRoute
+        send(r.tag.method, "/UserFavoriteItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "fav", method: r.tag.method, newRoute: true, itemId: r.tag.itemId })
+        return
+    end if
+    if r.code >= 200 and r.code < 300
+        for each h in m.heroes
+            if h.itemId = r.tag.itemId then h.favorite = r.tag.method = "POST"
+        end for
+        paintButtons()
+    end if
+end sub
+
+' ---------------------------------------------------------------- * options
 
 sub showOptions()
     d = createObject("roSGNode", "StandardMessageDialog")
@@ -144,6 +575,7 @@ sub onOptionsButton(ev as object)
         m.top.action = { id: "search" }
     else if b = 1
         m.rows.visible = false
+        m.state = "loading"
         load()
     else if b = 2
         m.top.action = { id: "switch" }

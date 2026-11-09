@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- One tile in a home row: image (decoded at tile size to save memory), resume bar, title and a second line. -->
+<!-- A card in a row or grid, Glass style (Cove for macOS PosterCard / ResumeCard):
+     rounded image (corner mask in the page colour), thin border, zoom x1.06 + white ring + shadow on focus,
+     watched check / unwatched count, accent heart for favourites, progress bar.
+     Poster cards (2:3) have title and year under the image; landscape cards (16:9, content.landscape)
+     carry the title, episode and "42m left" over a dark fade inside the image. -->
 <component name="PosterItem" extends="Group">
     <script type="text/brightscript" uri="PosterItem.bs" />
     <interface>
@@ -7,22 +11,47 @@
         <field id="width" type="float" onChange="onSize" />
         <field id="height" type="float" onChange="onSize" />
         <field id="focusPercent" type="float" onChange="onFocus" />
+        <field id="rowFocusPercent" type="float" value="1.0" onChange="onFocus" />
         <field id="rowListHasFocus" type="boolean" onChange="onFocus" />
         <field id="gridHasFocus" type="boolean" onChange="onFocus" />
     </interface>
     <children>
-        <Rectangle id="frame" color="0x1C2030FF" />
-        <Poster id="image" loadDisplayMode="scaleToZoom" />
-        <Label id="initials" horizAlign="center" vertAlign="center" color="0x5A6070FF">
-            <Font role="font" uri="font:BoldSystemFontFile" size="34" />
+        <Group id="card">
+            <Poster id="shadow" uri="pkg:/images/ui/card_shadow.9.png" opacity="0" />
+            <Rectangle id="ph" />
+            <Label id="initials" horizAlign="center" vertAlign="center" color="0xFFFFFF40">
+                <Font role="font" uri="font:BoldSystemFontFile" size="48" />
+            </Label>
+            <Poster id="image" loadDisplayMode="scaleToZoom" />
+            <Poster id="scrim" uri="pkg:/images/ui/scrim_card.png" visible="false" />
+            <Label id="overTitle" color="0xFFFFFFFF" visible="false">
+                <Font role="font" uri="font:BoldSystemFontFile" size="26" />
+            </Label>
+            <Label id="overSub" color="0xFFFFFFBF" visible="false">
+                <Font role="font" uri="font:MediumSystemFontFile" size="22" />
+            </Label>
+            <Rectangle id="miniTrack" height="6" color="0xFFFFFF59" visible="false" />
+            <Rectangle id="miniFill" height="6" color="0xFFFFFFFF" visible="false" />
+            <Label id="miniLeft" color="0xFFFFFFFF" visible="false">
+                <Font role="font" uri="font:MediumSystemFontFile" size="22" />
+            </Label>
+            <Rectangle id="barTrack" height="6" color="0x00000080" visible="false" />
+            <Rectangle id="barFill" height="6" visible="false" />
+            <Poster id="mask" />
+            <Poster id="border" uri="pkg:/images/ui/card_border_r18.9.png" />
+            <Poster id="heart" uri="pkg:/images/ui/icon_heart_28.png" width="28" height="28" visible="false" />
+            <Poster id="badge" visible="false" />
+            <Poster id="badgeIcon" uri="pkg:/images/ui/icon_check_28.png" width="22" height="22" visible="false" />
+            <Label id="badgeText" horizAlign="center" vertAlign="center" color="0xFFFFFFFF" visible="false">
+                <Font role="font" uri="font:BoldSystemFontFile" size="20" />
+            </Label>
+            <Poster id="ring" uri="pkg:/images/ui/focus_ring_r26.9.png" opacity="0" />
+        </Group>
+        <Label id="title" horizAlign="center" color="0xFFFFFFD9">
+            <Font role="font" uri="font:BoldSystemFontFile" size="24" />
         </Label>
-        <Rectangle id="barBack" color="0x00000099" visible="false" />
-        <Rectangle id="bar" color="0xE50914FF" visible="false" />
-        <Label id="title" color="0xC8CCD8FF">
-            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
-        </Label>
-        <Label id="line2" color="0x7A8090FF">
-            <Font role="font" uri="font:MediumSystemFontFile" size="20" />
+        <Label id="year" horizAlign="center" color="0xFFFFFF8C">
+            <Font role="font" uri="font:MediumSystemFontFile" size="22" />
         </Label>
     </children>
 </component>

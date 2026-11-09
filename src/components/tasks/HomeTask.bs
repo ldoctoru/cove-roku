@@ -47,6 +47,11 @@ sub load()
         end if
     end for
     addRow(root, "Libraries", views, true)
+    libs = []
+    for each v in views
+        libs.push({ id: Util.toText(v.Id), title: Util.toText(v.Name), itemType: Util.toText(v.Type), collectionType: LCase(Util.toText(v.CollectionType)) })
+    end for
+    m.top.libraries = libs
 
     if root.getChildCount() = 0
         if m.failures > 0

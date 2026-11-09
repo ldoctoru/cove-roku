@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- The home screen: the focused title's backdrop and details at the top, Netflix-style rows below.
-     "action" reports what the user chose: { id: "switch" | "signout" | "open", item }. -->
+<!-- The home screen in Cove's Glass style.
+     Three focus areas, top to bottom: the navigation pill (Home, Search, libraries), the hero (a full-screen title
+     with logo, details and Play / favourite / info buttons, changing every 9 s) and the rows of cards.
+     Moving down into the rows slides them up; the backdrop then follows the focused card and its details show at
+     the top. "action" reports what the user chose: { id: "open" | "play" | "search" | "switch" | "signout" ... }. -->
 <component name="HomeScreen" extends="Group">
     <script type="text/brightscript" uri="HomeScreen.bs" />
     <interface>
@@ -10,38 +13,102 @@
         <field id="reload" type="boolean" alwaysNotify="true" onChange="onReload" />
     </interface>
     <children>
-        <Poster id="backdrop" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0.35" />
-        <Rectangle id="shadeTop" width="1920" height="1080" color="0x0B0D1466" />
-        <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="64" translation="[100,48]" />
-        <Label id="server" width="900" height="40" translation="[180,60]" color="0x9AA0B0FF">
-            <Font role="font" uri="font:MediumSystemFontFile" size="28" />
-        </Label>
-        <Label id="hint" width="700" height="40" translation="[1120,60]" horizAlign="right" color="0x7A8090FF" text="Press * for search and options">
-            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
-        </Label>
-        <Label id="title" width="1400" height="80" translation="[100,140]" color="0xFFFFFFFF">
-            <Font role="font" uri="font:BoldSystemFontFile" size="60" />
-        </Label>
-        <Label id="meta" width="1400" height="40" translation="[100,226]" color="0xC8CCD8FF">
-            <Font role="font" uri="font:MediumSystemFontFile" size="28" />
-        </Label>
-        <!-- The description as three single-line labels: a wrapping Label draws nothing on some Roku OS versions -->
-        <Group id="overview" translation="[100,280]">
-            <Label id="ov0" width="1150" height="36" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
-            <Label id="ov1" width="1150" height="36" translation="[0,38]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
-            <Label id="ov2" width="1150" height="36" translation="[0,76]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+        <!-- backdrop: two layers that crossfade -->
+        <Group id="bdLayer">
+            <Poster id="bdA" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0" />
+            <Poster id="bdB" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0" />
         </Group>
-        <RowList id="rows" translation="[100,430]" itemComponentName="PosterItem" numRows="2"
-                 itemSize="[1820,400]" rowHeights="[400]" rowItemSize="[[400,287]]" rowItemSpacing="[[24,0]]"
-                 itemSpacing="[0,30]" showRowLabel="[true]" rowLabelOffset="[[0,14]]" rowLabelColor="0xFFFFFFFF"
+        <Poster id="scrimLeft" uri="pkg:/images/ui/scrim_left.png" width="1152" height="1080" />
+        <Poster id="scrimTop" uri="pkg:/images/ui/scrim_top.png" width="1920" height="300" />
+        <Poster id="scrimBottom" width="1920" height="1080" />
+        <!-- under the rows when they are up: a fade into the page colour, then solid (card corners sit on it) -->
+        <Group id="rowsBg" opacity="0">
+            <Poster id="rowsFade" width="1920" height="200" translation="[0,300]" />
+            <Rectangle id="rowsSolid" width="1920" height="580" translation="[0,500]" />
+        </Group>
+
+        <!-- hero text, bottom-left -->
+        <Group id="hero">
+            <Group id="chip" translation="[96,0]" visible="false">
+                <Rectangle id="chipBg" height="36" color="0x0000008C" />
+                <Label id="chipText" height="36" vertAlign="center" translation="[12,0]" color="0xFFFFFFFF">
+                    <Font role="font" uri="font:BoldSystemFontFile" size="22" />
+                </Label>
+            </Group>
+            <Poster id="heroLogo" loadDisplayMode="scaleToFit" loadWidth="630" loadHeight="135" visible="false" />
+            <Label id="heroTitle" width="1100" height="100" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="80" />
+            </Label>
+            <Label id="heroMeta" width="1200" height="40" translation="[96,0]" color="0xFFFFFFFF">
+                <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+            </Label>
+            <Group id="heroOv" translation="[96,0]">
+                <Label id="hov0" width="760" height="38" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+                <Label id="hov1" width="760" height="38" translation="[0,38]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+                <Label id="hov2" width="760" height="38" translation="[0,76]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            </Group>
+            <Group id="buttons" translation="[96,0]">
+                <Group id="btnPlay">
+                    <Poster id="playRing" uri="pkg:/images/ui/focus_ring_pill.9.png" width="271" height="85" translation="[-8,-8]" visible="false" />
+                    <Poster uri="pkg:/images/ui/white_pill.9.png" width="255" height="69" />
+                    <Poster uri="pkg:/images/ui/icon_play_28.png" width="28" height="28" translation="[60,20]" blendColor="0x000000FF" />
+                    <Label id="playLabel" text="Play" width="150" height="69" translation="[98,0]" vertAlign="center" color="0x000000FF">
+                        <Font role="font" uri="font:BoldSystemFontFile" size="28" />
+                    </Label>
+                </Group>
+                <Group id="btnFav" translation="[276,0]">
+                    <Poster id="favBg" uri="pkg:/images/ui/glass_circle_69.png" width="69" height="69" />
+                    <Poster id="favIcon" uri="pkg:/images/ui/icon_plus_28.png" width="28" height="28" translation="[20,20]" />
+                </Group>
+                <Group id="btnInfo" translation="[366,0]">
+                    <Poster id="infoBg" uri="pkg:/images/ui/glass_circle_69.png" width="69" height="69" />
+                    <Poster id="infoIcon" uri="pkg:/images/ui/icon_info_28.png" width="28" height="28" translation="[20,20]" />
+                </Group>
+            </Group>
+            <Group id="dots" translation="[0,930]" />
+        </Group>
+
+        <!-- details of the focused card (rows up) -->
+        <Group id="info" translation="[96,96]" opacity="0">
+            <Label id="title" width="1500" height="84" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="64" />
+            </Label>
+            <Label id="meta" width="1500" height="40" translation="[0,92]" color="0xFFFFFFFF">
+                <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+            </Label>
+            <Label id="ov0" width="1150" height="38" translation="[0,146]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            <Label id="ov1" width="1150" height="38" translation="[0,184]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            <Label id="ov2" width="1150" height="38" translation="[0,222]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+        </Group>
+
+        <RowList id="rows" translation="[96,980]" itemComponentName="PosterItem" numRows="3"
+                 itemSize="[1824,460]" rowHeights="[460]" rowItemSize="[[240,434]]" rowItemSpacing="[[30,0]]"
+                 itemSpacing="[0,40]" showRowLabel="[true]" rowLabelOffset="[[0,18]]" rowLabelColor="0xFFFFFFFF"
                  focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
-                 drawFocusFeedback="true" visible="false">
-            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="32" />
+                 drawFocusFeedback="false" visible="false">
+            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />
         </RowList>
-        <Label id="status" width="1720" height="44" translation="[100,520]" color="0xF2C14EFF" text="Loading your libraries...">
-            <Font role="font" uri="font:MediumSystemFontFile" size="32" />
+
+        <NavBar id="nav" />
+
+        <Label id="status" width="1728" height="44" translation="[96,520]" color="0xFFFFFF8C" text="Loading your libraries...">
+            <Font role="font" uri="font:MediumSystemFontFile" size="30" />
         </Label>
+
         <Timer id="backdropTimer" duration="0.3" repeat="false" />
+        <Timer id="heroTimer" duration="9" repeat="true" />
         <Timer id="watchdog" duration="45" repeat="false" />
+        <Animation id="slide" duration="0.3" easeFunction="outCubic">
+            <Vector2DFieldInterpolator id="rowsMove" key="[0.0, 1.0]" fieldToInterp="rows.translation" />
+            <FloatFieldInterpolator id="heroFadeI" key="[0.0, 1.0]" fieldToInterp="hero.opacity" />
+            <FloatFieldInterpolator id="infoFadeI" key="[0.0, 1.0]" fieldToInterp="info.opacity" />
+            <FloatFieldInterpolator id="navFadeI" key="[0.0, 1.0]" fieldToInterp="nav.opacity" />
+            <FloatFieldInterpolator id="bdDimI" key="[0.0, 1.0]" fieldToInterp="bdLayer.opacity" />
+            <FloatFieldInterpolator id="rowsBgI" key="[0.0, 1.0]" fieldToInterp="rowsBg.opacity" />
+        </Animation>
+        <Animation id="xfade" duration="0.6" easeFunction="inOutQuad">
+            <FloatFieldInterpolator id="xfadeA" key="[0.0, 1.0]" fieldToInterp="bdA.opacity" />
+            <FloatFieldInterpolator id="xfadeB" key="[0.0, 1.0]" fieldToInterp="bdB.opacity" />
+        </Animation>
     </children>
 </component>

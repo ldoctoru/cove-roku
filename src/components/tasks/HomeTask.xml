@@ -6,6 +6,8 @@
     <interface>
         <field id="server" type="assocarray" />
         <field id="content" type="node" />
+        <!-- [{ id, title, itemType, collectionType }] for the top navigation -->
+        <field id="libraries" type="array" />
         <field id="error" type="string" />
         <field id="authFailed" type="boolean" />
     </interface>
