@@ -90,6 +90,8 @@
         </RowList>
 
         <NavBar id="nav" />
+        <!-- Holds the focus while the hero buttons are active (keys reach HomeScreen.onKeyEvent) -->
+        <Group id="heroKeys" focusable="true" />
 
         <Label id="status" width="1728" height="44" translation="[96,520]" color="0xFFFFFF8C" text="Loading your libraries...">
             <Font role="font" uri="font:MediumSystemFontFile" size="30" />

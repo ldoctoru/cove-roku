@@ -347,7 +347,8 @@ sub enterHero(animate = true as boolean)
     end if
     m.state = "hero"
     m.btn = 0
-    m.top.setFocus(true)
+    ' (a node of its own: setFocus on the screen itself doesn't take the focus back from the rows)
+    m.top.findNode("heroKeys").setFocus(true)
     goTop(animate)
     showBackdrop(m.heroes[m.heroIndex].backdrop)
     m.heroTimer.control = "start"
@@ -458,6 +459,7 @@ sub onFocusChanged()
     else if m.state = "nav"
         m.nav.setFocus(true)
     else if m.state = "hero"
+        m.top.findNode("heroKeys").setFocus(true)
         paintButtons()
     end if
 end sub
@@ -571,7 +573,7 @@ sub onOptionsButton(ev as object)
     d.unobserveField("buttonSelected")
     d.unobserveField("wasClosed")
     d.close = true
-    m.top.setFocus(true)
+    restoreFocus()
     if b = 0
         m.top.action = { id: "search" }
     else if b = 1
@@ -589,5 +591,15 @@ sub onOptionsClosed(ev as object)
     d = ev.getRoSGNode()
     d.unobserveField("buttonSelected")
     d.unobserveField("wasClosed")
-    m.top.setFocus(true)
+    restoreFocus()
+end sub
+
+sub restoreFocus()
+    if m.state = "rows"
+        m.rows.setFocus(true)
+    else if m.state = "nav"
+        m.nav.setFocus(true)
+    else
+        m.top.findNode("heroKeys").setFocus(true)
+    end if
 end sub
