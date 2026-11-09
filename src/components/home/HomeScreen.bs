@@ -415,7 +415,7 @@ end sub
 
 function focusedItem() as dynamic
     f = m.rows.rowItemFocused
-    if f = invalid or m.rows.content = invalid then return invalid
+    if f = invalid or f.count() < 2 or m.rows.content = invalid then return invalid
     row = m.rows.content.getChild(f[0])
     if row = invalid then return invalid
     return row.getChild(f[1])

@@ -137,6 +137,86 @@ def heart(d, n):
     d.polygon([(n * 0.13, n * 0.44), (n * 0.87, n * 0.44), (n * 0.5, n * 0.88)], fill=WHITE)
 
 
+def pause(d, n):
+    d.rounded_rectangle([n * 0.24, n * 0.18, n * 0.42, n * 0.82], n * 0.04, fill=WHITE)
+    d.rounded_rectangle([n * 0.58, n * 0.18, n * 0.76, n * 0.82], n * 0.04, fill=WHITE)
+
+
+def restart(d, n):
+    w = int(n * 0.11)
+    d.arc([n * 0.18, n * 0.18, n * 0.82, n * 0.82], 200, 520 - 40, fill=WHITE, width=w)
+    # arrow head at the arc's start (about 10 o'clock), pointing up-left
+    d.polygon([(n * 0.08, n * 0.30), (n * 0.38, n * 0.24), (n * 0.20, n * 0.52)], fill=WHITE)
+
+
+def captions(d, n):
+    d.rounded_rectangle([n * 0.08, n * 0.2, n * 0.92, n * 0.8], n * 0.12, outline=WHITE, width=int(n * 0.08))
+    from PIL import ImageFont
+    f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", int(n * 0.36))
+    bb = d.textbbox((0, 0), "CC", font=f)
+    d.text(((n - (bb[2] - bb[0])) / 2 - bb[0], (n - (bb[3] - bb[1])) / 2 - bb[1]), "CC", font=f, fill=WHITE)
+
+
+def skip30(forward):
+    def draw(d, n):
+        from PIL import ImageFont
+        w = int(n * 0.08)
+        box = [n * 0.1, n * 0.1, n * 0.9, n * 0.9]
+        if forward:
+            d.arc(box, -60, 250, fill=WHITE, width=w)
+            d.polygon([(n * 0.62, n * 0.02), (n * 0.86, n * 0.16), (n * 0.6, n * 0.3)], fill=WHITE)
+        else:
+            d.arc(box, -70, 240, fill=WHITE, width=w)
+            d.polygon([(n * 0.38, n * 0.02), (n * 0.14, n * 0.16), (n * 0.4, n * 0.3)], fill=WHITE)
+        f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", int(n * 0.34))
+        bb = d.textbbox((0, 0), "30", font=f)
+        d.text(((n - (bb[2] - bb[0])) / 2 - bb[0], (n - (bb[3] - bb[1])) / 2 - bb[1] + n * 0.03), "30", font=f, fill=WHITE)
+    return draw
+
+
+def prev_track(d, n):
+    d.rectangle([n * 0.2, n * 0.22, n * 0.3, n * 0.78], fill=WHITE)
+    d.polygon([(n * 0.8, n * 0.22), (n * 0.8, n * 0.78), (n * 0.32, n * 0.5)], fill=WHITE)
+
+
+def next_track(d, n):
+    d.polygon([(n * 0.2, n * 0.22), (n * 0.2, n * 0.78), (n * 0.68, n * 0.5)], fill=WHITE)
+    d.rectangle([n * 0.7, n * 0.22, n * 0.8, n * 0.78], fill=WHITE)
+
+
+def episodes(d, n):
+    w = int(n * 0.07)
+    d.rounded_rectangle([n * 0.14, n * 0.36, n * 0.86, n * 0.86], n * 0.08, outline=WHITE, width=w)
+    d.line([(n * 0.24, n * 0.25), (n * 0.76, n * 0.25)], fill=WHITE, width=w)
+    d.line([(n * 0.34, n * 0.14), (n * 0.66, n * 0.14)], fill=WHITE, width=w)
+
+
+def subtitles(d, n):
+    w = int(n * 0.07)
+    d.rounded_rectangle([n * 0.1, n * 0.16, n * 0.9, n * 0.72], n * 0.12, outline=WHITE, width=w)
+    d.polygon([(n * 0.3, n * 0.68), (n * 0.48, n * 0.68), (n * 0.28, n * 0.88)], fill=WHITE)
+    d.line([(n * 0.26, n * 0.38), (n * 0.56, n * 0.38)], fill=WHITE, width=w)
+    d.line([(n * 0.62, n * 0.38), (n * 0.74, n * 0.38)], fill=WHITE, width=w)
+    d.line([(n * 0.26, n * 0.52), (n * 0.40, n * 0.52)], fill=WHITE, width=w)
+    d.line([(n * 0.46, n * 0.52), (n * 0.74, n * 0.52)], fill=WHITE, width=w)
+
+
+def waveform(d, n):
+    w = n * 0.07
+    hs = [0.2, 0.42, 0.66, 0.42, 0.56, 0.3]
+    for i, h in enumerate(hs):
+        x = n * (0.16 + i * 0.136)
+        d.rounded_rectangle([x - w / 2, n * (0.5 - h / 2), x + w / 2, n * (0.5 + h / 2)], w / 2, fill=WHITE)
+
+
+def quality(d, n):
+    from PIL import ImageFont
+    d.rounded_rectangle([n * 0.06, n * 0.2, n * 0.94, n * 0.8], n * 0.12, outline=WHITE, width=int(n * 0.07))
+    f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", int(n * 0.36))
+    bb = d.textbbox((0, 0), "HD", font=f)
+    d.text(((n - (bb[2] - bb[0])) / 2 - bb[0], (n - (bb[3] - bb[1])) / 2 - bb[1]), "HD", font=f, fill=WHITE)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     save(nine(shape(60, 60, 30, GLASS_FILL, GLASS_STROKE, 2)), "glass_pill.9.png")
@@ -161,11 +241,26 @@ def main():
         # a plain clear -> bg fade (under the rows when the backdrop follows the focused title)
         save(strip(4, 256, ramp([(0, 0), (1, 255)]), rgb), "fade_%s.png" % name)
     save(strip(512, 4, ramp([(0, 166), (1, 0)]), vertical=False), "scrim_left.png")
+    save(strip(512, 4, ramp([(0, 0), (1, 166)]), vertical=False), "scrim_right.png")
     save(strip(4, 128, ramp([(0, 0), (1, 204)])), "scrim_card.png")
     save(strip(4, 256, ramp([(0, 166), (1, 0)])), "scrim_top.png")
     for size in (48, 28):
-        for name, fn in (("play", play), ("plus", plus), ("check", check), ("info", info), ("heart", heart)):
+        for name, fn in (("play", play), ("plus", plus), ("check", check), ("info", info), ("heart", heart),
+                         ("pause", pause), ("restart", restart), ("captions", captions)):
             icon(name, size, fn)
+    for name, fn in (("back30", skip30(False)), ("fwd30", skip30(True)), ("prev", prev_track), ("next", next_track),
+                     ("episodes", episodes), ("subtitles", subtitles), ("audio", waveform), ("quality", quality)):
+        icon(name, 36, fn)
+    save(circle(105, GLASS_FILL, (255, 255, 255, 31), 2), "glass_circle_105.png")
+    save(circle(105, WHITE), "white_circle_105.png")
+    save(circle(56, WHITE), "white_circle_56.png")
+    icon("play", 72, play)
+    icon("pause", 72, pause)
+    # player: big glass circle (pause), scrubber thumb, top/bottom shade, Up next card
+    save(circle(210, GLASS_FILL, (255, 255, 255, 31), 2), "glass_circle_210.png")
+    save(circle(24, WHITE), "dot_24.png")
+    save(strip(4, 512, ramp([(0, 115), (0.33, 0), (0.66, 0), (1, 179)])), "scrim_osd.png")
+    save(nine(shape(40, 40, 18, (0, 0, 0, 204))), "panel_dark_r18.9.png")
     print("wrote", len(os.listdir(OUT)), "files to", os.path.normpath(OUT))
 
 

@@ -1,3 +1,5 @@
+import "pkg:/source/Util.bs"
+
 sub init()
     t = m.global.theme
     m.card = m.top.findNode("card")
@@ -11,6 +13,8 @@ sub init()
     m.top.findNode("heart").blendColor = t.accent
     m.image.observeField("loadStatus", "onLoad")
     m.landscape = false
+    m.person = false
+    m.selected = false
 end sub
 
 ' The tile keeps a margin of PAD around the card, because a list clips each item to its own area: without
@@ -22,12 +26,22 @@ sub onSize()
     if w <= 0 or m.top.height <= 0 then return
     c = m.top.itemContent
     m.landscape = c <> invalid and c.hasField("landscape") and c.landscape
+    m.person = c <> invalid and c.hasField("kind") and c.kind = "person"
     h = m.top.height - 2 * pad
     if not m.landscape then h = Int(w * 1.5)
+    if m.person then h = w
     if h > m.top.height - 2 * pad then h = m.top.height - 2 * pad
     m.card.translation = [pad, pad]
     m.title.translation = [pad, pad + h + 14]
     m.year.translation = [pad, pad + h + 46]
+    ' people: the name on up to two lines across the whole tile, the role under it
+    n2 = m.top.findNode("name2")
+    n2.visible = m.person
+    if m.person
+        m.title.translation = [0, pad + h + 12]
+        n2.translation = [0, pad + h + 42]
+        m.year.translation = [0, pad + h + 74]
+    end if
     m.w = w
     m.h = h
     m.card.scaleRotateCenter = [w / 2, h / 2]
@@ -68,6 +82,11 @@ sub onSize()
     m.top.findNode("miniLeft").translation = [100, h - 40]
     m.title.width = w
     m.year.width = w
+    if m.person
+        m.title.width = m.top.width
+        m.year.width = m.top.width
+        m.top.findNode("name2").width = m.top.width
+    end if
     onContent()
     onFocus()
 end sub
@@ -75,24 +94,46 @@ end sub
 sub onContent()
     c = m.top.itemContent
     if c = invalid or m.w = invalid then return
-    if (c.hasField("landscape") and c.landscape) <> m.landscape
+    isPerson = c.hasField("kind") and c.kind = "person"
+    if (c.hasField("landscape") and c.landscape) <> m.landscape or isPerson <> m.person
         onSize()
         return
     end if
+    ' people (cast): round photo, no border or ring
+    t = m.global.theme
+    mk = m.top.findNode("mask")
+    if m.person
+        mk.uri = t.maskCircle
+    else
+        mk.uri = t.maskCard
+    end if
+    m.top.findNode("border").visible = not m.person
     m.initials.text = UCase(Left(c.title, 1))
     m.initials.visible = true
     m.image.uri = c.hdPosterUrl
     played = c.hasField("played") and c.played
     m.image.opacity = 1.0
     if played and not m.landscape then m.image.opacity = 0.6
+    m.selected = c.hasField("selected") and c.selected
     p = 0.0
     if c.hasField("progress") then p = c.progress
     hasProgress = p > 0.01 and p < 0.99
     ' poster cards: title and year below, accent bar inside the image
     m.title.visible = not m.landscape
     m.year.visible = not m.landscape
+    if m.person then m.year.visible = true
     m.title.text = c.title
     m.year.text = c.shortDescriptionLine2
+    if m.person
+        lines = Util.wrapLines(c.title, 13, 2)
+        first = ""
+        second = ""
+        if lines.count() > 0 then first = lines[0]
+        if lines.count() > 1 then second = lines[1]
+        if second.endsWith("...") then second = second.left(second.len() - 3)
+        m.title.text = first
+        m.top.findNode("name2").text = second
+    end if
     m.top.findNode("barTrack").visible = hasProgress and not m.landscape
     bf = m.top.findNode("barFill")
     bf.visible = hasProgress and not m.landscape
@@ -130,7 +171,8 @@ sub onContent()
     bt = m.top.findNode("badgeText")
     unplayed = 0
     if c.hasField("unplayed") then unplayed = c.unplayed
-    if m.landscape
+    ' (wide Continue Watching / Next Up cards don't show it, as on the Mac; episode cards do)
+    if (m.landscape and not (c.hasField("showBadge") and c.showBadge)) or m.person
         played = false
         unplayed = 0
     end if
@@ -178,7 +220,11 @@ sub onFocus()
     if m.landscape then zoom = 0.04
     s = 1 + zoom * f
     m.card.scale = [s, s]
-    m.top.findNode("ring").opacity = f
+    ' a chosen season keeps its ring
+    ringOp = f
+    if m.selected and ringOp < 1 then ringOp = 1
+    if m.person then ringOp = 0
+    m.top.findNode("ring").opacity = ringOp
     m.top.findNode("shadow").opacity = f
     if f > 0.5
         m.title.color = "0xFFFFFFFF"

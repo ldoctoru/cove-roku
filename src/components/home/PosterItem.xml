@@ -50,6 +50,9 @@
         <Label id="title" horizAlign="center" color="0xFFFFFFD9">
             <Font role="font" uri="font:BoldSystemFontFile" size="24" />
         </Label>
+        <Label id="name2" horizAlign="center" color="0xFFFFFFD9" visible="false">
+            <Font role="font" uri="font:BoldSystemFontFile" size="24" />
+        </Label>
         <Label id="year" horizAlign="center" color="0xFFFFFF8C">
             <Font role="font" uri="font:MediumSystemFontFile" size="22" />
         </Label>

@@ -170,8 +170,14 @@ sub openItem(a as object)
     d.server = m.server
     d.observeField("play", "onPlay")
     d.observeField("changed", "onDetailsChanged")
+    d.observeField("openItem", "onDetailsOpen")
     push(d)
     d.itemId = a.itemId
+end sub
+
+' More Like This: open that title on top
+sub onDetailsOpen(ev as object)
+    openItem(ev.getData())
 end sub
 
 ' A favourite changed: the home rows reload when we get back there
