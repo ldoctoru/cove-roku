@@ -539,7 +539,8 @@ sub rebuildRows()
     keepKind = ""
     keepItem = 0
     f = m.rows.rowItemFocused
-    if f <> invalid and m.rows.content <> invalid
+    ' (rowItemFocused is an empty array until the list has content)
+    if f <> invalid and f.count() >= 2 and m.rows.content <> invalid
         r = m.rows.content.getChild(f[0])
         if r <> invalid
             keepKind = r.rowKind
@@ -628,6 +629,7 @@ end function
 
 sub onRowSelected()
     s = m.rows.rowItemSelected
+    if s = invalid or s.count() < 2 or m.rows.content = invalid then return
     row = m.rows.content.getChild(s[0])
     if row = invalid then return
     k = row.rowKind
