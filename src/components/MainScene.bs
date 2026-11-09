@@ -230,12 +230,21 @@ sub onKeyboardButton()
     end if
 end sub
 
-sub onDialogClosed()
-    closeDialog()
+' Back pressed on a dialog. Only the dialog still on screen counts, because a dialog that was just closed
+' must not close the next one (username → password).
+sub onDialogClosed(ev as object)
+    d = ev.getRoSGNode()
+    if m.top.dialog <> invalid and d.isSameNode(m.top.dialog) then closeDialog()
 end sub
 
+' Stop listening to the dialog before closing it, so its late "wasClosed" can't reach the next dialog
 sub closeDialog()
-    if m.top.dialog <> invalid then m.top.dialog.close = true
+    d = m.top.dialog
+    if d <> invalid
+        d.unobserveField("buttonSelected")
+        d.unobserveField("wasClosed")
+        d.close = true
+    end if
     t = top()
     if t <> invalid then t.setFocus(true)
 end sub
