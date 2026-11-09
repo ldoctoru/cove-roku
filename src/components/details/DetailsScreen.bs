@@ -582,8 +582,8 @@ sub rebuildRows()
         for each p in m.castList
             row.appendChild(Items.personNode(srv, p))
         end for
-        sizes.push([180, 262])
-        heights.push(262)
+        sizes.push([180, 296])
+        heights.push(296)
     end if
     if m.similarList.count() > 0
         row = newRow(root, "More Like This", "similar")

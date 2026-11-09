@@ -1,3 +1,5 @@
+import "pkg:/source/Util.bs"
+
 sub init()
     t = m.global.theme
     m.card = m.top.findNode("card")
@@ -32,6 +34,14 @@ sub onSize()
     m.card.translation = [pad, pad]
     m.title.translation = [pad, pad + h + 14]
     m.year.translation = [pad, pad + h + 46]
+    ' people: the name on up to two lines across the whole tile, the role under it
+    n2 = m.top.findNode("name2")
+    n2.visible = m.person
+    if m.person
+        m.title.translation = [0, pad + h + 12]
+        n2.translation = [0, pad + h + 42]
+        m.year.translation = [0, pad + h + 74]
+    end if
     m.w = w
     m.h = h
     m.card.scaleRotateCenter = [w / 2, h / 2]
@@ -72,6 +82,11 @@ sub onSize()
     m.top.findNode("miniLeft").translation = [100, h - 40]
     m.title.width = w
     m.year.width = w
+    if m.person
+        m.title.width = m.top.width
+        m.year.width = m.top.width
+        m.top.findNode("name2").width = m.top.width
+    end if
     onContent()
     onFocus()
 end sub
@@ -106,8 +121,19 @@ sub onContent()
     ' poster cards: title and year below, accent bar inside the image
     m.title.visible = not m.landscape
     m.year.visible = not m.landscape
+    if m.person then m.year.visible = true
     m.title.text = c.title
     m.year.text = c.shortDescriptionLine2
+    if m.person
+        lines = Util.wrapLines(c.title, 13, 2)
+        first = ""
+        second = ""
+        if lines.count() > 0 then first = lines[0]
+        if lines.count() > 1 then second = lines[1]
+        if second.endsWith("...") then second = second.left(second.len() - 3)
+        m.title.text = first
+        m.top.findNode("name2").text = second
+    end if
     m.top.findNode("barTrack").visible = hasProgress and not m.landscape
     bf = m.top.findNode("barFill")
     bf.visible = hasProgress and not m.landscape

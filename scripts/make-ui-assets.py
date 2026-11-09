@@ -181,6 +181,7 @@ def main():
         # a plain clear -> bg fade (under the rows when the backdrop follows the focused title)
         save(strip(4, 256, ramp([(0, 0), (1, 255)]), rgb), "fade_%s.png" % name)
     save(strip(512, 4, ramp([(0, 166), (1, 0)]), vertical=False), "scrim_left.png")
+    save(strip(512, 4, ramp([(0, 0), (1, 166)]), vertical=False), "scrim_right.png")
     save(strip(4, 128, ramp([(0, 0), (1, 204)])), "scrim_card.png")
     save(strip(4, 256, ramp([(0, 166), (1, 0)])), "scrim_top.png")
     for size in (48, 28):

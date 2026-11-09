@@ -20,11 +20,14 @@
         <Poster id="scrimLeft" uri="pkg:/images/ui/scrim_left.png" width="1248" height="1080" />
         <Poster id="scrimBottom" width="1920" height="1080" />
         <Group id="rowsBg" opacity="0">
+            <Poster uri="pkg:/images/ui/scrim_top.png" width="1920" height="300" />
             <Poster id="rowsFade" width="1920" height="140" translation="[0,120]" />
             <Rectangle id="rowsSolid" width="1920" height="820" translation="[0,260]" />
         </Group>
 
         <Group id="header">
+            <!-- a dark side behind Starring / Director, for bright pictures -->
+            <Poster uri="pkg:/images/ui/scrim_right.png" width="900" height="1080" translation="[1020,0]" />
             <Label id="eyebrow" width="1100" height="36" translation="[96,0]" color="0xFFFFFFD9">
                 <Font role="font" uri="font:BoldSystemFontFile" size="26" />
             </Label>
