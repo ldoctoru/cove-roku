@@ -26,6 +26,9 @@ sub init()
     m.seekTimer.observeField("fire", "applySeek")
     m.seekTarget = -1.0
     m.osdShown = false
+    m.area = "center"
+    m.idx = 1
+    m.toolIds = []
     m.video.observeField("state", "onState")
     m.video.observeField("position", "onPosition")
     m.video.notificationInterval = 1
@@ -51,6 +54,9 @@ sub resetState()
     m.tracks = { sourceId: "", audio: [], subs: [] }
     m.marks = { introStart: -1.0, introEnd: -1.0, credits: -1.0 }
     m.next = invalid
+    m.prev = invalid
+    m.episodes = []
+    m.epIndex = -1
     m.actionKind = ""
     m.introDismissed = false
     m.creditsDismissed = false
@@ -80,6 +86,7 @@ sub onInfo(r as object)
         m.tracks = Tracks.fromItem(r.json)
         m.marks = Tracks.markers(r.json)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
+        buildTools()
         ' Not chosen on the details page: forced subtitles, or the language chosen for the previous episode
         if m.top.item.options = invalid
             s = Tracks.defaultSub(m.tracks, m.subLang)
@@ -91,7 +98,7 @@ sub onInfo(r as object)
         ' Jellyfin keeps intro / credits as media segments
         if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro", { kind: "segments" })
         if Util.toText(r.json.Type) = "Episode" and Util.toText(r.json.SeriesId) <> ""
-            get("/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&StartItemId=" + m.top.item.id + "&Limit=2&" + Items.fields(), { kind: "next" })
+            get("/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields(), { kind: "episodes" })
         end if
     end if
     start(m.startAt, false)
@@ -288,7 +295,11 @@ end sub
 
 ' The next episode in the same player, keeping the subtitle language
 sub playNext()
-    n = m.next
+    playEpisode(m.next)
+end sub
+
+' Another episode in the same player, keeping the subtitle language
+sub playEpisode(n as dynamic)
     if n = invalid then return
     m.countdown.control = "stop"
     if m.started
@@ -369,6 +380,14 @@ sub onPicked(ev as object)
         return
     end if
     closePicker()
+    if c.purpose = "episode"
+        m.keys.setFocus(true)
+        for each e in m.episodes
+            if Util.toText(e.Id) = c.id and c.id <> m.top.item.id then playEpisode(e)
+        end for
+        drawControls()
+        return
+    end if
     v = c.id.toInt()
     restart = false
     if c.purpose = "audio" and v <> effectiveAudio()
@@ -441,57 +460,246 @@ function onKeyEvent(key as string, press as boolean) as boolean
         end if
         return true
     end if
+    if key = "options"
+        showMenu()
+        return true
+    else if key = "rewind" or key = "fastforward" or key = "replay"
+        if key = "fastforward"
+            seekBy(30)
+        else
+            seekBy(-30)
+        end if
+        return true
+    else if key = "play"
+        togglePause()
+        return true
+    end if
+    if not m.osdShown
+        ' controls hidden: quick keys
+        if key = "back"
+            close()
+        else if key = "OK"
+            togglePause()
+        else if key = "left"
+            seekBy(-10)
+        else if key = "right"
+            seekBy(10)
+        else
+            showOsd(true)
+        end if
+        return true
+    end if
+    ' controls shown: move between the buttons
+    m.hideTimer.control = "stop"
+    if m.video.state = "playing" then m.hideTimer.control = "start"
     if key = "back"
         if m.seekTarget >= 0
-            ' cancel a seek that hasn't happened yet
             m.seekTimer.control = "stop"
             m.seekTarget = -1
             updateBar(m.video.position)
-            return true
-        end if
-        close()
-        return true
-    else if key = "options"
-        showMenu()
-        return true
-    else if key = "OK" or key = "play"
-        if m.seekTarget >= 0
-            applySeek()
-        else if m.video.state = "playing"
-            m.video.control = "pause"
         else if m.video.state = "paused"
-            m.video.control = "resume"
+            close()
+        else
+            m.osdShown = false
+            fadeOsd(0.0)
         end if
-        showOsd(true)
-        return true
-    else if key = "left" or key = "right" or key = "rewind" or key = "fastforward" or key = "replay"
-        stepSeconds = 10
-        if key = "rewind" or key = "fastforward" then stepSeconds = 30
-        if key = "left" or key = "rewind" or key = "replay" then stepSeconds = -stepSeconds
-        seekBy(stepSeconds)
-        return true
-    else if key = "up" or key = "down"
-        showOsd(true)
-        return true
+    else if key = "left"
+        if m.idx > 0 then m.idx = m.idx - 1
+        drawControls()
+    else if key = "right"
+        if m.idx < areaSize() - 1 then m.idx = m.idx + 1
+        drawControls()
+    else if key = "down" and m.area = "center" and m.toolIds.count() > 0
+        m.area = "tools"
+        m.idx = m.toolIds.count() - 1
+        drawControls()
+    else if key = "up" and m.area = "tools"
+        m.area = "center"
+        m.idx = 1
+        drawControls()
+    else if key = "OK"
+        useControl()
     end if
-    return false
+    return true
 end function
 
 ' ---------------------------------------------------------------- controls
 
+function areaSize() as integer
+    if m.area = "tools" then return m.toolIds.count()
+    return 3
+end function
+
+sub togglePause()
+    if m.seekTarget >= 0
+        applySeek()
+    else if m.video.state = "playing"
+        m.video.control = "pause"
+    else if m.video.state = "paused"
+        m.video.control = "resume"
+    end if
+    showOsd(true)
+end sub
+
+sub useControl()
+    if m.area = "center"
+        if m.idx = 0
+            seekBy(-30)
+        else if m.idx = 2
+            seekBy(30)
+        else
+            togglePause()
+        end if
+        return
+    end if
+    id = m.toolIds[m.idx]
+    if id = "prev"
+        playEpisode(m.prev)
+    else if id = "next"
+        playEpisode(m.next)
+    else if id = "episodes"
+        showEpisodes()
+    else if id = "subs"
+        o = [{ id: "-1", label: "Off" }]
+        for each s in m.tracks.subs
+            o.push({ id: s.index.toStr(), label: s.label })
+        end for
+        openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
+    else if id = "audio"
+        o = []
+        for each a in m.tracks.audio
+            o.push({ id: a.index.toStr(), label: a.label })
+        end for
+        openPicker("audio", "Audio", o, effectiveAudio().toStr())
+    else if id = "quality"
+        openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
+    end if
+end sub
+
+' The episodes of the current season in the side panel; OK plays one
+sub showEpisodes()
+    if m.epIndex < 0 then return
+    season = Util.toText(m.episodes[m.epIndex].SeasonId)
+    o = []
+    for each e in m.episodes
+        if Util.toText(e.SeasonId) = season
+            l = Util.toText(e.IndexNumber) + ".  " + Util.toText(e.Name)
+            if Util.flag(e.UserData, "Played") then l = l + "  ·  watched"
+            o.push({ id: Util.toText(e.Id), label: l })
+        end if
+    end for
+    openPicker("episode", Util.toText(m.episodes[m.epIndex].SeasonName), o, m.top.item.id)
+end sub
+
+' Bottom-right buttons: previous / next episode (episodes only), episodes, subtitles, audio, quality
+sub buildTools()
+    ids = []
+    if m.episodes.count() > 0
+        ids.push("prev")
+        ids.push("next")
+        ids.push("episodes")
+    end if
+    if m.tracks.subs.count() > 0 then ids.push("subs")
+    if m.tracks.audio.count() > 1 then ids.push("audio")
+    ids.push("quality")
+    m.toolIds = ids
+    if m.area = "tools" and m.idx >= ids.count() then m.idx = ids.count() - 1
+    drawControls()
+end sub
+
+function toolIcon(id as string) as string
+    if id = "subs" then return "subtitles"
+    return id
+end function
+
+sub drawControls()
+    focused = m.osdShown and m.picker = invalid
+    ' centre: 69 px circles for back / forward 30, 105 px for play / pause
+    c = m.top.findNode("center")
+    c.removeChildrenIndex(c.getChildCount(), 0)
+    playing = m.video.state = "playing" or m.video.state = "buffering"
+    specs = [
+        { size: 69, icon: "back30_36", isz: 36, x: 798 },
+        { size: 105, icon: "pause_48", isz: 48, x: 908 },
+        { size: 69, icon: "fwd30_36", isz: 36, x: 1053 }
+    ]
+    if not playing then specs[1].icon = "play_48"
+    for i = 0 to 2
+        s = specs[i]
+        isFocus = focused and m.area = "center" and m.idx = i
+        g = c.createChild("Group")
+        y = 540 - s.size / 2
+        g.translation = [s.x, y]
+        g.scaleRotateCenter = [s.size / 2, s.size / 2]
+        bg = g.createChild("Poster")
+        bg.width = s.size
+        bg.height = s.size
+        ic = g.createChild("Poster")
+        ic.uri = "pkg:/images/ui/icon_" + s.icon + ".png"
+        ic.width = s.isz
+        ic.height = s.isz
+        ic.translation = [(s.size - s.isz) / 2, (s.size - s.isz) / 2]
+        if isFocus
+            bg.uri = "pkg:/images/ui/white_circle_" + s.size.toStr() + ".png"
+            ic.blendColor = "0x000000FF"
+            g.scale = [1.08, 1.08]
+        else
+            bg.uri = "pkg:/images/ui/glass_circle_" + s.size.toStr() + ".png"
+            ic.blendColor = "0xFFFFFFFF"
+        end if
+    end for
+    ' bottom-right: icons in a glass capsule, right-aligned above the scrubber
+    tl = m.top.findNode("tools")
+    tl.removeChildrenIndex(tl.getChildCount(), 0)
+    n = m.toolIds.count()
+    if n = 0 then return
+    gap = 62
+    w = n * gap + 14
+    tl.translation = [1896 - w, 878]
+    pill = tl.createChild("Poster")
+    pill.uri = "pkg:/images/ui/glass_pill.9.png"
+    pill.width = w
+    pill.height = 70
+    accent = m.global.theme.accent
+    for i = 0 to n - 1
+        id = m.toolIds[i]
+        isFocus = focused and m.area = "tools" and m.idx = i
+        x = 7 + i * gap + 3
+        if isFocus
+            bg = tl.createChild("Poster")
+            bg.uri = "pkg:/images/ui/white_circle_56.png"
+            bg.width = 56
+            bg.height = 56
+            bg.translation = [x, 7]
+        end if
+        ic = tl.createChild("Poster")
+        ic.uri = "pkg:/images/ui/icon_" + toolIcon(id) + "_36.png"
+        ic.width = 36
+        ic.height = 36
+        ic.translation = [x + 10, 17]
+        col = "0xFFFFFFFF"
+        if id = "subs" and m.opts.sub >= 0 then col = accent
+        if (id = "prev" and m.prev = invalid) or (id = "next" and m.next = invalid) then col = "0xFFFFFF59"
+        if isFocus then col = "0x000000FF"
+        ic.blendColor = col
+    end for
+end sub
+
 sub showOsd(autoHide as boolean)
     if not m.osdShown
         m.osdShown = true
+        m.area = "center"
+        m.idx = 1
         fadeOsd(1.0)
     end if
     updateBar(currentPos())
-    updateCenter()
+    drawControls()
     m.hideTimer.control = "stop"
     if autoHide and m.video.state = "playing" then m.hideTimer.control = "start"
 end sub
 
 sub hideOsd()
-    if m.video.state = "paused" or m.seekTarget >= 0 then return
+    if m.video.state = "paused" or m.seekTarget >= 0 or m.picker <> invalid then return
     m.osdShown = false
     fadeOsd(0.0)
 end sub
@@ -511,8 +719,7 @@ end function
 ' Presses add up: the bar shows where playback will continue, the jump happens 0.8 s after the last press
 sub seekBy(delta as integer)
     if m.session = invalid then return
-    base = currentPos()
-    target = base + delta
+    target = currentPos() + delta
     d = m.video.duration
     if target < 0 then target = 0
     if d > 0 and target > d - 5 then target = d - 5
@@ -537,9 +744,9 @@ sub updateBar(atSec as float)
     if d > 0 then frac = atSec / d
     if frac > 1 then frac = 1
     if frac < 0 then frac = 0
-    w = Int(1400 * frac)
+    w = Int(1600 * frac)
     m.top.findNode("fill").width = w
-    m.top.findNode("thumb").translation = [152 + w, 26]
+    m.top.findNode("thumb").translation = [119 + w, 22]
     m.top.findNode("elapsed").text = Playback.clock(atSec)
     remain = d - atSec
     if remain < 0 then remain = 0
@@ -550,10 +757,9 @@ sub updateBar(atSec as float)
     end if
 end sub
 
-' The big glass circle shows while paused (with the play symbol)
+' Play / pause symbol follows the state
 sub updateCenter()
-    paused = m.video.state = "paused"
-    m.top.findNode("center").visible = paused
+    if m.osdShown then drawControls()
 end sub
 
 ' Report the stop (the server saves the position / marks it watched), end the server's conversion, then leave
@@ -611,9 +817,20 @@ sub onResponse(ev as object)
         onInfo(r)
     else if k = "segments" and r.code = 200
         m.marks = Tracks.fromSegments(r.json, m.marks)
-    else if k = "next" and r.code = 200 and r.json <> invalid
+    else if k = "episodes" and r.code = 200 and r.json <> invalid
+        ' the series' episodes: previous / next and the Episodes panel
         list = r.json.Items
-        if type(list) = "roArray" and list.count() > 1 and Util.toText(list[0].Id) = m.top.item.id then m.next = list[1]
+        if type(list) = "roArray"
+            m.episodes = list
+            for i = 0 to list.count() - 1
+                if Util.toText(list[i].Id) = m.top.item.id
+                    m.epIndex = i
+                    if i > 0 then m.prev = list[i - 1]
+                    if i + 1 < list.count() then m.next = list[i + 1]
+                end if
+            end for
+            buildTools()
+        end if
     end if
 end sub
 

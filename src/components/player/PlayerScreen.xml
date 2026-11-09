@@ -2,8 +2,9 @@
 <!-- Full-screen player with Cove's Glass controls (Sources/Views.swift player): the Video node draws only the
      picture and subtitles (enableUI off); this component draws the controls.
      Set server + item ({ id, title, subtitle, start, options }); "done" fires when the user leaves.
-     OK: pause / play. Left / Right: -10 / +10 s, Rewind / Fast forward: -30 / +30 s (presses add up).
-     * : audio, subtitles, quality. Skip intro and Up next appear over the video when available. -->
+     Controls hidden: OK pause / play, Left / Right -10 / +10 s. Controls shown: arrows move between the buttons
+     (centre: back 30, play / pause, forward 30; bottom-right: previous, next, episodes, subtitles, audio,
+     quality), OK uses one, Back hides them. Rewind / Fast forward: -30 / +30 s. * : audio, subtitles, quality. Skip intro and Up next appear over the video when available. -->
 <component name="PlayerScreen" extends="Group">
     <script type="text/brightscript" uri="PlayerScreen.bs" />
     <interface>
@@ -17,32 +18,31 @@
         <Video id="video" width="1920" height="1080" enableUI="false" />
         <Group id="keys" focusable="true" />
 
-        <!-- controls -->
+        <!-- controls, laid out like Cove for macOS (Sources/Views.swift player) -->
         <Group id="osd" opacity="0">
             <Poster uri="pkg:/images/ui/scrim_osd.png" width="1920" height="1080" />
-            <Label id="hint" text="*  Audio and subtitles" width="600" height="40" translation="[1224,54]" horizAlign="right" color="0xFFFFFFB3">
-                <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+            <!-- centre: back 30, play / pause, forward 30 -->
+            <Group id="center" />
+            <!-- bottom-left: episode and title -->
+            <Label id="episode" width="1100" height="34" translation="[24,856]" color="0xFFFFFFD9">
+                <Font role="font" uri="font:MediumSystemFontFile" size="24" />
             </Label>
-            <Group id="center" visible="false">
-                <Poster uri="pkg:/images/ui/glass_circle_210.png" width="210" height="210" translation="[855,435]" />
-                <Poster id="centerIcon" uri="pkg:/images/ui/icon_play_72.png" width="72" height="72" translation="[924,504]" />
-            </Group>
-            <Label id="episode" width="1400" height="40" translation="[96,820]" color="0xFFFFFFD9">
-                <Font role="font" uri="font:MediumSystemFontFile" size="28" />
+            <Label id="title" width="1100" height="56" translation="[24,888]" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="44" />
             </Label>
-            <Label id="title" width="1400" height="64" translation="[96,858]" color="0xFFFFFFFF">
-                <Font role="font" uri="font:BoldSystemFontFile" size="48" />
-            </Label>
-            <Group id="bar" translation="[96,951]">
-                <Poster uri="pkg:/images/ui/glass_pill.9.png" width="1728" height="75" />
-                <Label id="elapsed" width="140" height="75" translation="[30,0]" vertAlign="center" color="0xFFFFFFD9">
-                    <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+            <!-- bottom-right: tool buttons in a glass capsule -->
+            <Group id="tools" />
+            <!-- scrubber across the bottom -->
+            <Group id="bar" translation="[24,966]">
+                <Poster uri="pkg:/images/ui/glass_pill.9.png" width="1872" height="66" />
+                <Label id="elapsed" width="110" height="66" translation="[24,0]" vertAlign="center" color="0xFFFFFFD9">
+                    <Font role="font" uri="font:MediumSystemFontFile" size="24" />
                 </Label>
-                <Rectangle id="track" width="1400" height="8" translation="[164,34]" color="0xFFFFFF59" />
-                <Rectangle id="fill" width="0" height="8" translation="[164,34]" color="0xFFFFFFFF" />
-                <Poster id="thumb" uri="pkg:/images/ui/dot_24.png" width="24" height="24" translation="[152,26]" />
-                <Label id="remaining" width="140" height="75" translation="[1558,0]" horizAlign="right" vertAlign="center" color="0xFFFFFFD9">
-                    <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+                <Rectangle id="track" width="1600" height="6" translation="[130,30]" color="0xFFFFFF59" />
+                <Rectangle id="fill" width="0" height="6" translation="[130,30]" color="0xFFFFFFFF" />
+                <Poster id="thumb" uri="pkg:/images/ui/dot_24.png" width="22" height="22" translation="[119,22]" />
+                <Label id="remaining" width="120" height="66" translation="[1728,0]" horizAlign="right" vertAlign="center" color="0xFFFFFFD9">
+                    <Font role="font" uri="font:MediumSystemFontFile" size="24" />
                 </Label>
             </Group>
         </Group>
