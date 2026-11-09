@@ -411,6 +411,7 @@ sub onPicked(ev as object)
         else
             restart = true
         end if
+    end if
     m.keys.setFocus(true)
     print "Cove: picked "; c.purpose; " "; c.id; " restart="; restart
     drawControls()
