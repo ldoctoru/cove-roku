@@ -24,7 +24,7 @@
         <Label id="ov1" width="1380" height="36" translation="[440,288]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
         <Label id="ov2" width="1380" height="36" translation="[440,326]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
         <Label id="ov3" width="1380" height="36" translation="[440,364]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
-        <LabelList id="buttons" translation="[440,440]" itemSize="[560,70]" numRows="3" itemSpacing="[0,8]"
+        <LabelList id="buttons" translation="[440,440]" itemSize="[900,66]" numRows="5" itemSpacing="[0,8]"
                    color="0xC8CCD8FF" focusedColor="0x0B0D14FF" visible="false">
             <Font role="font" uri="font:MediumSystemFontFile" size="34" />
             <Font role="focusedFont" uri="font:BoldSystemFontFile" size="34" />

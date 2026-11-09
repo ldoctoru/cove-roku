@@ -1,0 +1,150 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Playback.bs"
+
+' Audio and subtitle tracks, intro / credits markers and quality choices for one item.
+namespace Tracks
+
+    ' Subtitle codecs the Roku can show itself (fetched as SRT from the server); others (PGS, VobSub, DVB)
+    ' are images and must be burned into the video by the server
+    function isTextCodec(codec as string) as boolean
+        c = LCase(codec)
+        return c = "srt" or c = "subrip" or c = "ass" or c = "ssa" or c = "vtt" or c = "webvtt" or c = "mov_text" or c = "text" or c = "smi" or c = "sami" or c = "ttml"
+    end function
+
+    ' { sourceId, audio: [{ index, label, language, isDefault }], subs: [{ index, label, language, isText, forced, isDefault }] }
+    function fromItem(it as object) as object
+        t = { sourceId: "", audio: [], subs: [] }
+        sources = it.MediaSources
+        streams = invalid
+        if type(sources) = "roArray" and sources.count() > 0
+            t.sourceId = Util.toText(sources[0].Id)
+            streams = sources[0].MediaStreams
+        end if
+        if type(streams) <> "roArray" then streams = it.MediaStreams
+        if type(streams) <> "roArray" then return t
+        for each s in streams
+            kind = Util.toText(s.Type)
+            label = Util.toText(s.DisplayTitle)
+            if label = "" then label = Util.toText(s.Language) + " " + UCase(Util.toText(s.Codec))
+            entry = { index: s.Index, label: label.trim(), language: LCase(Util.toText(s.Language)), isDefault: Util.flag(s, "IsDefault") }
+            if kind = "Audio"
+                t.audio.push(entry)
+            else if kind = "Subtitle"
+                entry.isText = isTextCodec(Util.toText(s.Codec))
+                entry.forced = Util.flag(s, "IsForced")
+                if not entry.isText then entry.label = entry.label + "  (burned in)"
+                t.subs.push(entry)
+            end if
+        end for
+        return t
+    end function
+
+    function defaultAudio(t as object) as integer
+        for each a in t.audio
+            if a.isDefault then return a.index
+        end for
+        if t.audio.count() > 0 then return t.audio[0].index
+        return -1
+    end function
+
+    ' Subtitles start off, except forced ones (foreign-language parts) or the language chosen before
+    function defaultSub(t as object, preferLang as string) as integer
+        if preferLang <> ""
+            for each s in t.subs
+                if s.language = preferLang and s.isText then return s.index
+            end for
+            for each s in t.subs
+                if s.language = preferLang then return s.index
+            end for
+        end if
+        for each s in t.subs
+            if s.forced and s.isText then return s.index
+        end for
+        return -1
+    end function
+
+    function findSub(t as object, index as integer) as dynamic
+        for each s in t.subs
+            if s.index = index then return s
+        end for
+        return invalid
+    end function
+
+    function findAudio(t as object, index as integer) as dynamic
+        for each a in t.audio
+            if a.index = index then return a
+        end for
+        return invalid
+    end function
+
+    function audioLabel(t as object, index as integer) as string
+        a = findAudio(t, index)
+        if a = invalid then return "Default"
+        return a.label
+    end function
+
+    function subLabel(t as object, index as integer) as string
+        s = findSub(t, index)
+        if s = invalid then return "Off"
+        return s.label
+    end function
+
+    ' Quality choices: 0 = automatic (as high as the Roku and network allow)
+    function qualities() as object
+        return [
+            { id: "0", label: "Automatic" },
+            { id: "40000000", label: "40 Mbit/s (4K)" },
+            { id: "20000000", label: "20 Mbit/s (1080p high)" },
+            { id: "10000000", label: "10 Mbit/s (1080p)" },
+            { id: "6000000", label: "6 Mbit/s (720p)" },
+            { id: "3000000", label: "3 Mbit/s" }
+        ]
+    end function
+
+    function qualityLabel(bitrate as integer) as string
+        for each q in qualities()
+            if q.id = bitrate.toStr() then return q.label
+        end for
+        return "Automatic"
+    end function
+
+    ' Intro and credits from Emby chapter markers (MarkerType IntroStart / IntroEnd / CreditsStart)
+    ' → { introStart, introEnd, credits } in seconds (-1 when unknown)
+    function markers(it as object) as object
+        r = { introStart: -1.0, introEnd: -1.0, credits: -1.0 }
+        ch = it.Chapters
+        if type(ch) <> "roArray" then return r
+        for each c in ch
+            mt = Util.toText(c.MarkerType)
+            at = Playback.seconds(c.StartPositionTicks)
+            if mt = "IntroStart"
+                r.introStart = at
+            else if mt = "IntroEnd"
+                r.introEnd = at
+            else if mt = "CreditsStart"
+                r.credits = at
+            end if
+        end for
+        return r
+    end function
+
+    ' Jellyfin media segments (/MediaSegments/{id}) → same shape as markers()
+    function fromSegments(json as dynamic, r as object) as object
+        if json = invalid or GetInterface(json, "ifAssociativeArray") = invalid then return r
+        list = json.Items
+        if type(list) <> "roArray" then return r
+        for each s in list
+            kind = LCase(Util.toText(s.Type))
+            st = Playback.seconds(s.StartTicks)
+            en = Playback.seconds(s.EndTicks)
+            if kind = "intro"
+                r.introStart = st
+                r.introEnd = en
+            else if kind = "outro" and r.credits < 0
+                r.credits = st
+            end if
+        end for
+        return r
+    end function
+
+end namespace

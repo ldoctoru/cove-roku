@@ -74,6 +74,17 @@ namespace Util
         return base + "?" + join(kept, "&")
     end function
 
+    function removeQuery(url as string, name as string) as string
+        q = url.instr("?")
+        if q < 0 then return url
+        kept = []
+        for each p in url.mid(q + 1).split("&")
+            if p <> "" and LCase(p.split("=")[0]) <> LCase(name) then kept.push(p)
+        end for
+        if kept.count() = 0 then return url.left(q)
+        return url.left(q) + "?" + join(kept, "&")
+    end function
+
     ' A URL with its access token hidden, for the debug console
     function redact(url as string) as string
         out = []

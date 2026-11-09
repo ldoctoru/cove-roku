@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- Full-screen player (Roku's Video node with its own progress bar and trick play).
-     Set server + item ({ id, title, subtitle, start }); "done" fires when the user leaves or the video ends. -->
+     Set server + item ({ id, title, subtitle, start, options }); "done" fires when the user leaves.
+     * : audio, subtitles, quality. Skip intro / Next episode buttons appear over the video when available. -->
 <component name="PlayerScreen" extends="Group">
     <script type="text/brightscript" uri="PlayerScreen.bs" />
     <interface>
@@ -15,7 +16,31 @@
         <Label id="status" width="1920" height="60" translation="[0,510]" horizAlign="center" color="0xC8CCD8FF" text="Starting...">
             <Font role="font" uri="font:MediumSystemFontFile" size="36" />
         </Label>
+        <!-- Skip intro / Next episode: a focusable button over the video (OK uses it, any other key dismisses) -->
+        <Group id="action" translation="[1440,860]" visible="false">
+            <Rectangle id="actionBack" width="380" height="84" color="0xF2F2F2F0" />
+            <Label id="actionLabel" width="380" height="84" horizAlign="center" vertAlign="center" color="0x0B0D14FF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="32" />
+            </Label>
+        </Group>
+        <!-- After an episode: the next one starts by itself -->
+        <Group id="upNext" visible="false">
+            <Rectangle width="1920" height="1080" color="0x0B0D14EE" />
+            <Label text="Up next" width="1920" height="50" translation="[0,330]" horizAlign="center" color="0x9AA0B0FF">
+                <Font role="font" uri="font:MediumSystemFontFile" size="34" />
+            </Label>
+            <Label id="upNextTitle" width="1920" height="70" translation="[0,390]" horizAlign="center" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="52" />
+            </Label>
+            <Label id="upNextEpisode" width="1920" height="50" translation="[0,470]" horizAlign="center" color="0xC8CCD8FF">
+                <Font role="font" uri="font:MediumSystemFontFile" size="34" />
+            </Label>
+            <Label id="upNextCount" width="1920" height="50" translation="[0,580]" horizAlign="center" color="0xF2C14EFF">
+                <Font role="font" uri="font:MediumSystemFontFile" size="32" />
+            </Label>
+        </Group>
         <Timer id="progressTimer" duration="10" repeat="true" />
-        <Timer id="closeTimer" duration="3" repeat="false" />
+        <Timer id="closeTimer" duration="0.3" repeat="false" />
+        <Timer id="countdown" duration="1" repeat="true" />
     </children>
 </component>
