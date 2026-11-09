@@ -5,7 +5,20 @@ sub init()
     m.top.backgroundURI = ""
     info = createObject("roAppInfo")
     m.top.findNode("subtitle").text = "Emby and Jellyfin client  ·  version " + info.getVersion()
-    caps = DeviceCaps.get()
-    m.top.findNode("device").text = DeviceCaps.describe(caps)
+    ' A failed check must not leave the line empty: show (and print) what went wrong instead
+    text = ""
+    try
+        caps = DeviceCaps.get()
+        text = DeviceCaps.describe(caps)
+    catch e
+        text = "Device check failed: " + DeviceCaps.toText(e.message) + " (error " + DeviceCaps.toText(e.number) + ")"
+        print "Cove: "; text
+        if e.backtrace <> invalid
+            for each f in e.backtrace
+                print "  at "; f.filename; ":"; f.line_number
+            end for
+        end if
+    end try
+    m.top.findNode("device").text = text
     m.top.setFocus(true)
 end sub

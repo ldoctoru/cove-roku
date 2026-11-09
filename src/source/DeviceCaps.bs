@@ -7,11 +7,11 @@ namespace DeviceCaps
         display = di.getDisplayProperties()
         ui = di.getUIResolution()
         caps = {
-            model: di.getModel(),
-            modelName: di.getModelDisplayName(),
+            model: toText(di.getModel()),
+            modelName: toText(di.getModelDisplayName()),
             os: osVersion(di),
             uiHeight: ui.height,
-            videoMode: di.getVideoMode(),
+            videoMode: toText(di.getVideoMode()),
             hdr10: flag(display, "hdr10"),
             hlg: flag(display, "hlg"),
             dolbyVision: flag(display, "dolbyVision"),
@@ -45,12 +45,12 @@ namespace DeviceCaps
 
     function canDecode(di as object, codec as string, profile as string, level as string) as boolean
         r = di.canDecodeVideo({ codec: codec, profile: profile, level: level })
-        return r <> invalid and r.result = true
+        return r <> invalid and flag(r, "result")
     end function
 
     function canDecodeAudio(di as object, codec as string) as boolean
         r = di.canDecodeAudio({ codec: codec })
-        return r <> invalid and r.result = true
+        return r <> invalid and flag(r, "result")
     end function
 
     ' A display property as a boolean. Comparing a missing (invalid) field with "= true" would stop the app.
@@ -62,7 +62,16 @@ namespace DeviceCaps
 
     function osVersion(di as object) as string
         v = di.getOSVersion()
-        return v.major + "." + v.minor + "." + v.revision
+        if v = invalid then return "?"
+        return toText(v.major) + "." + toText(v.minor) + "." + toText(v.revision)
+    end function
+
+    ' Any value as text (Roku returns some fields as strings on one OS version and numbers on another)
+    function toText(v as dynamic) as string
+        if v = invalid then return ""
+        if GetInterface(v, "ifString") <> invalid then return v
+        if GetInterface(v, "ifToStr") <> invalid then return v.toStr()
+        return type(v)
     end function
 
     function join(items as object, sep as string) as string
