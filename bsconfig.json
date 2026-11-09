@@ -1,0 +1,11 @@
+{
+    "rootDir": "src",
+    "files": ["manifest", "source/**/*", "components/**/*", "images/**/*"],
+    "stagingDir": "build/staging",
+    "outFile": "out/cove-roku.zip",
+    "createPackage": true,
+    "retainStagingDir": true,
+    "sourceMap": false,
+    "diagnosticFilters": [],
+    "plugins": ["@rokucommunity/bslint"]
+}
