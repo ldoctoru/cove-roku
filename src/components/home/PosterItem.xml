@@ -21,7 +21,7 @@
             <Font role="font" uri="font:MediumSystemFontFile" size="24" />
         </Label>
         <Label id="line2" color="0x7A8090FF">
-            <Font role="font" uri="font:SmallSystemFontFile" size="20" />
+            <Font role="font" uri="font:MediumSystemFontFile" size="20" />
         </Label>
     </children>
 </component>

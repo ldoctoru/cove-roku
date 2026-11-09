@@ -16,7 +16,7 @@
             <Font role="font" uri="font:MediumSystemFontFile" size="28" />
         </Label>
         <Label id="hint" width="700" height="40" translation="[1120,60]" horizAlign="right" color="0x7A8090FF" text="Press * for options">
-            <Font role="font" uri="font:SmallSystemFontFile" size="24" />
+            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
         </Label>
         <Label id="title" width="1400" height="80" translation="[100,140]" color="0xFFFFFFFF">
             <Font role="font" uri="font:BoldSystemFontFile" size="60" />
@@ -26,9 +26,9 @@
         </Label>
         <!-- The description as three single-line labels: a wrapping Label draws nothing on some Roku OS versions -->
         <Group id="overview" translation="[100,280]">
-            <Label id="ov0" width="1150" height="36" color="0x9AA0B0FF"><Font role="font" uri="font:SmallSystemFontFile" size="26" /></Label>
-            <Label id="ov1" width="1150" height="36" translation="[0,38]" color="0x9AA0B0FF"><Font role="font" uri="font:SmallSystemFontFile" size="26" /></Label>
-            <Label id="ov2" width="1150" height="36" translation="[0,76]" color="0x9AA0B0FF"><Font role="font" uri="font:SmallSystemFontFile" size="26" /></Label>
+            <Label id="ov0" width="1150" height="36" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            <Label id="ov1" width="1150" height="36" translation="[0,38]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            <Label id="ov2" width="1150" height="36" translation="[0,76]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
         </Group>
         <RowList id="rows" translation="[100,430]" itemComponentName="PosterItem" numRows="2"
                  itemSize="[1820,400]" rowHeights="[400]" rowItemSize="[[400,287]]" rowItemSpacing="[[24,0]]"
