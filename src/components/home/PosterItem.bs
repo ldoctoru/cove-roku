@@ -55,7 +55,7 @@ sub onLoad()
 end sub
 
 sub onFocus()
-    if m.top.rowListHasFocus and m.top.focusPercent > 0.5
+    if (m.top.rowListHasFocus or m.top.gridHasFocus) and m.top.focusPercent > 0.5
         m.title.color = "0xFFFFFFFF"
     else
         m.title.color = "0xC8CCD8FF"

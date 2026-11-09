@@ -23,6 +23,7 @@ sub init()
     m.tracks = invalid
     m.opts = Playback.options()
     m.picker = invalid
+    m.isFav = false
 end sub
 
 sub load()
@@ -45,6 +46,43 @@ sub get(path as string, tag as object)
     t.control = "RUN"
 end sub
 
+' Favourite on / off: POST / DELETE /Users/{id}/FavoriteItems/{item} (Jellyfin 10.9+: /UserFavoriteItems/{item})
+sub toggleFavourite()
+    if m.item = invalid then return
+    method = "POST"
+    if m.isFav then method = "DELETE"
+    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/FavoriteItems/" + Util.toText(m.item.Id), { kind: "fav", method: method, newRoute: false })
+end sub
+
+sub send(method as string, path as string, tag as object)
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: "", tag: tag, timeout: 15000 }
+    t.observeField("response", "onResponse")
+    m.pending.push(t)
+    t.control = "RUN"
+end sub
+
+sub onFavourite(r as object)
+    if r.code = 404 and not r.tag.newRoute
+        send(r.tag.method, "/UserFavoriteItems/" + Util.toText(m.item.Id) + "?userId=" + Util.toText(m.top.server.userId), { kind: "fav", method: r.tag.method, newRoute: true })
+        return
+    end if
+    if r.code >= 200 and r.code < 300
+        m.isFav = r.tag.method = "POST"
+        if m.item.UserData = invalid then m.item.UserData = {}
+        m.item.UserData.IsFavorite = m.isFav
+        m.top.changed = true
+        showItem(m.item)
+        if m.isFav
+            m.status.text = "Added to your favourites."
+        else
+            m.status.text = "Removed from your favourites."
+        end if
+    else
+        m.status.text = "Couldn't change the favourite. " + Api.describeFailure(r)
+    end if
+end sub
+
 sub onResponse(ev as object)
     t = ev.getRoSGNode()
     for i = 0 to m.pending.count() - 1
@@ -55,6 +93,10 @@ sub onResponse(ev as object)
     end for
     r = ev.getData()
     k = r.tag.kind
+    if k = "fav"
+        onFavourite(r)
+        return
+    end if
     if r.code <> 200 or r.json = invalid
         m.status.text = "Couldn't load this title. " + Api.describeFailure(r)
         return
@@ -81,7 +123,13 @@ sub showItem(it as object)
     setOverview(Util.toText(it.Overview))
     m.top.findNode("poster").uri = Items.poster(srv, it, 300)
     m.top.findNode("backdrop").uri = Items.backdrop(srv, it, 1280)
+    m.isFav = Util.flag(it.UserData, "IsFavorite")
     if t = "Series"
+        if m.isFav
+            m.status.text = "In your favourites   ·   press * to remove"
+        else
+            m.status.text = "Press * to add to favourites"
+        end if
         if first then get("/Shows/" + Util.toText(it.Id) + "/Seasons?UserId=" + Util.toText(srv.userId), { kind: "seasons" })
         return
     end if
@@ -118,6 +166,12 @@ sub showItem(it as object)
     end if
     ids.push("quality")
     labels.push("Quality: " + Tracks.qualityLabel(m.opts.maxBitrate))
+    ids.push("fav")
+    if m.isFav
+        labels.push("Remove from favourites")
+    else
+        labels.push("Add to favourites")
+    end if
     focusAt = m.buttons.itemFocused
     m.buttonIds = ids
     setList(m.buttons, labels)
@@ -169,6 +223,9 @@ sub onButton()
         return
     else if id = "quality"
         openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
+        return
+    else if id = "fav"
+        toggleFavourite()
         return
     end if
     start = 0.0
@@ -307,6 +364,10 @@ sub onEpisodeSelected()
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
+    if press and key = "options" and m.item <> invalid and Util.toText(m.item.Type) = "Series"
+        toggleFavourite()
+        return true
+    end if
     if not press or not m.seasons.visible then return false
     if key = "left" and m.episodes.hasFocus()
         m.seasons.setFocus(true)

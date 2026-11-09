@@ -9,6 +9,7 @@
         <field id="itemId" type="string" onChange="load" />
         <field id="refresh" type="boolean" alwaysNotify="true" onChange="onRefresh" />
         <field id="play" type="assocarray" alwaysNotify="true" />
+        <field id="changed" type="boolean" alwaysNotify="true" />
     </interface>
     <children>
         <Poster id="backdrop" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0.3" />
