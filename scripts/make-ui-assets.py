@@ -137,6 +137,26 @@ def heart(d, n):
     d.polygon([(n * 0.13, n * 0.44), (n * 0.87, n * 0.44), (n * 0.5, n * 0.88)], fill=WHITE)
 
 
+def pause(d, n):
+    d.rounded_rectangle([n * 0.24, n * 0.18, n * 0.42, n * 0.82], n * 0.04, fill=WHITE)
+    d.rounded_rectangle([n * 0.58, n * 0.18, n * 0.76, n * 0.82], n * 0.04, fill=WHITE)
+
+
+def restart(d, n):
+    w = int(n * 0.11)
+    d.arc([n * 0.18, n * 0.18, n * 0.82, n * 0.82], 200, 520 - 40, fill=WHITE, width=w)
+    # arrow head at the arc's start (about 10 o'clock), pointing up-left
+    d.polygon([(n * 0.08, n * 0.30), (n * 0.38, n * 0.24), (n * 0.20, n * 0.52)], fill=WHITE)
+
+
+def captions(d, n):
+    d.rounded_rectangle([n * 0.08, n * 0.2, n * 0.92, n * 0.8], n * 0.12, outline=WHITE, width=int(n * 0.08))
+    from PIL import ImageFont
+    f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", int(n * 0.36))
+    bb = d.textbbox((0, 0), "CC", font=f)
+    d.text(((n - (bb[2] - bb[0])) / 2 - bb[0], (n - (bb[3] - bb[1])) / 2 - bb[1]), "CC", font=f, fill=WHITE)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     save(nine(shape(60, 60, 30, GLASS_FILL, GLASS_STROKE, 2)), "glass_pill.9.png")
@@ -164,8 +184,16 @@ def main():
     save(strip(4, 128, ramp([(0, 0), (1, 204)])), "scrim_card.png")
     save(strip(4, 256, ramp([(0, 166), (1, 0)])), "scrim_top.png")
     for size in (48, 28):
-        for name, fn in (("play", play), ("plus", plus), ("check", check), ("info", info), ("heart", heart)):
+        for name, fn in (("play", play), ("plus", plus), ("check", check), ("info", info), ("heart", heart),
+                         ("pause", pause), ("restart", restart), ("captions", captions)):
             icon(name, size, fn)
+    icon("play", 72, play)
+    icon("pause", 72, pause)
+    # player: big glass circle (pause), scrubber thumb, top/bottom shade, Up next card
+    save(circle(210, GLASS_FILL, (255, 255, 255, 31), 2), "glass_circle_210.png")
+    save(circle(24, WHITE), "dot_24.png")
+    save(strip(4, 512, ramp([(0, 115), (0.33, 0), (0.66, 0), (1, 179)])), "scrim_osd.png")
+    save(nine(shape(40, 40, 18, (0, 0, 0, 204))), "panel_dark_r18.9.png")
     print("wrote", len(os.listdir(OUT)), "files to", os.path.normpath(OUT))
 
 

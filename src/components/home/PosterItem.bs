@@ -11,6 +11,8 @@ sub init()
     m.top.findNode("heart").blendColor = t.accent
     m.image.observeField("loadStatus", "onLoad")
     m.landscape = false
+    m.person = false
+    m.selected = false
 end sub
 
 ' The tile keeps a margin of PAD around the card, because a list clips each item to its own area: without
@@ -22,8 +24,10 @@ sub onSize()
     if w <= 0 or m.top.height <= 0 then return
     c = m.top.itemContent
     m.landscape = c <> invalid and c.hasField("landscape") and c.landscape
+    m.person = c <> invalid and c.hasField("kind") and c.kind = "person"
     h = m.top.height - 2 * pad
     if not m.landscape then h = Int(w * 1.5)
+    if m.person then h = w
     if h > m.top.height - 2 * pad then h = m.top.height - 2 * pad
     m.card.translation = [pad, pad]
     m.title.translation = [pad, pad + h + 14]
@@ -75,16 +79,27 @@ end sub
 sub onContent()
     c = m.top.itemContent
     if c = invalid or m.w = invalid then return
-    if (c.hasField("landscape") and c.landscape) <> m.landscape
+    isPerson = c.hasField("kind") and c.kind = "person"
+    if (c.hasField("landscape") and c.landscape) <> m.landscape or isPerson <> m.person
         onSize()
         return
     end if
+    ' people (cast): round photo, no border or ring
+    t = m.global.theme
+    mk = m.top.findNode("mask")
+    if m.person
+        mk.uri = t.maskCircle
+    else
+        mk.uri = t.maskCard
+    end if
+    m.top.findNode("border").visible = not m.person
     m.initials.text = UCase(Left(c.title, 1))
     m.initials.visible = true
     m.image.uri = c.hdPosterUrl
     played = c.hasField("played") and c.played
     m.image.opacity = 1.0
     if played and not m.landscape then m.image.opacity = 0.6
+    m.selected = c.hasField("selected") and c.selected
     p = 0.0
     if c.hasField("progress") then p = c.progress
     hasProgress = p > 0.01 and p < 0.99
@@ -130,7 +145,8 @@ sub onContent()
     bt = m.top.findNode("badgeText")
     unplayed = 0
     if c.hasField("unplayed") then unplayed = c.unplayed
-    if m.landscape
+    ' (wide Continue Watching / Next Up cards don't show it, as on the Mac; episode cards do)
+    if (m.landscape and not (c.hasField("showBadge") and c.showBadge)) or m.person
         played = false
         unplayed = 0
     end if
@@ -178,7 +194,11 @@ sub onFocus()
     if m.landscape then zoom = 0.04
     s = 1 + zoom * f
     m.card.scale = [s, s]
-    m.top.findNode("ring").opacity = f
+    ' a chosen season keeps its ring
+    ringOp = f
+    if m.selected and ringOp < 1 then ringOp = 1
+    if m.person then ringOp = 0
+    m.top.findNode("ring").opacity = ringOp
     m.top.findNode("shadow").opacity = f
     if f > 0.5
         m.title.color = "0xFFFFFFFF"

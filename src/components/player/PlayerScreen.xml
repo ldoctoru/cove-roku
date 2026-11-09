@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- Full-screen player (Roku's Video node with its own progress bar and trick play).
+<!-- Full-screen player with Cove's Glass controls (Sources/Views.swift player): the Video node draws only the
+     picture and subtitles (enableUI off); this component draws the controls.
      Set server + item ({ id, title, subtitle, start, options }); "done" fires when the user leaves.
-     * : audio, subtitles, quality. Skip intro / Next episode buttons appear over the video when available. -->
+     OK: pause / play. Left / Right: -10 / +10 s, Rewind / Fast forward: -30 / +30 s (presses add up).
+     * : audio, subtitles, quality. Skip intro and Up next appear over the video when available. -->
 <component name="PlayerScreen" extends="Group">
     <script type="text/brightscript" uri="PlayerScreen.bs" />
     <interface>
@@ -12,35 +14,79 @@
     </interface>
     <children>
         <Rectangle width="1920" height="1080" color="0x000000FF" />
-        <Video id="video" width="1920" height="1080" enableUI="true" />
-        <Label id="status" width="1920" height="60" translation="[0,510]" horizAlign="center" color="0xFFFFFFCC" text="Starting...">
+        <Video id="video" width="1920" height="1080" enableUI="false" />
+
+        <!-- controls -->
+        <Group id="osd" opacity="0">
+            <Poster uri="pkg:/images/ui/scrim_osd.png" width="1920" height="1080" />
+            <Label id="hint" text="*  Audio and subtitles" width="600" height="40" translation="[1224,54]" horizAlign="right" color="0xFFFFFFB3">
+                <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+            </Label>
+            <Group id="center" visible="false">
+                <Poster uri="pkg:/images/ui/glass_circle_210.png" width="210" height="210" translation="[855,435]" />
+                <Poster id="centerIcon" uri="pkg:/images/ui/icon_play_72.png" width="72" height="72" translation="[924,504]" />
+            </Group>
+            <Label id="episode" width="1400" height="40" translation="[96,820]" color="0xFFFFFFD9">
+                <Font role="font" uri="font:MediumSystemFontFile" size="28" />
+            </Label>
+            <Label id="title" width="1400" height="64" translation="[96,858]" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="48" />
+            </Label>
+            <Group id="bar" translation="[96,951]">
+                <Poster uri="pkg:/images/ui/glass_pill.9.png" width="1728" height="75" />
+                <Label id="elapsed" width="140" height="75" translation="[30,0]" vertAlign="center" color="0xFFFFFFD9">
+                    <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+                </Label>
+                <Rectangle id="track" width="1400" height="8" translation="[164,34]" color="0xFFFFFF59" />
+                <Rectangle id="fill" width="0" height="8" translation="[164,34]" color="0xFFFFFFFF" />
+                <Poster id="thumb" uri="pkg:/images/ui/dot_24.png" width="24" height="24" translation="[152,26]" />
+                <Label id="remaining" width="140" height="75" translation="[1558,0]" horizAlign="right" vertAlign="center" color="0xFFFFFFD9">
+                    <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+                </Label>
+            </Group>
+        </Group>
+
+        <Label id="status" width="1920" height="60" translation="[0,510]" horizAlign="center" color="0xFFFFFFD9" text="Starting...">
             <Font role="font" uri="font:MediumSystemFontFile" size="36" />
         </Label>
-        <!-- Skip intro / Next episode: a focusable button over the video (OK uses it, any other key dismisses) -->
-        <Group id="action" translation="[1440,860]" visible="false">
-            <Rectangle id="actionBack" width="380" height="84" color="0xF2F2F2F0" />
-            <Label id="actionLabel" width="380" height="84" horizAlign="center" vertAlign="center" color="0x000000FF">
-                <Font role="font" uri="font:BoldSystemFontFile" size="32" />
+
+        <!-- Skip intro / Next episode: a white button over the video (OK uses it, any other key dismisses it) -->
+        <Group id="action" translation="[1554,840]" visible="false">
+            <Poster uri="pkg:/images/ui/white_rr12.9.png" width="270" height="72" />
+            <Label id="actionLabel" width="270" height="72" horizAlign="center" vertAlign="center" color="0x000000FF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="28" />
             </Label>
         </Group>
-        <!-- After an episode: the next one starts by itself -->
-        <Group id="upNext" visible="false">
-            <Rectangle width="1920" height="1080" color="0x000000E6" />
-            <Label text="Up next" width="1920" height="50" translation="[0,330]" horizAlign="center" color="0xFFFFFF8C">
-                <Font role="font" uri="font:MediumSystemFontFile" size="34" />
+
+        <!-- After an episode: a card bottom-right, the next one starts by itself -->
+        <Group id="upNext" translation="[1164,766]" visible="false">
+            <Poster uri="pkg:/images/ui/panel_dark_r18.9.png" width="660" height="230" />
+            <Poster id="upNextStill" width="240" height="135" translation="[24,24]" loadWidth="240" loadHeight="135" loadDisplayMode="scaleToZoom" />
+            <Label text="Up next" width="350" height="30" translation="[288,22]" color="0xFFFFFF8C">
+                <Font role="font" uri="font:BoldSystemFontFile" size="22" />
             </Label>
-            <Label id="upNextTitle" width="1920" height="70" translation="[0,390]" horizAlign="center" color="0xFFFFFFFF">
-                <Font role="font" uri="font:BoldSystemFontFile" size="52" />
+            <Label id="upNextTitle" width="350" height="36" translation="[288,54]" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="28" />
             </Label>
-            <Label id="upNextEpisode" width="1920" height="50" translation="[0,470]" horizAlign="center" color="0xFFFFFFCC">
-                <Font role="font" uri="font:MediumSystemFontFile" size="34" />
+            <Label id="upNextEpisode" width="350" height="34" translation="[288,92]" color="0xFFFFFFD9">
+                <Font role="font" uri="font:MediumSystemFontFile" size="24" />
             </Label>
-            <Label id="upNextCount" width="1920" height="50" translation="[0,580]" horizAlign="center" color="0xFFFFFFB3">
-                <Font role="font" uri="font:MediumSystemFontFile" size="32" />
+            <Poster uri="pkg:/images/ui/white_rr12.9.png" width="250" height="52" translation="[24,166]" />
+            <Label id="upNextCount" width="250" height="52" translation="[24,166]" horizAlign="center" vertAlign="center" color="0x000000FF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="24" />
+            </Label>
+            <Label text="Back: stop" width="350" height="52" translation="[288,166]" vertAlign="center" color="0xFFFFFF8C">
+                <Font role="font" uri="font:MediumSystemFontFile" size="24" />
             </Label>
         </Group>
+
         <Timer id="progressTimer" duration="10" repeat="true" />
         <Timer id="closeTimer" duration="0.3" repeat="false" />
         <Timer id="countdown" duration="1" repeat="true" />
+        <Timer id="hideTimer" duration="4" repeat="false" />
+        <Timer id="seekTimer" duration="0.8" repeat="false" />
+        <Animation id="osdAnim" duration="0.25" easeFunction="linear">
+            <FloatFieldInterpolator id="osdFade" key="[0.0, 1.0]" fieldToInterp="osd.opacity" />
+        </Animation>
     </children>
 </component>

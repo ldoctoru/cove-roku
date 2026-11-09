@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- A movie, episode or series. Movie / episode: Resume / Play from the beginning. Series: seasons on the left,
-     episodes on the right (OK plays, resuming where you stopped). "play" asks MainScene to start the player. -->
+<!-- A movie, episode or series in Cove's Glass style (Sources/Views.swift detail page).
+     Full-screen backdrop; bottom-left: eyebrow, logo or title, details, overview, facts and the button row
+     (Play / Resume, Start over, + / check favourite, CC audio and subtitles); right: Starring / Director.
+     Below (Down): rows of seasons and episodes (series), cast and More Like This.
+     "play" asks MainScene to start the player, "openItem" to open another title. -->
 <component name="DetailsScreen" extends="Group">
     <script type="text/brightscript" uri="DetailsScreen.bs" />
     <interface>
@@ -9,39 +12,71 @@
         <field id="itemId" type="string" onChange="load" />
         <field id="refresh" type="boolean" alwaysNotify="true" onChange="onRefresh" />
         <field id="play" type="assocarray" alwaysNotify="true" />
+        <field id="openItem" type="assocarray" alwaysNotify="true" />
         <field id="changed" type="boolean" alwaysNotify="true" />
     </interface>
     <children>
-        <Poster id="backdrop" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0.3" />
-        <Rectangle width="1920" height="1080" color="0x00000099" />
-        <Poster id="poster" width="300" height="450" loadWidth="300" loadHeight="450" translation="[100,110]" loadDisplayMode="scaleToZoom" />
-        <Label id="title" width="1380" height="80" translation="[440,110]" color="0xFFFFFFFF">
-            <Font role="font" uri="font:BoldSystemFontFile" size="58" />
+        <Poster id="backdrop" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" />
+        <Poster id="scrimLeft" uri="pkg:/images/ui/scrim_left.png" width="1248" height="1080" />
+        <Poster id="scrimBottom" width="1920" height="1080" />
+        <Group id="rowsBg" opacity="0">
+            <Poster id="rowsFade" width="1920" height="140" translation="[0,120]" />
+            <Rectangle id="rowsSolid" width="1920" height="820" translation="[0,260]" />
+        </Group>
+
+        <Group id="header">
+            <Label id="eyebrow" width="1100" height="36" translation="[96,0]" color="0xFFFFFFD9">
+                <Font role="font" uri="font:BoldSystemFontFile" size="26" />
+            </Label>
+            <Poster id="logo" loadDisplayMode="scaleToFit" loadWidth="630" loadHeight="165" visible="false" />
+            <Label id="title" width="1150" height="90" translation="[96,0]" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="72" />
+            </Label>
+            <Label id="kind" width="1150" height="40" translation="[96,0]" color="0xFFFFFFFF">
+                <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+            </Label>
+            <Group id="ov" translation="[96,0]">
+                <Label id="ov0" width="980" height="38" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+                <Label id="ov1" width="980" height="38" translation="[0,38]" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+                <Label id="ov2" width="980" height="38" translation="[0,76]" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            </Group>
+            <Label id="facts" width="1150" height="36" translation="[96,0]" color="0xFFFFFFD9">
+                <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+            </Label>
+            <Group id="people" translation="[1380,0]">
+                <Label id="starL" text="Starring" width="444" height="34" color="0xFFFFFF8C"><Font role="font" uri="font:MediumSystemFontFile" size="24" /></Label>
+                <Label id="star0" width="444" height="34" translation="[0,34]" color="0xFFFFFFFF"><Font role="font" uri="font:MediumSystemFontFile" size="24" /></Label>
+                <Label id="star1" width="444" height="34" translation="[0,68]" color="0xFFFFFFFF"><Font role="font" uri="font:MediumSystemFontFile" size="24" /></Label>
+                <Label id="dirL" text="Director" width="444" height="34" translation="[0,116]" color="0xFFFFFF8C"><Font role="font" uri="font:MediumSystemFontFile" size="24" /></Label>
+                <Label id="dir0" width="444" height="34" translation="[0,150]" color="0xFFFFFFFF"><Font role="font" uri="font:MediumSystemFontFile" size="24" /></Label>
+            </Group>
+            <Group id="buttons" translation="[96,830]" />
+        </Group>
+
+        <!-- shown at the top while the rows are focused -->
+        <Label id="miniTitle" width="1500" height="64" translation="[96,60]" color="0xFFFFFFFF" opacity="0">
+            <Font role="font" uri="font:BoldSystemFontFile" size="48" />
         </Label>
-        <Label id="meta" width="1380" height="40" translation="[440,196]" color="0xFFFFFFCC">
+
+        <RowList id="rows" translation="[78,960]" itemComponentName="PosterItem" numRows="3"
+                 itemSize="[1842,466]" rowHeights="[466]" rowItemSize="[[276,466]]" rowItemSpacing="[[0,0]]"
+                 itemSpacing="[0,44]" showRowLabel="[true]" rowLabelOffset="[[18,0]]" rowLabelColor="0xFFFFFFFF"
+                 focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
+                 drawFocusFeedback="false" visible="false">
+            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />
+        </RowList>
+
+        <!-- holds the focus while the buttons are active (keys reach onKeyEvent) -->
+        <Group id="btnKeys" focusable="true" />
+
+        <Label id="status" width="1728" height="44" translation="[96,1010]" color="0xFFFFFF8C">
             <Font role="font" uri="font:MediumSystemFontFile" size="28" />
         </Label>
-        <Label id="ov0" width="1380" height="36" translation="[440,250]" color="0xFFFFFF8C"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
-        <Label id="ov1" width="1380" height="36" translation="[440,288]" color="0xFFFFFF8C"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
-        <Label id="ov2" width="1380" height="36" translation="[440,326]" color="0xFFFFFF8C"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
-        <Label id="ov3" width="1380" height="36" translation="[440,364]" color="0xFFFFFF8C"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
-        <LabelList id="buttons" focusBitmapUri="pkg:/images/ui/white_rr12.9.png" translation="[440,440]" itemSize="[900,66]" numRows="5" itemSpacing="[0,8]"
-                   color="0xFFFFFFCC" focusedColor="0x000000FF" visible="false">
-            <Font role="font" uri="font:MediumSystemFontFile" size="34" />
-            <Font role="focusedFont" uri="font:BoldSystemFontFile" size="34" />
-        </LabelList>
-        <LabelList id="seasons" focusBitmapUri="pkg:/images/ui/white_rr12.9.png" translation="[440,440]" itemSize="[340,62]" numRows="8" itemSpacing="[0,6]"
-                   color="0xFFFFFFCC" focusedColor="0x000000FF" visible="false">
-            <Font role="font" uri="font:MediumSystemFontFile" size="30" />
-            <Font role="focusedFont" uri="font:BoldSystemFontFile" size="30" />
-        </LabelList>
-        <LabelList id="episodes" focusBitmapUri="pkg:/images/ui/white_rr12.9.png" translation="[820,440]" itemSize="[1000,62]" numRows="8" itemSpacing="[0,6]"
-                   color="0xFFFFFFCC" focusedColor="0x000000FF" visible="false">
-            <Font role="font" uri="font:MediumSystemFontFile" size="30" />
-            <Font role="focusedFont" uri="font:BoldSystemFontFile" size="30" />
-        </LabelList>
-        <Label id="status" width="1380" height="44" translation="[440,980]" color="0xFFFFFFB3">
-            <Font role="font" uri="font:MediumSystemFontFile" size="28" />
-        </Label>
+        <Animation id="slide" duration="0.3" easeFunction="outCubic">
+            <Vector2DFieldInterpolator id="rowsMove" key="[0.0, 1.0]" fieldToInterp="rows.translation" />
+            <FloatFieldInterpolator id="headerFade" key="[0.0, 1.0]" fieldToInterp="header.opacity" />
+            <FloatFieldInterpolator id="miniFade" key="[0.0, 1.0]" fieldToInterp="miniTitle.opacity" />
+            <FloatFieldInterpolator id="bgFade" key="[0.0, 1.0]" fieldToInterp="rowsBg.opacity" />
+        </Animation>
     </children>
 </component>

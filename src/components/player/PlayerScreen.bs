@@ -16,6 +16,13 @@ sub init()
     m.progressTimer.observeField("fire", "onProgressTimer")
     m.closeTimer.observeField("fire", "finish")
     m.countdown.observeField("fire", "onCountdown")
+    m.osd = m.top.findNode("osd")
+    m.hideTimer = m.top.findNode("hideTimer")
+    m.seekTimer = m.top.findNode("seekTimer")
+    m.hideTimer.observeField("fire", "hideOsd")
+    m.seekTimer.observeField("fire", "applySeek")
+    m.seekTarget = -1.0
+    m.osdShown = false
     m.video.observeField("state", "onState")
     m.video.observeField("position", "onPosition")
     m.video.notificationInterval = 1
@@ -27,6 +34,9 @@ sub init()
 end sub
 
 sub resetState()
+    m.seekTarget = -1.0
+    m.osdShown = false
+    m.osd.opacity = 0
     m.session = invalid
     m.playTask = invalid
     m.retried = false
@@ -53,6 +63,8 @@ sub begin()
     resetState()
     it = m.top.item
     m.startAt = it.start
+    m.top.findNode("title").text = Util.toText(it.title)
+    m.top.findNode("episode").text = Util.toText(it.subtitle)
     if it.options <> invalid and it.options.audio <> invalid then m.opts = it.options
     m.status.text = "Starting..."
     m.status.visible = true
@@ -140,6 +152,13 @@ end sub
 sub onState()
     st = m.video.state
     print "Cove: video "; st
+    if st = "buffering" and m.started
+        m.status.text = "Loading..."
+        m.status.visible = true
+    end if
+    if st = "playing" or st = "paused" then updateCenter()
+    if st = "paused" then showOsd(false)
+    if st = "playing" and m.osdShown then m.hideTimer.control = "start"
     if st = "playing"
         m.status.visible = false
         if not m.started
@@ -186,6 +205,7 @@ end sub
 ' ---------------------------------------------------------------- skip intro / next episode
 
 sub onPosition()
+    if m.osdShown and m.seekTarget < 0 then updateBar(m.video.position)
     p = m.video.position
     if m.video.state <> "playing" or m.upNext.visible then return
     mk = m.marks
@@ -241,7 +261,10 @@ sub onFinished()
         m.top.findNode("upNextTitle").text = Util.toText(m.next.SeriesName)
         m.top.findNode("upNextEpisode").text = Items.episodeLabel(m.next)
         m.count = 10
-        m.top.findNode("upNextCount").text = "Starts in 10 s   ·   OK: play now   ·   Back: stop"
+        m.top.findNode("upNextCount").text = "Play now  (10)"
+        m.top.findNode("upNextStill").uri = Items.landscape(m.top.server, m.next, 240)
+        m.osdShown = false
+        m.osd.opacity = 0
         m.upNext.visible = true
         m.upNext.setFocus(true)
         m.countdown.control = "start"
@@ -256,7 +279,7 @@ sub onCountdown()
         m.countdown.control = "stop"
         playNext()
     else
-        m.top.findNode("upNextCount").text = "Starts in " + m.count.toStr() + " s   ·   OK: play now   ·   Back: stop"
+        m.top.findNode("upNextCount").text = "Play now  (" + m.count.toStr() + ")"
     end if
 end sub
 
@@ -411,19 +434,124 @@ function onKeyEvent(key as string, press as boolean) as boolean
             dismissAction()
         else
             dismissAction()
-            return false
+            return onKeyEvent(key, press)
         end if
         return true
     end if
     if key = "back"
+        if m.seekTarget >= 0
+            ' cancel a seek that hasn't happened yet
+            m.seekTimer.control = "stop"
+            m.seekTarget = -1
+            updateBar(m.video.position)
+            return true
+        end if
         close()
         return true
     else if key = "options"
         showMenu()
         return true
+    else if key = "OK" or key = "play"
+        if m.seekTarget >= 0
+            applySeek()
+        else if m.video.state = "playing"
+            m.video.control = "pause"
+        else if m.video.state = "paused"
+            m.video.control = "resume"
+        end if
+        showOsd(true)
+        return true
+    else if key = "left" or key = "right" or key = "rewind" or key = "fastforward" or key = "replay"
+        stepSeconds = 10
+        if key = "rewind" or key = "fastforward" then stepSeconds = 30
+        if key = "left" or key = "rewind" or key = "replay" then stepSeconds = -stepSeconds
+        seekBy(stepSeconds)
+        return true
+    else if key = "up" or key = "down"
+        showOsd(true)
+        return true
     end if
     return false
 end function
+
+' ---------------------------------------------------------------- controls
+
+sub showOsd(autoHide as boolean)
+    if not m.osdShown
+        m.osdShown = true
+        fadeOsd(1.0)
+    end if
+    updateBar(currentPos())
+    updateCenter()
+    m.hideTimer.control = "stop"
+    if autoHide and m.video.state = "playing" then m.hideTimer.control = "start"
+end sub
+
+sub hideOsd()
+    if m.video.state = "paused" or m.seekTarget >= 0 then return
+    m.osdShown = false
+    fadeOsd(0.0)
+end sub
+
+sub fadeOsd(target as float)
+    a = m.top.findNode("osdAnim")
+    a.control = "stop"
+    m.top.findNode("osdFade").keyValue = [m.osd.opacity, target]
+    a.control = "start"
+end sub
+
+function currentPos() as float
+    if m.seekTarget >= 0 then return m.seekTarget
+    return m.video.position
+end function
+
+' Presses add up: the bar shows where playback will continue, the jump happens 0.8 s after the last press
+sub seekBy(delta as integer)
+    if m.session = invalid then return
+    base = currentPos()
+    target = base + delta
+    d = m.video.duration
+    if target < 0 then target = 0
+    if d > 0 and target > d - 5 then target = d - 5
+    m.seekTarget = target
+    showOsd(false)
+    m.seekTimer.control = "stop"
+    m.seekTimer.control = "start"
+end sub
+
+sub applySeek()
+    m.seekTimer.control = "stop"
+    if m.seekTarget < 0 then return
+    m.video.seek = m.seekTarget
+    m.seekTarget = -1
+    if m.video.state = "paused" then m.video.control = "resume"
+    m.hideTimer.control = "start"
+end sub
+
+sub updateBar(atSec as float)
+    d = m.video.duration
+    frac = 0.0
+    if d > 0 then frac = atSec / d
+    if frac > 1 then frac = 1
+    if frac < 0 then frac = 0
+    w = Int(1400 * frac)
+    m.top.findNode("fill").width = w
+    m.top.findNode("thumb").translation = [152 + w, 26]
+    m.top.findNode("elapsed").text = Playback.clock(atSec)
+    remain = d - atSec
+    if remain < 0 then remain = 0
+    if d > 0
+        m.top.findNode("remaining").text = "-" + Playback.clock(remain)
+    else
+        m.top.findNode("remaining").text = ""
+    end if
+end sub
+
+' The big glass circle shows while paused (with the play symbol)
+sub updateCenter()
+    paused = m.video.state = "paused"
+    m.top.findNode("center").visible = paused
+end sub
 
 ' Report the stop (the server saves the position / marks it watched), end the server's conversion, then leave
 sub close()

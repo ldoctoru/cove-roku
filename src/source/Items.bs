@@ -116,6 +116,75 @@ namespace Items
         return ud.PlaybackPositionTicks / 10000000
     end function
 
+    ' "21:43": when the item ends if started now (from the resume point when there is one)
+    function endsAt(it as object) as string
+        if it.RunTimeTicks = invalid then return ""
+        remainSec = Int((it.RunTimeTicks / 10000000) - resumeAt(it))
+        if remainSec <= 0 then return ""
+        dt = createObject("roDateTime")
+        dt.toLocalTime()
+        dt.fromSeconds(dt.asSeconds() + remainSec)
+        return dt.getHours().toStr() + ":" + Right("0" + dt.getMinutes().toStr(), 2)
+    end function
+
+    ' "1979  ·  2h 4m  ·  Ends at 21:43  ·  4K  ·  CC"
+    function facts(it as object) as string
+        parts = []
+        y = Util.toText(it.ProductionYear)
+        if y <> "" then parts.push(y)
+        if it.RunTimeTicks <> invalid
+            mins = Int(it.RunTimeTicks / 600000000)
+            if mins >= 60
+                parts.push((mins \ 60).toStr() + "h " + (mins mod 60).toStr() + "m")
+            else if mins > 0
+                parts.push(mins.toStr() + "m")
+            end if
+        end if
+        e = endsAt(it)
+        if e <> "" and Util.toText(it.Type) <> "Series" then parts.push("Ends at " + e)
+        streams = it.MediaStreams
+        if type(it.MediaSources) = "roArray" and it.MediaSources.count() > 0 and type(it.MediaSources[0].MediaStreams) = "roArray" then streams = it.MediaSources[0].MediaStreams
+        if type(streams) = "roArray"
+            hasSubs = false
+            for each s in streams
+                kind = Util.toText(s.Type)
+                if kind = "Video" and s.Width <> invalid
+                    if s.Width >= 3000
+                        parts.push("4K")
+                    else if s.Width >= 1200
+                        parts.push("HD")
+                    end if
+                end if
+                if kind = "Subtitle" then hasSubs = true
+            end for
+            if hasSubs then parts.push("CC")
+        end if
+        return Util.join(parts, "  ·  ")
+    end function
+
+    ' Names of people of one type ("Actor", "Director"), at most max
+    function peopleNames(it as object, kind as string, max as integer) as string
+        names = []
+        if type(it.People) <> "roArray" then return ""
+        for each p in it.People
+            if Util.toText(p.Type) = kind and names.count() < max then names.push(Util.toText(p.Name))
+        end for
+        return Util.join(names, ", ")
+    end function
+
+    ' A cast tile: round photo, name, role
+    function personNode(server as object, p as object) as object
+        c = createObject("roSGNode", "ContentNode")
+        c.addFields({ itemId: "", itemType: "Person", kind: "person", landscape: false })
+        c.title = Util.toText(p.Name)
+        role = Util.toText(p.Role)
+        if role = "" then role = Util.toText(p.Type)
+        c.shortDescriptionLine2 = role
+        c.itemId = Util.toText(p.Id)
+        c.hdPosterUrl = imageUrl(server, Util.toText(p.Id), "Primary", Util.toText(p.PrimaryImageTag), 160)
+        return c
+    end function
+
     ' "S2:E5 · Episode name"
     function episodeLabel(it as object) as string
         s = ""
