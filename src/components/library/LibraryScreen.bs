@@ -14,6 +14,8 @@ sub init()
     m.gen = 0
     m.task = invalid
     m.picker = invalid
+    ' (the grid gets focus as soon as the screen is shown, before the library is set: never leave it without content)
+    m.grid.content = createObject("roSGNode", "ContentNode")
 end sub
 
 sub onLibrary()
@@ -105,11 +107,13 @@ end sub
 
 ' Near the end of what's loaded: fetch the next 60
 sub onFocused()
+    if m.grid.content = invalid or m.top.library = invalid then return
     count = m.grid.content.getChildCount()
     if not m.loading and count < m.total and m.grid.itemFocused >= count - 21 then loadPage(count)
 end sub
 
 sub onSelected()
+    if m.grid.content = invalid then return
     it = m.grid.content.getChild(m.grid.itemSelected)
     if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
 end sub

@@ -61,6 +61,7 @@ sub onError(ev as object)
 end sub
 
 sub onSelected()
+    if m.grid.content = invalid then return
     it = m.grid.content.getChild(m.grid.itemSelected)
     if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
 end sub
