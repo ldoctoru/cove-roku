@@ -88,11 +88,17 @@ sub onInfo(r as object)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
         buildTools()
         ' Not chosen on the details page: forced subtitles, or the language chosen for the previous episode
+        ' The series' subtitle language (series page pill, or the last choice made in the player for it):
+        ' "" = automatic (forced subtitles only), "off", or a language code
         if m.top.item.options = invalid
-            s = Tracks.defaultSub(m.tracks, m.subLang)
-            if s >= 0
-                m.opts.sub = s
-                m.opts.burn = not Tracks.findSub(m.tracks, s).isText
+            pref = m.subLang
+            if pref = "" and seriesKey() <> "" then pref = Util.readText(seriesKey())
+            if pref <> "off"
+                s = Tracks.defaultSub(m.tracks, pref)
+                if s >= 0
+                    m.opts.sub = s
+                    m.opts.burn = not Tracks.findSub(m.tracks, s).isText
+                end if
             end if
         end if
         ' Jellyfin keeps intro / credits as media segments
@@ -103,6 +109,11 @@ sub onInfo(r as object)
     end if
     start(m.startAt, false)
 end sub
+
+function seriesKey() as string
+    if m.info = invalid or Util.toText(m.info.SeriesId) = "" then return ""
+    return "slang:" + Util.toText(m.info.SeriesId)
+end function
 
 ' Asks the server for a stream; forceTranscode after a playback error
 sub start(startSeconds as float, forceTranscode as boolean)
@@ -402,7 +413,9 @@ sub onPicked(ev as object)
         m.opts.sub = v
         m.opts.burn = s <> invalid and not s.isText
         if s <> invalid then m.subLang = s.language
-        if s = invalid then m.subLang = ""
+        if s = invalid then m.subLang = "off"
+        ' remembered for the series, like on the Mac
+        if seriesKey() <> "" and m.subLang <> "" then Util.writeText(seriesKey(), m.subLang)
         ' Turning a subtitle on restarts the stream at the same position with it attached (as at the start):
         ' changing the subtitle tracks of the playing video froze playback on the Streambar.
         ' Turning one off (when it isn't burned in) works on the spot.

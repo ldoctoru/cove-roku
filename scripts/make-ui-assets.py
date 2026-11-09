@@ -217,6 +217,44 @@ def quality(d, n):
     d.text(((n - (bb[2] - bb[0])) / 2 - bb[0], (n - (bb[3] - bb[1])) / 2 - bb[1]), "HD", font=f, fill=WHITE)
 
 
+def eye(d, n):
+    import math
+    def lens(scale):
+        pts = []
+        for i in range(41):
+            x = -1 + i / 20
+            y = 0.62 * math.cos(x * math.pi / 2)
+            pts.append((n / 2 + x * n * 0.44 * scale, n / 2 - y * n * 0.44 * scale))
+        for i in range(41):
+            x = 1 - i / 20
+            y = 0.62 * math.cos(x * math.pi / 2)
+            pts.append((n / 2 + x * n * 0.44 * scale, n / 2 + y * n * 0.44 * scale))
+        return pts
+    d.polygon(lens(1.0), fill=WHITE)
+    d.polygon(lens(0.78), fill=(0, 0, 0, 0))
+    d.ellipse([n * 0.37, n * 0.37, n * 0.63, n * 0.63], fill=WHITE)
+
+
+def eye_slash(d, n):
+    eye(d, n)
+    d.line([(n * 0.14, n * 0.14), (n * 0.86, n * 0.86)], fill=(0, 0, 0, 0), width=int(n * 0.2))
+    d.line([(n * 0.14, n * 0.14), (n * 0.86, n * 0.86)], fill=WHITE, width=int(n * 0.08))
+
+
+def star(d, n):
+    import math
+    pts = []
+    for i in range(10):
+        r = n * (0.46 if i % 2 == 0 else 0.19)
+        a = math.pi / 2 + i * math.pi / 5
+        pts.append((n / 2 + r * math.cos(a), n * 0.53 - r * math.sin(a)))
+    d.polygon(pts, fill=WHITE)
+
+
+def chevron_down(d, n):
+    d.line([(n * 0.22, n * 0.38), (n * 0.5, n * 0.66), (n * 0.78, n * 0.38)], fill=WHITE, width=int(n * 0.12), joint="curve")
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     save(nine(shape(60, 60, 30, GLASS_FILL, GLASS_STROKE, 2)), "glass_pill.9.png")
@@ -254,6 +292,9 @@ def main():
     save(circle(105, GLASS_FILL, (255, 255, 255, 31), 2), "glass_circle_105.png")
     save(circle(105, WHITE), "white_circle_105.png")
     save(circle(56, WHITE), "white_circle_56.png")
+    for name, fn in (("eye", eye), ("eyeslash", eye_slash), ("star", star), ("chevron", chevron_down)):
+        icon(name, 28, fn)
+    save(nine(ring(24, 24, 5, 2, (255, 255, 255, 191))), "outline_box_r4.9.png")
     icon("play", 72, play)
     icon("pause", 72, pause)
     # player: big glass circle (pause), scrubber thumb, top/bottom shade, Up next card

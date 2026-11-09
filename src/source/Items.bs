@@ -86,6 +86,28 @@ namespace Items
         return Util.join(parts, "  ·  ")
     end function
 
+    ' The details page line before the rating box: "TV Show · Comedy" / "Movie · Drama · Crime"
+    function kindText(it as object) as string
+        parts = []
+        t = Util.toText(it.Type)
+        if t = "Movie" then parts.push("Movie")
+        if t = "Series" then parts.push("TV Show")
+        if t = "Episode" then parts.push(episodeLabel(it))
+        if type(it.Genres) = "roArray"
+            for i = 0 to it.Genres.count() - 1
+                if i < 3 then parts.push(Util.toText(it.Genres[i]))
+            end for
+        end if
+        return Util.join(parts, "  ·  ")
+    end function
+
+    ' "8.8" (community rating), or ""
+    function score(it as object) as string
+        if it.CommunityRating = invalid then return ""
+        cr = Int(it.CommunityRating * 10 + 0.5)
+        return (cr \ 10).toStr() + "." + (cr mod 10).toStr()
+    end function
+
     ' "S1, E2" (hero chip)
     function episodeChip(it as object) as string
         if Util.toText(it.Type) <> "Episode" then return ""
@@ -131,6 +153,15 @@ namespace Items
     function facts(it as object) as string
         parts = []
         y = Util.toText(it.ProductionYear)
+        ' a series: "1989 – 1998", or "2019 – Present" while it runs
+        if Util.toText(it.Type) = "Series" and y <> ""
+            endY = Util.toText(it.EndDate).left(4)
+            if endY <> "" and endY <> y
+                y = y + " – " + endY
+            else if LCase(Util.toText(it.Status)) = "continuing"
+                y = y + " – Present"
+            end if
+        end if
         if y <> "" then parts.push(y)
         if it.RunTimeTicks <> invalid
             mins = Int(it.RunTimeTicks / 600000000)
