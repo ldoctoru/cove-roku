@@ -5,8 +5,24 @@ sub init()
     m.top.functionName = "work"
 end sub
 
+' Any runtime error must reach the screen (a Task that stops on an error just goes quiet, leaving "Loading...")
 sub work()
+    try
+        load()
+    catch e
+        where = ""
+        if e.backtrace <> invalid and e.backtrace.count() > 0
+            f = e.backtrace[e.backtrace.count() - 1]
+            where = " at " + Util.toText(f.filename).replace("pkg:/", "") + ":" + Util.toText(f.line_number)
+        end if
+        print "Cove: home failed: "; e.message; where
+        m.top.error = "Loading failed: " + Util.toText(e.message) + where
+    end try
+end sub
+
+sub load()
     srv = m.top.server
+    print "Cove: home loading from "; srv.url
     m.srv = srv
     m.h = Api.headers(srv, true)
     uid = Util.toText(srv.userId)
@@ -39,12 +55,15 @@ sub work()
         end if
         return
     end if
+    print "Cove: home rows "; root.getChildCount()
     m.top.content = root
 end sub
 
 ' GET a list (an array, or { Items: [...] }); on 404 try the newer Jellyfin route
 function getList(path as string, fallback as string) as object
+    print "Cove: GET "; path.split("?")[0]
     r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + path, headers: m.h, timeout: 20000 })
+    print "Cove:   -> "; r.code
     if r.code = 404 and fallback <> "" then r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + fallback, headers: m.h, timeout: 20000 })
     if r.code = 401
         m.top.authFailed = true

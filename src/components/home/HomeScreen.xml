@@ -38,5 +38,6 @@
             <Font role="font" uri="font:MediumSystemFontFile" size="32" />
         </Label>
         <Timer id="backdropTimer" duration="0.3" repeat="false" />
+        <Timer id="watchdog" duration="45" repeat="false" />
     </children>
 </component>

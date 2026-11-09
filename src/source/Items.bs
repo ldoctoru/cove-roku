@@ -94,7 +94,9 @@ namespace Items
         if ud = invalid or GetInterface(ud, "ifAssociativeArray") = invalid then return 0
         p = ud.PlayedPercentage
         if p = invalid then return 0
-        return p / 100
+        f = 0.0
+        f = f + p / 100
+        return f
     end function
 
     ' One ContentNode for a row tile. landscape: 16:9 tile (Continue Watching, Next Up, libraries)

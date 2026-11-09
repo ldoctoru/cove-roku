@@ -12,6 +12,8 @@ sub init()
     m.top.observeField("focusedChild", "onFocusChanged")
     m.task = invalid
     m.pendingBackdrop = ""
+    m.watchdog = m.top.findNode("watchdog")
+    m.watchdog.observeField("fire", "onWatchdog")
 end sub
 
 sub load()
@@ -25,9 +27,15 @@ sub load()
     m.task.observeField("error", "onError")
     m.task.observeField("authFailed", "onAuthFailed")
     m.task.control = "RUN"
+    m.watchdog.control = "start"
+end sub
+
+sub onWatchdog()
+    if m.status.visible and not m.rows.visible then m.status.text = "The server is taking too long to answer. Press * and choose Reload."
 end sub
 
 sub onContent()
+    m.watchdog.control = "stop"
     content = m.task.content
     ' Per-row sizes: 16:9 tiles for Continue Watching / Next Up / Libraries, 2:3 posters for the library rows
     heights = []
@@ -51,6 +59,7 @@ sub onContent()
 end sub
 
 sub onError()
+    m.watchdog.control = "stop"
     m.status.text = m.task.error + "   Press * for options."
 end sub
 
