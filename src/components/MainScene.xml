@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- The app's root scene. PR 0 shows the Cove logo, the version and the device's playback capabilities. -->
+<!-- Root scene: a stack of screens (MenuScreen pages) and the flows between them: choose / add a server,
+     sign in (username + password, a user from the server's list, or Jellyfin Quick Connect), stay signed in. -->
 <component name="MainScene" extends="Scene">
     <script type="text/brightscript" uri="MainScene.bs" />
     <interface>
@@ -8,20 +9,6 @@
     </interface>
     <children>
         <Rectangle id="background" width="1920" height="1080" color="0x0B0D14FF" />
-        <Poster id="logo" uri="pkg:/images/logo.png" width="192" height="192" translation="[864,250]" />
-        <Label id="title" text="Cove" width="1920" height="90" translation="[0,470]" horizAlign="center">
-            <Font role="font" uri="font:BoldSystemFontFile" size="72" />
-        </Label>
-        <Label id="subtitle" width="1920" height="50" translation="[0,570]" horizAlign="center" color="0xB8BCC8FF">
-            <Font role="font" uri="font:MediumSystemFontFile" size="34" />
-        </Label>
-        <!-- Two plain lines (no wrapping): device and capabilities. The text in the XML shows until the check runs. -->
-        <Label id="device" text="Checking this Roku..." width="1920" height="44" translation="[0,690]"
-               horizAlign="center" color="0x9AA0B0FF">
-            <Font role="font" uri="font:MediumSystemFontFile" size="30" />
-        </Label>
-        <Label id="caps" width="1920" height="44" translation="[0,745]" horizAlign="center" color="0x9AA0B0FF">
-            <Font role="font" uri="font:MediumSystemFontFile" size="30" />
-        </Label>
+        <Group id="screens" />
     </children>
 </component>

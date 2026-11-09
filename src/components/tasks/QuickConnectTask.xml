@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Jellyfin Quick Connect: asks the server for a code ("code"), waits until the user approves it in another
+     signed-in Jellyfin app, then signs in ("result" = the authentication result). "cancel" stops it. -->
+<component name="QuickConnectTask" extends="Task">
+    <script type="text/brightscript" uri="QuickConnectTask.bs" />
+    <interface>
+        <field id="server" type="assocarray" />
+        <field id="code" type="string" />
+        <field id="result" type="assocarray" />
+        <field id="error" type="string" />
+        <field id="cancel" type="boolean" />
+    </interface>
+</component>

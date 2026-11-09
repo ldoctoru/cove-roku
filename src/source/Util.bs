@@ -1,0 +1,78 @@
+' Small helpers shared by the UI and the background tasks.
+namespace Util
+
+    ' Any value as text (Roku returns some fields as strings on one OS version and numbers on another)
+    function toText(v as dynamic) as string
+        if v = invalid then return ""
+        if GetInterface(v, "ifString") <> invalid then return v
+        if GetInterface(v, "ifToStr") <> invalid then return v.toStr()
+        return type(v)
+    end function
+
+    ' A field as a boolean. Comparing a missing (invalid) field with "= true" is unsafe in BrightScript.
+    function flag(obj as dynamic, name as string) as boolean
+        if obj = invalid or GetInterface(obj, "ifAssociativeArray") = invalid then return false
+        v = obj[name]
+        if type(v) = "roBoolean" or type(v) = "Boolean" then return v
+        return false
+    end function
+
+    function join(items as object, sep as string) as string
+        s = ""
+        for i = 0 to items.count() - 1
+            if i > 0 then s = s + sep
+            s = s + toText(items[i])
+        end for
+        return s
+    end function
+
+    function appVersion() as string
+        return createObject("roAppInfo").getVersion()
+    end function
+
+    ' Stable per app and device: the server lists Cove under this id in its devices/sessions
+    function deviceId() as string
+        return createObject("roDeviceInfo").getChannelClientId()
+    end function
+
+    ' "Living Room" (the Roku's name in its settings), or the model name
+    function deviceName() as string
+        di = createObject("roDeviceInfo")
+        n = toText(di.getFriendlyName())
+        if n = "" then n = toText(di.getModelDisplayName())
+        return n
+    end function
+
+    ' What the user typed → addresses to try, in order. Without a scheme: https first for a name,
+    ' http first for an address with a port (typical LAN servers: 192.168.1.20:8096).
+    function urlCandidates(typed as string) as object
+        t = typed.trim()
+        while t.len() > 0 and t.right(1) = "/"
+            t = t.left(t.len() - 1)
+        end while
+        if t = "" then return []
+        low = LCase(t)
+        if low.startsWith("http://") or low.startsWith("https://") then return [t]
+        if t.instr(":") >= 0 then return ["http://" + t, "https://" + t]
+        return ["https://" + t, "http://" + t, "http://" + t + ":8096"]
+    end function
+
+    function readJson(key as string) as dynamic
+        sec = createObject("roRegistrySection", "Cove")
+        if not sec.exists(key) then return invalid
+        return parseJson(sec.read(key))
+    end function
+
+    sub writeText(key as string, value as string)
+        sec = createObject("roRegistrySection", "Cove")
+        sec.write(key, value)
+        sec.flush()
+    end sub
+
+    function readText(key as string) as string
+        sec = createObject("roRegistrySection", "Cove")
+        if not sec.exists(key) then return ""
+        return sec.read(key)
+    end function
+
+end namespace

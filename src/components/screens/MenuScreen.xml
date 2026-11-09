@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- One full-screen page: a title, a subtitle, an optional large code (Quick Connect), a vertical menu and a status
+     line. Every screen in this PR (servers, sign-in, connecting, home) is a MenuScreen filled in by MainScene. -->
+<component name="MenuScreen" extends="Group">
+    <script type="text/brightscript" uri="MenuScreen.bs" />
+    <interface>
+        <field id="screenId" type="string" />
+        <field id="title" type="string" onChange="onTitle" />
+        <field id="subtitle" type="string" onChange="onSubtitle" />
+        <field id="status" type="string" onChange="onStatus" />
+        <field id="code" type="string" onChange="onCode" />
+        <!-- [{ id, label }] -->
+        <field id="items" type="array" onChange="onItems" />
+        <field id="selected" type="assocarray" alwaysNotify="true" />
+        <field id="options" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Poster id="logo" uri="pkg:/images/logo.png" width="96" height="96" translation="[160,90]" />
+        <Label id="title" width="1500" height="70" translation="[290,90]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="52" />
+        </Label>
+        <Label id="subtitle" width="1500" height="44" translation="[290,160]" color="0x9AA0B0FF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="28" />
+        </Label>
+        <Label id="code" width="1920" height="130" translation="[0,290]" horizAlign="center" color="0xFFFFFFFF" visible="false">
+            <Font role="font" uri="font:BoldSystemFontFile" size="110" />
+        </Label>
+        <LabelList id="list" translation="[290,300]" itemSize="[1340,76]" numRows="7" itemSpacing="[0,8]"
+                   vertFocusAnimationStyle="floatingFocus" color="0xC8CCD8FF" focusedColor="0x0B0D14FF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="36" />
+            <Font role="focusedFont" uri="font:BoldSystemFontFile" size="36" />
+        </LabelList>
+        <Label id="status" width="1340" height="44" translation="[290,960]" color="0xF2C14EFF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="30" />
+        </Label>
+    </children>
+</component>

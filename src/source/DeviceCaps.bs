@@ -1,3 +1,5 @@
+import "pkg:/source/Util.bs"
+
 ' What this Roku can play. Later PRs build the server's device profile from it, so the server only converts what
 ' the Roku can't decode (e.g. the Streambar 9102 plays HEVC Main 10 / HDR10 up to 4K but H.264 only up to 1080p).
 namespace DeviceCaps
@@ -7,14 +9,14 @@ namespace DeviceCaps
         display = di.getDisplayProperties()
         ui = di.getUIResolution()
         caps = {
-            model: toText(di.getModel()),
-            modelName: toText(di.getModelDisplayName()),
+            model: Util.toText(di.getModel()),
+            modelName: Util.toText(di.getModelDisplayName()),
             os: osVersion(di),
             uiHeight: ui.height,
-            videoMode: toText(di.getVideoMode()),
-            hdr10: flag(display, "hdr10"),
-            hlg: flag(display, "hlg"),
-            dolbyVision: flag(display, "dolbyVision"),
+            videoMode: Util.toText(di.getVideoMode()),
+            hdr10: Util.flag(display, "hdr10"),
+            hlg: Util.flag(display, "hlg"),
+            dolbyVision: Util.flag(display, "dolbyVision"),
             hevc: canDecode(di, "hevc", "main", "5.1"),
             hevc10: canDecode(di, "hevc", "main 10", "5.1"),
             h264: canDecode(di, "mpeg4 avc", "high", "4.2"),
@@ -46,47 +48,23 @@ namespace DeviceCaps
         if caps.h264 then codecs.push("H.264")
         if caps.eac3 then codecs.push("E-AC3")
         if caps.ac3 then codecs.push("AC3")
-        return join(hdr, ", ") + "  ·  " + join(codecs, ", ")
+        return Util.join(hdr, ", ") + "  ·  " + Util.join(codecs, ", ")
     end function
 
     function canDecode(di as object, codec as string, profile as string, level as string) as boolean
         r = di.canDecodeVideo({ codec: codec, profile: profile, level: level })
-        return r <> invalid and flag(r, "result")
+        return r <> invalid and Util.flag(r, "result")
     end function
 
     function canDecodeAudio(di as object, codec as string) as boolean
         r = di.canDecodeAudio({ codec: codec })
-        return r <> invalid and flag(r, "result")
-    end function
-
-    ' A display property as a boolean. Comparing a missing (invalid) field with "= true" would stop the app.
-    function flag(props as object, name as string) as boolean
-        v = props[name]
-        if type(v) = "roBoolean" or type(v) = "Boolean" then return v
-        return false
+        return r <> invalid and Util.flag(r, "result")
     end function
 
     function osVersion(di as object) as string
         v = di.getOSVersion()
         if v = invalid then return "?"
-        return toText(v.major) + "." + toText(v.minor) + "." + toText(v.revision)
-    end function
-
-    ' Any value as text (Roku returns some fields as strings on one OS version and numbers on another)
-    function toText(v as dynamic) as string
-        if v = invalid then return ""
-        if GetInterface(v, "ifString") <> invalid then return v
-        if GetInterface(v, "ifToStr") <> invalid then return v.toStr()
-        return type(v)
-    end function
-
-    function join(items as object, sep as string) as string
-        s = ""
-        for i = 0 to items.count() - 1
-            if i > 0 then s = s + sep
-            s = s + items[i]
-        end for
-        return s
+        return Util.toText(v.major) + "." + Util.toText(v.minor) + "." + Util.toText(v.revision)
     end function
 
 end namespace
