@@ -25,7 +25,13 @@ namespace DeviceCaps
         return caps
     end function
 
-    function describe(caps as object) as string
+    ' "Roku Streambar (9102X)  ·  Roku OS 15.0.4  ·  2160p60b10"
+    function deviceLine(caps as object) as string
+        return caps.modelName + " (" + caps.model + ")  ·  Roku OS " + caps.os + "  ·  " + caps.videoMode
+    end function
+
+    ' "HDR10, HLG  ·  HEVC 10-bit, H.264, E-AC3, AC3"
+    function playbackLine(caps as object) as string
         hdr = []
         if caps.hdr10 then hdr.push("HDR10")
         if caps.hlg then hdr.push("HLG")
@@ -40,7 +46,7 @@ namespace DeviceCaps
         if caps.h264 then codecs.push("H.264")
         if caps.eac3 then codecs.push("E-AC3")
         if caps.ac3 then codecs.push("AC3")
-        return caps.modelName + " (" + caps.model + "), Roku OS " + caps.os + chr(10) + "Video mode " + caps.videoMode + "  ·  " + join(hdr, ", ") + "  ·  " + join(codecs, ", ")
+        return join(hdr, ", ") + "  ·  " + join(codecs, ", ")
     end function
 
     function canDecode(di as object, codec as string, profile as string, level as string) as boolean
