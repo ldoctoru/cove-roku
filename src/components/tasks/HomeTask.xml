@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Loads the home rows for "server": Continue Watching, Next Up, latest per library, libraries.
+     "content" = RowList content (one child per row, row title = its title); "error" if nothing could be loaded. -->
+<component name="HomeTask" extends="Task">
+    <script type="text/brightscript" uri="HomeTask.bs" />
+    <interface>
+        <field id="server" type="assocarray" />
+        <field id="content" type="node" />
+        <field id="error" type="string" />
+        <field id="authFailed" type="boolean" />
+    </interface>
+</component>

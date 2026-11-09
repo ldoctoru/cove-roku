@@ -1,0 +1,134 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Servers.bs"
+
+sub init()
+    m.rows = m.top.findNode("rows")
+    m.status = m.top.findNode("status")
+    m.backdrop = m.top.findNode("backdrop")
+    m.timer = m.top.findNode("backdropTimer")
+    m.timer.observeField("fire", "onBackdropTimer")
+    m.rows.observeField("rowItemFocused", "onItemFocused")
+    m.rows.observeField("rowItemSelected", "onItemSelected")
+    m.top.observeField("focusedChild", "onFocusChanged")
+    m.task = invalid
+    m.pendingBackdrop = ""
+end sub
+
+sub load()
+    s = m.top.server
+    m.top.findNode("server").text = Util.toText(s.name) + "   ·   " + Util.toText(s.userName)
+    m.status.text = "Loading your libraries..."
+    m.status.visible = true
+    m.task = createObject("roSGNode", "HomeTask")
+    m.task.server = s
+    m.task.observeField("content", "onContent")
+    m.task.observeField("error", "onError")
+    m.task.observeField("authFailed", "onAuthFailed")
+    m.task.control = "RUN"
+end sub
+
+sub onContent()
+    content = m.task.content
+    ' Per-row sizes: 16:9 tiles for Continue Watching / Next Up / Libraries, 2:3 posters for the library rows
+    heights = []
+    sizes = []
+    for i = 0 to content.getChildCount() - 1
+        row = content.getChild(i)
+        if row.landscape
+            sizes.push([400, 287])
+            heights.push(345)
+        else
+            sizes.push([220, 392])
+            heights.push(450)
+        end if
+    end for
+    m.rows.rowHeights = heights
+    m.rows.rowItemSize = sizes
+    m.rows.content = content
+    m.rows.visible = true
+    m.status.visible = false
+    if m.top.isInFocusChain() then m.rows.setFocus(true)
+end sub
+
+sub onError()
+    m.status.text = m.task.error + "   Press * for options."
+end sub
+
+sub onAuthFailed()
+    if m.task.authFailed then m.top.action = { id: "expired" }
+end sub
+
+function focusedItem() as dynamic
+    f = m.rows.rowItemFocused
+    if f = invalid or m.rows.content = invalid then return invalid
+    row = m.rows.content.getChild(f[0])
+    if row = invalid then return invalid
+    return row.getChild(f[1])
+end function
+
+sub onItemFocused()
+    it = focusedItem()
+    if it = invalid then return
+    m.top.findNode("title").text = it.title
+    m.top.findNode("meta").text = it.meta
+    m.top.findNode("overview").text = it.overview
+    ' The backdrop follows only once the focus rests, so scrolling doesn't load every image
+    m.pendingBackdrop = it.backdrop
+    m.timer.control = "stop"
+    m.timer.control = "start"
+end sub
+
+sub onBackdropTimer()
+    if m.backdrop.uri <> m.pendingBackdrop then m.backdrop.uri = m.pendingBackdrop
+end sub
+
+sub onItemSelected()
+    it = focusedItem()
+    if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, title: it.title }
+end sub
+
+sub onFocusChanged()
+    if m.top.hasFocus() and m.rows.visible then m.rows.setFocus(true)
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if press and key = "options"
+        showOptions()
+        return true
+    end if
+    return false
+end function
+
+sub showOptions()
+    d = createObject("roSGNode", "StandardMessageDialog")
+    d.title = Util.toText(m.top.server.name)
+    d.message = ["Signed in as " + Util.toText(m.top.server.userName) + "  ·  " + Servers.typeName(m.top.server) + " " + Util.toText(m.top.server.version)]
+    d.buttons = ["Reload", "Switch server", "Sign out", "Cancel"]
+    d.observeField("buttonSelected", "onOptionsButton")
+    d.observeField("wasClosed", "onOptionsClosed")
+    m.top.getScene().dialog = d
+end sub
+
+sub onOptionsButton(ev as object)
+    d = ev.getRoSGNode()
+    b = d.buttonSelected
+    d.unobserveField("buttonSelected")
+    d.unobserveField("wasClosed")
+    d.close = true
+    m.top.setFocus(true)
+    if b = 0
+        m.rows.visible = false
+        load()
+    else if b = 1
+        m.top.action = { id: "switch" }
+    else if b = 2
+        m.top.action = { id: "signout" }
+    end if
+end sub
+
+sub onOptionsClosed(ev as object)
+    d = ev.getRoSGNode()
+    d.unobserveField("buttonSelected")
+    d.unobserveField("wasClosed")
+    m.top.setFocus(true)
+end sub

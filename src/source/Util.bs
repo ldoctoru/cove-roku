@@ -17,11 +17,11 @@ namespace Util
         return false
     end function
 
-    function join(items as object, sep as string) as string
+    function join(parts as object, sep as string) as string
         s = ""
-        for i = 0 to items.count() - 1
+        for i = 0 to parts.count() - 1
             if i > 0 then s = s + sep
-            s = s + toText(items[i])
+            s = s + toText(parts[i])
         end for
         return s
     end function
