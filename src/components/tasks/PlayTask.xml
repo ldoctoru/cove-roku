@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Asks the server how to play "itemId" (PlaybackInfo with this Roku's device profile).
+     "stream" = Playback.streamFrom(...) result, or "error". -->
+<component name="PlayTask" extends="Task">
+    <script type="text/brightscript" uri="PlayTask.bs" />
+    <interface>
+        <field id="server" type="assocarray" />
+        <field id="itemId" type="string" />
+        <field id="forceTranscode" type="boolean" />
+        <field id="stream" type="assocarray" />
+        <field id="error" type="string" />
+    </interface>
+</component>

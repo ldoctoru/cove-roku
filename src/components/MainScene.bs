@@ -20,6 +20,7 @@ sub init()
     m.dialogTimer = m.top.findNode("dialogTimer")
     m.dialogTimer.observeField("fire", "onDialogTimer")
     m.removeId = ""
+    m.homeStale = false
     m.deviceLine = ""
     try
         m.deviceLine = DeviceCaps.deviceLine(DeviceCaps.get())
@@ -69,6 +70,11 @@ sub pop()
     t = m.stack.peek()
     t.visible = true
     t.setFocus(true)
+    ' Continue Watching / Next Up changed while something was played
+    if m.homeStale and t.screenId = "home"
+        m.homeStale = false
+        t.reload = true
+    end if
 end sub
 
 ' Replace the whole stack with one screen (after signing in, or when starting over)
@@ -128,8 +134,38 @@ sub onHomeAction(ev as object)
         Servers.upsert(m.server)
         openSignIn(m.server, "Your sign-in has expired. Please sign in again.")
     else if a.id = "open"
-        showNotice(a.title, "Details and playback arrive in the next update.")
+        openItem(a)
     end if
+end sub
+
+' Movies, episodes, series and videos open their details; whole libraries come in a later update
+sub openItem(a as object)
+    t = a.itemType
+    if t = "CollectionFolder" or t = "UserView" or t = "Folder" or t = "BoxSet" or t = "Playlist"
+        showNotice(a.title, "Browsing a whole library comes in a later update.")
+        return
+    end if
+    d = createObject("roSGNode", "DetailsScreen")
+    d.server = m.server
+    d.observeField("play", "onPlay")
+    push(d)
+    d.itemId = a.itemId
+end sub
+
+sub onPlay(ev as object)
+    p = createObject("roSGNode", "PlayerScreen")
+    p.server = m.server
+    p.observeField("done", "onPlayerDone")
+    push(p)
+    p.item = ev.getData()
+end sub
+
+' Back from the player: refresh the details (new resume point) and, later, the home rows
+sub onPlayerDone()
+    pop()
+    m.homeStale = true
+    t = top()
+    if t <> invalid and t.screenId = "details" then t.refresh = true
 end sub
 
 sub showNotice(title as string, text as string)

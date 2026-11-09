@@ -19,8 +19,10 @@ end sub
 sub load()
     s = m.top.server
     m.top.findNode("server").text = Util.toText(s.name) + "   ·   " + Util.toText(s.userName)
-    m.status.text = "Loading your libraries..."
-    m.status.visible = true
+    if m.reloading <> true
+        m.status.text = "Loading your libraries..."
+        m.status.visible = true
+    end if
     m.task = createObject("roSGNode", "HomeTask")
     m.task.server = s
     m.task.observeField("content", "onContent")
@@ -32,6 +34,12 @@ end sub
 
 sub onWatchdog()
     if m.status.visible and not m.rows.visible then m.status.text = "The server is taking too long to answer. Press * and choose Reload."
+end sub
+
+' Reload after playback, keeping the screen as it is until the new rows arrive
+sub onReload()
+    m.reloading = true
+    load()
 end sub
 
 sub onContent()
@@ -52,6 +60,7 @@ sub onContent()
     end for
     m.rows.rowHeights = heights
     m.rows.rowItemSize = sizes
+    m.reloading = false
     m.rows.content = content
     m.rows.visible = true
     m.status.visible = false

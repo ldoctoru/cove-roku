@@ -1,0 +1,164 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/DeviceCaps.bs"
+
+' What to ask the server for and how to play what it returns. The device profile is built from what this Roku
+' reports (DeviceCaps), so the server only converts what the Roku can't play. Streambar 9102: HEVC Main 10 /
+' HDR10 up to 4K plays unchanged; H.264 only up to 1080p; TrueHD / DTS audio are converted to E-AC3 / AC3.
+namespace Playback
+
+    ' Quoted keys keep their case in the JSON sent to the server (unquoted AA keys are lower-cased)
+    function profile(caps as object) as object
+        video = ["h264"]
+        if caps.hevc then video.push("hevc")
+        audio = ["aac", "mp3", "flac"]
+        if caps.eac3 then audio.push("eac3")
+        if caps.ac3 then audio.push("ac3")
+        ' Converted audio: surround codecs first, so a 5.1 / 7.1 track keeps its channels
+        tAudio = []
+        if caps.eac3 then tAudio.push("eac3")
+        if caps.ac3 then tAudio.push("ac3")
+        tAudio.push("aac")
+        ' Copy HEVC into the HLS stream when possible; when the server must encode it uses the first: H.264
+        tVideo = "h264"
+        if caps.hevc then tVideo = "h264,hevc"
+
+        codecProfiles = [
+            {
+                "Type": "Video", "Codec": "h264",
+                "Conditions": [
+                    { "Condition": "LessThanEqual", "Property": "Width", "Value": "1920", "IsRequired": false },
+                    { "Condition": "LessThanEqual", "Property": "VideoBitDepth", "Value": "8", "IsRequired": false }
+                ]
+            }
+        ]
+        if caps.hevc and not caps.hevc10
+            codecProfiles.push({
+                "Type": "Video", "Codec": "hevc",
+                "Conditions": [{ "Condition": "LessThanEqual", "Property": "VideoBitDepth", "Value": "8", "IsRequired": false }]
+            })
+        end if
+        maxW = "1920"
+        if caps.fourK then maxW = "3840"
+
+        return {
+            "Name": "Cove Roku",
+            "MaxStreamingBitrate": 120000000,
+            "MaxStaticBitrate": 120000000,
+            "MusicStreamingTranscodingBitrate": 192000,
+            "DirectPlayProfiles": [
+                { "Container": "mkv,mp4,m4v,mov,ts", "Type": "Video", "VideoCodec": Util.join(video, ","), "AudioCodec": Util.join(audio, ",") }
+            ],
+            "TranscodingProfiles": [
+                {
+                    "Container": "ts", "Type": "Video", "Protocol": "hls", "Context": "Streaming",
+                    "VideoCodec": tVideo, "AudioCodec": Util.join(tAudio, ","), "MaxAudioChannels": "6",
+                    "MinSegments": "1", "BreakOnNonKeyFrames": true
+                }
+            ],
+            "ContainerProfiles": [],
+            "CodecProfiles": codecProfiles,
+            "ResponseProfiles": [],
+            "SubtitleProfiles": [],
+            "MaxWidth": maxW
+        }
+    end function
+
+    ' JSON for POST /Items/{id}/PlaybackInfo
+    function infoBody(caps as object) as string
+        return formatJson({ "DeviceProfile": profile(caps) })
+    end function
+
+    ' Query for PlaybackInfo. forceTranscode: after a playback error, the server converts the video
+    function infoQuery(server as object, forceTranscode as boolean) as string
+        q = "UserId=" + Util.toText(server.userId) + "&IsPlayback=true&AutoOpenLiveStream=true&MaxStreamingBitrate=120000000&SubtitleStreamIndex=-1"
+        if forceTranscode then q = q + "&EnableDirectPlay=false&EnableDirectStream=false&AllowVideoStreamCopy=false"
+        return q
+    end function
+
+    ' The stream to play from a PlaybackInfo answer → { url, streamFormat, method, mediaSourceId, playSessionId,
+    ' sourceVideoCodec } or invalid
+    function streamFrom(server as object, itemId as string, info as dynamic, forceTranscode as boolean) as dynamic
+        if info = invalid or GetInterface(info, "ifAssociativeArray") = invalid then return invalid
+        sources = info.MediaSources
+        if type(sources) <> "roArray" or sources.count() = 0 then return invalid
+        src = sources[0]
+        r = {
+            mediaSourceId: Util.toText(src.Id),
+            playSessionId: Util.toText(info.PlaySessionId),
+            sourceVideoCodec: videoCodec(src)
+        }
+        base = Util.toText(server.url)
+        key = "api_key=" + Util.toText(server.token)
+        container = LCase(Util.toText(src.Container))
+        if not forceTranscode and Util.flag(src, "SupportsDirectPlay") and container <> ""
+            fmt = "mp4"
+            if container.instr("mkv") >= 0 or container.instr("matroska") >= 0 then fmt = "mkv"
+            if container = "ts" or container = "mpegts" then fmt = "ts"
+            r.url = base + "/Videos/" + itemId + "/stream?static=true&MediaSourceId=" + r.mediaSourceId + "&PlaySessionId=" + r.playSessionId + "&DeviceId=" + Util.deviceId() + "&" + key
+            r.streamFormat = fmt
+            r.method = "DirectPlay"
+            return r
+        end if
+        t = Util.toText(src.TranscodingUrl)
+        if t = "" then return invalid
+        if not t.startsWith("http") then t = base + t
+        if LCase(t).instr("api_key=") < 0 and LCase(t).instr("apikey=") < 0 then t = t + "&" + key
+        print "Cove: stream "; Util.redact(t.mid(base.len()))
+        ' An H.264 conversion must stay within 1080p (the Roku's H.264 limit); a copied HEVC video is left alone
+        ' (replaced, not appended: a repeated parameter reaches the server as "3840,1920" and it answers 500)
+        if r.sourceVideoCodec <> "hevc" or forceTranscode then t = Util.setQuery(t, "MaxWidth", "1920")
+        r.url = t
+        r.streamFormat = "hls"
+        r.method = "Transcode"
+        if LCase(t).instr("videocodec=") >= 0 and r.sourceVideoCodec = "hevc" and not forceTranscode then r.method = "DirectStream"
+        return r
+    end function
+
+    function videoCodec(src as object) as string
+        if type(src.MediaStreams) <> "roArray" then return ""
+        for each s in src.MediaStreams
+            if Util.toText(s.Type) = "Video" then return LCase(Util.toText(s.Codec))
+        end for
+        return ""
+    end function
+
+    ' Seconds → server ticks (100 ns), as a 64-bit number
+    function ticks(secs as float) as longinteger
+        whole = Int(secs)
+        if whole < 0 then whole = 0
+        return whole * 10000000&
+    end function
+
+    ' Server ticks (number or text) → seconds
+    function seconds(t as dynamic) as float
+        if t = invalid then return 0
+        if GetInterface(t, "ifString") <> invalid then t = t.toFloat() * 1
+        return t / 10000000
+    end function
+
+    ' JSON for /Sessions/Playing, /Playing/Progress and /Playing/Stopped
+    function reportBody(s as object, positionSeconds as float, paused as boolean) as string
+        return formatJson({
+            "ItemId": s.itemId,
+            "MediaSourceId": s.mediaSourceId,
+            "PlaySessionId": s.playSessionId,
+            "PositionTicks": ticks(positionSeconds),
+            "IsPaused": paused,
+            "CanSeek": true,
+            "PlayMethod": s.method
+        })
+    end function
+
+    ' "1:02:05" / "34:12"
+    function clock(secs as float) as string
+        s = Int(secs)
+        h = s \ 3600
+        mm = (s mod 3600) \ 60
+        ss = s mod 60
+        out = ""
+        if h > 0 then out = h.toStr() + ":" + Right("0" + mm.toStr(), 2) + ":"
+        if h = 0 then out = mm.toStr() + ":"
+        return out + Right("0" + ss.toStr(), 2)
+    end function
+
+end namespace

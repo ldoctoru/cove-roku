@@ -7,6 +7,7 @@
         <field id="server" type="assocarray" onChange="load" />
         <field id="action" type="assocarray" alwaysNotify="true" />
         <field id="screenId" type="string" value="home" />
+        <field id="reload" type="boolean" alwaysNotify="true" onChange="onReload" />
     </interface>
     <children>
         <Poster id="backdrop" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0.35" />
