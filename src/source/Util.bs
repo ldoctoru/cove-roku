@@ -26,6 +26,41 @@ namespace Util
         return s
     end function
 
+    ' Splits text into at most maxLines lines of about width characters, at spaces; "..." ends a cut text.
+    ' (Wrapping by hand: a Label with wrap="true" draws nothing on some Roku OS versions.)
+    function wrapLines(text as string, width as integer, maxLines as integer) as object
+        lines = []
+        words = text.replace(chr(13), " ").replace(chr(10), " ").split(" ")
+        line = ""
+        i = 0
+        while i < words.count()
+            w = words[i]
+            if w <> ""
+                if line = ""
+                    candidate = w
+                else
+                    candidate = line + " " + w
+                end if
+                if candidate.len() <= width or line = ""
+                    line = candidate
+                else
+                    lines.push(line)
+                    line = w
+                    if lines.count() = maxLines then exit while
+                end if
+            end if
+            i = i + 1
+        end while
+        if lines.count() < maxLines and line <> ""
+            lines.push(line)
+        else if lines.count() = maxLines
+            last = lines[maxLines - 1]
+            if last.len() > width - 3 then last = last.left(width - 3)
+            lines[maxLines - 1] = last + "..."
+        end if
+        return lines
+    end function
+
     function appVersion() as string
         return createObject("roAppInfo").getVersion()
     end function

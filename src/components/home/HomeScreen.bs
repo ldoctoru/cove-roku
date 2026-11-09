@@ -80,7 +80,13 @@ sub onItemFocused()
     if it = invalid then return
     m.top.findNode("title").text = it.title
     m.top.findNode("meta").text = it.meta
-    m.top.findNode("overview").text = it.overview
+    print "Cove: focus "; it.title; " (overview "; it.overview.len(); " chars)"
+    lines = Util.wrapLines(it.overview, 88, 3)
+    for i = 0 to 2
+        line = ""
+        if i < lines.count() then line = lines[i]
+        m.top.findNode("ov" + i.toStr()).text = line
+    end for
     ' The backdrop follows only once the focus rests, so scrolling doesn't load every image
     m.pendingBackdrop = it.backdrop
     m.timer.control = "stop"
