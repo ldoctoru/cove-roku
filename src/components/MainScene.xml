@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- The app's root scene. PR 0 shows the Cove logo, the version and the device's playback capabilities. -->
+<component name="MainScene" extends="Scene">
+    <script type="text/brightscript" uri="MainScene.bs" />
+    <interface>
+        <field id="launchArgs" type="assocarray" />
+        <field id="inputArgs" type="assocarray" />
+    </interface>
+    <children>
+        <Rectangle id="background" width="1920" height="1080" color="0x0B0D14FF" />
+        <Poster id="logo" uri="pkg:/images/logo.png" width="192" height="192" translation="[864,250]" />
+        <Label id="title" text="Cove" width="1920" height="90" translation="[0,470]" horizAlign="center">
+            <Font role="font" uri="font:BoldSystemFontFile" size="72" />
+        </Label>
+        <Label id="subtitle" width="1920" height="50" translation="[0,570]" horizAlign="center" color="0xB8BCC8FF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="34" />
+        </Label>
+        <Label id="device" width="1500" height="200" translation="[210,700]" horizAlign="center" wrap="true"
+               color="0x7A8090FF">
+            <Font role="font" uri="font:SmallSystemFontFile" size="28" />
+        </Label>
+    </children>
+</component>

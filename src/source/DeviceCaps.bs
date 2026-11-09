@@ -1,0 +1,77 @@
+' What this Roku can play. Later PRs build the server's device profile from it, so the server only converts what
+' the Roku can't decode (e.g. the Streambar 9102 plays HEVC Main 10 / HDR10 up to 4K but H.264 only up to 1080p).
+namespace DeviceCaps
+
+    function get() as object
+        di = createObject("roDeviceInfo")
+        display = di.getDisplayProperties()
+        ui = di.getUIResolution()
+        caps = {
+            model: di.getModel(),
+            modelName: di.getModelDisplayName(),
+            os: osVersion(di),
+            uiHeight: ui.height,
+            videoMode: di.getVideoMode(),
+            hdr10: flag(display, "hdr10"),
+            hlg: flag(display, "hlg"),
+            dolbyVision: flag(display, "dolbyVision"),
+            hevc: canDecode(di, "hevc", "main", "5.1"),
+            hevc10: canDecode(di, "hevc", "main 10", "5.1"),
+            h264: canDecode(di, "mpeg4 avc", "high", "4.2"),
+            ac3: canDecodeAudio(di, "ac3"),
+            eac3: canDecodeAudio(di, "eac3")
+        }
+        caps.fourK = Instr(1, caps.videoMode, "2160") > 0
+        return caps
+    end function
+
+    function describe(caps as object) as string
+        hdr = []
+        if caps.hdr10 then hdr.push("HDR10")
+        if caps.hlg then hdr.push("HLG")
+        if caps.dolbyVision then hdr.push("Dolby Vision")
+        if hdr.count() = 0 then hdr.push("no HDR on this TV")
+        codecs = []
+        if caps.hevc10
+            codecs.push("HEVC 10-bit")
+        else if caps.hevc
+            codecs.push("HEVC")
+        end if
+        if caps.h264 then codecs.push("H.264")
+        if caps.eac3 then codecs.push("E-AC3")
+        if caps.ac3 then codecs.push("AC3")
+        return caps.modelName + " (" + caps.model + "), Roku OS " + caps.os + chr(10) + "Video mode " + caps.videoMode + "  ·  " + join(hdr, ", ") + "  ·  " + join(codecs, ", ")
+    end function
+
+    function canDecode(di as object, codec as string, profile as string, level as string) as boolean
+        r = di.canDecodeVideo({ codec: codec, profile: profile, level: level })
+        return r <> invalid and r.result = true
+    end function
+
+    function canDecodeAudio(di as object, codec as string) as boolean
+        r = di.canDecodeAudio({ codec: codec })
+        return r <> invalid and r.result = true
+    end function
+
+    ' A display property as a boolean. Comparing a missing (invalid) field with "= true" would stop the app.
+    function flag(props as object, name as string) as boolean
+        v = props[name]
+        if type(v) = "roBoolean" or type(v) = "Boolean" then return v
+        return false
+    end function
+
+    function osVersion(di as object) as string
+        v = di.getOSVersion()
+        return v.major + "." + v.minor + "." + v.revision
+    end function
+
+    function join(items as object, sep as string) as string
+        s = ""
+        for i = 0 to items.count() - 1
+            if i > 0 then s = s + sep
+            s = s + items[i]
+        end for
+        return s
+    end function
+
+end namespace

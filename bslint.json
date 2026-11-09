@@ -1,0 +1,13 @@
+{
+    "rules": {
+        "inline-if": "off",
+        "case-sensitivity": "off",
+        "unused-variable": "error",
+        "consistent-return": "error",
+        "assign-all-paths": "error",
+        "unsafe-path-loop": "error",
+        "unsafe-iterators": "error",
+        "unreachable-code": "error",
+        "eol-last": "always"
+    }
+}

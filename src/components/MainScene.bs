@@ -1,0 +1,11 @@
+import "pkg:/source/DeviceCaps.bs"
+
+sub init()
+    m.top.backgroundColor = "0x0B0D14"
+    m.top.backgroundURI = ""
+    info = createObject("roAppInfo")
+    m.top.findNode("subtitle").text = "Emby and Jellyfin client  ·  version " + info.getVersion()
+    caps = DeviceCaps.get()
+    m.top.findNode("device").text = DeviceCaps.describe(caps)
+    m.top.setFocus(true)
+end sub
