@@ -1,0 +1,66 @@
+import "pkg:/source/Util.bs"
+
+' Saved servers, kept in the Roku's registry for this app:
+' { id, name, url, type ("emby" | "jellyfin"), version, userId, userName, token }
+namespace Servers
+
+    function all() as object
+        v = Util.readJson("servers")
+        if type(v) <> "roArray" then return []
+        return v
+    end function
+
+    sub saveAll(list as object)
+        Util.writeText("servers", formatJson(list))
+    end sub
+
+    function find(id as string) as dynamic
+        for each s in all()
+            if Util.toText(s.id) = id then return s
+        end for
+        return invalid
+    end function
+
+    ' Adds the server or updates the saved one with the same id
+    sub upsert(server as object)
+        list = all()
+        for i = 0 to list.count() - 1
+            if Util.toText(list[i].id) = Util.toText(server.id)
+                list[i] = server
+                saveAll(list)
+                return
+            end if
+        end for
+        list.push(server)
+        saveAll(list)
+    end sub
+
+    sub remove(id as string)
+        kept = []
+        for each s in all()
+            if Util.toText(s.id) <> id then kept.push(s)
+        end for
+        saveAll(kept)
+        if Util.readText("active") = id then Util.writeText("active", "")
+    end sub
+
+    function active() as dynamic
+        id = Util.readText("active")
+        if id = "" then return invalid
+        return find(id)
+    end function
+
+    sub setActive(id as string)
+        Util.writeText("active", id)
+    end sub
+
+    function isJellyfin(server as object) as boolean
+        return Util.toText(server.type) = "jellyfin"
+    end function
+
+    function typeName(server as object) as string
+        if isJellyfin(server) then return "Jellyfin"
+        return "Emby"
+    end function
+
+end namespace

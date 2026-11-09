@@ -1,0 +1,41 @@
+import "pkg:/source/Api.bs"
+
+sub init()
+    m.top.functionName = "work"
+end sub
+
+sub work()
+    srv = m.top.server
+    h = Api.headers(srv, false)
+    ' Jellyfin 10.9+ uses POST; older versions GET
+    r = Api.execute({ method: "POST", url: srv.url + "/QuickConnect/Initiate", headers: h })
+    if r.code = 404 or r.code = 405 then r = Api.execute({ method: "GET", url: srv.url + "/QuickConnect/Initiate", headers: h })
+    if r.code <> 200 or r.json = invalid
+        m.top.error = "Quick Connect isn't available on this server. " + Api.describeFailure(r)
+        return
+    end if
+    secret = Util.toText(r.json.Secret)
+    m.top.code = Util.toText(r.json.Code)
+    ' Check every 3 s for about 5 minutes (the server lets a code expire after a few minutes)
+    for i = 1 to 100
+        for j = 1 to 6
+            if m.top.cancel then return
+            sleep(500)
+        end for
+        c = Api.execute({ method: "GET", url: srv.url + "/QuickConnect/Connect?Secret=" + secret, headers: h })
+        if c.code = 200 and Util.flag(c.json, "Authenticated")
+            body = "{" + chr(34) + "Secret" + chr(34) + ":" + formatJson(secret) + "}"
+            a = Api.execute({ method: "POST", url: srv.url + "/Users/AuthenticateWithQuickConnect", headers: h, body: body })
+            if a.code = 200 and a.json <> invalid
+                m.top.result = a.json
+            else
+                m.top.error = "Quick Connect was approved, but signing in failed. " + Api.describeFailure(a)
+            end if
+            return
+        else if c.code = 400 or c.code = 401 or c.code = 404
+            m.top.error = "The Quick Connect code expired. Choose Quick Connect again for a new one."
+            return
+        end if
+    end for
+    m.top.error = "The Quick Connect code expired. Choose Quick Connect again for a new one."
+end sub

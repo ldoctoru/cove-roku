@@ -1,31 +1,496 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Servers.bs"
+import "pkg:/source/Api.bs"
 import "pkg:/source/DeviceCaps.bs"
 
 sub init()
     m.top.backgroundColor = "0x0B0D14"
     m.top.backgroundURI = ""
-    info = createObject("roAppInfo")
-    m.top.findNode("subtitle").text = "Emby and Jellyfin client  ·  version " + info.getVersion()
-    ' A failed check must not leave the lines empty: show (and print) what went wrong instead
-    line1 = ""
-    line2 = ""
+    m.screens = m.top.findNode("screens")
+    m.stack = []
+    m.pending = []              ' running ApiTasks (kept referenced until they answer)
+    m.beaconSent = false
+    m.server = invalid          ' the server being added / signed in to
+    m.users = []                ' its public users
+    m.quickConnect = false      ' Jellyfin Quick Connect enabled on it
+    m.qcTask = invalid
+    m.pendingUser = ""
+    m.keyboardFor = ""
+    m.nextAsk = invalid
+    m.dialogTimer = m.top.findNode("dialogTimer")
+    m.dialogTimer.observeField("fire", "onDialogTimer")
+    m.removeId = ""
+    m.deviceLine = ""
     try
-        print "Cove: checking device"
-        caps = DeviceCaps.get()
-        print "Cove: caps "; formatJson(caps)
-        line1 = DeviceCaps.deviceLine(caps)
-        line2 = DeviceCaps.playbackLine(caps)
+        m.deviceLine = DeviceCaps.deviceLine(DeviceCaps.get())
     catch e
-        line1 = "Device check failed: " + DeviceCaps.toText(e.message) + " (error " + DeviceCaps.toText(e.number) + ")"
-        print "Cove: "; line1
-        if e.backtrace <> invalid
-            for each f in e.backtrace
-                print "  at "; f.filename; ":"; f.line_number
-            end for
-        end if
+        print "Cove: device check failed: "; e.message
     end try
-    print "Cove: "; line1
-    print "Cove: "; line2
-    m.top.findNode("device").text = line1
-    m.top.findNode("caps").text = line2
-    m.top.setFocus(true)
+    start()
+end sub
+
+' Signed in before: check the saved sign-in still works, otherwise show the server list
+sub start()
+    s = Servers.active()
+    if s <> invalid and Util.toText(s.token) <> ""
+        validate(s)
+    else
+        showServers("")
+    end if
+end sub
+
+' ---------------------------------------------------------------- screens
+
+function newMenu(id as string, title as string, subtitle as string, items as object) as object
+    s = createObject("roSGNode", "MenuScreen")
+    s.screenId = id
+    s.title = title
+    s.subtitle = subtitle
+    s.items = items
+    s.observeField("selected", "onSelected")
+    s.observeField("options", "onOptions")
+    return s
+end function
+
+sub push(s as object)
+    if m.stack.count() > 0 then m.stack.peek().visible = false
+    m.screens.appendChild(s)
+    m.stack.push(s)
+    s.setFocus(true)
+    if not m.beaconSent
+        m.beaconSent = true
+        m.top.signalBeacon("AppLaunchComplete")
+    end if
+end sub
+
+sub pop()
+    s = m.stack.pop()
+    m.screens.removeChild(s)
+    t = m.stack.peek()
+    t.visible = true
+    t.setFocus(true)
+end sub
+
+' Replace the whole stack with one screen (after signing in, or when starting over)
+sub reset(s as object)
+    m.screens.removeChildrenIndex(m.screens.getChildCount(), 0)
+    m.stack = []
+    push(s)
+end sub
+
+function top() as dynamic
+    if m.stack.count() = 0 then return invalid
+    return m.stack.peek()
+end function
+
+function topIs(id as string) as boolean
+    t = top()
+    return t <> invalid and t.screenId = id
+end function
+
+sub setStatus(id as string, text as string)
+    if topIs(id) then top().status = text
+end sub
+
+sub showServers(status as string)
+    items = []
+    for each s in Servers.all()
+        who = Util.toText(s.userName)
+        if Util.toText(s.token) = "" then who = "not signed in"
+        items.push({ id: "srv:" + Util.toText(s.id), label: Util.toText(s.name) + "   ·   " + who + "   ·   " + Servers.typeName(s) })
+    end for
+    items.push({ id: "add", label: "Add a server" })
+    sub_ = "Choose a server, or add one."
+    if items.count() > 1 then sub_ = "Choose a server  ·  press * on a server to remove it"
+    sc = newMenu("servers", "Servers", sub_, items)
+    sc.status = status
+    reset(sc)
+    if status = "" and m.deviceLine <> "" then sc.status = m.deviceLine
+end sub
+
+sub showHome(server as object)
+    Servers.setActive(Util.toText(server.id))
+    items = [
+        { id: "switch", label: "Switch server" },
+        { id: "signout", label: "Sign out" }
+    ]
+    sc = newMenu("home", Util.toText(server.name), "Signed in as " + Util.toText(server.userName) + "   ·   " + Servers.typeName(server) + " " + Util.toText(server.version), items)
+    sc.status = "Signed in. Your libraries and rows come in the next update."
+    reset(sc)
+end sub
+
+' ---------------------------------------------------------------- user actions
+
+sub onSelected(ev as object)
+    s = ev.getRoSGNode()
+    id = ev.getData().id
+    if s.screenId = "servers"
+        if id = "add"
+            askText("address", "Add a server", "The server's address, e.g. 192.168.1.20:8096 or https://emby.example.com", "", false)
+        else
+            openServer(Servers.find(id.mid(4)))
+        end if
+    else if s.screenId = "signin"
+        if id = "manual"
+            askText("username", "Username", "Your username on " + Util.toText(m.server.name), "", false)
+        else if id = "quick"
+            startQuickConnect()
+        else if id = "cancelqc"
+            stopQuickConnect()
+            showSignInItems("")
+        else if id.startsWith("user:")
+            u = m.users[id.mid(5).toInt()]
+            m.pendingUser = Util.toText(u.Name)
+            if Util.flag(u, "HasPassword")
+                askText("password", "Password", "Password for " + m.pendingUser, "", true)
+            else
+                signIn(m.pendingUser, "")
+            end if
+        end if
+    else if s.screenId = "home"
+        if id = "switch"
+            showServers("")
+        else if id = "signout"
+            signOut()
+        end if
+    else if s.screenId = "connecting"
+        if id = "retry"
+            validate(m.server)
+        else if id = "servers"
+            showServers("")
+        end if
+    end if
+end sub
+
+sub onOptions(ev as object)
+    s = ev.getRoSGNode()
+    id = ev.getData().id
+    if s.screenId = "servers" and id.startsWith("srv:")
+        srv = Servers.find(id.mid(4))
+        if srv = invalid then return
+        m.removeId = Util.toText(srv.id)
+        d = createObject("roSGNode", "StandardMessageDialog")
+        d.title = "Remove " + Util.toText(srv.name) + "?"
+        d.message = ["Cove forgets this server and its sign-in. You can add it again any time."]
+        d.buttons = ["Remove", "Cancel"]
+        d.observeField("buttonSelected", "onRemoveButton")
+        d.observeField("wasClosed", "onDialogClosed")
+        m.top.dialog = d
+    end if
+end sub
+
+sub onRemoveButton()
+    remove = m.top.dialog.buttonSelected = 0
+    closeDialog()
+    if remove
+        Servers.remove(m.removeId)
+        showServers("Server removed.")
+    end if
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if key = "back" and m.stack.count() > 1
+        stopQuickConnect()
+        pop()
+        return true
+    end if
+    return false
+end function
+
+' ---------------------------------------------------------------- keyboard
+
+sub askText(purpose as string, title as string, message as string, text as string, secure as boolean)
+    m.keyboardFor = purpose
+    d = createObject("roSGNode", "StandardKeyboardDialog")
+    d.title = title
+    d.message = [message]
+    d.text = text
+    d.buttons = ["OK", "Cancel"]
+    if secure
+        if d.hasField("keyboardDomain") then d.keyboardDomain = "password"
+        if d.hasField("textEditBox") and d.textEditBox <> invalid then d.textEditBox.secureMode = true
+    end if
+    d.observeField("buttonSelected", "onKeyboardButton")
+    d.observeField("wasClosed", "onDialogClosed")
+    m.top.dialog = d
+    d.setFocus(true)
+end sub
+
+' Opening a keyboard while the previous one is still closing leaves the new one on screen without focus
+' (the closing dialog hands focus back to the page), so the user can't type. Wait until it has gone.
+sub askTextLater(purpose as string, title as string, message as string, text as string, secure as boolean)
+    m.nextAsk = { purpose: purpose, title: title, message: message, text: text, secure: secure }
+    m.dialogTimer.control = "start"
+end sub
+
+sub onDialogTimer()
+    a = m.nextAsk
+    m.nextAsk = invalid
+    if a <> invalid then askText(a.purpose, a.title, a.message, a.text, a.secure)
+end sub
+
+sub onKeyboardButton()
+    d = m.top.dialog
+    ok = d.buttonSelected = 0
+    text = Util.toText(d.text).trim()
+    closeDialog()
+    if not ok then return
+    if m.keyboardFor = "address"
+        if text <> "" then probe(Util.urlCandidates(text), 0, text)
+    else if m.keyboardFor = "username"
+        if text = "" then return
+        m.pendingUser = text
+        askTextLater("password", "Password", "Password for " + text + " (leave empty if none)", "", true)
+    else if m.keyboardFor = "password"
+        signIn(m.pendingUser, text)
+    end if
+end sub
+
+' Back pressed on a dialog. Only the dialog still on screen counts, because a dialog that was just closed
+' must not close the next one (username → password).
+sub onDialogClosed(ev as object)
+    d = ev.getRoSGNode()
+    if m.top.dialog <> invalid and d.isSameNode(m.top.dialog) then closeDialog()
+end sub
+
+' Stop listening to the dialog before closing it, so its late "wasClosed" can't reach the next dialog
+sub closeDialog()
+    d = m.top.dialog
+    if d <> invalid
+        d.unobserveField("buttonSelected")
+        d.unobserveField("wasClosed")
+        d.close = true
+    end if
+    t = top()
+    if t <> invalid then t.setFocus(true)
+end sub
+
+' ---------------------------------------------------------------- requests
+
+sub request(method as string, server as object, path as string, withToken as boolean, body as string, tag as object)
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: method, url: Util.toText(server.url) + path, headers: Api.headers(server, withToken), body: body, tag: tag }
+    t.observeField("response", "onResponse")
+    m.pending.push(t)
+    t.control = "RUN"
+end sub
+
+sub onResponse(ev as object)
+    t = ev.getRoSGNode()
+    for i = 0 to m.pending.count() - 1
+        if m.pending[i].isSameNode(t)
+            m.pending.delete(i)
+            exit for
+        end if
+    end for
+    r = ev.getData()
+    kind = Util.toText(r.tag.kind)
+    if kind = "probe"
+        onProbe(r)
+    else if kind = "users"
+        onUsers(r)
+    else if kind = "qcEnabled"
+        m.quickConnect = r.code = 200 and Util.flag({ v: r.json }, "v")
+        showSignInItems("")
+    else if kind = "signin"
+        onSignIn(r)
+    else if kind = "validate"
+        onValidate(r)
+    end if
+end sub
+
+' ---------------------------------------------------------------- add a server
+
+' Tries the typed address as https / http / :8096 until one answers like an Emby or Jellyfin server
+sub probe(candidates as object, index as integer, typed as string)
+    if index >= candidates.count()
+        setStatus("servers", "Couldn't find an Emby or Jellyfin server at " + typed + ". Check the address and that the server is running.")
+        return
+    end if
+    setStatus("servers", "Looking for the server at " + candidates[index] + "...")
+    request("GET", { url: candidates[index], type: "emby" }, "/System/Info/Public", false, "", { kind: "probe", candidates: candidates, index: index, typed: typed })
+end sub
+
+sub onProbe(r as object)
+    j = r.json
+    if r.code = 200 and j <> invalid and GetInterface(j, "ifAssociativeArray") <> invalid and Util.toText(j.Id) <> ""
+        url = r.tag.candidates[r.tag.index]
+        kind = "emby"
+        if LCase(Util.toText(j.ProductName)).instr("jellyfin") >= 0 then kind = "jellyfin"
+        srv = Servers.find(Util.toText(j.Id))
+        if srv = invalid then srv = { id: Util.toText(j.Id), userId: "", userName: "", token: "" }
+        srv.name = Util.toText(j.ServerName)
+        srv.url = url
+        srv.type = kind
+        srv.version = Util.toText(j.Version)
+        Servers.upsert(srv)
+        openServer(srv)
+    else
+        probe(r.tag.candidates, r.tag.index + 1, r.tag.typed)
+    end if
+end sub
+
+' ---------------------------------------------------------------- sign in
+
+sub openServer(server as dynamic)
+    if server = invalid then return
+    if Util.toText(server.token) <> ""
+        validate(server)
+    else
+        openSignIn(server, "")
+    end if
+end sub
+
+sub openSignIn(server as object, status as string)
+    m.server = server
+    m.users = []
+    m.quickConnect = false
+    sc = newMenu("signin", "Sign in to " + Util.toText(server.name), Servers.typeName(server) + " " + Util.toText(server.version) + "   ·   " + Util.toText(server.url), [{ id: "manual", label: "Enter username and password" }])
+    sc.status = status
+    if topIs("servers")
+        push(sc)
+    else
+        ' (from "connecting" or home: start from the server list so Back goes there)
+        showServers("")
+        push(sc)
+    end if
+    request("GET", server, "/Users/Public", false, "", { kind: "users" })
+    if Servers.isJellyfin(server) then request("GET", server, "/QuickConnect/Enabled", false, "", { kind: "qcEnabled" })
+end sub
+
+sub onUsers(r as object)
+    if r.code = 200 and type(r.json) = "roArray" then m.users = r.json
+    showSignInItems("")
+end sub
+
+' The sign-in menu: the server's visible users, manual entry, Quick Connect (Jellyfin)
+sub showSignInItems(status as string)
+    if not topIs("signin") then return
+    items = []
+    for i = 0 to m.users.count() - 1
+        items.push({ id: "user:" + i.toStr(), label: Util.toText(m.users[i].Name) })
+    end for
+    items.push({ id: "manual", label: "Enter username and password" })
+    if m.quickConnect then items.push({ id: "quick", label: "Quick Connect (approve from another Jellyfin app)" })
+    t = top()
+    t.code = ""
+    t.items = items
+    if status <> "" then t.status = status
+end sub
+
+sub signIn(name as string, password as string)
+    setStatus("signin", "Signing in as " + name + "...")
+    request("POST", m.server, "/Users/AuthenticateByName", false, Api.credentialsBody(name, password), { kind: "signin" })
+end sub
+
+sub onSignIn(r as object)
+    if r.code = 200 and r.json <> invalid and Util.toText(r.json.AccessToken) <> ""
+        signedIn(r.json)
+    else if r.code = 401
+        setStatus("signin", "Wrong username or password.")
+    else
+        setStatus("signin", "Sign-in failed. " + Api.describeFailure(r))
+    end if
+end sub
+
+' Successful sign-in (password or Quick Connect): save it and go home
+sub signedIn(auth as object)
+    s = m.server
+    s.token = Util.toText(auth.AccessToken)
+    if auth.User <> invalid
+        s.userId = Util.toText(auth.User.Id)
+        s.userName = Util.toText(auth.User.Name)
+    end if
+    Servers.upsert(s)
+    showHome(s)
+end sub
+
+' ---------------------------------------------------------------- Quick Connect (Jellyfin)
+
+sub startQuickConnect()
+    stopQuickConnect()
+    t = top()
+    t.items = [{ id: "cancelqc", label: "Cancel" }]
+    t.status = "Getting a code..."
+    m.qcTask = createObject("roSGNode", "QuickConnectTask")
+    m.qcTask.server = m.server
+    m.qcTask.observeField("code", "onQcCode")
+    m.qcTask.observeField("result", "onQcResult")
+    m.qcTask.observeField("error", "onQcError")
+    m.qcTask.control = "RUN"
+end sub
+
+sub stopQuickConnect()
+    if m.qcTask <> invalid
+        m.qcTask.unobserveField("code")
+        m.qcTask.unobserveField("result")
+        m.qcTask.unobserveField("error")
+        m.qcTask.cancel = true
+        m.qcTask = invalid
+    end if
+end sub
+
+sub onQcCode()
+    if not topIs("signin") or m.qcTask = invalid then return
+    t = top()
+    t.code = m.qcTask.code
+    t.status = "In another signed-in Jellyfin app: Settings → Quick Connect, enter this code."
+end sub
+
+sub onQcResult()
+    if m.qcTask = invalid then return
+    auth = m.qcTask.result
+    stopQuickConnect()
+    signedIn(auth)
+end sub
+
+sub onQcError()
+    if m.qcTask = invalid then return
+    msg = m.qcTask.error
+    stopQuickConnect()
+    showSignInItems(msg)
+end sub
+
+' ---------------------------------------------------------------- saved sign-in
+
+sub validate(server as object)
+    m.server = server
+    sc = newMenu("connecting", Util.toText(server.name), Servers.typeName(server) + "   ·   " + Util.toText(server.url), [])
+    sc.status = "Connecting..."
+    reset(sc)
+    request("GET", server, "/Users/" + Util.toText(server.userId), true, "", { kind: "validate" })
+end sub
+
+sub onValidate(r as object)
+    if not topIs("connecting") then return
+    if r.code = 200
+        showHome(m.server)
+    else if r.code = 401 or r.code = 403 or r.code = 404
+        ' The saved sign-in no longer works (password changed, device removed on the server)
+        m.server.token = ""
+        Servers.upsert(m.server)
+        openSignIn(m.server, "Your sign-in has expired. Please sign in again.")
+    else
+        t = top()
+        t.items = [
+            { id: "retry", label: "Try again" },
+            { id: "servers", label: "Choose another server" }
+        ]
+        t.status = "Couldn't reach " + Util.toText(m.server.name) + ". " + Api.describeFailure(r)
+    end if
+end sub
+
+sub signOut()
+    s = m.server
+    if s = invalid then s = Servers.active()
+    if s = invalid
+        showServers("")
+        return
+    end if
+    request("POST", s, "/Sessions/Logout", true, "", { kind: "logout" })
+    s.token = ""
+    Servers.upsert(s)
+    Servers.setActive("")
+    showServers("Signed out of " + Util.toText(s.name) + ".")
 end sub
