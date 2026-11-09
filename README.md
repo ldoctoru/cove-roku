@@ -1,6 +1,8 @@
 # Cove for Roku
 
 A Netflix-style **Emby and Jellyfin** client for Roku, the TV companion to [Cove for macOS](https://github.com/J0n4e/cove).
+This app is a skeleton built on top of [Cove](https://github.com/J0n4e/cove): it uses the original project as its starting point and adapts it for the Roku platform.
+
 Written in BrightScript / SceneGraph with the [BrighterScript](https://github.com/rokucommunity/brighterscript) tooling.
 
 > Status: early development. Primary test device: **Roku Streambar 9102** (4K, HDR10/HLG, HEVC Main 10).
@@ -40,6 +42,10 @@ scripts/                  version and deploy helpers
 
 Feature branches → PR into `Development` → release PR into `main` → tag `vX.Y.Z` builds the zip and drafts a release.
 
+## Credits
+
+- Original project: [J0n4e/cove](https://github.com/J0n4e/cove), an Emby media player for macOS.
+
 ## License
 
-GPL-3.0, like Cove for macOS.
+GPL-3.0, the same licence as the original Cove project. See [LICENSE](LICENSE).
