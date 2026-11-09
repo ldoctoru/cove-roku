@@ -1,63 +1,188 @@
 sub init()
-    m.frame = m.top.findNode("frame")
+    t = m.global.theme
+    m.card = m.top.findNode("card")
     m.image = m.top.findNode("image")
     m.initials = m.top.findNode("initials")
-    m.barBack = m.top.findNode("barBack")
-    m.bar = m.top.findNode("bar")
     m.title = m.top.findNode("title")
-    m.line2 = m.top.findNode("line2")
+    m.year = m.top.findNode("year")
+    m.top.findNode("ph").color = t.placeholder
+    m.top.findNode("mask").uri = t.maskCard
+    m.top.findNode("barFill").color = t.accent
+    m.top.findNode("heart").blendColor = t.accent
     m.image.observeField("loadStatus", "onLoad")
+    m.landscape = false
 end sub
 
-' The tile's image area is its height minus the two text lines
+' The tile keeps a margin of PAD around the card, because a list clips each item to its own area: without
+' it the zoomed card, its ring and shadow are cut off (the gap between cards = 2 x PAD + the list's spacing).
+' Image area: 16:9 cards fill the tile; poster cards keep 2:3 and put title + year underneath.
 sub onSize()
-    w = m.top.width
-    h = m.top.height - 62
-    if w <= 0 or h <= 0 then return
-    m.frame.width = w
-    m.frame.height = h
-    m.image.width = w
-    m.image.height = h
+    pad = 18
+    w = m.top.width - 2 * pad
+    if w <= 0 or m.top.height <= 0 then return
+    c = m.top.itemContent
+    m.landscape = c <> invalid and c.hasField("landscape") and c.landscape
+    h = m.top.height - 2 * pad
+    if not m.landscape then h = Int(w * 1.5)
+    if h > m.top.height - 2 * pad then h = m.top.height - 2 * pad
+    m.card.translation = [pad, pad]
+    m.title.translation = [pad, pad + h + 14]
+    m.year.translation = [pad, pad + h + 46]
+    m.w = w
+    m.h = h
+    m.card.scaleRotateCenter = [w / 2, h / 2]
+    for each id in ["ph", "image", "mask", "border", "initials"]
+        n = m.top.findNode(id)
+        n.width = w
+        n.height = h
+    end for
     m.image.loadWidth = w
     m.image.loadHeight = h
-    m.initials.width = w
-    m.initials.height = h
-    m.barBack.translation = [0, h - 8]
-    m.barBack.width = w
-    m.barBack.height = 8
-    m.bar.translation = [0, h - 8]
-    m.bar.height = 8
-    m.title.translation = [2, h + 8]
-    m.title.width = w - 4
-    m.line2.translation = [2, h + 36]
-    m.line2.width = w - 4
+    sh = m.top.findNode("shadow")
+    sh.translation = [-24, -14]
+    sh.width = w + 48
+    sh.height = h + 48
+    ring = m.top.findNode("ring")
+    ring.translation = [-8, -8]
+    ring.width = w + 16
+    ring.height = h + 16
+    m.top.findNode("heart").translation = [14, 14]
+    ' poster: progress inside the bottom of the image
+    m.top.findNode("barTrack").translation = [12, h - 18]
+    m.top.findNode("barTrack").width = w - 24
+    m.top.findNode("barFill").translation = [12, h - 18]
+    ' landscape overlay
+    sc = m.top.findNode("scrim")
+    sc.translation = [0, h - 150]
+    sc.width = w
+    sc.height = 150
+    ot = m.top.findNode("overTitle")
+    ot.translation = [21, h - 96]
+    ot.width = w - 42
+    os = m.top.findNode("overSub")
+    os.translation = [21, h - 64]
+    os.width = w - 42
+    m.top.findNode("miniTrack").translation = [21, h - 26]
+    m.top.findNode("miniTrack").width = 64
+    m.top.findNode("miniFill").translation = [21, h - 26]
+    m.top.findNode("miniLeft").translation = [100, h - 40]
+    m.title.width = w
+    m.year.width = w
     onContent()
+    onFocus()
 end sub
 
 sub onContent()
     c = m.top.itemContent
-    if c = invalid then return
-    m.title.text = c.title
-    m.line2.text = c.shortDescriptionLine2
+    if c = invalid or m.w = invalid then return
+    if (c.hasField("landscape") and c.landscape) <> m.landscape
+        onSize()
+        return
+    end if
     m.initials.text = UCase(Left(c.title, 1))
     m.initials.visible = true
     m.image.uri = c.hdPosterUrl
+    played = c.hasField("played") and c.played
+    m.image.opacity = 1.0
+    if played and not m.landscape then m.image.opacity = 0.6
     p = 0.0
     if c.hasField("progress") then p = c.progress
-    show = p > 0.01 and p < 0.99 and m.top.width > 0
-    m.barBack.visible = show
-    m.bar.visible = show
-    if show then m.bar.width = m.top.width * p
+    hasProgress = p > 0.01 and p < 0.99
+    ' poster cards: title and year below, accent bar inside the image
+    m.title.visible = not m.landscape
+    m.year.visible = not m.landscape
+    m.title.text = c.title
+    m.year.text = c.shortDescriptionLine2
+    m.top.findNode("barTrack").visible = hasProgress and not m.landscape
+    bf = m.top.findNode("barFill")
+    bf.visible = hasProgress and not m.landscape
+    bf.width = (m.w - 24) * p
+    ' landscape cards: text over a dark fade, a small white bar and the time left
+    m.top.findNode("scrim").visible = m.landscape
+    ot = m.top.findNode("overTitle")
+    ot.visible = m.landscape
+    ot.text = c.title
+    os = m.top.findNode("overSub")
+    os.visible = m.landscape and c.hasField("episode") and c.episode <> ""
+    if c.hasField("episode") then os.text = c.episode
+    remain = ""
+    if c.hasField("timeLeft") then remain = c.timeLeft
+    showMini = m.landscape and hasProgress
+    m.top.findNode("miniTrack").visible = showMini
+    mf = m.top.findNode("miniFill")
+    mf.visible = showMini
+    mf.width = 64 * p
+    ml = m.top.findNode("miniLeft")
+    ml.visible = showMini and remain <> ""
+    ml.text = remain
+    if showMini
+        ot.translation = [21, m.h - 118]
+        os.translation = [21, m.h - 84]
+    else
+        ot.translation = [21, m.h - 60]
+        if os.visible then ot.translation = [21, m.h - 92]
+        os.translation = [21, m.h - 56]
+    end if
+    ' favourite heart, watched check / unwatched count
+    m.top.findNode("heart").visible = c.hasField("favorite") and c.favorite
+    badge = m.top.findNode("badge")
+    icon = m.top.findNode("badgeIcon")
+    bt = m.top.findNode("badgeText")
+    unplayed = 0
+    if c.hasField("unplayed") then unplayed = c.unplayed
+    if m.landscape
+        played = false
+        unplayed = 0
+    end if
+    if played
+        badge.uri = "pkg:/images/ui/badge_circle.png"
+        badge.width = 36
+        badge.height = 36
+        badge.translation = [m.w - 48, 12]
+        icon.translation = [m.w - 41, 19]
+        badge.visible = true
+        icon.visible = true
+        bt.visible = false
+    else if unplayed > 0
+        s = unplayed.toStr()
+        if unplayed > 99 then s = "99+"
+        bw = 36 + (s.len() - 1) * 12
+        badge.uri = "pkg:/images/ui/badge_capsule.9.png"
+        badge.width = bw
+        badge.height = 36
+        badge.translation = [m.w - 12 - bw, 12]
+        bt.text = s
+        bt.width = bw
+        bt.height = 36
+        bt.translation = [m.w - 12 - bw, 12]
+        badge.visible = true
+        bt.visible = true
+        icon.visible = false
+    else
+        badge.visible = false
+        icon.visible = false
+        bt.visible = false
+    end if
 end sub
 
 sub onLoad()
     m.initials.visible = m.image.loadStatus <> "ready"
 end sub
 
+' Focus: zoom x1.06, white ring and shadow (Mac HoverLift), title fully white
 sub onFocus()
-    if (m.top.rowListHasFocus or m.top.gridHasFocus) and m.top.focusPercent > 0.5
+    listFocus = m.top.rowListHasFocus or m.top.gridHasFocus
+    f = 0.0
+    if listFocus then f = m.top.focusPercent * m.top.rowFocusPercent
+    zoom = 0.06
+    if m.landscape then zoom = 0.04
+    s = 1 + zoom * f
+    m.card.scale = [s, s]
+    m.top.findNode("ring").opacity = f
+    m.top.findNode("shadow").opacity = f
+    if f > 0.5
         m.title.color = "0xFFFFFFFF"
     else
-        m.title.color = "0xC8CCD8FF"
+        m.title.color = "0xFFFFFFD9"
     end if
 end sub

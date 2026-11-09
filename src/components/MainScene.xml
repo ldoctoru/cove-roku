@@ -8,7 +8,7 @@
         <field id="inputArgs" type="assocarray" />
     </interface>
     <children>
-        <Rectangle id="background" width="1920" height="1080" color="0x0B0D14FF" />
+        <Rectangle id="background" width="1920" height="1080" color="0x000000FF" />
         <Group id="screens" />
         <!-- Requests that must finish after their screen is gone (playback stop reports) -->
         <Group id="tasks" />

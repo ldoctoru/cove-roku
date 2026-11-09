@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- The top navigation pill (Cove's top-bar style): a glass capsule centred at the top with Home, Search and the
+     libraries. The current page has a soft white capsule; the focused item a solid white one with black text.
+     Set "items" ([{ id, label }]); OK sets "chosen" = { id }. Left / Right move; other keys go to the screen. -->
+<component name="NavBar" extends="Group">
+    <script type="text/brightscript" uri="NavBar.bs" />
+    <interface>
+        <field id="items" type="array" onChange="build" />
+        <field id="current" type="string" value="home" onChange="paint" />
+        <field id="chosen" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Poster id="pill" uri="pkg:/images/ui/glass_pill.9.png" height="64" />
+        <Group id="entries" />
+    </children>
+</component>

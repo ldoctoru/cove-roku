@@ -1,0 +1,49 @@
+import "pkg:/source/Util.bs"
+
+' The Glass theme from Cove for macOS (Sources/Views.swift Theme): accent and page background as on the Mac,
+' white text with translucent white for secondary text. MainScene puts the table in m.global.theme; components
+' read colours (and the image set that depends on the background) from there.
+namespace Theme
+
+    function accents() as object
+        return {
+            red: "0xE60A14FF", orange: "0xFF9F0AFF", pink: "0xFF375FFF", purple: "0xBF5AF2FF",
+            blue: "0x0A84FFFF", teal: "0x40C8E0FF", green: "0x30D158FF", white: "0xFFFFFFFF"
+        }
+    end function
+
+    function backgrounds() as object
+        return { black: "0x000000FF", charcoal: "0x1C1C1CFF", navy: "0x0A122BFF", plum: "0x1F0D26FF", forest: "0x0A1F14FF" }
+    end function
+
+    ' Accent and background chosen in Settings (defaults: red on black, as on the Mac)
+    function get() as object
+        accentName = Util.readText("accent")
+        bgName = Util.readText("background")
+        a = accents()
+        b = backgrounds()
+        if a[accentName] = invalid then accentName = "red"
+        if b[bgName] = invalid then bgName = "black"
+        onAccent = "0xFFFFFFFF"
+        if accentName = "white" then onAccent = "0x000000FF"
+        ui = "pkg:/images/ui/"
+        return {
+            accentName: accentName,
+            bgName: bgName,
+            bg: b[bgName],
+            accent: a[accentName],
+            onAccent: onAccent,
+            text: "0xFFFFFFFF",
+            text2: "0xFFFFFF8C",
+            text3: "0xFFFFFF66",
+            overview: "0xFFFFFFCC",
+            placeholder: "0x262626FF",
+            error: "0xFF9F0AFF",
+            maskCard: ui + "mask_r18_" + bgName + ".9.png",
+            maskCircle: ui + "mask_circle_" + bgName + "_144.png",
+            scrimBottom: ui + "scrim_bottom_" + bgName + ".png",
+            fade: ui + "fade_" + bgName + ".png"
+        }
+    end function
+
+end namespace

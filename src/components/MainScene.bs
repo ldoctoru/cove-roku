@@ -2,10 +2,15 @@ import "pkg:/source/Util.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/DeviceCaps.bs"
+import "pkg:/source/Theme.bs"
 
 sub init()
-    m.top.backgroundColor = "0x0B0D14"
+    ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
+    look = Theme.get()
+    m.global.addFields({ theme: look })
+    m.top.backgroundColor = look.bg.left(8)
     m.top.backgroundURI = ""
+    m.top.findNode("background").color = look.bg
     m.screens = m.top.findNode("screens")
     m.stack = []
     m.pending = []              ' running ApiTasks (kept referenced until they answer)
@@ -135,6 +140,8 @@ sub onHomeAction(ev as object)
         openSignIn(m.server, "Your sign-in has expired. Please sign in again.")
     else if a.id = "open"
         openItem(a)
+    else if a.id = "play"
+        startPlayer({ id: a.itemId, title: a.title, subtitle: Util.toText(a.subtitle), start: a.start })
     else if a.id = "search"
         s = createObject("roSGNode", "SearchScreen")
         s.server = m.server
@@ -173,11 +180,15 @@ sub onDetailsChanged()
 end sub
 
 sub onPlay(ev as object)
+    startPlayer(ev.getData())
+end sub
+
+sub startPlayer(item as object)
     p = createObject("roSGNode", "PlayerScreen")
     p.server = m.server
     p.observeField("done", "onPlayerDone")
     push(p)
-    p.item = ev.getData()
+    p.item = item
 end sub
 
 ' Back from the player: refresh the details (new resume point) and, later, the home rows

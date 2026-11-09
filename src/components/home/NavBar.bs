@@ -1,0 +1,87 @@
+sub init()
+    m.pill = m.top.findNode("pill")
+    m.entries = m.top.findNode("entries")
+    m.index = 0
+    m.top.observeField("focusedChild", "paint")
+end sub
+
+' Each entry: a capsule behind a label; widths follow the text (about 15 px per character at Medium 26)
+sub build()
+    m.entries.removeChildrenIndex(m.entries.getChildCount(), 0)
+    x = 8
+    for each it in m.top.items
+        w = it.label.len() * 15 + 44
+        if w < 110 then w = 110
+        g = m.entries.createChild("Group")
+        g.translation = [x, 8]
+        bg = g.createChild("Poster")
+        bg.uri = "pkg:/images/ui/white_pill.9.png"
+        bg.width = w
+        bg.height = 48
+        bg.visible = false
+        l = g.createChild("Label")
+        l.text = it.label
+        l.width = w
+        l.height = 48
+        l.horizAlign = "center"
+        l.vertAlign = "center"
+        f = createObject("roSGNode", "Font")
+        f.uri = "font:MediumSystemFontFile"
+        f.size = 26
+        l.font = f
+        x = x + w + 6
+    end for
+    total = x + 2
+    m.pill.width = total
+    m.top.translation = [Int((1920 - total) / 2), 36]
+    if m.index >= m.top.items.count() then m.index = 0
+    paint()
+end sub
+
+sub paint()
+    focused = m.top.hasFocus()
+    for i = 0 to m.entries.getChildCount() - 1
+        g = m.entries.getChild(i)
+        bg = g.getChild(0)
+        l = g.getChild(1)
+        isCurrent = m.top.items[i].id = m.top.current
+        f = createObject("roSGNode", "Font")
+        if focused and i = m.index
+            bg.uri = "pkg:/images/ui/white_pill.9.png"
+            bg.visible = true
+            l.color = "0x000000FF"
+            f.uri = "font:BoldSystemFontFile"
+        else if isCurrent
+            bg.uri = "pkg:/images/ui/sel_pill.9.png"
+            bg.visible = true
+            l.color = "0xFFFFFFFF"
+            f.uri = "font:BoldSystemFontFile"
+        else
+            bg.visible = false
+            l.color = "0xFFFFFF8C"
+            f.uri = "font:MediumSystemFontFile"
+        end if
+        f.size = 26
+        l.font = f
+    end for
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    n = m.top.items.count()
+    if key = "left" and m.index > 0
+        m.index = m.index - 1
+        paint()
+        return true
+    else if key = "right" and m.index < n - 1
+        m.index = m.index + 1
+        paint()
+        return true
+    else if key = "OK" and n > 0
+        m.top.chosen = { id: m.top.items[m.index].id }
+        return true
+    else if key = "left" or key = "right"
+        return true
+    end if
+    return false
+end function
