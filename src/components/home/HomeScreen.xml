@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- The home screen: the focused title's backdrop and details at the top, Netflix-style rows below.
+     "action" reports what the user chose: { id: "switch" | "signout" | "open", item }. -->
+<component name="HomeScreen" extends="Group">
+    <script type="text/brightscript" uri="HomeScreen.bs" />
+    <interface>
+        <field id="server" type="assocarray" onChange="load" />
+        <field id="action" type="assocarray" alwaysNotify="true" />
+        <field id="screenId" type="string" value="home" />
+    </interface>
+    <children>
+        <Poster id="backdrop" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0.35" />
+        <Rectangle id="shadeTop" width="1920" height="1080" color="0x0B0D1466" />
+        <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="64" translation="[100,48]" />
+        <Label id="server" width="900" height="40" translation="[180,60]" color="0x9AA0B0FF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="28" />
+        </Label>
+        <Label id="hint" width="700" height="40" translation="[1120,60]" horizAlign="right" color="0x7A8090FF" text="Press * for options">
+            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+        </Label>
+        <Label id="title" width="1400" height="80" translation="[100,140]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="60" />
+        </Label>
+        <Label id="meta" width="1400" height="40" translation="[100,226]" color="0xC8CCD8FF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="28" />
+        </Label>
+        <!-- The description as three single-line labels: a wrapping Label draws nothing on some Roku OS versions -->
+        <Group id="overview" translation="[100,280]">
+            <Label id="ov0" width="1150" height="36" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            <Label id="ov1" width="1150" height="36" translation="[0,38]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            <Label id="ov2" width="1150" height="36" translation="[0,76]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+        </Group>
+        <RowList id="rows" translation="[100,430]" itemComponentName="PosterItem" numRows="2"
+                 itemSize="[1820,400]" rowHeights="[400]" rowItemSize="[[400,287]]" rowItemSpacing="[[24,0]]"
+                 itemSpacing="[0,30]" showRowLabel="[true]" rowLabelOffset="[[0,14]]" rowLabelColor="0xFFFFFFFF"
+                 focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
+                 drawFocusFeedback="true" visible="false">
+            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="32" />
+        </RowList>
+        <Label id="status" width="1720" height="44" translation="[100,520]" color="0xF2C14EFF" text="Loading your libraries...">
+            <Font role="font" uri="font:MediumSystemFontFile" size="32" />
+        </Label>
+        <Timer id="backdropTimer" duration="0.3" repeat="false" />
+        <Timer id="watchdog" duration="45" repeat="false" />
+    </children>
+</component>

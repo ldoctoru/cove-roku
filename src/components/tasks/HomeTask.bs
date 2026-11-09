@@ -1,0 +1,90 @@
+import "pkg:/source/Api.bs"
+import "pkg:/source/Items.bs"
+
+sub init()
+    m.top.functionName = "work"
+end sub
+
+' Any runtime error must reach the screen (a Task that stops on an error just goes quiet, leaving "Loading...")
+sub work()
+    try
+        load()
+    catch e
+        where = ""
+        if e.backtrace <> invalid and e.backtrace.count() > 0
+            f = e.backtrace[e.backtrace.count() - 1]
+            where = " at " + Util.toText(f.filename).replace("pkg:/", "") + ":" + Util.toText(f.line_number)
+        end if
+        print "Cove: home failed: "; e.message; where
+        m.top.error = "Loading failed: " + Util.toText(e.message) + where
+    end try
+end sub
+
+sub load()
+    srv = m.top.server
+    print "Cove: home loading from "; srv.url
+    m.srv = srv
+    m.h = Api.headers(srv, true)
+    uid = Util.toText(srv.userId)
+    f = Items.fields()
+    root = createObject("roSGNode", "ContentNode")
+    m.failures = 0
+    m.requests = 0
+
+    ' Jellyfin 10.9+ also has /UserItems, /UserViews; the /Users/{id}/... routes work on Emby and Jellyfin
+    resume = getList("/Users/" + uid + "/Items/Resume?Limit=20&MediaTypes=Video&" + f, "/UserItems/Resume?userId=" + uid + "&Limit=20&MediaTypes=Video&" + f)
+    if m.top.authFailed then return
+    addRow(root, "Continue Watching", resume, true)
+    addRow(root, "Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20&" + f, ""), true)
+
+    views = getList("/Users/" + uid + "/Views", "/UserViews?userId=" + uid)
+    for each v in views
+        ct = LCase(Util.toText(v.CollectionType))
+        if ct = "movies" or ct = "tvshows" or ct = "homevideos" or ct = "musicvideos" or ct = "mixed" or ct = ""
+            latest = getList("/Users/" + uid + "/Items/Latest?ParentId=" + Util.toText(v.Id) + "&Limit=20&" + f, "/Items/Latest?userId=" + uid + "&ParentId=" + Util.toText(v.Id) + "&Limit=20&" + f)
+            addRow(root, "New in " + Util.toText(v.Name), latest, false)
+        end if
+    end for
+    addRow(root, "Libraries", views, true)
+
+    if root.getChildCount() = 0
+        if m.failures > 0
+            m.top.error = "Couldn't load your libraries from " + Util.toText(srv.name) + "."
+        else
+            m.top.error = "Nothing to show yet: your libraries on " + Util.toText(srv.name) + " are empty."
+        end if
+        return
+    end if
+    print "Cove: home rows "; root.getChildCount()
+    m.top.content = root
+end sub
+
+' GET a list (an array, or { Items: [...] }); on 404 try the newer Jellyfin route
+function getList(path as string, fallback as string) as object
+    print "Cove: GET "; path.split("?")[0]
+    r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + path, headers: m.h, timeout: 20000 })
+    print "Cove:   -> "; r.code
+    if r.code = 404 and fallback <> "" then r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + fallback, headers: m.h, timeout: 20000 })
+    if r.code = 401
+        m.top.authFailed = true
+        return []
+    end if
+    if r.code <> 200 or r.json = invalid
+        m.failures = m.failures + 1
+        print "Cove: home list failed "; path.split("?")[0]; " -> "; r.code; " "; r.error
+        return []
+    end if
+    if type(r.json) = "roArray" then return r.json
+    if r.json.Items <> invalid and type(r.json.Items) = "roArray" then return r.json.Items
+    return []
+end function
+
+sub addRow(root as object, title as string, list as object, isLandscape as boolean)
+    if list.count() = 0 then return
+    row = root.createChild("ContentNode")
+    row.title = title
+    row.addFields({ landscape: isLandscape })
+    for each it in list
+        row.appendChild(Items.node(m.srv, it, isLandscape))
+    end for
+end sub

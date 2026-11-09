@@ -110,13 +110,40 @@ end sub
 
 sub showHome(server as object)
     Servers.setActive(Util.toText(server.id))
-    items = [
-        { id: "switch", label: "Switch server" },
-        { id: "signout", label: "Sign out" }
-    ]
-    sc = newMenu("home", Util.toText(server.name), "Signed in as " + Util.toText(server.userName) + "   ·   " + Servers.typeName(server) + " " + Util.toText(server.version), items)
-    sc.status = "Signed in. Your libraries and rows come in the next update."
-    reset(sc)
+    m.server = server
+    h = createObject("roSGNode", "HomeScreen")
+    h.observeField("action", "onHomeAction")
+    reset(h)
+    h.server = server
+end sub
+
+sub onHomeAction(ev as object)
+    a = ev.getData()
+    if a.id = "switch"
+        showServers("")
+    else if a.id = "signout"
+        signOut()
+    else if a.id = "expired"
+        m.server.token = ""
+        Servers.upsert(m.server)
+        openSignIn(m.server, "Your sign-in has expired. Please sign in again.")
+    else if a.id = "open"
+        showNotice(a.title, "Details and playback arrive in the next update.")
+    end if
+end sub
+
+sub showNotice(title as string, text as string)
+    d = createObject("roSGNode", "StandardMessageDialog")
+    d.title = title
+    d.message = [text]
+    d.buttons = ["OK"]
+    d.observeField("buttonSelected", "onNoticeButton")
+    d.observeField("wasClosed", "onDialogClosed")
+    m.top.dialog = d
+end sub
+
+sub onNoticeButton()
+    closeDialog()
 end sub
 
 ' ---------------------------------------------------------------- user actions
@@ -146,12 +173,6 @@ sub onSelected(ev as object)
             else
                 signIn(m.pendingUser, "")
             end if
-        end if
-    else if s.screenId = "home"
-        if id = "switch"
-            showServers("")
-        else if id = "signout"
-            signOut()
         end if
     else if s.screenId = "connecting"
         if id = "retry"

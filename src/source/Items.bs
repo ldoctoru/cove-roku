@@ -1,0 +1,134 @@
+import "pkg:/source/Util.bs"
+
+' Turns Emby / Jellyfin items into what the home rows show: title, a line under it, poster / landscape / backdrop
+' image URLs sized for the screen (the Streambar has 1 GB of RAM, so never full-size artwork), resume progress.
+namespace Items
+
+    ' Fields asked for in every list request (the rest the server sends by default)
+    function fields() as string
+        return "Fields=Overview,ProductionYear,PrimaryImageAspectRatio,OfficialRating,CommunityRating&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb&EnableUserData=true"
+    end function
+
+    ' (the tag parameter must not be called "tag": BrighterScript would read it as the tag() function below)
+    function imageUrl(server as object, id as string, kind as string, imageTag as string, maxWidth as integer) as string
+        if id = "" or imageTag = "" then return ""
+        path = "/Items/" + id + "/Images/" + kind
+        if kind = "Backdrop" then path = path + "/0"
+        return Util.toText(server.url) + path + "?maxWidth=" + maxWidth.toStr() + "&quality=85&tag=" + imageTag
+    end function
+
+    function tagOf(tags as dynamic, kind as string) as string
+        if tags = invalid or GetInterface(tags, "ifAssociativeArray") = invalid then return ""
+        return Util.toText(tags[kind])
+    end function
+
+    function first(list as dynamic) as string
+        if type(list) <> "roArray" or list.count() = 0 then return ""
+        return Util.toText(list[0])
+    end function
+
+    ' Portrait poster (2:3): the item's own, an episode shows its series
+    function poster(server as object, it as object, w as integer) as string
+        if Util.toText(it.Type) = "Episode" and Util.toText(it.SeriesPrimaryImageTag) <> ""
+            return imageUrl(server, Util.toText(it.SeriesId), "Primary", Util.toText(it.SeriesPrimaryImageTag), w)
+        end if
+        return imageUrl(server, Util.toText(it.Id), "Primary", tagOf(it.ImageTags, "Primary"), w)
+    end function
+
+    ' Landscape (16:9): an episode's own still, otherwise Thumb, then backdrop, then the poster
+    function landscape(server as object, it as object, w as integer) as string
+        id = Util.toText(it.Id)
+        t = Util.toText(it.Type)
+        if t = "Episode" and tagOf(it.ImageTags, "Primary") <> "" then return imageUrl(server, id, "Primary", tagOf(it.ImageTags, "Primary"), w)
+        if tagOf(it.ImageTags, "Thumb") <> "" then return imageUrl(server, id, "Thumb", tagOf(it.ImageTags, "Thumb"), w)
+        if Util.toText(it.ParentThumbImageTag) <> "" then return imageUrl(server, Util.toText(it.ParentThumbItemId), "Thumb", Util.toText(it.ParentThumbImageTag), w)
+        b = backdrop(server, it, w)
+        if b <> "" then return b
+        if t = "CollectionFolder" or t = "UserView" then return imageUrl(server, id, "Primary", tagOf(it.ImageTags, "Primary"), w)
+        return poster(server, it, w)
+    end function
+
+    function backdrop(server as object, it as object, w as integer) as string
+        b = first(it.BackdropImageTags)
+        if b <> "" then return imageUrl(server, Util.toText(it.Id), "Backdrop", b, w)
+        b = first(it.ParentBackdropImageTags)
+        if b <> "" then return imageUrl(server, Util.toText(it.ParentBackdropItemId), "Backdrop", b, w)
+        return ""
+    end function
+
+    ' "S2:E5 · Episode name"
+    function episodeLabel(it as object) as string
+        s = ""
+        if it.ParentIndexNumber <> invalid then s = "S" + Util.toText(it.ParentIndexNumber)
+        if it.IndexNumber <> invalid then s = s + ":E" + Util.toText(it.IndexNumber)
+        n = Util.toText(it.Name)
+        if s <> "" and n <> "" then return s + "  ·  " + n
+        return s + n
+    end function
+
+    ' "2019  ·  PG-13  ·  7.8/10  ·  2 h 12 min"
+    function meta(it as object) as string
+        parts = []
+        if Util.toText(it.Type) = "Episode" then parts.push(episodeLabel(it))
+        y = Util.toText(it.ProductionYear)
+        if y <> "" and Util.toText(it.Type) <> "Episode" then parts.push(y)
+        r = Util.toText(it.OfficialRating)
+        if r <> "" then parts.push(r)
+        if it.CommunityRating <> invalid
+            cr = Int(it.CommunityRating * 10 + 0.5)
+            parts.push((cr \ 10).toStr() + "." + (cr mod 10).toStr() + "/10")
+        end if
+        if it.RunTimeTicks <> invalid
+            mins = Int(it.RunTimeTicks / 600000000)
+            if mins >= 60
+                parts.push((mins \ 60).toStr() + " h " + (mins mod 60).toStr() + " min")
+            else if mins > 0
+                parts.push(mins.toStr() + " min")
+            end if
+        end if
+        return Util.join(parts, "  ·  ")
+    end function
+
+    ' 0..1 watched, for the progress bar (0 = none)
+    function progress(it as object) as float
+        ud = it.UserData
+        if ud = invalid or GetInterface(ud, "ifAssociativeArray") = invalid then return 0
+        p = ud.PlayedPercentage
+        if p = invalid then return 0
+        f = 0.0
+        f = f + p / 100
+        return f
+    end function
+
+    ' One ContentNode for a row tile. landscape: 16:9 tile (Continue Watching, Next Up, libraries)
+    function node(server as object, it as object, isLandscape as boolean) as object
+        c = createObject("roSGNode", "ContentNode")
+        c.addFields({ itemId: "", itemType: "", meta: "", overview: "", backdrop: "", progress: 0.0, landscape: false })
+        t = Util.toText(it.Type)
+        title = Util.toText(it.Name)
+        line2 = ""
+        if t = "Episode"
+            title = Util.toText(it.SeriesName)
+            line2 = episodeLabel(it)
+        else if Util.toText(it.ProductionYear) <> ""
+            line2 = Util.toText(it.ProductionYear)
+        end if
+        c.title = title
+        c.shortDescriptionLine1 = title
+        c.shortDescriptionLine2 = line2
+        c.itemId = Util.toText(it.Id)
+        c.itemType = t
+        c.meta = meta(it)
+        c.overview = Util.toText(it.Overview)
+        c.landscape = isLandscape
+        if isLandscape
+            c.hdPosterUrl = landscape(server, it, 400)
+        else
+            c.hdPosterUrl = poster(server, it, 220)
+        end if
+        c.backdrop = backdrop(server, it, 1280)
+        c.progress = progress(it)
+        return c
+    end function
+
+end namespace
