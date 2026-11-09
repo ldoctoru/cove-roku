@@ -16,6 +16,9 @@ sub init()
     m.qcTask = invalid
     m.pendingUser = ""
     m.keyboardFor = ""
+    m.nextAsk = invalid
+    m.dialogTimer = m.top.findNode("dialogTimer")
+    m.dialogTimer.observeField("fire", "onDialogTimer")
     m.removeId = ""
     m.deviceLine = ""
     try
@@ -211,6 +214,20 @@ sub askText(purpose as string, title as string, message as string, text as strin
     d.observeField("buttonSelected", "onKeyboardButton")
     d.observeField("wasClosed", "onDialogClosed")
     m.top.dialog = d
+    d.setFocus(true)
+end sub
+
+' Opening a keyboard while the previous one is still closing leaves the new one on screen without focus
+' (the closing dialog hands focus back to the page), so the user can't type. Wait until it has gone.
+sub askTextLater(purpose as string, title as string, message as string, text as string, secure as boolean)
+    m.nextAsk = { purpose: purpose, title: title, message: message, text: text, secure: secure }
+    m.dialogTimer.control = "start"
+end sub
+
+sub onDialogTimer()
+    a = m.nextAsk
+    m.nextAsk = invalid
+    if a <> invalid then askText(a.purpose, a.title, a.message, a.text, a.secure)
 end sub
 
 sub onKeyboardButton()
@@ -224,7 +241,7 @@ sub onKeyboardButton()
     else if m.keyboardFor = "username"
         if text = "" then return
         m.pendingUser = text
-        askText("password", "Password", "Password for " + text + " (leave empty if none)", "", true)
+        askTextLater("password", "Password", "Password for " + text + " (leave empty if none)", "", true)
     else if m.keyboardFor = "password"
         signIn(m.pendingUser, text)
     end if
