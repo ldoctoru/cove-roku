@@ -1,0 +1,63 @@
+sub init()
+    m.frame = m.top.findNode("frame")
+    m.image = m.top.findNode("image")
+    m.initials = m.top.findNode("initials")
+    m.barBack = m.top.findNode("barBack")
+    m.bar = m.top.findNode("bar")
+    m.title = m.top.findNode("title")
+    m.line2 = m.top.findNode("line2")
+    m.image.observeField("loadStatus", "onLoad")
+end sub
+
+' The tile's image area is its height minus the two text lines
+sub onSize()
+    w = m.top.width
+    h = m.top.height - 62
+    if w <= 0 or h <= 0 then return
+    m.frame.width = w
+    m.frame.height = h
+    m.image.width = w
+    m.image.height = h
+    m.image.loadWidth = w
+    m.image.loadHeight = h
+    m.initials.width = w
+    m.initials.height = h
+    m.barBack.translation = [0, h - 8]
+    m.barBack.width = w
+    m.barBack.height = 8
+    m.bar.translation = [0, h - 8]
+    m.bar.height = 8
+    m.title.translation = [2, h + 8]
+    m.title.width = w - 4
+    m.line2.translation = [2, h + 36]
+    m.line2.width = w - 4
+    onContent()
+end sub
+
+sub onContent()
+    c = m.top.itemContent
+    if c = invalid then return
+    m.title.text = c.title
+    m.line2.text = c.shortDescriptionLine2
+    m.initials.text = UCase(Left(c.title, 1))
+    m.initials.visible = true
+    m.image.uri = c.hdPosterUrl
+    p = 0.0
+    if c.hasField("progress") then p = c.progress
+    show = p > 0.01 and p < 0.99 and m.top.width > 0
+    m.barBack.visible = show
+    m.bar.visible = show
+    if show then m.bar.width = m.top.width * p
+end sub
+
+sub onLoad()
+    m.initials.visible = m.image.loadStatus <> "ready"
+end sub
+
+sub onFocus()
+    if (m.top.rowListHasFocus or m.top.gridHasFocus) and m.top.focusPercent > 0.5
+        m.title.color = "0xFFFFFFFF"
+    else
+        m.title.color = "0xC8CCD8FF"
+    end if
+end sub

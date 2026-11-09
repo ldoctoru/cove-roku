@@ -1,0 +1,148 @@
+' Small helpers shared by the UI and the background tasks.
+namespace Util
+
+    ' Any value as text (Roku returns some fields as strings on one OS version and numbers on another)
+    function toText(v as dynamic) as string
+        if v = invalid then return ""
+        if GetInterface(v, "ifString") <> invalid then return v
+        if GetInterface(v, "ifToStr") <> invalid then return v.toStr()
+        return type(v)
+    end function
+
+    ' A field as a boolean. Comparing a missing (invalid) field with "= true" is unsafe in BrightScript.
+    function flag(obj as dynamic, name as string) as boolean
+        if obj = invalid or GetInterface(obj, "ifAssociativeArray") = invalid then return false
+        v = obj[name]
+        if type(v) = "roBoolean" or type(v) = "Boolean" then return v
+        return false
+    end function
+
+    function join(parts as object, sep as string) as string
+        s = ""
+        for i = 0 to parts.count() - 1
+            if i > 0 then s = s + sep
+            s = s + toText(parts[i])
+        end for
+        return s
+    end function
+
+    ' Splits text into at most maxLines lines of about width characters, at spaces; "..." ends a cut text.
+    ' (Wrapping by hand: a Label with wrap="true" draws nothing on some Roku OS versions.)
+    function wrapLines(text as string, width as integer, maxLines as integer) as object
+        lines = []
+        words = text.replace(chr(13), " ").replace(chr(10), " ").split(" ")
+        line = ""
+        i = 0
+        while i < words.count()
+            w = words[i]
+            if w <> ""
+                if line = ""
+                    candidate = w
+                else
+                    candidate = line + " " + w
+                end if
+                if candidate.len() <= width or line = ""
+                    line = candidate
+                else
+                    lines.push(line)
+                    line = w
+                    if lines.count() = maxLines then exit while
+                end if
+            end if
+            i = i + 1
+        end while
+        if lines.count() < maxLines and line <> ""
+            lines.push(line)
+        else if lines.count() = maxLines
+            last = lines[maxLines - 1]
+            if last.len() > width - 3 then last = last.left(width - 3)
+            lines[maxLines - 1] = last + "..."
+        end if
+        return lines
+    end function
+
+    ' Sets a query parameter, removing any existing one with the same name (case-insensitive)
+    function setQuery(url as string, name as string, value as string) as string
+        q = url.instr("?")
+        if q < 0 then return url + "?" + name + "=" + value
+        base = url.left(q)
+        kept = []
+        for each p in url.mid(q + 1).split("&")
+            if p <> "" and LCase(p.split("=")[0]) <> LCase(name) then kept.push(p)
+        end for
+        kept.push(name + "=" + value)
+        return base + "?" + join(kept, "&")
+    end function
+
+    function removeQuery(url as string, name as string) as string
+        q = url.instr("?")
+        if q < 0 then return url
+        kept = []
+        for each p in url.mid(q + 1).split("&")
+            if p <> "" and LCase(p.split("=")[0]) <> LCase(name) then kept.push(p)
+        end for
+        if kept.count() = 0 then return url.left(q)
+        return url.left(q) + "?" + join(kept, "&")
+    end function
+
+    ' A URL with its access token hidden, for the debug console
+    function redact(url as string) as string
+        out = []
+        for each p in url.split("&")
+            k = LCase(p.split("=")[0])
+            if k.instr("api_key") >= 0 or k.instr("apikey") >= 0 or k.endsWith("?api_key") then p = p.split("=")[0] + "=***"
+            out.push(p)
+        end for
+        return join(out, "&")
+    end function
+
+    function appVersion() as string
+        return createObject("roAppInfo").getVersion()
+    end function
+
+    ' Stable per app and device: the server lists Cove under this id in its devices/sessions
+    function deviceId() as string
+        return createObject("roDeviceInfo").getChannelClientId()
+    end function
+
+    ' "Living Room" (the Roku's name in its settings), or the model name
+    function deviceName() as string
+        di = createObject("roDeviceInfo")
+        n = toText(di.getFriendlyName())
+        if n = "" then n = toText(di.getModelDisplayName())
+        return n
+    end function
+
+    ' What the user typed → addresses to try, in order. Without a scheme: https first for a name,
+    ' http first for an address with a port (typical LAN servers: 192.168.1.20:8096).
+    function urlCandidates(typed as string) as object
+        t = typed.trim()
+        while t.len() > 0 and t.right(1) = "/"
+            t = t.left(t.len() - 1)
+        end while
+        if t = "" then return []
+        low = LCase(t)
+        if low.startsWith("http://") or low.startsWith("https://") then return [t]
+        if t.instr(":") >= 0 then return ["http://" + t, "https://" + t]
+        return ["https://" + t, "http://" + t, "http://" + t + ":8096"]
+    end function
+
+    function readJson(key as string) as dynamic
+        sec = createObject("roRegistrySection", "Cove")
+        if not sec.exists(key) then return invalid
+        return parseJson(sec.read(key))
+    end function
+
+    sub writeText(key as string, value as string)
+        sec = createObject("roRegistrySection", "Cove")
+        sec.write(key, value)
+        sec.flush()
+    end sub
+
+    function readText(key as string) as string
+        sec = createObject("roRegistrySection", "Cove")
+        if not sec.exists(key) then return ""
+        return sec.read(key)
+    end function
+
+end namespace

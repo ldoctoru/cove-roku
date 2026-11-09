@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- A whole library (or a collection / folder) as a poster grid, loaded 60 at a time as you scroll.
+     * : sort (name, date added, year) and the unwatched filter. "action" = { id: "open", ... } like the home. -->
+<component name="LibraryScreen" extends="Group">
+    <script type="text/brightscript" uri="LibraryScreen.bs" />
+    <interface>
+        <field id="screenId" type="string" value="library" />
+        <field id="server" type="assocarray" />
+        <!-- { id, title, itemType, collectionType } -->
+        <field id="library" type="assocarray" onChange="onLibrary" />
+        <field id="action" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="64" translation="[100,48]" />
+        <Label id="title" width="1200" height="60" translation="[180,46]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="44" />
+        </Label>
+        <Label id="info" width="1200" height="40" translation="[180,104]" color="0x9AA0B0FF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+        </Label>
+        <Label id="hint" width="560" height="40" translation="[1260,60]" horizAlign="right" color="0x7A8090FF" text="Press * to sort and filter">
+            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+        </Label>
+        <MarkupGrid id="grid" translation="[100,170]" itemComponentName="PosterItem" itemSize="[220,392]"
+                    itemSpacing="[24,24]" numColumns="7" numRows="3" vertFocusAnimationStyle="fixedFocusWrap"
+                    drawFocusFeedback="true" />
+        <Label id="status" width="1720" height="44" translation="[100,520]" color="0xF2C14EFF" text="Loading...">
+            <Font role="font" uri="font:MediumSystemFontFile" size="32" />
+        </Label>
+    </children>
+</component>

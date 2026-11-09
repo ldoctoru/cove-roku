@@ -1,0 +1,36 @@
+import "pkg:/source/Api.bs"
+import "pkg:/source/Items.bs"
+
+sub init()
+    m.top.functionName = "work"
+end sub
+
+sub work()
+    try
+        srv = m.top.server
+        h = Api.headers(srv, true)
+        r = Api.execute({ method: "GET", url: Util.toText(srv.url) + m.top.path, headers: h, timeout: 20000 })
+        if r.code = 404 and m.top.fallback <> "" then r = Api.execute({ method: "GET", url: Util.toText(srv.url) + m.top.fallback, headers: h, timeout: 20000 })
+        print "Cove: items "; m.top.path.split("?")[0]; " -> "; r.code
+        if r.code <> 200 or r.json = invalid
+            m.top.error = "Couldn't load the list. " + Api.describeFailure(r)
+            return
+        end if
+        list = r.json
+        total = 0
+        if GetInterface(list, "ifAssociativeArray") <> invalid
+            if r.json.TotalRecordCount <> invalid then total = r.json.TotalRecordCount
+            list = r.json.Items
+        end if
+        if type(list) <> "roArray" then list = []
+        if total = 0 then total = list.count()
+        holder = createObject("roSGNode", "ContentNode")
+        for each it in list
+            holder.appendChild(Items.node(srv, it, false))
+        end for
+        m.top.result = { nodes: holder, total: total, startIndex: m.top.startIndex, gen: m.top.gen }
+    catch e
+        print "Cove: ItemsTask failed: "; e.message
+        m.top.error = "Loading failed: " + Util.toText(e.message)
+    end try
+end sub

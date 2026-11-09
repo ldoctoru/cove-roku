@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Runs one HTTP request off the render thread: set "request", then control = "RUN"; "response" is set when done. -->
+<component name="ApiTask" extends="Task">
+    <script type="text/brightscript" uri="ApiTask.bs" />
+    <interface>
+        <field id="request" type="assocarray" />
+        <field id="response" type="assocarray" />
+    </interface>
+</component>

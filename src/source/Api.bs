@@ -1,0 +1,88 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Servers.bs"
+
+' Talking to Emby / Jellyfin. headers() is used on the UI thread to build requests; execute() runs on a Task
+' thread (roUrlTransfer can't run on the render thread).
+namespace Api
+
+    ' The MediaBrowser authorization header. Jellyfin reads it from "Authorization", Emby from
+    ' "X-Emby-Authorization" (+ "X-Emby-Token" once signed in).
+    function headers(server as object, withToken as boolean) as object
+        q = chr(34)
+        value = "MediaBrowser Client=" + q + "Cove" + q + ", Device=" + q + Util.deviceName() + q + ", DeviceId=" + q + Util.deviceId() + q + ", Version=" + q + Util.appVersion() + q
+        token = ""
+        if withToken then token = Util.toText(server.token)
+        if token <> "" then value = value + ", Token=" + q + token + q
+        h = { "Accept": "application/json" }
+        if Servers.isJellyfin(server)
+            h["Authorization"] = value
+        else
+            h["X-Emby-Authorization"] = value
+            if token <> "" then h["X-Emby-Token"] = token
+        end if
+        return h
+    end function
+
+    ' Runs one request: { method, url, headers, body (JSON text or ""), timeout (ms), tag }
+    ' → { code (HTTP status, or < 0 for a network error), json, error, tag }
+    function execute(req as object) as object
+        res = { code: -1, json: invalid, error: "", tag: req.tag }
+        xfer = createObject("roUrlTransfer")
+        port = createObject("roMessagePort")
+        xfer.setPort(port)
+        xfer.setUrl(req.url)
+        if LCase(req.url).startsWith("https:")
+            xfer.setCertificatesFile("common:/certs/ca-bundle.crt")
+            xfer.initClientCertificates()
+        end if
+        xfer.enableEncodings(true)
+        xfer.retainBodyOnError(true)
+        if req.headers <> invalid
+            for each k in req.headers
+                xfer.addHeader(k, req.headers[k])
+            end for
+        end if
+        method = UCase(Util.toText(req.method))
+        if method = "" then method = "GET"
+        body = Util.toText(req.body)
+        started = false
+        if method = "GET"
+            started = xfer.asyncGetToString()
+        else
+            xfer.setRequest(method)
+            if body <> "" then xfer.addHeader("Content-Type", "application/json")
+            started = xfer.asyncPostFromString(body)
+        end if
+        if not started
+            res.error = "The request couldn't be started."
+            return res
+        end if
+        timeout = 15000
+        if req.timeout <> invalid then timeout = req.timeout
+        msg = wait(timeout, port)
+        if type(msg) = "roUrlEvent"
+            res.code = msg.getResponseCode()
+            text = msg.getString()
+            if text <> invalid and text <> "" then res.json = parseJson(text)
+            if res.code < 0 then res.error = Util.toText(msg.getFailureReason())
+        else
+            xfer.asyncCancel()
+            res.error = "The server didn't answer in time."
+        end if
+        return res
+    end function
+
+    ' JSON text for {"Username": name, "Pw": password} (built by hand so the key case is kept exactly)
+    function credentialsBody(name as string, password as string) as string
+        return "{" + chr(34) + "Username" + chr(34) + ":" + formatJson(name) + "," + chr(34) + "Pw" + chr(34) + ":" + formatJson(password) + "}"
+    end function
+
+    ' A short, user-facing reason for a failed request
+    function describeFailure(res as object) as string
+        if res.code = 401 then return "The server refused the sign-in (401)."
+        if res.code > 0 then return "The server answered with error " + Util.toText(res.code) + "."
+        if res.error <> "" then return res.error
+        return "No connection to the server."
+    end function
+
+end namespace

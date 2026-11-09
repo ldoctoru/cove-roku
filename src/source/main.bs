@@ -1,0 +1,23 @@
+' Cove for Roku: entry point. Creates the SceneGraph screen and keeps the app alive until the scene closes.
+sub main(args as dynamic)
+    screen = createObject("roSGScreen")
+    port = createObject("roMessagePort")
+    screen.setMessagePort(port)
+    scene = screen.createScene("MainScene")
+    screen.show()
+    ' Launch arguments (deep links: contentId / mediaType) are handed to the scene for later use
+    scene.launchArgs = args
+
+    input = createObject("roInput")
+    input.setMessagePort(port)
+
+    while true
+        msg = wait(0, port)
+        msgType = type(msg)
+        if msgType = "roSGScreenEvent"
+            if msg.isScreenClosed() then return
+        else if msgType = "roInputEvent"
+            if msg.isInput() then scene.inputArgs = msg.getInfo()
+        end if
+    end while
+end sub

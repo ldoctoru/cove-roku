@@ -1,0 +1,391 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Api.bs"
+import "pkg:/source/Items.bs"
+import "pkg:/source/Playback.bs"
+import "pkg:/source/Tracks.bs"
+
+sub init()
+    m.buttons = m.top.findNode("buttons")
+    m.seasons = m.top.findNode("seasons")
+    m.episodes = m.top.findNode("episodes")
+    m.status = m.top.findNode("status")
+    m.buttons.observeField("itemSelected", "onButton")
+    m.seasons.observeField("itemFocused", "onSeasonFocused")
+    m.episodes.observeField("itemFocused", "onEpisodeFocused")
+    m.episodes.observeField("itemSelected", "onEpisodeSelected")
+    m.top.observeField("focusedChild", "onFocusChanged")
+    m.item = invalid
+    m.buttonIds = []
+    m.seasonList = []
+    m.episodeList = []
+    m.pending = []
+    m.seasonGen = 0
+    m.tracks = invalid
+    m.opts = Playback.options()
+    m.picker = invalid
+    m.isFav = false
+end sub
+
+sub load()
+    m.status.text = "Loading..."
+    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.itemId + "?Fields=MediaSources,MediaStreams", { kind: "item" })
+end sub
+
+' After playback: reload so Resume shows the new position
+sub onRefresh()
+    if m.item = invalid then return
+    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.itemId + "?Fields=MediaSources,MediaStreams", { kind: "item" })
+    if m.seasonList.count() > 0 then loadEpisodes(m.seasons.itemFocused)
+end sub
+
+sub get(path as string, tag as object)
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "GET", url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: "", tag: tag, timeout: 20000 }
+    t.observeField("response", "onResponse")
+    m.pending.push(t)
+    t.control = "RUN"
+end sub
+
+' Favourite on / off: POST / DELETE /Users/{id}/FavoriteItems/{item} (Jellyfin 10.9+: /UserFavoriteItems/{item})
+sub toggleFavourite()
+    if m.item = invalid then return
+    method = "POST"
+    if m.isFav then method = "DELETE"
+    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/FavoriteItems/" + Util.toText(m.item.Id), { kind: "fav", method: method, newRoute: false })
+end sub
+
+sub send(method as string, path as string, tag as object)
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: "", tag: tag, timeout: 15000 }
+    t.observeField("response", "onResponse")
+    m.pending.push(t)
+    t.control = "RUN"
+end sub
+
+sub onFavourite(r as object)
+    if r.code = 404 and not r.tag.newRoute
+        send(r.tag.method, "/UserFavoriteItems/" + Util.toText(m.item.Id) + "?userId=" + Util.toText(m.top.server.userId), { kind: "fav", method: r.tag.method, newRoute: true })
+        return
+    end if
+    if r.code >= 200 and r.code < 300
+        m.isFav = r.tag.method = "POST"
+        if m.item.UserData = invalid then m.item.UserData = {}
+        m.item.UserData.IsFavorite = m.isFav
+        m.top.changed = true
+        showItem(m.item)
+        if m.isFav
+            m.status.text = "Added to your favourites."
+        else
+            m.status.text = "Removed from your favourites."
+        end if
+    else
+        m.status.text = "Couldn't change the favourite. " + Api.describeFailure(r)
+    end if
+end sub
+
+sub onResponse(ev as object)
+    t = ev.getRoSGNode()
+    for i = 0 to m.pending.count() - 1
+        if m.pending[i].isSameNode(t)
+            m.pending.delete(i)
+            exit for
+        end if
+    end for
+    r = ev.getData()
+    k = r.tag.kind
+    if k = "fav"
+        onFavourite(r)
+        return
+    end if
+    if r.code <> 200 or r.json = invalid
+        m.status.text = "Couldn't load this title. " + Api.describeFailure(r)
+        return
+    end if
+    if k = "item"
+        showItem(r.json)
+    else if k = "seasons"
+        showSeasons(r.json)
+    else if k = "episodes" and r.tag.gen = m.seasonGen
+        showEpisodes(r.json)
+    end if
+end sub
+
+sub showItem(it as object)
+    first = m.item = invalid
+    m.item = it
+    srv = m.top.server
+    m.status.text = ""
+    t = Util.toText(it.Type)
+    title = Util.toText(it.Name)
+    if t = "Episode" then title = Util.toText(it.SeriesName)
+    m.top.findNode("title").text = title
+    m.top.findNode("meta").text = Items.meta(it)
+    setOverview(Util.toText(it.Overview))
+    m.top.findNode("poster").uri = Items.poster(srv, it, 300)
+    m.top.findNode("backdrop").uri = Items.backdrop(srv, it, 1280)
+    m.isFav = Util.flag(it.UserData, "IsFavorite")
+    if t = "Series"
+        if m.isFav
+            m.status.text = "In your favourites   ·   press * to remove"
+        else
+            m.status.text = "Press * to add to favourites"
+        end if
+        if first then get("/Shows/" + Util.toText(it.Id) + "/Seasons?UserId=" + Util.toText(srv.userId), { kind: "seasons" })
+        return
+    end if
+    ' Movie / episode / video: Resume + Play from the beginning, or Play
+    resumeAt = resumeSeconds(it)
+    ids = []
+    labels = []
+    if resumeAt > 30
+        ids.push("resume")
+        labels.push("Resume from " + Playback.clock(resumeAt))
+        ids.push("restart")
+        labels.push("Play from the beginning")
+    else
+        ids.push("restart")
+        labels.push("Play")
+    end if
+    ' Audio / subtitles / quality for this playback (chosen once, kept on refresh)
+    if first or m.tracks = invalid
+        m.tracks = Tracks.fromItem(it)
+        m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
+        s = Tracks.defaultSub(m.tracks, "")
+        if s >= 0
+            m.opts.sub = s
+            m.opts.burn = not Tracks.findSub(m.tracks, s).isText
+        end if
+    end if
+    if m.tracks.audio.count() > 1
+        ids.push("audio")
+        labels.push("Audio: " + Tracks.audioLabel(m.tracks, effectiveAudio()))
+    end if
+    if m.tracks.subs.count() > 0
+        ids.push("subs")
+        labels.push("Subtitles: " + Tracks.subLabel(m.tracks, m.opts.sub))
+    end if
+    ids.push("quality")
+    labels.push("Quality: " + Tracks.qualityLabel(m.opts.maxBitrate))
+    ids.push("fav")
+    if m.isFav
+        labels.push("Remove from favourites")
+    else
+        labels.push("Add to favourites")
+    end if
+    focusAt = m.buttons.itemFocused
+    m.buttonIds = ids
+    setList(m.buttons, labels)
+    m.buttons.numRows = ids.count()
+    if focusAt > 0 and focusAt < ids.count() then m.buttons.jumpToItem = focusAt
+    m.buttons.visible = true
+    if m.top.isInFocusChain() then m.buttons.setFocus(true)
+end sub
+
+function resumeSeconds(it as object) as float
+    ud = it.UserData
+    if ud = invalid or GetInterface(ud, "ifAssociativeArray") = invalid then return 0
+    return Playback.seconds(ud.PlaybackPositionTicks)
+end function
+
+sub setOverview(text as string)
+    lines = Util.wrapLines(text, 100, 4)
+    for i = 0 to 3
+        line = ""
+        if i < lines.count() then line = lines[i]
+        m.top.findNode("ov" + i.toStr()).text = line
+    end for
+end sub
+
+sub setList(list as object, labels as object)
+    c = createObject("roSGNode", "ContentNode")
+    for each l in labels
+        n = c.createChild("ContentNode")
+        n.title = l
+    end for
+    list.content = c
+end sub
+
+sub onButton()
+    id = m.buttonIds[m.buttons.itemSelected]
+    if id = "audio"
+        o = []
+        for each a in m.tracks.audio
+            o.push({ id: a.index.toStr(), label: a.label })
+        end for
+        openPicker("audio", "Audio", o, effectiveAudio().toStr())
+        return
+    else if id = "subs"
+        o = [{ id: "-1", label: "Off" }]
+        for each s in m.tracks.subs
+            o.push({ id: s.index.toStr(), label: s.label })
+        end for
+        openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
+        return
+    else if id = "quality"
+        openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
+        return
+    else if id = "fav"
+        toggleFavourite()
+        return
+    end if
+    start = 0.0
+    if id = "resume" then start = resumeSeconds(m.item)
+    requestPlay(m.item, start)
+end sub
+
+function effectiveAudio() as integer
+    if m.opts.audio >= 0 then return m.opts.audio
+    return m.opts.defaultAudio
+end function
+
+sub openPicker(purpose as string, title as string, options as object, selectedId as string)
+    closePicker()
+    p = createObject("roSGNode", "Picker")
+    p.purpose = purpose
+    p.title = title
+    p.selectedId = selectedId
+    p.options = options
+    p.observeField("chosen", "onPicked")
+    p.observeField("cancelled", "onPickerCancelled")
+    m.top.appendChild(p)
+    m.picker = p
+    p.setFocus(true)
+end sub
+
+sub closePicker()
+    if m.picker <> invalid
+        m.picker.unobserveField("chosen")
+        m.picker.unobserveField("cancelled")
+        m.top.removeChild(m.picker)
+        m.picker = invalid
+    end if
+    m.buttons.setFocus(true)
+end sub
+
+sub onPickerCancelled()
+    closePicker()
+end sub
+
+sub onPicked(ev as object)
+    c = ev.getData()
+    v = c.id.toInt()
+    if c.purpose = "audio"
+        m.opts.audio = v
+    else if c.purpose = "subs"
+        s = Tracks.findSub(m.tracks, v)
+        m.opts.sub = v
+        m.opts.burn = s <> invalid and not s.isText
+    else if c.purpose = "quality"
+        m.opts.maxBitrate = v
+    end if
+    closePicker()
+    showItem(m.item)
+end sub
+
+sub requestPlay(it as object, start as float)
+    sub_ = ""
+    if Util.toText(it.Type) = "Episode" then sub_ = Items.episodeLabel(it)
+    title = Util.toText(it.Name)
+    if Util.toText(it.Type) = "Episode" then title = Util.toText(it.SeriesName)
+    p = { id: Util.toText(it.Id), title: title, subtitle: sub_, start: start }
+    ' Choices from this page apply to this movie / episode (episodes picked from the list use the defaults)
+    if m.item <> invalid and Util.toText(it.Id) = Util.toText(m.item.Id) and Util.toText(m.item.Type) <> "Series" then p.options = m.opts
+    m.top.play = p
+end sub
+
+' ---------------------------------------------------------------- series
+
+sub showSeasons(json as object)
+    list = json
+    if GetInterface(json, "ifAssociativeArray") <> invalid then list = json.Items
+    if type(list) <> "roArray" or list.count() = 0
+        m.status.text = "No seasons found for this series."
+        return
+    end if
+    m.seasonList = list
+    labels = []
+    for each s in list
+        labels.push(Util.toText(s.Name))
+    end for
+    setList(m.seasons, labels)
+    m.seasons.visible = true
+    m.episodes.visible = true
+    if m.top.isInFocusChain() then m.episodes.setFocus(true)
+    loadEpisodes(0)
+end sub
+
+sub onSeasonFocused()
+    loadEpisodes(m.seasons.itemFocused)
+end sub
+
+sub loadEpisodes(index as integer)
+    if index < 0 or index >= m.seasonList.count() then return
+    m.seasonGen = m.seasonGen + 1
+    s = m.seasonList[index]
+    srv = m.top.server
+    get("/Shows/" + Util.toText(m.item.Id) + "/Episodes?SeasonId=" + Util.toText(s.Id) + "&UserId=" + Util.toText(srv.userId) + "&" + Items.fields(), { kind: "episodes", gen: m.seasonGen })
+end sub
+
+sub showEpisodes(json as object)
+    list = json
+    if GetInterface(json, "ifAssociativeArray") <> invalid then list = json.Items
+    if type(list) <> "roArray" then list = []
+    m.episodeList = list
+    labels = []
+    for each e in list
+        l = ""
+        if e.IndexNumber <> invalid then l = Util.toText(e.IndexNumber) + ".  "
+        l = l + Util.toText(e.Name)
+        ud = e.UserData
+        if Util.flag(ud, "Played")
+            l = l + "   ·  watched"
+        else if resumeSeconds(e) > 30
+            l = l + "   ·  " + Playback.clock(resumeSeconds(e)) + " watched"
+        end if
+        labels.push(l)
+    end for
+    setList(m.episodes, labels)
+end sub
+
+sub onEpisodeFocused()
+    i = m.episodes.itemFocused
+    if i < 0 or i >= m.episodeList.count() then return
+    e = m.episodeList[i]
+    m.top.findNode("meta").text = Items.meta(e)
+    setOverview(Util.toText(e.Overview))
+end sub
+
+' OK on an episode plays it, resuming where you stopped
+sub onEpisodeSelected()
+    i = m.episodes.itemSelected
+    if i < 0 or i >= m.episodeList.count() then return
+    e = m.episodeList[i]
+    requestPlay(e, resumeSeconds(e))
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if press and key = "options" and m.item <> invalid and Util.toText(m.item.Type) = "Series"
+        toggleFavourite()
+        return true
+    end if
+    if not press or not m.seasons.visible then return false
+    if key = "left" and m.episodes.hasFocus()
+        m.seasons.setFocus(true)
+        return true
+    else if key = "right" and m.seasons.hasFocus()
+        m.episodes.setFocus(true)
+        return true
+    end if
+    return false
+end function
+
+sub onFocusChanged()
+    if not m.top.hasFocus() then return
+    if m.picker <> invalid
+        m.picker.setFocus(true)
+    else if m.buttons.visible
+        m.buttons.setFocus(true)
+    else if m.episodes.visible
+        m.episodes.setFocus(true)
+    end if
+end sub

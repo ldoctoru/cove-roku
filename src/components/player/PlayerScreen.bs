@@ -1,0 +1,513 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Api.bs"
+import "pkg:/source/Playback.bs"
+import "pkg:/source/Tracks.bs"
+import "pkg:/source/Items.bs"
+
+sub init()
+    m.video = m.top.findNode("video")
+    m.status = m.top.findNode("status")
+    m.action = m.top.findNode("action")
+    m.actionLabel = m.top.findNode("actionLabel")
+    m.upNext = m.top.findNode("upNext")
+    m.progressTimer = m.top.findNode("progressTimer")
+    m.closeTimer = m.top.findNode("closeTimer")
+    m.countdown = m.top.findNode("countdown")
+    m.progressTimer.observeField("fire", "onProgressTimer")
+    m.closeTimer.observeField("fire", "finish")
+    m.countdown.observeField("fire", "onCountdown")
+    m.video.observeField("state", "onState")
+    m.video.observeField("position", "onPosition")
+    m.video.notificationInterval = 1
+    m.top.observeField("focusedChild", "onFocusChanged")
+    m.pending = []
+    m.picker = invalid
+    m.subLang = ""          ' subtitle language chosen in this session, kept for the next episode
+    resetState()
+end sub
+
+sub resetState()
+    m.session = invalid
+    m.playTask = invalid
+    m.retried = false
+    m.started = false
+    m.closing = false
+    m.failed = false
+    m.lastPos = 0
+    m.info = invalid
+    m.tracks = { sourceId: "", audio: [], subs: [] }
+    m.marks = { introStart: -1.0, introEnd: -1.0, credits: -1.0 }
+    m.next = invalid
+    m.actionKind = ""
+    m.introDismissed = false
+    m.creditsDismissed = false
+    m.opts = Playback.options()
+    m.startAt = 0.0
+    m.action.visible = false
+    m.upNext.visible = false
+    m.countdown.control = "stop"
+end sub
+
+' A new item (also the next episode): load its details first (tracks, markers), then ask for a stream
+sub begin()
+    resetState()
+    it = m.top.item
+    m.startAt = it.start
+    if it.options <> invalid and it.options.audio <> invalid then m.opts = it.options
+    m.status.text = "Starting..."
+    m.status.visible = true
+    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + it.id + "?Fields=MediaSources,MediaStreams,Chapters", { kind: "info" })
+end sub
+
+sub onInfo(r as object)
+    if r.code = 200 and r.json <> invalid
+        m.info = r.json
+        m.tracks = Tracks.fromItem(r.json)
+        m.marks = Tracks.markers(r.json)
+        m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
+        ' Not chosen on the details page: forced subtitles, or the language chosen for the previous episode
+        if m.top.item.options = invalid
+            s = Tracks.defaultSub(m.tracks, m.subLang)
+            if s >= 0
+                m.opts.sub = s
+                m.opts.burn = not Tracks.findSub(m.tracks, s).isText
+            end if
+        end if
+        ' Jellyfin keeps intro / credits as media segments
+        if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro", { kind: "segments" })
+        if Util.toText(r.json.Type) = "Episode" and Util.toText(r.json.SeriesId) <> ""
+            get("/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&StartItemId=" + m.top.item.id + "&Limit=2&" + Items.fields(), { kind: "next" })
+        end if
+    end if
+    start(m.startAt, false)
+end sub
+
+' Asks the server for a stream; forceTranscode after a playback error
+sub start(startSeconds as float, forceTranscode as boolean)
+    m.startAt = startSeconds
+    m.status.text = "Starting..."
+    m.status.visible = true
+    m.playTask = createObject("roSGNode", "PlayTask")
+    m.playTask.server = m.top.server
+    m.playTask.itemId = m.top.item.id
+    m.playTask.forceTranscode = forceTranscode
+    m.playTask.options = m.opts
+    m.playTask.observeField("stream", "onStream")
+    m.playTask.observeField("error", "onPlayError")
+    m.playTask.control = "RUN"
+end sub
+
+sub onStream()
+    s = m.playTask.stream
+    s.itemId = m.top.item.id
+    m.session = s
+    c = createObject("roSGNode", "ContentNode")
+    c.url = s.url
+    c.streamFormat = s.streamFormat
+    c.title = Util.toText(m.top.item.title)
+    c.secondaryTitle = Util.toText(m.top.item.subtitle)
+    if m.startAt > 1 then c.PlayStart = m.startAt
+    ' A text subtitle is shown by the Roku from the server's SRT
+    sub_ = Tracks.findSub(m.tracks, m.opts.sub)
+    subUrl = ""
+    if sub_ <> invalid and sub_.isText
+        subUrl = Playback.subtitleUrl(m.top.server, m.top.item.id, s.mediaSourceId, sub_.index)
+        lang = sub_.language
+        if lang = "" then lang = "und"
+        c.subtitleTracks = [{ Language: lang, TrackName: subUrl, Description: sub_.label }]
+    end if
+    m.video.content = c
+    applySubtitle(subUrl)
+    m.video.control = "play"
+    m.video.setFocus(true)
+end sub
+
+sub applySubtitle(url as string)
+    if url <> ""
+        m.video.subtitleTrack = url
+        m.video.globalCaptionMode = "On"
+    else
+        m.video.subtitleTrack = ""
+        m.video.globalCaptionMode = "Off"
+    end if
+end sub
+
+sub onPlayError()
+    m.status.text = m.playTask.error + chr(10) + "Press Back to return."
+    m.status.visible = true
+end sub
+
+sub onState()
+    st = m.video.state
+    print "Cove: video "; st
+    if st = "playing"
+        m.status.visible = false
+        if not m.started
+            m.started = true
+            report("/Sessions/Playing", false)
+            m.progressTimer.control = "start"
+        end if
+    else if st = "paused"
+        report("/Sessions/Playing/Progress", true)
+    else if st = "finished"
+        ' (the Video node also reports "finished" right after an error: only a real end counts)
+        if m.started and not m.failed then onFinished()
+    else if st = "error"
+        onVideoError()
+    end if
+end sub
+
+' The Roku couldn't play the stream: once, have the server convert the video and continue at the same position
+sub onVideoError()
+    m.failed = true
+    print "Cove: video error "; m.video.errorCode; " "; m.video.errorMsg; " | "; formatJson(m.video.errorInfo)
+    if m.session <> invalid then print "Cove: was "; m.session.method; " "; m.session.streamFormat
+    atSec = m.video.position
+    if atSec < 1 then atSec = m.startAt
+    if not m.retried
+        m.retried = true
+        stopEncoding()
+        m.started = false
+        m.failed = false
+        m.progressTimer.control = "stop"
+        m.status.text = "Converting the video for this Roku..."
+        m.status.visible = true
+        start(atSec, true)
+        return
+    end if
+    m.status.text = "This video can't be played on this Roku." + chr(10) + Util.toText(m.video.errorMsg) + "  (" + Util.toText(m.video.errorCode) + ")" + chr(10) + "Press Back to return."
+    m.status.visible = true
+end sub
+
+sub onProgressTimer()
+    if m.video.state = "playing" then report("/Sessions/Playing/Progress", false)
+end sub
+
+' ---------------------------------------------------------------- skip intro / next episode
+
+sub onPosition()
+    p = m.video.position
+    if m.video.state <> "playing" or m.upNext.visible then return
+    mk = m.marks
+    inIntro = mk.introStart >= 0 and mk.introEnd > mk.introStart and p >= mk.introStart and p < mk.introEnd - 2
+    inCredits = m.next <> invalid and mk.credits > 0 and p >= mk.credits
+    if inIntro and not m.introDismissed
+        showAction("intro", "Skip intro")
+    else if inCredits and not m.creditsDismissed
+        showAction("next", "Next episode")
+    else if m.actionKind <> ""
+        hideAction()
+    end if
+end sub
+
+sub showAction(kind as string, label as string)
+    if m.actionKind = kind then return
+    m.actionKind = kind
+    m.actionLabel.text = label
+    m.action.visible = true
+    m.action.setFocus(true)
+end sub
+
+sub hideAction()
+    m.actionKind = ""
+    m.action.visible = false
+    if m.picker = invalid then m.video.setFocus(true)
+end sub
+
+sub useAction()
+    k = m.actionKind
+    hideAction()
+    if k = "intro"
+        m.introDismissed = true
+        m.video.seek = m.marks.introEnd
+    else if k = "next"
+        playNext()
+    end if
+end sub
+
+sub dismissAction()
+    if m.actionKind = "intro" then m.introDismissed = true
+    if m.actionKind = "next" then m.creditsDismissed = true
+    hideAction()
+end sub
+
+sub onFinished()
+    if m.next <> invalid
+        report("/Sessions/Playing/Stopped", false, m.video.duration)
+        stopEncoding()
+        m.progressTimer.control = "stop"
+        m.started = false
+        hideAction()
+        m.top.findNode("upNextTitle").text = Util.toText(m.next.SeriesName)
+        m.top.findNode("upNextEpisode").text = Items.episodeLabel(m.next)
+        m.count = 10
+        m.top.findNode("upNextCount").text = "Starts in 10 s   ·   OK: play now   ·   Back: stop"
+        m.upNext.visible = true
+        m.upNext.setFocus(true)
+        m.countdown.control = "start"
+    else
+        close()
+    end if
+end sub
+
+sub onCountdown()
+    m.count = m.count - 1
+    if m.count <= 0
+        m.countdown.control = "stop"
+        playNext()
+    else
+        m.top.findNode("upNextCount").text = "Starts in " + m.count.toStr() + " s   ·   OK: play now   ·   Back: stop"
+    end if
+end sub
+
+' The next episode in the same player, keeping the subtitle language
+sub playNext()
+    n = m.next
+    if n = invalid then return
+    m.countdown.control = "stop"
+    if m.started
+        report("/Sessions/Playing/Stopped", false)
+        stopEncoding()
+    end if
+    keep = Tracks.findSub(m.tracks, m.opts.sub)
+    if keep <> invalid then m.subLang = keep.language
+    if keep = invalid then m.subLang = ""
+    m.video.control = "stop"
+    m.top.item = { id: Util.toText(n.Id), title: Util.toText(n.SeriesName), subtitle: Items.episodeLabel(n), start: 0.0 }
+end sub
+
+' ---------------------------------------------------------------- * menu: audio, subtitles, quality
+
+sub showMenu()
+    opts = [
+        { id: "audio", label: "Audio: " + Tracks.audioLabel(m.tracks, effectiveAudio()) },
+        { id: "subs", label: "Subtitles: " + Tracks.subLabel(m.tracks, m.opts.sub) },
+        { id: "quality", label: "Quality: " + Tracks.qualityLabel(m.opts.maxBitrate) }
+    ]
+    openPicker("menu", "Playback", opts, "")
+end sub
+
+function effectiveAudio() as integer
+    if m.opts.audio >= 0 then return m.opts.audio
+    return m.opts.defaultAudio
+end function
+
+sub openPicker(purpose as string, title as string, options as object, selectedId as string)
+    closePicker()
+    if m.video.state = "playing" then m.video.control = "pause"
+    p = createObject("roSGNode", "Picker")
+    p.purpose = purpose
+    p.title = title
+    p.selectedId = selectedId
+    p.options = options
+    p.observeField("chosen", "onPicked")
+    p.observeField("cancelled", "onPickerCancelled")
+    m.top.appendChild(p)
+    m.picker = p
+    p.setFocus(true)
+end sub
+
+sub closePicker()
+    if m.picker <> invalid
+        m.picker.unobserveField("chosen")
+        m.picker.unobserveField("cancelled")
+        m.top.removeChild(m.picker)
+        m.picker = invalid
+    end if
+end sub
+
+sub onPickerCancelled()
+    closePicker()
+    m.video.setFocus(true)
+    if m.video.state = "paused" then m.video.control = "resume"
+end sub
+
+sub onPicked(ev as object)
+    c = ev.getData()
+    if c.purpose = "menu"
+        if c.id = "audio"
+            o = []
+            for each a in m.tracks.audio
+                o.push({ id: a.index.toStr(), label: a.label })
+            end for
+            openPicker("audio", "Audio", o, effectiveAudio().toStr())
+        else if c.id = "subs"
+            o = [{ id: "-1", label: "Off" }]
+            for each s in m.tracks.subs
+                o.push({ id: s.index.toStr(), label: s.label })
+            end for
+            openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
+        else if c.id = "quality"
+            openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
+        end if
+        return
+    end if
+    closePicker()
+    v = c.id.toInt()
+    restart = false
+    if c.purpose = "audio" and v <> effectiveAudio()
+        m.opts.audio = v
+        restart = true
+    else if c.purpose = "quality" and v <> m.opts.maxBitrate
+        m.opts.maxBitrate = v
+        restart = true
+    else if c.purpose = "subs" and v <> m.opts.sub
+        s = Tracks.findSub(m.tracks, v)
+        wasBurned = m.opts.burn
+        m.opts.sub = v
+        m.opts.burn = s <> invalid and not s.isText
+        if s <> invalid then m.subLang = s.language
+        if s = invalid then m.subLang = ""
+        ' A text subtitle switches on the spot; burning one in (or removing a burned one) needs a new stream
+        if m.opts.burn or wasBurned
+            restart = true
+        else if s <> invalid and m.session <> invalid
+            url = Playback.subtitleUrl(m.top.server, m.top.item.id, m.session.mediaSourceId, s.index)
+            lang = s.language
+            if lang = "" then lang = "und"
+            m.video.content.subtitleTracks = [{ Language: lang, TrackName: url, Description: s.label }]
+            applySubtitle(url)
+        else
+            applySubtitle("")
+        end if
+    end if
+    m.video.setFocus(true)
+    if restart
+        restartAt(m.video.position)
+    else if m.video.state = "paused"
+        m.video.control = "resume"
+    end if
+end sub
+
+' Same item, new settings, same position
+sub restartAt(atSec as float)
+    if m.started then report("/Sessions/Playing/Stopped", false, atSec)
+    stopEncoding()
+    m.video.control = "stop"
+    m.started = false
+    m.retried = false
+    m.failed = false
+    m.progressTimer.control = "stop"
+    start(atSec, false)
+end sub
+
+' ---------------------------------------------------------------- keys, leaving
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if m.upNext.visible
+        if key = "OK" or key = "play"
+            playNext()
+        else if key = "back"
+            m.countdown.control = "stop"
+            close()
+        end if
+        return true
+    end if
+    if m.action.visible and m.action.isInFocusChain()
+        if key = "OK"
+            useAction()
+        else if key = "back"
+            dismissAction()
+        else
+            dismissAction()
+            return false
+        end if
+        return true
+    end if
+    if key = "back"
+        close()
+        return true
+    else if key = "options"
+        showMenu()
+        return true
+    end if
+    return false
+end function
+
+' Report the stop (the server saves the position / marks it watched), end the server's conversion, then leave
+sub close()
+    if m.closing then return
+    m.closing = true
+    m.progressTimer.control = "stop"
+    m.countdown.control = "stop"
+    atSec = m.video.position
+    m.video.control = "stop"
+    if m.started then report("/Sessions/Playing/Stopped", false, atSec)
+    stopEncoding()
+    m.closeTimer.control = "start"
+end sub
+
+sub finish()
+    m.top.done = true
+end sub
+
+sub stopEncoding()
+    s = m.session
+    if s = invalid or s.method = "DirectPlay" then return
+    fire("DELETE", "/Videos/ActiveEncodings?DeviceId=" + Util.deviceId() + "&PlaySessionId=" + Util.toText(s.playSessionId), "")
+end sub
+
+sub report(path as string, paused as boolean, atSec = -1 as float)
+    s = m.session
+    if s = invalid then return
+    if atSec < 0 then atSec = m.video.position
+    if atSec > 0 then m.lastPos = atSec
+    fire("POST", path, Playback.reportBody(s, m.lastPos, paused))
+end sub
+
+' ---------------------------------------------------------------- requests
+
+sub get(path as string, tag as object)
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "GET", url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: "", tag: tag, timeout: 15000 }
+    t.observeField("response", "onResponse")
+    m.pending.push(t)
+    t.control = "RUN"
+end sub
+
+sub onResponse(ev as object)
+    t = ev.getRoSGNode()
+    for i = 0 to m.pending.count() - 1
+        if m.pending[i].isSameNode(t)
+            m.pending.delete(i)
+            exit for
+        end if
+    end for
+    r = ev.getData()
+    k = r.tag.kind
+    if k = "info"
+        onInfo(r)
+    else if k = "segments" and r.code = 200
+        m.marks = Tracks.fromSegments(r.json, m.marks)
+    else if k = "next" and r.code = 200 and r.json <> invalid
+        list = r.json.Items
+        if type(list) = "roArray" and list.count() > 1 and Util.toText(list[0].Id) = m.top.item.id then m.next = list[1]
+    end if
+end sub
+
+' A request whose answer nobody waits for. The task is parked in the scene's "tasks" group so it keeps running
+' after this screen is gone (finished ones are cleared each time).
+sub fire(method as string, path as string, body as string)
+    holder = m.top.getScene().findNode("tasks")
+    for i = holder.getChildCount() - 1 to 0 step -1
+        if holder.getChild(i).state = "done" or holder.getChild(i).state = "stop" then holder.removeChildIndex(i)
+    end for
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: body, tag: { kind: "fire" } }
+    holder.appendChild(t)
+    t.control = "RUN"
+end sub
+
+sub onFocusChanged()
+    if not m.top.hasFocus() then return
+    if m.picker <> invalid
+        m.picker.setFocus(true)
+    else if m.upNext.visible
+        m.upNext.setFocus(true)
+    else if m.action.visible
+        m.action.setFocus(true)
+    else
+        m.video.setFocus(true)
+    end if
+end sub

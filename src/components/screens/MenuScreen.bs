@@ -1,0 +1,59 @@
+sub init()
+    m.list = m.top.findNode("list")
+    m.list.observeField("itemSelected", "onSelect")
+    m.top.observeField("focusedChild", "onFocusChanged")
+end sub
+
+sub onTitle()
+    m.top.findNode("title").text = m.top.title
+end sub
+
+sub onSubtitle()
+    m.top.findNode("subtitle").text = m.top.subtitle
+end sub
+
+sub onStatus()
+    m.top.findNode("status").text = m.top.status
+end sub
+
+' A large code (Quick Connect) pushes the menu down below it
+sub onCode()
+    c = m.top.findNode("code")
+    c.text = m.top.code
+    c.visible = m.top.code <> ""
+    if m.top.code <> ""
+        m.list.translation = [290, 470]
+    else
+        m.list.translation = [290, 300]
+    end if
+end sub
+
+sub onItems()
+    content = createObject("roSGNode", "ContentNode")
+    for each it in m.top.items
+        c = content.createChild("ContentNode")
+        c.title = it.label
+    end for
+    m.list.content = content
+    if m.top.items.count() > 0 then m.list.jumpToItem = 0
+end sub
+
+sub onSelect()
+    i = m.list.itemSelected
+    if i >= 0 and i < m.top.items.count() then m.top.selected = { id: m.top.items[i].id }
+end sub
+
+' The page itself never keeps focus: hand it to the menu
+sub onFocusChanged()
+    if m.top.hasFocus() then m.list.setFocus(true)
+end sub
+
+' * (Options) on a menu item, e.g. to remove a saved server
+function onKeyEvent(key as string, press as boolean) as boolean
+    if press and key = "options"
+        i = m.list.itemFocused
+        if i >= 0 and i < m.top.items.count() then m.top.options = { id: m.top.items[i].id }
+        return true
+    end if
+    return false
+end function

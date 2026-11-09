@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Root scene: a stack of screens (MenuScreen pages) and the flows between them: choose / add a server,
+     sign in (username + password, a user from the server's list, or Jellyfin Quick Connect), stay signed in. -->
+<component name="MainScene" extends="Scene">
+    <script type="text/brightscript" uri="MainScene.bs" />
+    <interface>
+        <field id="launchArgs" type="assocarray" />
+        <field id="inputArgs" type="assocarray" />
+    </interface>
+    <children>
+        <Rectangle id="background" width="1920" height="1080" color="0x0B0D14FF" />
+        <Group id="screens" />
+        <!-- Requests that must finish after their screen is gone (playback stop reports) -->
+        <Group id="tasks" />
+        <!-- Opens the next keyboard only after the previous one has really closed (see askTextLater) -->
+        <Timer id="dialogTimer" duration="0.4" repeat="false" />
+    </children>
+</component>

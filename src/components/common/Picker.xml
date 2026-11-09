@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- A choice panel on the right (audio track, subtitles, quality, player options). Set title, options
+     ([{ id, label }]) and selectedId, show it and give it focus; "chosen" = { id } or "cancelled". -->
+<component name="Picker" extends="Group">
+    <script type="text/brightscript" uri="Picker.bs" />
+    <interface>
+        <field id="title" type="string" onChange="onTitle" />
+        <field id="options" type="array" onChange="onOptions" />
+        <field id="selectedId" type="string" />
+        <field id="purpose" type="string" />
+        <field id="chosen" type="assocarray" alwaysNotify="true" />
+        <field id="cancelled" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle width="1920" height="1080" color="0x00000088" />
+        <Rectangle width="760" height="1080" translation="[1160,0]" color="0x14182AF2" />
+        <Label id="title" width="640" height="60" translation="[1220,90]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="40" />
+        </Label>
+        <LabelList id="list" translation="[1220,190]" itemSize="[640,68]" numRows="11" itemSpacing="[0,6]"
+                   color="0xC8CCD8FF" focusedColor="0x0B0D14FF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="30" />
+            <Font role="focusedFont" uri="font:BoldSystemFontFile" size="30" />
+        </LabelList>
+    </children>
+</component>
