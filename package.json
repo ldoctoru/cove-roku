@@ -5,7 +5,7 @@
   "description": "Cove for Roku: Emby and Jellyfin client",
   "license": "GPL-3.0",
   "scripts": {
-    "build": "bsc",
+    "build": "bsc && node scripts/check-shadowing.js",
     "lint": "bsc --create-package false --retain-staging-dir false",
     "deploy": "npm run build && node scripts/deploy.js"
   },

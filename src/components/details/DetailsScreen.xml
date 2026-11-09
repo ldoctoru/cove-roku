@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- A movie, episode or series. Movie / episode: Resume / Play from the beginning. Series: seasons on the left,
+     episodes on the right (OK plays, resuming where you stopped). "play" asks MainScene to start the player. -->
+<component name="DetailsScreen" extends="Group">
+    <script type="text/brightscript" uri="DetailsScreen.bs" />
+    <interface>
+        <field id="screenId" type="string" value="details" />
+        <field id="server" type="assocarray" />
+        <field id="itemId" type="string" onChange="load" />
+        <field id="refresh" type="boolean" alwaysNotify="true" onChange="onRefresh" />
+        <field id="play" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Poster id="backdrop" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0.3" />
+        <Rectangle width="1920" height="1080" color="0x0B0D1488" />
+        <Poster id="poster" width="300" height="450" loadWidth="300" loadHeight="450" translation="[100,110]" loadDisplayMode="scaleToZoom" />
+        <Label id="title" width="1380" height="80" translation="[440,110]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="58" />
+        </Label>
+        <Label id="meta" width="1380" height="40" translation="[440,196]" color="0xC8CCD8FF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="28" />
+        </Label>
+        <Label id="ov0" width="1380" height="36" translation="[440,250]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+        <Label id="ov1" width="1380" height="36" translation="[440,288]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+        <Label id="ov2" width="1380" height="36" translation="[440,326]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+        <Label id="ov3" width="1380" height="36" translation="[440,364]" color="0x9AA0B0FF"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+        <LabelList id="buttons" translation="[440,440]" itemSize="[560,70]" numRows="3" itemSpacing="[0,8]"
+                   color="0xC8CCD8FF" focusedColor="0x0B0D14FF" visible="false">
+            <Font role="font" uri="font:MediumSystemFontFile" size="34" />
+            <Font role="focusedFont" uri="font:BoldSystemFontFile" size="34" />
+        </LabelList>
+        <LabelList id="seasons" translation="[440,440]" itemSize="[340,62]" numRows="8" itemSpacing="[0,6]"
+                   color="0xC8CCD8FF" focusedColor="0x0B0D14FF" visible="false">
+            <Font role="font" uri="font:MediumSystemFontFile" size="30" />
+            <Font role="focusedFont" uri="font:BoldSystemFontFile" size="30" />
+        </LabelList>
+        <LabelList id="episodes" translation="[820,440]" itemSize="[1000,62]" numRows="8" itemSpacing="[0,6]"
+                   color="0xC8CCD8FF" focusedColor="0x0B0D14FF" visible="false">
+            <Font role="font" uri="font:MediumSystemFontFile" size="30" />
+            <Font role="focusedFont" uri="font:BoldSystemFontFile" size="30" />
+        </LabelList>
+        <Label id="status" width="1380" height="44" translation="[440,980]" color="0xF2C14EFF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="28" />
+        </Label>
+    </children>
+</component>

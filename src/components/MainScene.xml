@@ -10,6 +10,8 @@
     <children>
         <Rectangle id="background" width="1920" height="1080" color="0x0B0D14FF" />
         <Group id="screens" />
+        <!-- Requests that must finish after their screen is gone (playback stop reports) -->
+        <Group id="tasks" />
         <!-- Opens the next keyboard only after the previous one has really closed (see askTextLater) -->
         <Timer id="dialogTimer" duration="0.4" repeat="false" />
     </children>

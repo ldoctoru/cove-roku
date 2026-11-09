@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Full-screen player (Roku's Video node with its own progress bar and trick play).
+     Set server + item ({ id, title, subtitle, start }); "done" fires when the user leaves or the video ends. -->
+<component name="PlayerScreen" extends="Group">
+    <script type="text/brightscript" uri="PlayerScreen.bs" />
+    <interface>
+        <field id="screenId" type="string" value="player" />
+        <field id="server" type="assocarray" />
+        <field id="item" type="assocarray" onChange="begin" />
+        <field id="done" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle width="1920" height="1080" color="0x000000FF" />
+        <Video id="video" width="1920" height="1080" enableUI="true" />
+        <Label id="status" width="1920" height="60" translation="[0,510]" horizAlign="center" color="0xC8CCD8FF" text="Starting...">
+            <Font role="font" uri="font:MediumSystemFontFile" size="36" />
+        </Label>
+        <Timer id="progressTimer" duration="10" repeat="true" />
+        <Timer id="closeTimer" duration="3" repeat="false" />
+    </children>
+</component>

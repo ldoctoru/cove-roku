@@ -1,0 +1,30 @@
+import "pkg:/source/Api.bs"
+import "pkg:/source/Playback.bs"
+
+sub init()
+    m.top.functionName = "work"
+end sub
+
+sub work()
+    try
+        srv = m.top.server
+        caps = DeviceCaps.get()
+        url = Util.toText(srv.url) + "/Items/" + m.top.itemId + "/PlaybackInfo?" + Playback.infoQuery(srv, m.top.forceTranscode)
+        r = Api.execute({ method: "POST", url: url, headers: Api.headers(srv, true), body: Playback.infoBody(caps), timeout: 30000 })
+        print "Cove: PlaybackInfo -> "; r.code
+        if r.code <> 200
+            m.top.error = "The server couldn't prepare this video. " + Api.describeFailure(r)
+            return
+        end if
+        s = Playback.streamFrom(srv, m.top.itemId, r.json, m.top.forceTranscode)
+        if s = invalid
+            m.top.error = "The server offered no way to play this video on this Roku."
+            return
+        end if
+        print "Cove: play "; s.method; " ("; s.streamFormat; ", source video "; s.sourceVideoCodec; ")"
+        m.top.stream = s
+    catch e
+        print "Cove: PlayTask failed: "; e.message
+        m.top.error = "Couldn't start playback: " + Util.toText(e.message)
+    end try
+end sub
