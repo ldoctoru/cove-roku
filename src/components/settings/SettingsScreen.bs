@@ -245,7 +245,7 @@ sub drawTabs()
     m.top.findNode("tabTitle").text = tabs[m.tab].label
     g = m.top.findNode("tabs")
     g.removeChildrenIndex(g.getChildCount(), 0)
-    w = 156
+    w = 140
     x0 = Int((1920 - tabs.count() * (w + 8)) / 2)
     for i = 0 to tabs.count() - 1
         isCur = i = m.tab
@@ -255,7 +255,7 @@ sub drawTabs()
         if isFocus or isCur
             bgp = cell.createChild("Poster")
             bgp.width = w
-            bgp.height = 120
+            bgp.height = 104
             bgp.uri = "pkg:/images/ui/white_rr12.9.png"
             if isFocus
                 bgp.blendColor = "0xFFFFFFFF"
@@ -269,18 +269,18 @@ sub drawTabs()
         if isFocus then col = "0x000000FF"
         ic = cell.createChild("Poster")
         ic.uri = "pkg:/images/ui/icon_tab_" + tabs[i].id + "_44.png"
-        ic.width = 44
-        ic.height = 44
-        ic.translation = [(w - 44) / 2, 18]
+        ic.width = 40
+        ic.height = 40
+        ic.translation = [(w - 40) / 2, 14]
         ic.blendColor = col
         l = cell.createChild("Label")
-        l.font = mkFont(isCur, 24)
+        l.font = mkFont(isCur, 22)
         l.text = tabs[i].label
         l.color = col
         l.width = w
-        l.height = 40
+        l.height = 34
         l.horizAlign = "center"
-        l.translation = [0, 70]
+        l.translation = [0, 60]
     end for
 end sub
 
@@ -318,7 +318,7 @@ sub drawContent()
     if m.row < 0 then m.row = 0
     focusIdx = -1
     if m.area = "rows" and m.focusables.count() > 0 and m.picker = invalid then focusIdx = m.focusables[m.row]
-    y = 24
+    y = 16
     card = invalid
     cardTop = 0
     focusY = 0
@@ -329,17 +329,17 @@ sub drawContent()
         k = r.kind
         if k = "head"
             if card <> invalid
-                card.height = y - cardTop + 14
-                y = y + 30
+                card.height = y - cardTop + 8
+                y = y + 22
             end if
-            addLabel(c, UCase(r.text), 210, y, 1400, 36, 22, true, "0xFFFFFF8C")
-            y = y + 44
+            addLabel(c, UCase(r.text), 210, y, 1400, 30, 20, true, "0xFFFFFF8C")
+            y = y + 34
             card = c.createChild("Poster")
             card.uri = "pkg:/images/ui/card_r18.9.png"
             card.translation = [200, y]
             card.width = 1520
             cardTop = y
-            y = y + 14
+            y = y + 8
         else
             h = rowHeight(r)
             if isFocus
@@ -350,40 +350,42 @@ sub drawContent()
                 lc = "0xFFFFFFFF"
                 if r.dim = true then lc = "0xFFFFFF59"
                 if k = "keys" then lc = "0xFFFFFFFF"
-                lab = addLabel(c, r.label + ":", 210, y, 400, 64, 28, false, lc)
+                lab = addLabel(c, r.label + ":", 210, y, 400, 58, 26, false, lc)
                 lab.horizAlign = "right"
             end if
             drawRow(c, r, y, isFocus, cardTop)
             y = y + h
         end if
     end for
-    if card <> invalid then card.height = y - cardTop + 14
-    total = y + 40
+    if card <> invalid then card.height = y - cardTop + 8
+    total = y + 24
+    m.contentH = total
     ' keep the focused row in view (865 px visible)
     if m.area = "tabs" then m.scrollTop = 0
+    if m.area = "scroll" then return
     if focusIdx >= 0
-        if focusY + focusH > m.scrollTop + 820 then m.scrollTop = focusY + focusH - 820
+        if focusY + focusH > m.scrollTop + 880 then m.scrollTop = focusY + focusH - 880
         if focusY < m.scrollTop + 60 then m.scrollTop = focusY - 60
     end if
-    if m.scrollTop > total - 865 then m.scrollTop = total - 865
+    if m.scrollTop > total - 911 then m.scrollTop = total - 911
     if m.scrollTop < 0 then m.scrollTop = 0
     c.translation = [0, -m.scrollTop]
 end sub
 
 function rowHeight(r as object) as integer
     k = r.kind
-    if k = "note" then return 34 * noteLines(r.text) + 14
-    if k = "swatches" then return 92
-    if k = "tiles" then return 152
-    if k = "server" or k = "info" then return 96
-    if k = "library" or k = "section" then return 78
-    if k = "keys" then return 62
+    if k = "note" then return 28 * noteLines(r.text) + 6
+    if k = "swatches" then return 72
+    if k = "tiles" then return 124
+    if k = "server" or k = "info" then return 80
+    if k = "library" or k = "section" then return 60
+    if k = "keys" then return 50
     if k = "preview" then return 0
-    return 76
+    return 58
 end function
 
 function noteLines(text as string) as integer
-    return Util.wrapLines(text, 78, 6).count()
+    return Util.wrapLines(text, 86, 6).count()
 end function
 
 sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionTop as integer)
@@ -391,87 +393,87 @@ sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionT
     k = r.kind
     x = 650
     if k = "note"
-        lines = Util.wrapLines(r.text, 78, 6)
+        lines = Util.wrapLines(r.text, 86, 6)
         for i = 0 to lines.count() - 1
-            addLabel(c, lines[i], x, y + i * 34, 1040, 34, 24, false, "0xFFFFFF8C")
+            addLabel(c, lines[i], x, y + i * 28, 1040, 28, 21, false, "0xFFFFFF8C")
         end for
     else if k = "choice"
-        drawPill(c, x, y + 10, r.value, isFocus, r.dim = true, true)
+        drawPill(c, x, y + 6, r.value, isFocus, r.dim = true, true)
     else if k = "button"
-        drawPill(c, x, y + 10, r.text, isFocus, false, false)
+        drawPill(c, x, y + 6, r.text, isFocus, false, false)
     else if k = "toggle"
-        drawSwitch(c, x, y + 16, r.on, isFocus)
+        drawSwitch(c, x, y + 11, r.on, isFocus)
         col = "0xFFFFFFD9"
         if isFocus then col = "0xFFFFFFFF"
-        addLabel(c, r.text, x + 96, y, 900, 76, 28, isFocus, col)
+        addLabel(c, r.text, x + 88, y, 900, 58, 26, isFocus, col)
     else if k = "swatches"
         for i = 0 to r.options.count() - 1
             o = r.options[i]
-            cx = x + i * 78
+            cx = x + i * 68
             if o.id = r.cur
                 ring = c.createChild("Poster")
                 ring.uri = "pkg:/images/ui/white_circle_70.png"
-                ring.width = 70
-                ring.height = 70
-                ring.translation = [cx - 7, y + 4]
+                ring.width = 60
+                ring.height = 60
+                ring.translation = [cx - 6, y + 6]
                 if not isFocus then ring.blendColor = "0xFFFFFFB3"
                 gap = c.createChild("Poster")
                 gap.uri = "pkg:/images/ui/white_circle_70.png"
-                gap.width = 62
-                gap.height = 62
-                gap.translation = [cx - 3, y + 8]
+                gap.width = 54
+                gap.height = 54
+                gap.translation = [cx - 3, y + 9]
                 gap.blendColor = t.bg
             end if
             dot = c.createChild("Poster")
             dot.uri = "pkg:/images/ui/white_circle_56.png"
-            dot.width = 56
-            dot.height = 56
-            dot.translation = [cx, y + 11]
+            dot.width = 48
+            dot.height = 48
+            dot.translation = [cx, y + 12]
             dot.blendColor = o.color
         end for
     else if k = "tiles"
         for i = 0 to r.options.count() - 1
             o = r.options[i]
-            tx = x + i * 172
+            tx = x + i * 150
             if o.id = r.cur
                 sel = c.createChild("Poster")
                 sel.uri = "pkg:/images/ui/white_rr12.9.png"
-                sel.width = 164
-                sel.height = 100
-                sel.translation = [tx - 6, y + 4]
+                sel.width = 144
+                sel.height = 84
+                sel.translation = [tx - 6, y + 2]
                 sel.blendColor = t.accent
                 if isFocus then sel.blendColor = "0xFFFFFFFF"
             end if
             tile = c.createChild("Poster")
             tile.uri = "pkg:/images/ui/white_rr12.9.png"
-            tile.width = 152
-            tile.height = 88
-            tile.translation = [tx, y + 10]
+            tile.width = 132
+            tile.height = 72
+            tile.translation = [tx, y + 8]
             tile.blendColor = o.color
             edge = c.createChild("Poster")
             edge.uri = "pkg:/images/ui/card_border_r18.9.png"
-            edge.width = 152
-            edge.height = 88
-            edge.translation = [tx, y + 10]
+            edge.width = 132
+            edge.height = 72
+            edge.translation = [tx, y + 8]
             col = "0xFFFFFF8C"
             if o.id = r.cur then col = "0xFFFFFFFF"
-            lab = addLabel(c, o.label, tx, y + 104, 152, 36, 22, o.id = r.cur, col)
+            lab = addLabel(c, o.label, tx, y + 86, 132, 30, 20, o.id = r.cur, col)
             lab.horizAlign = "center"
         end for
     else if k = "info"
-        addLabel(c, r.text, x, y + 4, 1040, 44, 30, true, "0xFFFFFFFF")
-        if r.sub <> "" then addLabel(c, r.sub, x, y + 46, 1040, 36, 24, false, "0xFFFFFF8C")
+        addLabel(c, r.text, x, y + 4, 1040, 40, 27, true, "0xFFFFFFFF")
+        if r.sub <> "" then addLabel(c, r.sub, x, y + 42, 1040, 32, 22, false, "0xFFFFFF8C")
     else if k = "keys"
         cap = c.createChild("Poster")
         cap.uri = "pkg:/images/ui/glass_pill.9.png"
-        kl = addLabel(c, r.key, 0, y + 9, 0, 44, 24, true, "0xFFFFFFFF")
-        kw = kl.boundingRect().width + 36
-        kl.translation = [610 - kw + 18, y + 9]
-        kl.width = kw - 36
-        cap.translation = [610 - kw, y + 9]
+        kl = addLabel(c, r.key, 0, y + 6, 0, 38, 22, true, "0xFFFFFFFF")
+        kw = kl.boundingRect().width + 32
+        kl.translation = [610 - kw + 16, y + 6]
+        kl.width = kw - 32
+        cap.translation = [610 - kw, y + 6]
         cap.width = kw
-        cap.height = 44
-        addLabel(c, r.text, x, y, 1040, 62, 26, false, "0xFFFFFFB3")
+        cap.height = 38
+        addLabel(c, r.text, x, y, 1040, 50, 24, false, "0xFFFFFFB3")
     else if k = "server" or k = "library" or k = "section"
         drawListRow(c, r, x, y, isFocus)
     else if k = "preview"
@@ -484,13 +486,13 @@ sub drawPill(c as object, x as integer, y as integer, text as string, isFocus as
     g = c.createChild("Group")
     g.translation = [x, y]
     bgp = g.createChild("Poster")
-    lab = addLabel(g, text, 24, 0, 0, 56, 26, isFocus, "0xFFFFFFFF")
+    lab = addLabel(g, text, 22, 0, 0, 46, 24, isFocus, "0xFFFFFFFF")
     tw = lab.boundingRect().width
     lab.width = tw + 4
-    w = tw + 48
-    if chevron then w = w + 36
+    w = tw + 44
+    if chevron then w = w + 32
     bgp.width = w
-    bgp.height = 56
+    bgp.height = 46
     col = "0xFFFFFFFF"
     if isFocus
         bgp.uri = "pkg:/images/ui/white_pill.9.png"
@@ -503,9 +505,9 @@ sub drawPill(c as object, x as integer, y as integer, text as string, isFocus as
     if chevron
         ch = g.createChild("Poster")
         ch.uri = "pkg:/images/ui/icon_chevron_28.png"
-        ch.width = 22
-        ch.height = 22
-        ch.translation = [w - 46, 17]
+        ch.width = 20
+        ch.height = 20
+        ch.translation = [w - 42, 13]
         ch.blendColor = col
     end if
 end sub
@@ -516,23 +518,23 @@ sub drawSwitch(c as object, x as integer, y as integer, isOn as boolean, isFocus
     if isFocus
         ring = c.createChild("Poster")
         ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
-        ring.width = 92
-        ring.height = 60
+        ring.width = 84
+        ring.height = 52
         ring.translation = [x - 8, y - 8]
     end if
     tr = c.createChild("Poster")
     tr.uri = "pkg:/images/ui/switch_track.9.png"
-    tr.width = 76
-    tr.height = 44
+    tr.width = 68
+    tr.height = 36
     tr.translation = [x, y]
     tr.blendColor = "0xFFFFFF40"
     if isOn then tr.blendColor = t.accent
     kn = c.createChild("Poster")
     kn.uri = "pkg:/images/ui/switch_knob.png"
-    kn.width = 36
-    kn.height = 36
-    kn.translation = [x + 4, y + 4]
-    if isOn then kn.translation = [x + 36, y + 4]
+    kn.width = 30
+    kn.height = 30
+    kn.translation = [x + 3, y + 3]
+    if isOn then kn.translation = [x + 35, y + 3]
 end sub
 
 ' Servers and libraries: icon, name (and a second line), state on the right; white when focused
@@ -557,20 +559,20 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
     if r.kind = "server" then icName = "server"
     ic = c.createChild("Poster")
     ic.uri = "pkg:/images/ui/icon_" + icName + "_36.png"
-    ic.width = 36
-    ic.height = 36
-    ic.translation = [x + 10, y + Int((h - 36) / 2) + 2]
+    ic.width = 32
+    ic.height = 32
+    ic.translation = [x + 10, y + Int((h - 32) / 2) + 2]
     ic.blendColor = t.accent
     if isFocus then ic.blendColor = main
     if r.kind = "server"
-        addLabel(c, r.label, x + 64, y + 8, 640, 40, 28, true, main)
-        addLabel(c, r.sub, x + 64, y + 46, 760, 34, 22, false, second)
+        addLabel(c, r.label, x + 60, y + 6, 640, 36, 26, true, main)
+        addLabel(c, r.sub, x + 60, y + 40, 760, 30, 20, false, second)
         if r.current = true
             ck = c.createChild("Poster")
             ck.uri = "pkg:/images/ui/icon_check_28.png"
             ck.width = 32
             ck.height = 32
-            ck.translation = [x + w - 70, y + 30]
+            ck.translation = [x + w - 70, y + 22]
             ck.blendColor = t.accent
             if isFocus then ck.blendColor = main
         else
@@ -581,18 +583,18 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
         nameCol = main
         if r.kind = "section" and not r.on then nameCol = second
         if r.kind = "library" and not r.nav then nameCol = second
-        addLabel(c, r.label, x + 64, y, 520, h, 28, false, nameCol)
+        addLabel(c, r.label, x + 60, y, 520, h, 26, false, nameCol)
         if r.kind = "section"
             stateText = "Hidden"
             if r.on then stateText = "In the sidebar"
-            s1 = addLabel(c, stateText, x + w - 430, y, 400, h, 24, false, second)
+            s1 = addLabel(c, stateText, x + w - 430, y, 400, h, 22, false, second)
             s1.horizAlign = "right"
         else
             a = "Not in the sidebar"
             if r.nav then a = "Sidebar"
             b = "Not on Home"
             if r.nav and r.home then b = "Home"
-            s1 = addLabel(c, a + "   ·   " + b, x + w - 470, y, 440, h, 24, false, second)
+            s1 = addLabel(c, a + "   ·   " + b, x + w - 470, y, 440, h, 22, false, second)
             s1.horizAlign = "right"
         end if
     end if
@@ -600,10 +602,10 @@ end sub
 
 ' "This is how subtitles will look." on a sample picture, beside the style choices (as on the Mac)
 sub drawPreview(c as object, sectionTop as integer)
-    pw = 480
-    ph = 270
-    px = 1210
-    py = sectionTop + 16
+    pw = 400
+    ph = 225
+    px = 1290
+    py = sectionTop + 12
     g = c.createChild("Group")
     g.translation = [px, py]
     top = g.createChild("Rectangle")
@@ -675,8 +677,31 @@ function onKeyEvent(key as string, press as boolean) as boolean
             m.area = "rows"
             m.row = 0
             draw()
+        else if key = "down"
+            ' a page with nothing to change (Remote): Down / Up scroll it
+            m.area = "scroll"
+            scrollBy(240)
         else if key = "back"
             return false
+        end if
+        return true
+    end if
+    if m.area = "scroll"
+        if key = "down"
+            scrollBy(240)
+        else if key = "up"
+            if m.scrollTop <= 0
+                m.area = "tabs"
+                drawTabs()
+            else
+                scrollBy(-240)
+            end if
+        else if key = "back" or key = "left" or key = "right"
+            m.area = "tabs"
+            m.scrollTop = 0
+            m.content.translation = [0, 0]
+            drawTabs()
+            if key <> "back" then return onKeyEvent(key, press)
         end if
         return true
     end if
@@ -714,6 +739,13 @@ function onKeyEvent(key as string, press as boolean) as boolean
     end if
     return true
 end function
+
+sub scrollBy(delta as integer)
+    m.scrollTop = m.scrollTop + delta
+    if m.scrollTop > m.contentH - 911 then m.scrollTop = m.contentH - 911
+    if m.scrollTop < 0 then m.scrollTop = 0
+    m.content.translation = [0, -m.scrollTop]
+end sub
 
 function onOff(isOn as boolean) as string
     if isOn then return "on"

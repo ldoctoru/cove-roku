@@ -16,12 +16,12 @@
     </interface>
     <children>
         <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />
-        <Label id="tabTitle" width="1920" height="44" translation="[0,26]" horizAlign="center" color="0xFFFFFF8C">
-            <Font role="font" uri="font:BoldSystemFontFile" size="28" />
+        <Label id="tabTitle" width="1920" height="36" translation="[0,14]" horizAlign="center" color="0xFFFFFF8C">
+            <Font role="font" uri="font:BoldSystemFontFile" size="24" />
         </Label>
-        <Group id="tabs" translation="[0,78]" />
-        <Rectangle width="1920" height="1" translation="[0,214]" color="0xFFFFFF1F" />
-        <Group id="clip" translation="[0,215]" clippingRect="[0,0,1920,865]">
+        <Group id="tabs" translation="[0,54]" />
+        <Rectangle width="1920" height="1" translation="[0,168]" color="0xFFFFFF1F" />
+        <Group id="clip" translation="[0,169]" clippingRect="[0,0,1920,911]">
             <Group id="content" />
         </Group>
         <Group id="keys" focusable="true" />
