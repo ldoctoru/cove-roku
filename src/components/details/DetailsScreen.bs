@@ -853,6 +853,9 @@ sub onRowSelected()
         start = Items.resumeAt(e)
         if start <= 30 then start = 0
         requestPlay(e, start)
+    else if k = "cast" and i < m.castList.count()
+        pp = m.castList[i]
+        m.top.openItem = { id: "open", itemId: Util.toText(pp.Id), itemType: "Person", collectionType: "", title: Util.toText(pp.Name) }
     else if k = "similar" and i < m.similarList.count()
         it = m.similarList[i]
         m.top.openItem = { id: "open", itemId: Util.toText(it.Id), itemType: Util.toText(it.Type), collectionType: "", title: Util.toText(it.Name) }

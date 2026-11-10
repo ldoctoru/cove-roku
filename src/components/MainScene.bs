@@ -185,6 +185,15 @@ sub openItem(a as object)
         l.library = { id: a.itemId, title: a.title, itemType: t, collectionType: Util.toText(a.collectionType) }
         return
     end if
+    ' an actor / director: their page
+    if t = "Person"
+        ps = createObject("roSGNode", "PersonScreen")
+        ps.server = m.server
+        ps.observeField("action", "onHomeAction")
+        push(ps)
+        ps.person = { id: a.itemId, name: a.title }
+        return
+    end if
     d = createObject("roSGNode", "DetailsScreen")
     d.server = m.server
     d.observeField("play", "onPlay")

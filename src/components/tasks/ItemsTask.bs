@@ -24,11 +24,24 @@ sub work()
         end if
         if type(list) <> "roArray" then list = []
         if total = 0 then total = list.count()
+        kind = m.top.kind
+        if kind = "names"
+            names = []
+            for each it in list
+                names.push(Util.toText(it.Name))
+            end for
+            m.top.result = { names: names, total: total, gen: m.top.gen }
+            return
+        end if
         holder = createObject("roSGNode", "ContentNode")
         for each it in list
-            holder.appendChild(Items.node(srv, it, false))
+            if kind = "person"
+                holder.appendChild(Items.personNode(srv, it))
+            else
+                holder.appendChild(Items.node(srv, it, kind = "landscape"))
+            end if
         end for
-        m.top.result = { nodes: holder, total: total, startIndex: m.top.startIndex, gen: m.top.gen }
+        m.top.result = { nodes: holder, total: total, startIndex: m.top.startIndex, gen: m.top.gen, kind: kind }
     catch e
         print "Cove: ItemsTask failed: "; e.message
         m.top.error = "Loading failed: " + Util.toText(e.message)
