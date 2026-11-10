@@ -105,7 +105,10 @@ sub onInfo(r as object)
         ' (also when the title was started from its details page: unless a subtitle was picked there by hand)
         always = -1
         picked = m.top.item.options <> invalid and m.top.item.options.subPicked = true
-        if Prefs.subAlways() and not picked then always = Tracks.subForLanguage(m.tracks, Prefs.subLang())
+        ' a language chosen for this series on its page (or in the player) is more specific and wins
+        seriesPref = ""
+        if seriesKey() <> "" then seriesPref = Util.readText(seriesKey())
+        if Prefs.subAlways() and not picked and seriesPref = "" and m.subLang = "" then always = Tracks.subForLanguage(m.tracks, Prefs.subLang())
         langs = []
         for each s in m.tracks.subs
             langs.push(s.language + "=" + s.label)

@@ -798,8 +798,17 @@ function subPrefKey() as string
     return "slang:" + Util.toText(m.item.Id)
 end function
 
+function langName(code as string) as string
+    for each l in Prefs.languages()
+        if LCase(l.name) = LCase(code) then return l.name
+    end for
+    return code
+end function
+
 function subPrefLabel() as string
     pref = Util.readText(subPrefKey())
+    ' Automatic follows Settings → Always load my subtitle language
+    if pref = "" and Prefs.subAlways() then return langName(Prefs.subLang())
     if pref = "" then return "Automatic"
     if pref = "off" then return "Off"
     for each l in m.subLangs
@@ -875,7 +884,9 @@ sub useBar()
         openPicker("season", "Seasons", o, m.seasonIndex.toStr())
     else
         pref = Util.readText(subPrefKey())
-        o = [{ id: "", label: "Automatic (forced subtitles only)" }, { id: "off", label: "Off" }]
+        auto = "Automatic (forced subtitles only)"
+        if Prefs.subAlways() then auto = "Automatic (" + langName(Prefs.subLang()) + ", from Settings)"
+        o = [{ id: "", label: auto }, { id: "off", label: "Off" }]
         for each l in m.subLangs
             o.push({ id: l.code, label: l.label })
         end for
