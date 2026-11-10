@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Settings (Cove for macOS Settings, the parts that make sense on a TV): Appearance (accent, background),
+     Subtitles (always load my language + which one), Player (skip intros, play the next episode, start
+     quality), About. Up / Down move, OK opens the choices in the side panel (or flips an On / Off row).
+     "themeChanged" fires after the accent or background changed. -->
+<component name="SettingsScreen" extends="Group">
+    <script type="text/brightscript" uri="SettingsScreen.bs" />
+    <interface>
+        <field id="screenId" type="string" value="settings" />
+        <field id="server" type="assocarray" />
+        <field id="themeChanged" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />
+        <Label text="Settings" width="1200" height="80" translation="[96,64]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="60" />
+        </Label>
+        <Label id="sub" width="1200" height="40" translation="[96,144]" color="0xFFFFFF8C">
+            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+        </Label>
+        <Group id="rows" translation="[96,214]" />
+        <Label id="note" width="640" height="400" translation="[1200,250]" wrap="true" color="0xFFFFFF8C">
+            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+        </Label>
+    </children>
+</component>

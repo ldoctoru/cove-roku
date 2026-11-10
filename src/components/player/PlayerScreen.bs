@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Prefs.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Tracks.bs"
@@ -98,7 +99,14 @@ sub onInfo(r as object)
         ' Not chosen on the details page: forced subtitles, or the language chosen for the previous episode
         ' The series' subtitle language (series page pill, or the last choice made in the player for it):
         ' "" = automatic (forced subtitles only), "off", or a language code
-        if m.top.item.options = invalid
+        ' Settings → "Always load my subtitle language" wins over the series' language, as on the Mac
+        always = -1
+        if m.top.item.options = invalid and Prefs.subAlways() then always = Tracks.subInCodes(m.tracks, Prefs.codesFor(Prefs.subLang()))
+        if always >= 0
+            m.opts.sub = always
+            m.opts.burn = not Tracks.findSub(m.tracks, always).isText
+            print "Cove: subtitles in "; Prefs.subLang(); " (Settings)"
+        else if m.top.item.options = invalid
             pref = m.subLang
             if pref = "" and seriesKey() <> "" then pref = Util.readText(seriesKey())
             if pref <> "off"
@@ -278,7 +286,12 @@ sub onPosition()
     mk = m.marks
     inIntro = mk.introStart >= 0 and mk.introEnd > mk.introStart and p >= mk.introStart and p < mk.introEnd - 2
     inCredits = m.next <> invalid and mk.credits > 0 and p >= mk.credits
-    if inIntro and not m.introDismissed
+    if inIntro and not m.introDismissed and Prefs.autoSkipIntro()
+        ' Settings → Skip intros automatically
+        m.introDismissed = true
+        print "Cove: skipping the intro to "; Int(mk.introEnd); " s"
+        m.video.seek = mk.introEnd
+    else if inIntro and not m.introDismissed
         showAction("intro", "Skip intro")
     else if inCredits and not m.creditsDismissed
         showAction("next", "Next episode")
@@ -319,7 +332,8 @@ sub dismissAction()
 end sub
 
 sub onFinished()
-    if m.next <> invalid
+    ' Settings → Play the next episode automatically (off: the player closes at the end)
+    if m.next <> invalid and Prefs.autoNext()
         report("/Sessions/Playing/Stopped", false, m.video.duration)
         stopEncoding()
         m.progressTimer.control = "stop"
