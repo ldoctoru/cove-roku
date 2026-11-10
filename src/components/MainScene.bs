@@ -305,6 +305,12 @@ sub onRemoveButton()
     remove = m.top.dialog.buttonSelected = 0
     closeDialog()
     if remove
+        ' end the session on the server too (best effort, nothing waits for it)
+        for each s in Servers.all()
+            if Util.toText(s.id) = m.removeId and Util.toText(s.token) <> ""
+                request("POST", s, "/Sessions/Logout", true, "", { kind: "logout" })
+            end if
+        end for
         Servers.remove(m.removeId)
         showServers("Server removed.")
     end if
@@ -419,6 +425,8 @@ sub onResponse(ev as object)
         onSignIn(r)
     else if kind = "validate"
         onValidate(r)
+    else if kind = "logout"
+        print "Cove: signed out of the removed server -> "; r.code
     end if
 end sub
 

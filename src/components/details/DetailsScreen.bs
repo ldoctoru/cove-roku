@@ -164,7 +164,8 @@ sub showItem(it as object)
     showPeople(it)
     ' audio / subtitles / quality for this playback (chosen once, kept on refresh)
     if t <> "Series" and (first or m.tracks = invalid)
-        m.tracks = Tracks.fromItem(it)
+        m.versions = Tracks.versions(it)
+        m.tracks = Tracks.fromItem(it, m.opts.sourceId)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
         s = Tracks.defaultSub(m.tracks, "")
         if s >= 0
@@ -475,6 +476,7 @@ end function
 
 sub showTracksMenu()
     o = []
+    if m.versions <> invalid and m.versions.count() > 1 then o.push({ id: "version", label: "Version: " + Tracks.versionLabel(m.versions, m.opts.sourceId) })
     if m.tracks.audio.count() > 1 then o.push({ id: "audio", label: "Audio: " + Tracks.audioLabel(m.tracks, effectiveAudio()) })
     if m.tracks.subs.count() > 0 then o.push({ id: "subs", label: "Subtitles: " + Tracks.subLabel(m.tracks, m.opts.sub) })
     o.push({ id: "quality", label: "Quality: " + Tracks.qualityLabel(m.opts.maxBitrate) })
@@ -531,7 +533,28 @@ sub onPicked(ev as object)
             openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
         else if c.id = "quality"
             openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
+        else if c.id = "version"
+            cur = m.opts.sourceId
+            if cur = "" then cur = m.versions[0].id
+            openPicker("version", "Version", m.versions, cur)
         end if
+        return
+    end if
+    if c.purpose = "version"
+        ' another file: its own audio and subtitle tracks, back to their defaults
+        m.opts.sourceId = c.id
+        m.tracks = Tracks.fromItem(m.item, c.id)
+        m.opts.audio = -1
+        m.opts.sub = -1
+        m.opts.burn = false
+        m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
+        s = Tracks.defaultSub(m.tracks, "")
+        if s >= 0
+            m.opts.sub = s
+            m.opts.burn = not Tracks.findSub(m.tracks, s).isText
+        end if
+        closePicker()
+        showTracksMenu()
         return
     end if
     if c.purpose = "season"

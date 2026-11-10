@@ -56,6 +56,7 @@ sub resetState()
     m.lastPos = 0
     m.info = invalid
     m.tracks = { sourceId: "", audio: [], subs: [] }
+    m.versions = []
     m.marks = { introStart: -1.0, introEnd: -1.0, credits: -1.0 }
     m.next = invalid
     m.prev = invalid
@@ -92,7 +93,8 @@ end sub
 sub onInfo(r as object)
     if r.code = 200 and r.json <> invalid
         m.info = r.json
-        m.tracks = Tracks.fromItem(r.json)
+        m.versions = Tracks.versions(r.json)
+        m.tracks = Tracks.fromItem(r.json, Util.toText(m.opts.sourceId))
         m.marks = Tracks.markers(r.json)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
         buildTools()
@@ -176,8 +178,31 @@ sub onStream()
     end if
     m.video.content = c
     applySubtitle(subUrl)
+    if subUrl <> "" then probeSubtitle(subUrl, sub_.index)
     m.video.control = "play"
     m.keys.setFocus(true)
+end sub
+
+' Check the server can actually make the text subtitle (it extracts embedded ones the first time). If it
+' answers with an error, play the subtitle burned into the picture instead of showing nothing.
+sub probeSubtitle(url as string, index as integer)
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "GET", url: url, headers: invalid, body: "", tag: { kind: "subProbe", itemId: m.top.item.id, index: index }, timeout: 180000 }
+    t.observeField("response", "onResponse")
+    m.pending.push(t)
+    t.control = "RUN"
+end sub
+
+sub onSubProbe(r as object)
+    print "Cove: subtitle check -> "; r.code
+    if r.tag.itemId <> m.top.item.id or m.opts.sub <> r.tag.index or m.opts.burn or m.closing then return
+    ' (no answer in time: leave it, the Roku may still get it)
+    if r.code < 400 then return
+    print "Cove: text subtitle failed, burning it in"
+    m.opts.burn = true
+    m.status.text = "The subtitles couldn't load as text." + chr(10) + "Adding them to the picture..."
+    m.status.visible = true
+    restartAt(m.video.position)
 end sub
 
 sub applySubtitle(url as string)
@@ -393,6 +418,7 @@ sub showMenu()
         { id: "subs", label: "Subtitles: " + Tracks.subLabel(m.tracks, m.opts.sub) },
         { id: "quality", label: "Quality: " + Tracks.qualityLabel(m.opts.maxBitrate) }
     ]
+    if m.versions <> invalid and m.versions.count() > 1 then opts.push({ id: "version", label: "Version: " + Tracks.versionLabel(m.versions, Util.toText(m.opts.sourceId)) })
     openPicker("menu", "Playback", opts, "")
 end sub
 
@@ -448,10 +474,32 @@ sub onPicked(ev as object)
             openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
         else if c.id = "quality"
             openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
+        else if c.id = "version"
+            cur = Util.toText(m.opts.sourceId)
+            if cur = "" then cur = m.versions[0].id
+            openPicker("version", "Version", m.versions, cur)
         end if
         return
     end if
     closePicker()
+    if c.purpose = "version"
+        closePicker()
+        m.keys.setFocus(true)
+        if c.id <> Util.toText(m.opts.sourceId) and c.id <> m.tracks.sourceId
+            ' another file: its own tracks (defaults), same position
+            m.opts.sourceId = c.id
+            m.tracks = Tracks.fromItem(m.info, c.id)
+            m.opts.audio = -1
+            m.opts.sub = -1
+            m.opts.burn = false
+            m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
+            buildTools()
+            restartAt(m.video.position)
+        else if m.video.state = "paused"
+            m.video.control = "resume"
+        end if
+        return
+    end if
     if c.purpose = "episode"
         m.keys.setFocus(true)
         for each e in m.episodes
@@ -1065,6 +1113,8 @@ sub onResponse(ev as object)
         onInfo(r)
     else if k = "bif"
         onBif(r)
+    else if k = "subProbe"
+        onSubProbe(r)
     else if k = "segments" and r.code = 200
         m.marks = Tracks.fromSegments(r.json, m.marks)
     else if k = "episodes" and r.code = 200 and r.json <> invalid

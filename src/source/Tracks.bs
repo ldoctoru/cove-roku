@@ -12,13 +12,18 @@ namespace Tracks
     end function
 
     ' { sourceId, audio: [{ index, label, language, isDefault }], subs: [{ index, label, language, isText, forced, isDefault }] }
-    function fromItem(it as object) as object
+    ' The tracks of one version (sourceId; "" = the first)
+    function fromItem(it as object, sourceId = "" as string) as object
         t = { sourceId: "", audio: [], subs: [] }
         sources = it.MediaSources
         streams = invalid
         if type(sources) = "roArray" and sources.count() > 0
-            t.sourceId = Util.toText(sources[0].Id)
-            streams = sources[0].MediaStreams
+            src = sources[0]
+            for each cand in sources
+                if sourceId <> "" and Util.toText(cand.Id) = sourceId then src = cand
+            end for
+            t.sourceId = Util.toText(src.Id)
+            streams = src.MediaStreams
         end if
         if type(streams) <> "roArray" then streams = it.MediaStreams
         if type(streams) <> "roArray" then return t
@@ -48,6 +53,40 @@ namespace Tracks
         end for
         if t.audio.count() > 0 then return t.audio[0].index
         return -1
+    end function
+
+    ' The versions of a title (two or more MediaSources): [{ id, label }], else []
+    function versions(it as object) as object
+        out = []
+        sources = it.MediaSources
+        if type(sources) <> "roArray" or sources.count() < 2 then return out
+        for each s in sources
+            label = Util.toText(s.Name)
+            if label = ""
+                ' e.g. "4K HEVC HDR" from the video stream
+                if type(s.MediaStreams) = "roArray"
+                    for each st in s.MediaStreams
+                        if Util.toText(st.Type) = "Video" and label = "" then label = Util.toText(st.DisplayTitle)
+                    end for
+                end if
+            end if
+            if label = "" then label = Util.toText(s.Container)
+            if s.Size <> invalid and s.Size > 0
+                tenths = Int(s.Size / 107374182.4 + 0.5)
+                label = label + "  ·  " + (tenths \ 10).toStr() + "." + (tenths mod 10).toStr() + " GB"
+            end if
+            if label.len() > 60 then label = label.left(57) + "..."
+            out.push({ id: Util.toText(s.Id), label: label })
+        end for
+        return out
+    end function
+
+    function versionLabel(list as object, sourceId as string) as string
+        if list.count() = 0 then return ""
+        for each v in list
+            if v.id = sourceId then return v.label
+        end for
+        return list[0].label
     end function
 
     ' A subtitle in one of these language codes (text ones first), or -1

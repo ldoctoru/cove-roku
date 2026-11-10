@@ -108,8 +108,21 @@ sub onError()
     m.status.text = m.task.error + "   Press * for options."
 end sub
 
+' A 401 on one list: check the sign-in itself before asking to sign in again (a single list can refuse
+' for other reasons, e.g. a library the user may not see)
 sub onAuthFailed()
-    if m.task.authFailed then m.top.action = { id: "expired" }
+    if not m.task.authFailed then return
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "GET", url: Util.toText(m.top.server.url) + "/Users/" + Util.toText(m.top.server.userId), headers: Api.headers(m.top.server, true), body: "", tag: { kind: "authCheck" }, timeout: 15000 }
+    t.observeField("response", "onAuthCheck")
+    m.pending.push(t)
+    t.control = "RUN"
+end sub
+
+sub onAuthCheck(ev as object)
+    r = ev.getData()
+    print "Cove: sign-in check -> "; r.code
+    if r.code = 401 then m.top.action = { id: "expired" }
 end sub
 
 sub buildNav()
