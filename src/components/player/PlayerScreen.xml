@@ -2,9 +2,10 @@
 <!-- Full-screen player with Cove's Glass controls (Sources/Views.swift player): the Video node draws only the
      picture and subtitles (enableUI off); this component draws the controls.
      Set server + item ({ id, title, subtitle, start, options }); "done" fires when the user leaves.
-     Controls hidden: OK pause / play, Left / Right -10 / +10 s. Controls shown: arrows move between the buttons
-     (centre: back 30, play / pause, forward 30; bottom-right: previous, next, episodes, subtitles, audio,
-     quality), OK uses one, Back hides them. Rewind / Fast forward: -30 / +30 s. * : audio, subtitles, quality. Skip intro and Up next appear over the video when available. -->
+     Controls hidden: OK pause / play, Left / Right -10 / +10 s (shows the controls). Controls shown: the progress
+     bar has the focus (Left / Right -10 / +10 s with a thumbnail, OK pause / play); Up: back 30, play / pause,
+     forward 30; Down: previous, next, episodes, subtitles, audio, quality. Back hides the controls.
+     Rewind / Fast forward: -30 / +30 s. * : audio, subtitles, quality. Skip intro and Up next appear over the video. -->
 <component name="PlayerScreen" extends="Group">
     <script type="text/brightscript" uri="PlayerScreen.bs" />
     <interface>
