@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- The home screen in Cove's Glass style.
-     Three focus areas, top to bottom: the navigation pill (Home, Search, libraries), the hero (a full-screen title
-     with logo, details and Play / favourite / info buttons, changing every 9 s) and the rows of cards.
+     Like the Cove for macOS home: the sidebar on the left (Home, Search, Favorites, Now Playing, Recently Added,
+     the libraries, Settings; Left opens it), the hero (a full-screen title with logo, details and Play / favourite /
+     info buttons, changing every 9 s) with the first row fully visible under it, and the rows of cards.
      Moving down into the rows slides them up; the backdrop then follows the focused card and its details show at
      the top. "action" reports what the user chose: { id: "open" | "play" | "search" | "switch" | "signout" ... }. -->
 <component name="HomeScreen" extends="Group">
@@ -28,7 +29,7 @@
         </Group>
 
         <!-- hero text, bottom-left -->
-        <Group id="hero">
+        <Group id="hero" translation="[80,0]">
             <Group id="chip" translation="[96,0]" visible="false">
                 <Rectangle id="chipBg" height="36" color="0x0000008C" />
                 <Label id="chipText" height="36" vertAlign="center" translation="[12,0]" color="0xFFFFFFFF">
@@ -65,11 +66,11 @@
                     <Poster id="infoIcon" uri="pkg:/images/ui/icon_info_28.png" width="28" height="28" translation="[20,20]" />
                 </Group>
             </Group>
-            <Group id="dots" translation="[0,930]" />
+            <Group id="dots" translation="[0,734]" />
         </Group>
 
         <!-- details of the focused card (rows up) -->
-        <Group id="info" translation="[96,96]" opacity="0">
+        <Group id="info" translation="[176,96]" opacity="0">
             <Label id="title" width="1500" height="84" color="0xFFFFFFFF">
                 <Font role="font" uri="font:BoldSystemFontFile" size="64" />
             </Label>
@@ -81,25 +82,26 @@
             <Label id="ov2" width="1150" height="38" translation="[0,222]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
         </Group>
 
-        <RowList id="rows" translation="[78,985]" itemComponentName="PosterItem" numRows="3"
-                 itemSize="[1842,466]" rowHeights="[466]" rowItemSize="[[276,466]]" rowItemSpacing="[[0,0]]"
+        <RowList id="rows" translation="[150,770]" itemComponentName="PosterItem" numRows="3"
+                 itemSize="[1770,466]" rowHeights="[466]" rowItemSize="[[276,466]]" rowItemSpacing="[[0,0]]"
                  itemSpacing="[0,44]" showRowLabel="[true]" rowLabelOffset="[[18,0]]" rowLabelColor="0xFFFFFFFF"
                  focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
                  drawFocusFeedback="false" visible="false">
-            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />
+            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="32" />
         </RowList>
 
-        <NavBar id="nav" />
+        <SideBar id="nav" />
         <!-- Holds the focus while the hero buttons are active (keys reach HomeScreen.onKeyEvent) -->
         <Group id="heroKeys" focusable="true" />
 
-        <Label id="status" width="1728" height="44" translation="[96,520]" color="0xFFFFFF8C" text="Loading your libraries...">
+        <Label id="status" width="1728" height="44" translation="[176,520]" color="0xFFFFFF8C" text="Loading your libraries...">
             <Font role="font" uri="font:MediumSystemFontFile" size="30" />
         </Label>
 
         <Timer id="backdropTimer" duration="0.3" repeat="false" />
         <Timer id="heroTimer" duration="9" repeat="true" />
         <Timer id="watchdog" duration="45" repeat="false" />
+        <Timer id="sessionsTimer" duration="30" repeat="true" />
         <Animation id="slide" duration="0.3" easeFunction="outCubic">
             <Vector2DFieldInterpolator id="rowsMove" key="[0.0, 1.0]" fieldToInterp="rows.translation" />
             <FloatFieldInterpolator id="heroFadeI" key="[0.0, 1.0]" fieldToInterp="hero.opacity" />

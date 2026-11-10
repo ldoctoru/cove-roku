@@ -26,6 +26,8 @@ end sub
 
 sub onLibrary()
     m.top.findNode("title").text = Util.toText(m.top.library.title)
+    ' Recently Added: newest first (as on the Mac)
+    if feed() = "recent" then m.sort = "added"
     drawBar()
     reload()
     loadGenres()
@@ -61,11 +63,20 @@ function showLabel() as string
     return "All"
 end function
 
+' "" for a library; "favorites" / "recent" for the sidebar pages of the same name (no parent library)
+function feed() as string
+    l = m.top.library
+    if l = invalid or l.feed = invalid then return ""
+    return Util.toText(l.feed)
+end function
+
 function filterQuery() as string
     q = ""
-    if m.show = "unwatched" then q = q + "&Filters=IsUnplayed"
-    if m.show = "watched" then q = q + "&Filters=IsPlayed"
-    if m.show = "favourites" then q = q + "&Filters=IsFavorite"
+    flags = []
+    if m.show = "unwatched" then flags.push("IsUnplayed")
+    if m.show = "watched" then flags.push("IsPlayed")
+    if m.show = "favourites" or feed() = "favorites" then flags.push("IsFavorite")
+    if flags.count() > 0 then q = q + "&Filters=" + Util.join(flags, ",")
     if m.genre <> "" then q = q + "&Genres=" + m.genre.encodeUriComponent()
     if m.letter = "#"
         q = q + "&NameLessThan=A"
@@ -79,7 +90,8 @@ end function
 sub loadGenres()
     lib = m.top.library
     uid = Util.toText(m.top.server.userId)
-    q = "ParentId=" + Util.toText(lib.id) + "&UserId=" + uid + "&SortBy=SortName&Recursive=true"
+    q = "UserId=" + uid + "&SortBy=SortName&Recursive=true"
+    if Util.toText(lib.id) <> "" then q = q + "&ParentId=" + Util.toText(lib.id)
     types = Items.typesFor(Util.toText(lib.collectionType))
     if types <> "" then q = q + "&IncludeItemTypes=" + types
     t = createObject("roSGNode", "ItemsTask")
@@ -197,9 +209,14 @@ sub loadPage(startIndex as integer)
     lib = m.top.library
     uid = Util.toText(m.top.server.userId)
     types = Items.typesFor(Util.toText(lib.collectionType))
-    q = "ParentId=" + Util.toText(lib.id) + "&" + sortQuery() + "&StartIndex=" + startIndex.toStr() + "&Limit=60&" + Items.fields()
+    q = sortQuery() + "&StartIndex=" + startIndex.toStr() + "&Limit=60&" + Items.fields()
+    if Util.toText(lib.id) <> "" then q = "ParentId=" + Util.toText(lib.id) + "&" + q
     ' A library: everything of its kind inside it; a folder / collection: just what it contains
-    if types <> ""
+    if feed() = "favorites"
+        q = q + "&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video,BoxSet"
+    else if feed() = "recent"
+        q = q + "&Recursive=true&IncludeItemTypes=Movie,Series"
+    else if types <> ""
         q = q + "&Recursive=true&IncludeItemTypes=" + types
     else if Util.toText(lib.itemType) = "CollectionFolder" or Util.toText(lib.itemType) = "UserView"
         q = q + "&Recursive=true&IncludeItemTypes=Movie,Series,Video"
@@ -250,7 +267,7 @@ end sub
 sub updateInfo()
     s = m.total.toStr() + " titles"
     if m.total = 1 then s = "1 title"
-    if filterQuery() <> "" then s = s + "   ·   filtered"
+    if filterQuery() <> "" and feed() = "" then s = s + "   ·   filtered"
     m.top.findNode("info").text = s
 end sub
 
