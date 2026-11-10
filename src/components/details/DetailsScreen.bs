@@ -717,6 +717,7 @@ sub rebuildRows()
     sizes = []
     heights = []
     labels = []
+    showDesc = Prefs.showEpisodeDescription()
     if m.episodeList.count() > 0
         row = newRow(root, "", "episodes")
         for each e in m.episodeList
@@ -726,6 +727,8 @@ sub rebuildRows()
             rt = ""
             if e.RunTimeTicks <> invalid then rt = Int(e.RunTimeTicks / 600000000).toStr() + "m"
             n.addFields({ kind: "episode", runtime: rt })
+            ' Settings → Libraries → Show episode descriptions
+            if not showDesc then n.overview = ""
             row.appendChild(n)
         end for
         sizes.push([516, 426])
@@ -737,8 +740,14 @@ sub rebuildRows()
         for each p in m.castList
             row.appendChild(Items.personNode(srv, p))
         end for
-        sizes.push([180, 296])
-        heights.push(296)
+        ' Settings → Libraries → Cast & Crew: Normal / Large
+        if Prefs.castLarge()
+            sizes.push([236, 356])
+            heights.push(356)
+        else
+            sizes.push([180, 296])
+            heights.push(296)
+        end if
         labels.push(true)
     end if
     if m.similarList.count() > 0

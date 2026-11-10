@@ -1,3 +1,5 @@
+import "pkg:/source/Util.bs"
+
 sub init()
     m.pill = m.top.findNode("pill")
     m.entries = m.top.findNode("entries")
@@ -5,30 +7,54 @@ sub init()
     m.top.observeField("focusedChild", "paint")
 end sub
 
-' Each entry: a capsule behind a label; widths follow the text (about 15 px per character at Medium 26)
+' Each entry: a capsule behind an icon and / or a label (Settings → Top bar shows); widths follow the text
 sub build()
     m.entries.removeChildrenIndex(m.entries.getChildCount(), 0)
+    if m.top.items = invalid then return
+    mode = m.top.labels
     x = 8
     for each it in m.top.items
-        w = it.label.len() * 15 + 44
-        if w < 110 then w = 110
+        hasIcon = mode <> "names" and Util.toText(it.icon) <> ""
+        hasText = mode <> "icons" or not hasIcon
         g = m.entries.createChild("Group")
         g.translation = [x, 8]
         bg = g.createChild("Poster")
         bg.uri = "pkg:/images/ui/white_pill.9.png"
-        bg.width = w
         bg.height = 48
         bg.visible = false
         l = g.createChild("Label")
-        l.text = it.label
-        l.width = w
         l.height = 48
-        l.horizAlign = "center"
         l.vertAlign = "center"
         f = createObject("roSGNode", "Font")
         f.uri = "font:MediumSystemFontFile"
         f.size = 26
         l.font = f
+        ic = g.createChild("Poster")
+        ic.width = 30
+        ic.height = 30
+        ic.translation = [22, 9]
+        ic.visible = hasIcon
+        if hasIcon then ic.uri = "pkg:/images/ui/icon_" + it.icon + "_36.png"
+        w = 0
+        if hasText
+            l.text = it.label
+            tw = it.label.len() * 15
+            if hasIcon
+                l.translation = [62, 0]
+                w = 62 + tw + 22
+            else
+                l.translation = [22, 0]
+                w = tw + 44
+                if w < 110
+                    l.translation = [Int((110 - tw) / 2), 0]
+                    w = 110
+                end if
+            end if
+            l.width = tw + 6
+        else
+            w = 74
+        end if
+        bg.width = w
         x = x + w + 6
     end for
     total = x + 2
@@ -44,6 +70,7 @@ sub paint()
         g = m.entries.getChild(i)
         bg = g.getChild(0)
         l = g.getChild(1)
+        ic = g.getChild(2)
         isCurrent = m.top.items[i].id = m.top.current
         f = createObject("roSGNode", "Font")
         if focused and i = m.index
@@ -61,6 +88,7 @@ sub paint()
             l.color = "0xFFFFFF8C"
             f.uri = "font:MediumSystemFontFile"
         end if
+        ic.blendColor = l.color
         f.size = 26
         l.font = f
     end for

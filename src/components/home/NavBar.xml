@@ -6,6 +6,8 @@
     <script type="text/brightscript" uri="NavBar.bs" />
     <interface>
         <field id="items" type="array" onChange="build" />
+        <!-- Settings → Top bar shows: "both" (icons and names), "names" or "icons" -->
+        <field id="labels" type="string" value="both" onChange="build" />
         <field id="current" type="string" value="home" onChange="paint" />
         <field id="chosen" type="assocarray" alwaysNotify="true" />
     </interface>

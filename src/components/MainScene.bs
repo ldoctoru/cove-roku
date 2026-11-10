@@ -69,6 +69,21 @@ sub push(s as object)
     end if
 end sub
 
+' Settings → Servers: connect to another server, sign out, or add one
+sub onSettingsAction(ev as object)
+    a = ev.getData()
+    if a.id = "connect"
+        m.themeDirty = false
+        openServer(Servers.find(Util.toText(a.serverId)))
+    else if a.id = "signout"
+        m.themeDirty = false
+        signOut()
+    else if a.id = "switch"
+        m.themeDirty = false
+        showServers("")
+    end if
+end sub
+
 ' Accent / background changed in Settings: the scene colour now, the screens below when Settings closes
 sub onThemeChanged()
     look = m.global.theme
@@ -173,6 +188,7 @@ sub onHomeAction(ev as object)
         s = createObject("roSGNode", "SettingsScreen")
         s.server = m.server
         s.observeField("themeChanged", "onThemeChanged")
+        s.observeField("action", "onSettingsAction")
         push(s)
     else if a.id = "search"
         s = createObject("roSGNode", "SearchScreen")
