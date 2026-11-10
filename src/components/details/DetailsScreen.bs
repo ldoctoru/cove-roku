@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Prefs.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Playback.bs"
@@ -168,6 +169,11 @@ sub showItem(it as object)
         m.tracks = Tracks.fromItem(it, m.opts.sourceId)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
         s = Tracks.defaultSub(m.tracks, "")
+        ' Settings → Always load my subtitle language (the CC menu then shows it)
+        if Prefs.subAlways()
+            a = Tracks.subForLanguage(m.tracks, Prefs.subLang())
+            if a >= 0 then s = a
+        end if
         if s >= 0
             m.opts.sub = s
             m.opts.burn = not Tracks.findSub(m.tracks, s).isText
@@ -619,6 +625,7 @@ sub onPicked(ev as object)
         m.opts.audio = v
     else if c.purpose = "subs"
         s = Tracks.findSub(m.tracks, v)
+        m.opts.subPicked = true
         m.opts.sub = v
         m.opts.burn = s <> invalid and not s.isText
     else if c.purpose = "quality"
