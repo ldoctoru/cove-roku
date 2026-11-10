@@ -2,9 +2,10 @@
 <!-- Full-screen player with Cove's Glass controls (Sources/Views.swift player): the Video node draws only the
      picture and subtitles (enableUI off); this component draws the controls.
      Set server + item ({ id, title, subtitle, start, options }); "done" fires when the user leaves.
-     Controls hidden: OK pause / play, Left / Right -10 / +10 s. Controls shown: arrows move between the buttons
-     (centre: back 30, play / pause, forward 30; bottom-right: previous, next, episodes, subtitles, audio,
-     quality), OK uses one, Back hides them. Rewind / Fast forward: -30 / +30 s. * : audio, subtitles, quality. Skip intro and Up next appear over the video when available. -->
+     Controls hidden: OK pause / play, Left / Right -10 / +10 s (shows the controls). Controls shown: the progress
+     bar has the focus (Left / Right -10 / +10 s with a thumbnail, OK pause / play); Up: back 30, play / pause,
+     forward 30; Down: previous, next, episodes, subtitles, audio, quality. Back hides the controls.
+     Rewind / Fast forward: -30 / +30 s. * : audio, subtitles, quality. Skip intro and Up next appear over the video. -->
 <component name="PlayerScreen" extends="Group">
     <script type="text/brightscript" uri="PlayerScreen.bs" />
     <interface>
@@ -32,6 +33,16 @@
             </Label>
             <!-- bottom-right: tool buttons in a glass capsule -->
             <Group id="tools" />
+            <!-- seek thumbnail above the scrubber (Emby BIF / Jellyfin trickplay) -->
+            <Group id="preview" visible="false" translation="[0,712]">
+                <Poster uri="pkg:/images/ui/panel_dark_r18.9.png" width="336" height="236" />
+                <Group id="previewClip" translation="[8,8]" clippingRect="[0,0,320,180]">
+                    <Poster id="previewImg" width="320" height="180" />
+                </Group>
+                <Label id="previewTime" width="336" height="40" translation="[0,190]" horizAlign="center" vertAlign="center" color="0xFFFFFFFF">
+                    <Font role="font" uri="font:BoldSystemFontFile" size="26" />
+                </Label>
+            </Group>
             <!-- scrubber across the bottom -->
             <Group id="bar" translation="[24,966]">
                 <Poster uri="pkg:/images/ui/glass_pill.9.png" width="1872" height="66" />
@@ -82,6 +93,7 @@
         </Group>
 
         <Timer id="progressTimer" duration="10" repeat="true" />
+        <Timer id="watchdog" duration="45" repeat="false" />
         <Timer id="closeTimer" duration="0.3" repeat="false" />
         <Timer id="countdown" duration="1" repeat="true" />
         <Timer id="hideTimer" duration="4" repeat="false" />
