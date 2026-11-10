@@ -69,9 +69,23 @@ sub push(s as object)
     end if
 end sub
 
+' Accent / background changed in Settings: the scene colour now, the screens below when Settings closes
+sub onThemeChanged()
+    look = m.global.theme
+    m.top.backgroundColor = look.bg.left(8)
+    m.top.findNode("background").color = look.bg
+    m.themeDirty = true
+end sub
+
 sub pop()
     s = m.stack.pop()
     m.screens.removeChild(s)
+    ' screens under Settings were drawn with the old colours: start again from a fresh home
+    if m.themeDirty = true and m.server <> invalid
+        m.themeDirty = false
+        showHome(m.server)
+        return
+    end if
     t = m.stack.peek()
     t.visible = true
     t.setFocus(true)
@@ -142,6 +156,11 @@ sub onHomeAction(ev as object)
         openItem(a)
     else if a.id = "play"
         startPlayer({ id: a.itemId, title: a.title, subtitle: Util.toText(a.subtitle), start: a.start })
+    else if a.id = "settings"
+        s = createObject("roSGNode", "SettingsScreen")
+        s.server = m.server
+        s.observeField("themeChanged", "onThemeChanged")
+        push(s)
     else if a.id = "search"
         s = createObject("roSGNode", "SearchScreen")
         s.server = m.server

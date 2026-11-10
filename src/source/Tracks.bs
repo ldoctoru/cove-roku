@@ -50,6 +50,20 @@ namespace Tracks
         return -1
     end function
 
+    ' A subtitle in one of these language codes (text ones first), or -1
+    function subInCodes(t as object, codes as object) as integer
+        for each pass in [true, false]
+            for each s in t.subs
+                if s.isText or not pass
+                    for each c in codes
+                        if s.language = c then return s.index
+                    end for
+                end if
+            end for
+        end for
+        return -1
+    end function
+
     ' Subtitles start off, except forced ones (foreign-language parts) or the language chosen before
     function defaultSub(t as object, preferLang as string) as integer
         if preferLang <> ""

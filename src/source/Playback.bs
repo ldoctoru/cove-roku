@@ -1,3 +1,4 @@
+import "pkg:/source/Prefs.bs"
 import "pkg:/source/Util.bs"
 import "pkg:/source/DeviceCaps.bs"
 
@@ -78,7 +79,8 @@ namespace Playback
     ' Choices for one playback: audio / sub = stream index (-1: default audio / no subtitles), burn = the
     ' subtitle is an image the server burns in, maxBitrate = 0 for automatic, defaultAudio = the file's default
     function options() as object
-        return { audio: -1, sub: -1, burn: false, maxBitrate: 0, defaultAudio: -1 }
+        ' (quality: Settings → Start with quality)
+        return { audio: -1, sub: -1, burn: false, maxBitrate: Prefs.startQuality(), defaultAudio: -1 }
     end function
 
     function bitrateOf(opts as object) as integer

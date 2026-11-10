@@ -1,0 +1,251 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Theme.bs"
+import "pkg:/source/Prefs.bs"
+import "pkg:/source/Tracks.bs"
+
+sub init()
+    m.rowsGroup = m.top.findNode("rows")
+    m.top.findNode("bg").color = m.global.theme.bg
+    m.idx = 0
+    m.picker = invalid
+    info = createObject("roAppInfo")
+    m.version = info.getVersion()
+    m.top.observeField("focusedChild", "onFocusChanged")
+    m.top.observeField("server", "draw")
+    draw()
+end sub
+
+function rowsSpec() as object
+    t = m.global.theme
+    langName = Prefs.subLang()
+    for each l in Prefs.languages()
+        if LCase(l.name) = langName then langName = l.name
+    end for
+    q = Prefs.startQuality().toStr()
+    qLabel = "Automatic"
+    for each o in Tracks.qualities()
+        if o.id = q then qLabel = o.label
+    end for
+    return [
+        { head: "Appearance" },
+        { id: "accent", label: "Accent color", value: capital(t.accentName), dot: t.accent, note: "Buttons, the subtitle icon and other highlights. Red, as on the Mac, by default." },
+        { id: "background", label: "Background", value: capital(t.bgName), note: "The colour behind every page." },
+        { head: "Subtitles" },
+        { id: "subAlways", label: "Always load my subtitle language", value: onOff(Prefs.subAlways()), note: "Movies and episodes start with subtitles in this language when they have them. You can still turn them off in the player. This wins over the language chosen for a series." },
+        { id: "subLang", label: "Language", value: langName, dim: not Prefs.subAlways(), note: "Used when 'Always load my subtitle language' is on." },
+        { head: "Player" },
+        { id: "autoSkipIntro", label: "Skip intros automatically", value: onOff(Prefs.autoSkipIntro()), note: "Jumps over the intro when the server knows where it is (Emby intro markers, Jellyfin media segments). When off, a Skip intro button appears." },
+        { id: "autoNext", label: "Play the next episode automatically", value: onOff(Prefs.autoNext()), note: "At the end of an episode, the next one starts after 10 seconds. When off, the player closes." },
+        { id: "startQuality", label: "Start with quality", value: qLabel, note: "Automatic plays the original when the Roku can, and converts only what it can't. A lower setting saves bandwidth on slow connections." },
+        { head: "About" },
+        { id: "about", label: "Cove for Roku", value: m.version, note: "Cove for Roku is the TV companion to Cove for macOS. github.com/ldoctoru/cove-roku" }
+    ]
+end function
+
+function capital(s as string) as string
+    if s = "" then return s
+    return UCase(s.left(1)) + s.mid(1)
+end function
+
+function onOff(on as boolean) as string
+    if on then return "On"
+    return "Off"
+end function
+
+function selectable() as object
+    out = []
+    spec = rowsSpec()
+    for i = 0 to spec.count() - 1
+        if spec[i].id <> invalid then out.push(i)
+    end for
+    return out
+end function
+
+sub draw()
+    srv = m.top.server
+    if srv <> invalid then m.top.findNode("sub").text = Util.toText(srv.name) + "  ·  signed in as " + Util.toText(srv.userName)
+    t = m.global.theme
+    m.top.findNode("bg").color = t.bg
+    g = m.rowsGroup
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    spec = rowsSpec()
+    sel = selectable()
+    if m.idx >= sel.count() then m.idx = sel.count() - 1
+    focusRow = sel[m.idx]
+    y = 0
+    focused = m.picker = invalid and m.top.isInFocusChain()
+    for i = 0 to spec.count() - 1
+        r = spec[i]
+        if r.head <> invalid
+            if i > 0 then y = y + 18
+            h = g.createChild("Label")
+            h.font = font("font:BoldSystemFontFile", 26)
+            h.text = UCase(r.head)
+            h.color = "0xFFFFFF8C"
+            h.translation = [8, y]
+            h.height = 40
+            y = y + 46
+        else
+            isFocus = focused and i = focusRow
+            row = g.createChild("Group")
+            row.translation = [0, y]
+            bgP = row.createChild("Poster")
+            bgP.width = 1020
+            bgP.height = 66
+            if isFocus
+                bgP.uri = "pkg:/images/ui/white_rr12.9.png"
+            else
+                bgP.uri = "pkg:/images/ui/glass_pill.9.png"
+            end if
+            textColor = "0xFFFFFFFF"
+            valueColor = "0xFFFFFFB3"
+            if r.dim = true
+                textColor = "0xFFFFFF66"
+                valueColor = "0xFFFFFF4D"
+            end if
+            if r.value = "On" then valueColor = t.accent
+            if isFocus
+                textColor = "0x000000FF"
+                valueColor = "0x000000B3"
+            end if
+            l = row.createChild("Label")
+            l.font = font("font:MediumSystemFontFile", 28)
+            l.text = r.label
+            l.color = textColor
+            l.translation = [30, 0]
+            l.width = 640
+            l.height = 66
+            l.vertAlign = "center"
+            v = row.createChild("Label")
+            v.font = font("font:BoldSystemFontFile", 28)
+            v.text = r.value
+            v.color = valueColor
+            v.width = 300
+            v.height = 66
+            v.horizAlign = "right"
+            v.vertAlign = "center"
+            v.translation = [690, 0]
+            if r.dot <> invalid
+                d = row.createChild("Poster")
+                d.uri = "pkg:/images/ui/white_circle_56.png"
+                d.width = 26
+                d.height = 26
+                d.blendColor = r.dot
+                vw = v.boundingRect().width
+                d.translation = [990 - vw - 40, 20]
+            end if
+            y = y + 76
+        end if
+    end for
+    note = ""
+    if spec[focusRow].note <> invalid then note = spec[focusRow].note
+    m.top.findNode("note").text = note
+end sub
+
+function font(uri as string, size as integer) as object
+    f = createObject("roSGNode", "Font")
+    f.uri = uri
+    f.size = size
+    return f
+end function
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press or m.picker <> invalid then return false
+    n = selectable().count()
+    if key = "up" and m.idx > 0
+        m.idx = m.idx - 1
+        draw()
+        return true
+    else if key = "down" and m.idx < n - 1
+        m.idx = m.idx + 1
+        draw()
+        return true
+    else if key = "OK"
+        useRow()
+        return true
+    else if key = "left" or key = "right" or key = "up" or key = "down"
+        return true
+    end if
+    return false
+end function
+
+sub useRow()
+    spec = rowsSpec()
+    r = spec[selectable()[m.idx]]
+    id = r.id
+    if id = "subAlways" or id = "autoSkipIntro" or id = "autoNext"
+        cur = r.value = "On"
+        Prefs.setFlag(id, not cur)
+        draw()
+    else if id = "accent"
+        o = []
+        for each name in ["red", "orange", "pink", "purple", "blue", "teal", "green", "white"]
+            o.push({ id: name, label: capital(name) })
+        end for
+        openPicker(id, "Accent color", o, m.global.theme.accentName)
+    else if id = "background"
+        o = []
+        for each name in ["black", "charcoal", "navy", "plum", "forest"]
+            o.push({ id: name, label: capital(name) })
+        end for
+        openPicker(id, "Background", o, m.global.theme.bgName)
+    else if id = "subLang"
+        o = []
+        for each l in Prefs.languages()
+            o.push({ id: LCase(l.name), label: l.name })
+        end for
+        openPicker(id, "Subtitle language", o, Prefs.subLang())
+    else if id = "startQuality"
+        openPicker(id, "Start with quality", Tracks.qualities(), Prefs.startQuality().toStr())
+    end if
+end sub
+
+sub openPicker(purpose as string, title as string, options as object, selectedId as string)
+    p = createObject("roSGNode", "Picker")
+    p.purpose = purpose
+    p.title = title
+    p.selectedId = selectedId
+    p.options = options
+    p.observeField("chosen", "onPicked")
+    p.observeField("cancelled", "onPickerCancelled")
+    m.top.appendChild(p)
+    m.picker = p
+    p.setFocus(true)
+end sub
+
+sub closePicker()
+    if m.picker <> invalid
+        m.picker.unobserveField("chosen")
+        m.picker.unobserveField("cancelled")
+        m.top.removeChild(m.picker)
+        m.picker = invalid
+    end if
+    m.top.setFocus(true)
+end sub
+
+sub onPickerCancelled()
+    closePicker()
+    draw()
+end sub
+
+sub onPicked(ev as object)
+    c = ev.getData()
+    purpose = m.picker.purpose
+    closePicker()
+    if purpose = "accent" or purpose = "background"
+        Util.writeText(purpose, c.id)
+        m.global.theme = Theme.get()
+        m.top.themeChanged = true
+    else if purpose = "subLang"
+        Util.writeText("subLang", c.id)
+        ' choosing a language means wanting it
+        Prefs.setFlag("subAlways", true)
+    else if purpose = "startQuality"
+        Util.writeText("startQuality", c.id)
+    end if
+    draw()
+end sub
+
+sub onFocusChanged()
+    if m.top.hasFocus() or m.top.isInFocusChain() then draw()
+end sub

@@ -122,6 +122,7 @@ sub buildNav()
             items.push({ id: "lib:" + i.toStr(), label: Util.toText(libs[i].title) })
         end for
     end if
+    items.push({ id: "settings", label: "Settings" })
     m.nav.items = items
 end sub
 
@@ -405,6 +406,8 @@ sub onNavChosen(ev as object)
         enterHero()
     else if id = "search"
         m.top.action = { id: "search" }
+    else if id = "settings"
+        m.top.action = { id: "settings" }
     else if id.startsWith("lib:")
         l = m.libraries[id.mid(4).toInt()]
         m.top.action = { id: "open", itemId: l.id, itemType: l.itemType, collectionType: l.collectionType, title: l.title }
@@ -561,7 +564,7 @@ sub showOptions()
     d = createObject("roSGNode", "StandardMessageDialog")
     d.title = Util.toText(m.top.server.name)
     d.message = ["Signed in as " + Util.toText(m.top.server.userName) + "  ·  " + Servers.typeName(m.top.server) + " " + Util.toText(m.top.server.version)]
-    d.buttons = ["Search", "Reload", "Switch server", "Sign out", "Cancel"]
+    d.buttons = ["Search", "Reload", "Switch server", "Sign out", "Settings", "Cancel"]
     d.observeField("buttonSelected", "onOptionsButton")
     d.observeField("wasClosed", "onOptionsClosed")
     m.top.getScene().dialog = d
@@ -584,6 +587,8 @@ sub onOptionsButton(ev as object)
         m.top.action = { id: "switch" }
     else if b = 3
         m.top.action = { id: "signout" }
+    else if b = 4
+        m.top.action = { id: "settings" }
     end if
 end sub
 
