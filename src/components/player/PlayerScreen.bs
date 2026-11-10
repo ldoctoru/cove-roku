@@ -93,6 +93,19 @@ end sub
 sub onInfo(r as object)
     if r.code = 200 and r.json <> invalid
         m.info = r.json
+        ' a deep link only brings the id: title, episode and the resume point come from the server
+        if Util.toText(m.top.findNode("title").text) = ""
+            if Util.toText(r.json.Type) = "Episode"
+                m.top.findNode("title").text = Util.toText(r.json.SeriesName)
+                m.top.findNode("episode").text = Items.episodeLabel(r.json)
+            else
+                m.top.findNode("title").text = Util.toText(r.json.Name)
+            end if
+        end if
+        if m.top.item.resume = true and m.startAt < 1
+            at = Items.resumeAt(r.json)
+            if at > 30 then m.startAt = at
+        end if
         m.versions = Tracks.versions(r.json)
         m.tracks = Tracks.fromItem(r.json, Util.toText(m.opts.sourceId))
         m.marks = Tracks.markers(r.json)

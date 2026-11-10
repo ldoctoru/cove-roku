@@ -1,23 +1,54 @@
 ' Cove for Roku: entry point. Creates the SceneGraph screen and keeps the app alive until the scene closes.
+' Deep links (Roku certification 5.1 / 5.2): a launch with contentId + mediaType, or an roInput event while
+' running, opens that title: movie / episode / short-form video / special play at once, series / season open
+' their page. contentId is the server's item id.
 sub main(args as dynamic)
     screen = createObject("roSGScreen")
     port = createObject("roMessagePort")
     screen.setMessagePort(port)
     scene = screen.createScene("MainScene")
     screen.show()
-    ' Launch arguments (deep links: contentId / mediaType) are handed to the scene for later use
-    scene.launchArgs = args
+    link = deepLink(args)
+    if link <> invalid then scene.launchArgs = link
 
     input = createObject("roInput")
     input.setMessagePort(port)
+
+    ' Memory monitoring (Roku certification): log the limits now and any low-memory warning later
+    mem = createObject("roAppMemoryMonitor")
+    if mem <> invalid
+        mem.setMessagePort(port)
+        mem.enableMemoryWarningEvent(true)
+        print "Cove: memory limit "; mem.getChannelMemoryLimit(); "  available "; mem.getChannelAvailableMemory(); " KB  used "; mem.getMemoryLimitPercent(); "%"
+    end if
+    di = createObject("roDeviceInfo")
+    di.setMessagePort(port)
+    di.enableLowGeneralMemoryEvent(true)
 
     while true
         msg = wait(0, port)
         msgType = type(msg)
         if msgType = "roSGScreenEvent"
             if msg.isScreenClosed() then return
+        else if msgType = "roAppMemoryNotificationEvent" or msgType = "roDeviceInfoEvent"
+            print "Cove: memory warning "; formatJson(msg.getInfo())
         else if msgType = "roInputEvent"
-            if msg.isInput() then scene.inputArgs = msg.getInfo()
+            if msg.isInput()
+                link = deepLink(msg.getInfo())
+                if link <> invalid then scene.inputArgs = link
+            end if
         end if
     end while
 end sub
+
+' { contentId, mediaType } from launch or input arguments, or invalid
+function deepLink(a as dynamic) as dynamic
+    if type(a) <> "roAssociativeArray" then return invalid
+    if a.contentId = invalid or a.mediaType = invalid then return invalid
+    id = a.contentId
+    if type(id) <> "roString" and type(id) <> "String" then id = id.toStr()
+    mt = a.mediaType
+    if type(mt) <> "roString" and type(mt) <> "String" then return invalid
+    if id = "" then return invalid
+    return { contentId: id, mediaType: LCase(mt) }
+end function

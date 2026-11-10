@@ -28,6 +28,13 @@ jobs:
         run: |
           unzip -l out/cove-roku.zip
           unzip -p out/cove-roku.zip manifest
+      # Roku's own Static Channel Analysis (the check the Developer Dashboard runs on upload): fail on errors
+      - name: Roku static analysis
+        run: |
+          curl -sSL -o /tmp/sca.zip https://devtools.web.roku.com/static-channel-analysis/sca-cmd.zip
+          unzip -q /tmp/sca.zip -d /tmp
+          java -jar /tmp/sca-cmd/lib/sca-cmd.jar out/cove-roku.zip --severity warning | tee /tmp/sca.txt
+          if grep -q '^\[ERROR\]' /tmp/sca.txt; then echo "::error::Roku static analysis reported errors"; exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
           name: cove-roku

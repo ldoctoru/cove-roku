@@ -32,8 +32,8 @@ namespace Api
         xfer.setPort(port)
         xfer.setUrl(req.url)
         if LCase(req.url).startsWith("https:")
+            ' (server certificates only: initClientCertificates() is for client certificates and deprecated)
             xfer.setCertificatesFile("common:/certs/ca-bundle.crt")
-            xfer.initClientCertificates()
         end if
         xfer.enableEncodings(true)
         xfer.retainBodyOnError(true)

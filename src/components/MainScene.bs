@@ -15,6 +15,10 @@ sub init()
     m.stack = []
     m.pending = []              ' running ApiTasks (kept referenced until they answer)
     m.beaconSent = false
+    m.dialogBeacon = false      ' AppDialogInitiate sent (sign-in shown before Home)
+    m.deepLink = invalid        ' { contentId, mediaType } waiting for a signed-in server
+    m.top.observeField("launchArgs", "onDeepLink")
+    m.top.observeField("inputArgs", "onDeepLink")
     m.server = invalid          ' the server being added / signed in to
     m.users = []                ' its public users
     m.quickConnect = false      ' Jellyfin Quick Connect enabled on it
@@ -63,9 +67,16 @@ sub push(s as object)
     m.screens.appendChild(s)
     m.stack.push(s)
     s.setFocus(true)
+    ' Certification 3.2: a sign-in page before Home is a dialog; AppLaunchComplete when Home shows
     if not m.beaconSent
-        m.beaconSent = true
-        m.top.signalBeacon("AppLaunchComplete")
+        if s.screenId = "home"
+            if m.dialogBeacon then m.top.signalBeacon("AppDialogComplete")
+            m.beaconSent = true
+            m.top.signalBeacon("AppLaunchComplete")
+        else if not m.dialogBeacon and s.screenId <> "connecting"
+            m.dialogBeacon = true
+            m.top.signalBeacon("AppDialogInitiate")
+        end if
     end if
 end sub
 
@@ -155,6 +166,34 @@ sub showHome(server as object)
     h.observeField("action", "onHomeAction")
     reset(h)
     h.server = server
+    if m.deepLink <> invalid then runDeepLink()
+end sub
+
+' ---------------------------------------------------------------- deep links
+
+sub onDeepLink(ev as object)
+    a = ev.getData()
+    if type(a) <> "roAssociativeArray" or a.contentId = invalid then return
+    print "Cove: deep link "; a.mediaType; " "; a.contentId
+    m.deepLink = a
+    ' signed in: now; otherwise once Home opens
+    if m.server <> invalid and Util.toText(m.server.token) <> "" and m.stack.count() > 0 and topIs("connecting") = false then runDeepLink()
+end sub
+
+sub runDeepLink()
+    a = m.deepLink
+    m.deepLink = invalid
+    if a = invalid then return
+    mt = LCase(Util.toText(a.mediaType))
+    id = Util.toText(a.contentId)
+    if mt = "movie" or mt = "episode" or mt = "shortformvideo" or mt = "special" or mt = "tvspecial"
+        ' straight to playback, from where it was left
+        startPlayer({ id: id, title: "", subtitle: "", start: 0.0, resume: true })
+    else
+        kind = "Series"
+        if mt = "season" then kind = "Season"
+        openItem({ itemId: id, itemType: kind, title: "", collectionType: "" })
+    end if
 end sub
 
 sub onHomeAction(ev as object)
