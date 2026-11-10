@@ -210,24 +210,45 @@ namespace Playback
 
     ' ---------------------------------------------------------------- seek thumbnails
 
-    ' Emby's BIF thumbnails (Roku's own format): magic 89 42 49 46, frame count at 12, interval (ms) at 16,
-    ' then from 64 an index of (timestamp, offset) pairs, 4-byte little-endian each, then the JPEGs.
-    ' Returns { path, interval, offsets } or invalid.
+    ' Emby's BIF thumbnails (Roku's own format, parsed like Cove for macOS PlayerModel.parseBIF): magic
+    ' 89 42 49 46, frame count at 12, time unit (ms) at 16, then from 64 an index of (timestamp, offset)
+    ' pairs, 4-byte little-endian each, then the JPEGs. Returns { path, times (ms), offsets } or invalid.
     function readBif(path as string) as dynamic
+        fs = createObject("roFileSystem")
+        st = fs.stat(path)
+        size = 0
+        if st <> invalid and st.size <> invalid then size = st.size
         head = createObject("roByteArray")
-        if not head.readFile(path, 0, 64) or head.count() < 64 then return invalid
+        ok = head.readFile(path, 0, 64)
+        if not ok or head.count() < 64
+            ' (some firmware refuses a partial read: read it all, it's a few MB at most)
+            head = createObject("roByteArray")
+            ok = head.readFile(path)
+        end if
+        print "Cove: BIF file "; size; " bytes, read "; head.count(); ", starts "; head.toHexString().left(32)
+        if head.count() < 72 then return invalid
         if head[0] <> &h89 or head[1] <> &h42 or head[2] <> &h49 or head[3] <> &h46 then return invalid
         count = le32(head, 12)
-        interval = le32(head, 16)
-        if interval <= 0 then interval = 1000
-        if count <= 0 or count > 20000 then return invalid
-        idx = createObject("roByteArray")
-        if not idx.readFile(path, 64, (count + 1) * 8) then return invalid
+        unit = le32(head, 16)
+        if unit <= 0 then unit = 1000
+        if count <= 0 or count > 50000 then return invalid
+        idx = head
+        if head.count() < 64 + (count + 1) * 8
+            idx = createObject("roByteArray")
+            if not idx.readFile(path, 64, (count + 1) * 8) then return invalid
+            base = 0
+        else
+            base = 64
+        end if
+        times = []
         offsets = []
         for i = 0 to count
-            offsets.push(le32(idx, i * 8 + 4))
+            ts = le32(idx, base + i * 8)
+            if ts = &hFFFFFFFF or ts = -1 then ts = -1
+            times.push(ts * unit)
+            offsets.push(le32(idx, base + i * 8 + 4))
         end for
-        return { path: path, interval: interval, offsets: offsets }
+        return { path: path, times: times, offsets: offsets }
     end function
 
     function le32(b as object, at as integer) as integer

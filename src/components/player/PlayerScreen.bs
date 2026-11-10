@@ -897,7 +897,10 @@ sub onBif(r as object)
     end if
     b.kind = "bif"
     m.thumbs = b
-    print "Cove: BIF "; b.offsets.count() - 1; " frames every "; b.interval; " ms"
+    n = b.offsets.count() - 1
+    gapMs = 0
+    if n > 1 then gapMs = b.times[1] - b.times[0]
+    print "Cove: BIF "; n; " frames, every "; gapMs; " ms"
 end sub
 
 ' The frame for atSec above the scrubber at x (only while seeking)
@@ -914,11 +917,21 @@ sub showPreview(atSec as float, x as integer)
     pv.translation = [px, 712]
     m.top.findNode("previewTime").text = Playback.clock(atSec)
     img = m.top.findNode("previewImg")
-    i = Int(atSec * 1000 / th.interval)
     if th.kind = "bif"
-        last = th.offsets.count() - 2
-        if i > last then i = last
-        if i < 0 then return
+        ' the last frame at or before atSec (binary search over the frame times)
+        ms = atSec * 1000
+        lo = 0
+        hi = th.offsets.count() - 2
+        i = 0
+        while lo <= hi
+            mid = (lo + hi) \ 2
+            if th.times[mid] >= 0 and th.times[mid] <= ms
+                i = mid
+                lo = mid + 1
+            else
+                hi = mid - 1
+            end if
+        end while
         if i <> m.thumbShown
             f = "tmp:/cove_th" + i.toStr() + ".jpg"
             if not m.thumbFiles.doesExist(f)
@@ -936,6 +949,7 @@ sub showPreview(atSec as float, x as integer)
             m.thumbShown = i
         end if
     else
+        i = Int(atSec * 1000 / th.interval)
         if th.count <> invalid and i >= th.count then i = th.count - 1
         per = th.cols * th.rows
         tile = i \ per
