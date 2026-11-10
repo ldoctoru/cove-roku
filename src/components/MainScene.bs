@@ -156,6 +156,19 @@ sub onHomeAction(ev as object)
         openItem(a)
     else if a.id = "play"
         startPlayer({ id: a.itemId, title: a.title, subtitle: Util.toText(a.subtitle), start: a.start })
+    else if a.id = "favorites" or a.id = "recent"
+        l = createObject("roSGNode", "LibraryScreen")
+        l.server = m.server
+        l.observeField("action", "onHomeAction")
+        push(l)
+        title = "Favorites"
+        if a.id = "recent" then title = "Recently Added"
+        l.library = { id: "", title: title, itemType: "", collectionType: "", feed: a.id }
+    else if a.id = "nowplaying"
+        s = createObject("roSGNode", "NowPlayingScreen")
+        s.server = m.server
+        s.observeField("action", "onHomeAction")
+        push(s)
     else if a.id = "settings"
         s = createObject("roSGNode", "SettingsScreen")
         s.server = m.server

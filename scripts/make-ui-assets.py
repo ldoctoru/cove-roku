@@ -255,6 +255,67 @@ def chevron_down(d, n):
     d.line([(n * 0.22, n * 0.38), (n * 0.5, n * 0.66), (n * 0.78, n * 0.38)], fill=WHITE, width=int(n * 0.12), joint="curve")
 
 
+def home_icon(d, n):
+    w = int(n * 0.08)
+    d.polygon([(n * 0.5, n * 0.1), (n * 0.92, n * 0.48), (n * 0.08, n * 0.48)], fill=WHITE)
+    d.rectangle([n * 0.2, n * 0.44, n * 0.8, n * 0.9], fill=WHITE)
+    d.rectangle([n * 0.42, n * 0.6, n * 0.58, n * 0.9], fill=(0, 0, 0, 0))
+
+
+def search_icon(d, n):
+    w = int(n * 0.1)
+    d.ellipse([n * 0.12, n * 0.12, n * 0.66, n * 0.66], outline=WHITE, width=w)
+    d.line([(n * 0.6, n * 0.6), (n * 0.88, n * 0.88)], fill=WHITE, width=int(n * 0.12))
+
+
+def radiowaves(d, n):
+    w = int(n * 0.08)
+    d.ellipse([n * 0.41, n * 0.41, n * 0.59, n * 0.59], fill=WHITE)
+    for r, a in ((0.24, 0), (0.4, 0)):
+        box = [n * (0.5 - r), n * (0.5 - r), n * (0.5 + r), n * (0.5 + r)]
+        d.arc(box, 140, 220, fill=WHITE, width=w)
+        d.arc(box, -40, 40, fill=WHITE, width=w)
+
+
+def clock_icon(d, n):
+    w = int(n * 0.08)
+    d.ellipse([n * 0.1, n * 0.1, n * 0.9, n * 0.9], outline=WHITE, width=w)
+    d.line([(n * 0.5, n * 0.24), (n * 0.5, n * 0.52), (n * 0.68, n * 0.64)], fill=WHITE, width=w, joint="curve")
+
+
+def film_icon(d, n):
+    w = int(n * 0.07)
+    d.rounded_rectangle([n * 0.12, n * 0.16, n * 0.88, n * 0.84], n * 0.06, outline=WHITE, width=w)
+    d.line([(n * 0.32, n * 0.16), (n * 0.32, n * 0.84)], fill=WHITE, width=w)
+    d.line([(n * 0.68, n * 0.16), (n * 0.68, n * 0.84)], fill=WHITE, width=w)
+    for y in (0.38, 0.62):
+        d.line([(n * 0.12, n * y), (n * 0.32, n * y)], fill=WHITE, width=w)
+        d.line([(n * 0.68, n * y), (n * 0.88, n * y)], fill=WHITE, width=w)
+
+
+def tv_icon(d, n):
+    w = int(n * 0.07)
+    d.rounded_rectangle([n * 0.08, n * 0.18, n * 0.92, n * 0.74], n * 0.06, outline=WHITE, width=w)
+    d.line([(n * 0.32, n * 0.86), (n * 0.68, n * 0.86)], fill=WHITE, width=w)
+
+
+def folder_icon(d, n):
+    w = int(n * 0.07)
+    d.polygon([(n * 0.1, n * 0.22), (n * 0.4, n * 0.22), (n * 0.48, n * 0.32), (n * 0.9, n * 0.32), (n * 0.9, n * 0.82), (n * 0.1, n * 0.82)], outline=WHITE)
+    d.line([(n * 0.1, n * 0.22), (n * 0.4, n * 0.22), (n * 0.48, n * 0.32), (n * 0.9, n * 0.32), (n * 0.9, n * 0.82), (n * 0.1, n * 0.82), (n * 0.1, n * 0.22)], fill=WHITE, width=w, joint="curve")
+
+
+def gear_icon(d, n):
+    import math
+    pts = []
+    for i in range(16):
+        r = n * (0.44 if i % 2 == 0 else 0.34)
+        a = i * math.pi / 8
+        pts.append((n / 2 + r * math.cos(a), n / 2 + r * math.sin(a)))
+    d.polygon(pts, fill=WHITE)
+    d.ellipse([n * 0.36, n * 0.36, n * 0.64, n * 0.64], fill=(0, 0, 0, 0))
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     save(nine(shape(60, 60, 30, GLASS_FILL, GLASS_STROKE, 2)), "glass_pill.9.png")
@@ -295,6 +356,9 @@ def main():
     for name, fn in (("eye", eye), ("eyeslash", eye_slash), ("star", star), ("chevron", chevron_down)):
         icon(name, 28, fn)
     save(nine(ring(24, 24, 5, 2, (255, 255, 255, 191))), "outline_box_r4.9.png")
+    for name, fn in (("home", home_icon), ("search", search_icon), ("nowplaying", radiowaves), ("clock", clock_icon),
+                     ("film", film_icon), ("tv", tv_icon), ("folder", folder_icon), ("gear", gear_icon), ("heart", heart)):
+        icon(name, 36, fn)
     icon("play", 72, play)
     icon("pause", 72, pause)
     # player: big glass circle (pause), scrubber thumb, top/bottom shade, Up next card

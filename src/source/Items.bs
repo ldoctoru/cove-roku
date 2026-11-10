@@ -65,6 +65,7 @@ namespace Items
     end function
 
     ' The hero line, as on the Mac: "Movie · Action · Drama · 2021 · PG-13 · 7.4/10"
+    ' The hero line, as on the Mac home: "TV Show · Comedy · Romance · 2007" / "Movie · Drama · 1979"
     function heroMeta(it as object) as string
         parts = []
         t = Util.toText(it.Type)
@@ -77,12 +78,6 @@ namespace Items
         end if
         y = Util.toText(it.ProductionYear)
         if y <> "" and t <> "Episode" then parts.push(y)
-        r = Util.toText(it.OfficialRating)
-        if r <> "" then parts.push(r)
-        if it.CommunityRating <> invalid
-            cr = Int(it.CommunityRating * 10 + 0.5)
-            parts.push((cr \ 10).toStr() + "." + (cr mod 10).toStr() + "/10")
-        end if
         return Util.join(parts, "  ·  ")
     end function
 

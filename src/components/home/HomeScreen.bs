@@ -39,7 +39,11 @@ sub init()
     m.wantBackdrop = ""
     m.pendingBackdrop = ""
     m.libraries = []
-    m.nav.items = [{ id: "home", label: "Home" }, { id: "search", label: "Search" }]
+    m.nowPlaying = 0
+    m.navReturn = "hero"
+    m.sessionsTimer = m.top.findNode("sessionsTimer")
+    m.sessionsTimer.observeField("fire", "loadSessions")
+    buildNav()
     m.top.findNode("hero").visible = false
     m.picker = invalid
     m.menuItem = invalid
@@ -81,8 +85,8 @@ sub onContent()
     for i = 0 to content.getChildCount() - 1
         ' (tiles include an 18 px margin around each card for its focus zoom and ring: see PosterItem)
         if content.getChild(i).landscape
-            sizes.push([516, 306])
-            heights.push(306)
+            sizes.push([396, 246])
+            heights.push(246)
         else
             sizes.push([276, 466])
             heights.push(466)
@@ -103,6 +107,8 @@ sub onContent()
     m.rows.visible = true
     m.status.visible = false
     buildNav()
+    loadSessions()
+    m.sessionsTimer.control = "start"
     buildHeroes(content)
     if not wasReload or m.state = "loading"
         if m.heroes.count() > 0
@@ -135,18 +141,56 @@ sub onAuthCheck(ev as object)
     if r.code = 401 then m.top.action = { id: "expired" }
 end sub
 
+' The sidebar, as on the Mac: Home, Search, Favorites, Now Playing (with the count), then Library: Recently Added
+' and the libraries, then Settings
 sub buildNav()
-    items = [{ id: "home", label: "Home" }, { id: "search", label: "Search" }]
+    items = [
+        { id: "home", label: "Home", icon: "home" },
+        { id: "search", label: "Search", icon: "search" },
+        { id: "favorites", label: "Favorites", icon: "heart" },
+        { id: "nowplaying", label: "Now Playing", icon: "nowplaying", badge: m.nowPlaying },
+        { header: true, label: "Library" },
+        { id: "recent", label: "Recently Added", icon: "clock" }
+    ]
     m.libraries = []
-    libs = m.task.libraries
+    libs = invalid
+    if m.task <> invalid then libs = m.task.libraries
     if libs <> invalid
         for i = 0 to libs.count() - 1
             m.libraries.push(libs[i])
-            items.push({ id: "lib:" + i.toStr(), label: Util.toText(libs[i].title) })
+            ct = Util.toText(libs[i].collectionType)
+            ic = "folder"
+            if ct = "movies" then ic = "film"
+            if ct = "tvshows" then ic = "tv"
+            items.push({ id: "lib:" + i.toStr(), label: Util.toText(libs[i].title), icon: ic })
         end for
     end if
-    items.push({ id: "settings", label: "Settings" })
+    items.push({ header: true, label: "" })
+    items.push({ id: "settings", label: "Settings", icon: "gear" })
     m.nav.items = items
+end sub
+
+' How many are playing on the server right now (the Now Playing badge)
+sub loadSessions()
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "GET", url: Util.toText(m.top.server.url) + "/Sessions?ActiveWithinSeconds=960", headers: Api.headers(m.top.server, true), body: "", tag: { kind: "sessions" }, timeout: 15000 }
+    t.observeField("response", "onSessions")
+    m.sessionsTask = t
+    t.control = "RUN"
+end sub
+
+sub onSessions(ev as object)
+    r = ev.getData()
+    n = 0
+    if r.code = 200 and type(r.json) = "roArray"
+        for each s in r.json
+            if s.NowPlayingItem <> invalid then n = n + 1
+        end for
+    end if
+    if n <> m.nowPlaying
+        m.nowPlaying = n
+        buildNav()
+    end if
 end sub
 
 ' The hero shows up to 8 titles: the first two with a backdrop from each row, as on the Mac
@@ -187,7 +231,8 @@ sub buildDots()
     dots.removeChildrenIndex(dots.getChildCount(), 0)
     n = m.heroes.count()
     if n < 2 then return
-    x = Int((1920 - (n * 10 + (n - 1) * 14)) / 2)
+    ' centred over the page (right of the sidebar; the hero group is moved 80 px right)
+    x = Int((1808 - (n * 10 + (n - 1) * 14)) / 2) + 112 - 80
     for i = 0 to n - 1
         d = dots.createChild("Poster")
         d.uri = "pkg:/images/ui/dot_10.png"
@@ -235,7 +280,7 @@ end sub
 
 ' Bottom-anchored: buttons end at y=880, overview above them, then details, then logo or title, then the chip
 sub layoutHero()
-    btnY = 811
+    btnY = 640
     m.top.findNode("buttons").translation = [96, btnY]
     ovY = btnY - 30 - m.lines * 38
     m.top.findNode("heroOv").translation = [96, ovY]
@@ -355,9 +400,10 @@ end sub
 sub animateTo(rowsY as integer, heroOp as float, infoOp as float, navOp as float, bdOp as float, rowsBgOp as float)
     m.slide.control = "stop"
     cur = m.rows.translation
-    m.top.findNode("rowsMove").keyValue = [[78, cur[1]], [78, rowsY]]
+    m.top.findNode("rowsMove").keyValue = [[150, cur[1]], [150, rowsY]]
     m.top.findNode("heroFadeI").keyValue = [m.top.findNode("hero").opacity, heroOp]
     m.top.findNode("infoFadeI").keyValue = [m.top.findNode("info").opacity, infoOp]
+    ' (the sidebar stays, as on the Mac: callers pass 1.0)
     m.top.findNode("navFadeI").keyValue = [m.nav.opacity, navOp]
     m.top.findNode("bdDimI").keyValue = [m.top.findNode("bdLayer").opacity, bdOp]
     m.top.findNode("rowsBgI").keyValue = [m.top.findNode("rowsBg").opacity, rowsBgOp]
@@ -371,6 +417,9 @@ sub enterHero(animate = true as boolean)
     end if
     m.state = "hero"
     m.btn = 0
+    ' the first row (Continue Watching) under the hero again, as on the Mac
+    f = m.rows.rowItemFocused
+    if m.rows.content <> invalid and m.rows.content.getChildCount() > 0 and f <> invalid and f.count() >= 2 and f[0] <> 0 then m.rows.jumpToRowItem = [0, 0]
     ' (a node of its own: setFocus on the screen itself doesn't take the focus back from the rows)
     m.top.findNode("heroKeys").setFocus(true)
     goTop(animate)
@@ -380,21 +429,33 @@ sub enterHero(animate = true as boolean)
 end sub
 
 sub enterNav()
+    if m.state <> "nav" then m.navReturn = m.state
     m.state = "nav"
+    m.heroTimer.control = "stop"
     m.nav.setFocus(true)
-    goTop(true)
-    if m.heroes.count() > 0 then showBackdrop(m.heroes[m.heroIndex].backdrop)
+    paintButtons()
+end sub
+
+sub leaveNav()
+    if m.navReturn = "rows" and m.rows.visible
+        m.state = "rows"
+        m.rows.setFocus(true)
+    else
+        m.state = "hero"
+        m.top.findNode("heroKeys").setFocus(true)
+        m.heroTimer.control = "start"
+    end if
     paintButtons()
 end sub
 
 ' Hero and nav: rows peek at the bottom, full backdrop, nav visible
 sub goTop(animate as boolean)
-    rowsY = 985
+    rowsY = 770
     if m.heroes.count() = 0 then rowsY = 400
     if animate
         animateTo(rowsY, 1.0, 0.0, 1.0, 1.0, 0.0)
     else
-        m.rows.translation = [78, rowsY]
+        m.rows.translation = [150, rowsY]
         m.top.findNode("hero").opacity = 1.0
         m.top.findNode("info").opacity = 0.0
         m.nav.opacity = 1.0
@@ -410,12 +471,12 @@ sub enterRows(animate = true as boolean)
     m.heroTimer.control = "stop"
     m.rows.setFocus(true)
     if animate
-        animateTo(400, 0.0, 1.0, 0.0, 0.6, 1.0)
+        animateTo(400, 0.0, 1.0, 1.0, 0.6, 1.0)
     else
-        m.rows.translation = [78, 400]
+        m.rows.translation = [150, 400]
         m.top.findNode("hero").opacity = 0.0
         m.top.findNode("info").opacity = 1.0
-        m.nav.opacity = 0.0
+        m.nav.opacity = 1.0
         m.top.findNode("bdLayer").opacity = 0.6
         m.top.findNode("rowsBg").opacity = 1.0
     end if
@@ -426,11 +487,19 @@ end sub
 sub onNavChosen(ev as object)
     id = ev.getData().id
     if id = "home"
-        enterHero()
-    else if id = "search"
+        if m.heroes.count() > 0
+            enterHero()
+        else
+            leaveNav()
+        end if
+    else
+        ' the page opens over the home; coming back lands where Left was pressed
+        leaveNav()
+    end if
+    if id = "search"
         m.top.action = { id: "search" }
-    else if id = "settings"
-        m.top.action = { id: "settings" }
+    else if id = "settings" or id = "favorites" or id = "recent" or id = "nowplaying"
+        m.top.action = { id: id }
     else if id.startsWith("lib:")
         l = m.libraries[id.mid(4).toInt()]
         m.top.action = { id: "open", itemId: l.id, itemType: l.itemType, collectionType: l.collectionType, title: l.title }
@@ -511,8 +580,14 @@ function onKeyEvent(key as string, press as boolean) as boolean
                 m.btn = m.btn - 1
                 paintButtons()
             else
-                showHero(m.heroIndex - 1)
+                enterNav()
             end if
+            return true
+        else if key = "rewind" or key = "replay"
+            showHero(m.heroIndex - 1)
+            return true
+        else if key = "fastforward"
+            showHero(m.heroIndex + 1)
             return true
         else if key = "right"
             if m.btn < 2
@@ -524,7 +599,6 @@ function onKeyEvent(key as string, press as boolean) as boolean
             end if
             return true
         else if key = "up"
-            enterNav()
             return true
         else if key = "down"
             if m.rows.visible then enterRows()
@@ -534,12 +608,16 @@ function onKeyEvent(key as string, press as boolean) as boolean
             return true
         end if
     else if m.state = "nav"
-        if key = "down" or key = "back"
-            enterHero()
+        if key = "right" or key = "back"
+            leaveNav()
             return true
         end if
     else if m.state = "rows"
-        if key = "up" or key = "back"
+        if key = "left"
+            ' (only reaches here at the first card of a row)
+            enterNav()
+            return true
+        else if key = "up" or key = "back"
             if m.heroes.count() > 0
                 enterHero()
             else

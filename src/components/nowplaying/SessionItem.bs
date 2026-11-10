@@ -1,0 +1,27 @@
+sub onContent()
+    c = m.top.itemContent
+    if c = invalid then return
+    m.top.findNode("poster").uri = c.hdPosterUrl
+    m.top.findNode("title").text = c.title
+    m.top.findNode("line2").text = c.line2
+    who = c.who
+    if c.where <> "" then who = who + "   ·   " + c.where
+    m.top.findNode("who").text = who
+    m.top.findNode("fill").width = Int(440 * c.frac)
+    m.top.findNode("pos").text = c.pos
+    st = c.method
+    if c.paused
+        if st <> ""
+            st = "Paused   ·   " + st
+        else
+            st = "Paused"
+        end if
+    end if
+    m.top.findNode("state").text = st
+end sub
+
+sub onFocus()
+    f = 0.0
+    if m.top.gridHasFocus then f = m.top.focusPercent
+    m.top.findNode("ring").opacity = f
+end sub

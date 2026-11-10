@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- The sidebar of Cove for macOS on a TV: a dark rail on the left with icons (Home, Search, Favorites, Now Playing,
+     the libraries under "Library", Settings). With the focus it opens to show the names; Up / Down move, OK sets
+     "chosen" = { id }, Right / Back give the focus back (the screen handles them).
+     items: [{ id, label, icon, header (true for a section title), badge (number, 0 = none) }]. -->
+<component name="SideBar" extends="Group">
+    <script type="text/brightscript" uri="SideBar.bs" />
+    <interface>
+        <field id="items" type="array" onChange="build" />
+        <field id="current" type="string" value="home" onChange="paint" />
+        <field id="chosen" type="assocarray" alwaysNotify="true" />
+        <field id="expanded" type="boolean" value="false" />
+    </interface>
+    <children>
+        <Rectangle id="bg" width="112" height="1080" color="0x000000D9" />
+        <Rectangle id="edge" width="1" height="1080" translation="[111,0]" color="0xFFFFFF1A" />
+        <Poster id="logo" uri="pkg:/images/logo.png" width="56" height="56" translation="[28,40]" />
+        <Label id="appName" text="Cove" width="200" height="56" translation="[100,40]" vertAlign="center" color="0xFFFFFFFF" visible="false">
+            <Font role="font" uri="font:BoldSystemFontFile" size="34" />
+        </Label>
+        <Group id="clip" translation="[0,130]" clippingRect="[0,0,420,930]">
+            <Group id="entries" />
+        </Group>
+    </children>
+</component>

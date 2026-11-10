@@ -1,0 +1,178 @@
+import "pkg:/source/Util.bs"
+
+sub init()
+    m.entries = m.top.findNode("entries")
+    m.index = 0
+    m.top.observeField("focusedChild", "onFocus")
+end sub
+
+sub build()
+    if m.index >= m.top.items.count() or isHeader(m.index) then m.index = firstEntry()
+    paint()
+end sub
+
+function isHeader(i as integer) as boolean
+    its = m.top.items
+    return i < 0 or i >= its.count() or its[i].header = true
+end function
+
+function firstEntry() as integer
+    for i = 0 to m.top.items.count() - 1
+        if not isHeader(i) then return i
+    end for
+    return 0
+end function
+
+sub onFocus()
+    open = m.top.isInFocusChain()
+    if open and not m.top.expanded
+        ' open on the page being shown
+        for i = 0 to m.top.items.count() - 1
+            if m.top.items[i].id = m.top.current then m.index = i
+        end for
+    end if
+    m.top.expanded = open
+    paint()
+end sub
+
+' Every entry is 64 px high; section titles 56 px. Closed: icons only on a 112 px rail. Open: 400 px with names.
+sub paint()
+    m.entries.removeChildrenIndex(m.entries.getChildCount(), 0)
+    open = m.top.expanded
+    w = 112
+    if open then w = 400
+    m.top.findNode("bg").width = w
+    m.top.findNode("bg").color = "0x000000D9"
+    if open then m.top.findNode("bg").color = "0x0D0D0DF7"
+    m.top.findNode("edge").translation = [w - 1, 0]
+    m.top.findNode("appName").visible = open
+    accent = m.global.theme.accent
+    y = 0
+    focusY = 0
+    its = m.top.items
+    for i = 0 to its.count() - 1
+        it = its[i]
+        if it.header = true
+            if open
+                l = m.entries.createChild("Label")
+                l.font = font("font:BoldSystemFontFile", 22)
+                l.text = UCase(Util.toText(it.label))
+                l.color = "0xFFFFFF66"
+                l.translation = [36, y + 14]
+                l.height = 36
+            else
+                r = m.entries.createChild("Rectangle")
+                r.width = 48
+                r.height = 2
+                r.color = "0xFFFFFF26"
+                r.translation = [32, y + 27]
+            end if
+            y = y + 56
+        else
+            isFocus = open and i = m.index
+            isCurrent = it.id = m.top.current
+            g = m.entries.createChild("Group")
+            g.translation = [0, y]
+            pillW = 80
+            if open then pillW = 360
+            if isFocus or isCurrent
+                bg = g.createChild("Poster")
+                bg.translation = [16, 4]
+                bg.width = pillW
+                bg.height = 56
+                if isFocus
+                    bg.uri = "pkg:/images/ui/white_pill.9.png"
+                else
+                    bg.uri = "pkg:/images/ui/sel_pill.9.png"
+                end if
+            end if
+            ic = g.createChild("Poster")
+            ic.uri = "pkg:/images/ui/icon_" + Util.toText(it.icon) + "_36.png"
+            ic.width = 36
+            ic.height = 36
+            ic.translation = [38, 14]
+            col = "0xFFFFFFB3"
+            if isCurrent then col = accent
+            if isFocus then col = "0x000000FF"
+            ic.blendColor = col
+            if open
+                l = g.createChild("Label")
+                l.font = font("font:MediumSystemFontFile", 28)
+                if isFocus or isCurrent then l.font = font("font:BoldSystemFontFile", 28)
+                l.text = Util.toText(it.label)
+                l.color = "0xFFFFFFD9"
+                if isFocus then l.color = "0x000000FF"
+                l.translation = [94, 0]
+                l.width = 230
+                l.height = 64
+                l.vertAlign = "center"
+            end if
+            b = 0
+            if it.badge <> invalid then b = it.badge
+            if b > 0
+                dot = g.createChild("Poster")
+                dot.uri = "pkg:/images/ui/white_circle_56.png"
+                dot.blendColor = accent
+                bl = g.createChild("Label")
+                bl.font = font("font:BoldSystemFontFile", 18)
+                bl.text = b.toStr()
+                bl.color = "0xFFFFFFFF"
+                bl.horizAlign = "center"
+                bl.vertAlign = "center"
+                if open
+                    dot.width = 34
+                    dot.height = 34
+                    dot.translation = [330, 15]
+                else
+                    dot.width = 26
+                    dot.height = 26
+                    dot.translation = [64, 6]
+                end if
+                bl.width = dot.width
+                bl.height = dot.height
+                bl.translation = dot.translation
+            end if
+            if i = m.index then focusY = y
+            y = y + 64
+        end if
+    end for
+    ' keep the focused entry inside the visible part
+    top = 0
+    if focusY > 820 then top = 820 - focusY
+    m.entries.translation = [0, top]
+end sub
+
+function font(uri as string, size as integer) as object
+    f = createObject("roSGNode", "Font")
+    f.uri = uri
+    f.size = size
+    return f
+end function
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    n = m.top.items.count()
+    if key = "up"
+        i = m.index - 1
+        while i >= 0 and isHeader(i)
+            i = i - 1
+        end while
+        if i >= 0 then m.index = i
+        paint()
+        return true
+    else if key = "down"
+        i = m.index + 1
+        while i < n and isHeader(i)
+            i = i + 1
+        end while
+        if i < n then m.index = i
+        paint()
+        return true
+    else if key = "OK" and n > 0
+        m.top.chosen = { id: m.top.items[m.index].id }
+        return true
+    else if key = "left"
+        return true
+    end if
+    return false
+end function

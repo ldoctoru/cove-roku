@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Now Playing (Cove for macOS NowPlayingView): what is playing on the server right now (every user for admins,
+     otherwise your own sessions), refreshed every 5 s. One card per session: poster, title, episode, who and on
+     what device, position, paused, direct play or converting. OK opens the title. -->
+<component name="NowPlayingScreen" extends="Group">
+    <script type="text/brightscript" uri="NowPlayingScreen.bs" />
+    <interface>
+        <field id="screenId" type="string" value="nowplaying" />
+        <field id="server" type="assocarray" onChange="refresh" />
+        <field id="action" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />
+        <Label text="Now Playing" width="900" height="80" translation="[96,64]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="56" />
+        </Label>
+        <Label id="count" width="600" height="80" translation="[500,70]" vertAlign="center" color="0xFFFFFF8C">
+            <Font role="font" uri="font:MediumSystemFontFile" size="28" />
+        </Label>
+        <MarkupGrid id="grid" translation="[78,180]" itemComponentName="SessionItem" itemSize="[876,236]"
+                    itemSpacing="[16,16]" numColumns="2" numRows="4" vertFocusAnimationStyle="fixedFocusWrap"
+                    drawFocusFeedback="false" />
+        <Label id="status" width="1728" height="44" translation="[96,480]" horizAlign="center" color="0xFFFFFFB3" text="Loading...">
+            <Font role="font" uri="font:MediumSystemFontFile" size="32" />
+        </Label>
+        <Timer id="timer" duration="5" repeat="true" />
+    </children>
+</component>

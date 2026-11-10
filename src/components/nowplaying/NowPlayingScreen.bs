@@ -1,0 +1,110 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Api.bs"
+import "pkg:/source/Items.bs"
+import "pkg:/source/Playback.bs"
+
+sub init()
+    m.top.findNode("bg").color = m.global.theme.bg
+    m.grid = m.top.findNode("grid")
+    m.status = m.top.findNode("status")
+    m.timer = m.top.findNode("timer")
+    m.timer.observeField("fire", "refresh")
+    m.grid.observeField("itemSelected", "onSelected")
+    m.top.observeField("focusedChild", "onFocusChanged")
+    m.grid.content = createObject("roSGNode", "ContentNode")
+    m.task = invalid
+end sub
+
+sub refresh()
+    if m.top.server = invalid then return
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "GET", url: Util.toText(m.top.server.url) + "/Sessions?ActiveWithinSeconds=960", headers: Api.headers(m.top.server, true), body: "", tag: { kind: "sessions" }, timeout: 15000 }
+    t.observeField("response", "onSessions")
+    m.task = t
+    t.control = "RUN"
+    m.timer.control = "start"
+end sub
+
+sub onSessions(ev as object)
+    r = ev.getData()
+    if r.code <> 200 or type(r.json) <> "roArray"
+        if m.grid.content.getChildCount() = 0
+            m.status.text = "Couldn't load what's playing. " + Api.describeFailure(r)
+            m.status.visible = true
+        end if
+        return
+    end if
+    srv = m.top.server
+    list = []
+    for each s in r.json
+        if s.NowPlayingItem <> invalid then list.push(s)
+    end for
+    list.sortBy("UserName")
+    root = createObject("roSGNode", "ContentNode")
+    for each s in list
+        it = s.NowPlayingItem
+        c = root.createChild("ContentNode")
+        c.addFields({ itemId: "", itemType: "", line2: "", who: "", where: "", pos: "", frac: 0.0, paused: false, method: "" })
+        c.itemId = Util.toText(it.Id)
+        c.itemType = Util.toText(it.Type)
+        name = Util.toText(it.Name)
+        if Util.toText(it.SeriesName) <> ""
+            c.title = Util.toText(it.SeriesName)
+            c.line2 = "S" + Util.toText(it.ParentIndexNumber) + ":E" + Util.toText(it.IndexNumber) + "  ·  " + name
+            if Util.toText(it.SeriesId) <> "" then c.itemId = Util.toText(it.Id)
+        else
+            c.title = name
+            if Util.toText(it.ProductionYear) <> "" then c.line2 = Util.toText(it.ProductionYear)
+        end if
+        posterId = Util.toText(it.SeriesId)
+        if posterId = "" then posterId = Util.toText(it.Id)
+        c.hdPosterUrl = Items.imageUrl(srv, posterId, "Primary", "", 160)
+        c.who = Util.toText(s.UserName)
+        dev = Util.toText(s.DeviceName)
+        if Util.toText(s.Client) <> "" then dev = dev + "  ·  " + Util.toText(s.Client)
+        c.where = dev
+        st = s.PlayState
+        posSec = 0.0
+        if st <> invalid
+            posSec = Playback.seconds(st.PositionTicks)
+            c.paused = Util.flag(st, "IsPaused")
+            pm = Util.toText(st.PlayMethod)
+            if pm = "Transcode"
+                c.method = "Converting"
+            else if pm = "DirectStream"
+                c.method = "Direct stream"
+            else if pm <> ""
+                c.method = "Direct play"
+            end if
+        end if
+        dur = Playback.seconds(it.RunTimeTicks)
+        c.pos = Playback.clock(posSec)
+        if dur > 0
+            c.pos = c.pos + " / " + Playback.clock(dur)
+            c.frac = posSec / dur
+        end if
+    end for
+    ' keep the focus where it was
+    keep = m.grid.itemFocused
+    m.grid.content = root
+    n = root.getChildCount()
+    if keep >= 0 and keep < n then m.grid.jumpToItem = keep
+    m.status.visible = n = 0
+    m.status.text = "Nothing is playing right now."
+    m.top.findNode("count").text = ""
+    if n > 0 then m.top.findNode("count").text = n.toStr() + " active"
+    if n > 0 and m.top.isInFocusChain() and not m.grid.hasFocus() then m.grid.setFocus(true)
+end sub
+
+sub onSelected()
+    c = m.grid.content.getChild(m.grid.itemSelected)
+    if c <> invalid then m.top.action = { id: "open", itemId: c.itemId, itemType: c.itemType, collectionType: "", title: c.title }
+end sub
+
+sub onFocusChanged()
+    if not m.top.isInFocusChain() then m.timer.control = "stop"
+    if m.top.hasFocus()
+        refresh()
+        if m.grid.content <> invalid and m.grid.content.getChildCount() > 0 then m.grid.setFocus(true)
+    end if
+end sub
