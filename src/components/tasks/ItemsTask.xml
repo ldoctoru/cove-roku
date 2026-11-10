@@ -9,6 +9,8 @@
         <field id="fallback" type="string" />
         <field id="startIndex" type="integer" />
         <field id="gen" type="integer" />
+        <!-- "" = poster tiles, "landscape" = wide tiles, "person" = round person tiles, "names" = result.names only -->
+        <field id="kind" type="string" />
         <field id="result" type="assocarray" />
         <field id="error" type="string" />
     </interface>
