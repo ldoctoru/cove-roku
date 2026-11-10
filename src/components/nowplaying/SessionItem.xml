@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- One Now Playing card: glass panel with the poster, title, episode, who / device, a progress bar with the time,
+     and paused / direct play / converting. -->
+<component name="SessionItem" extends="Group">
+    <script type="text/brightscript" uri="SessionItem.bs" />
+    <interface>
+        <field id="itemContent" type="node" onChange="onContent" />
+        <field id="focusPercent" type="float" onChange="onFocus" />
+        <field id="gridHasFocus" type="boolean" onChange="onFocus" />
+    </interface>
+    <children>
+        <Poster id="ring" uri="pkg:/images/ui/focus_ring_r26.9.png" width="892" height="252" translation="[-8,-8]" opacity="0" />
+        <Poster uri="pkg:/images/ui/panel_dark_r18.9.png" width="876" height="236" />
+        <Rectangle width="128" height="192" translation="[22,22]" color="0x262626FF" />
+        <Poster id="poster" width="128" height="192" translation="[22,22]" loadWidth="128" loadHeight="192" loadDisplayMode="scaleToZoom" />
+        <Label id="title" width="680" height="40" translation="[176,22]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="30" />
+        </Label>
+        <Label id="line2" width="680" height="34" translation="[176,62]" color="0xFFFFFFB3">
+            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+        </Label>
+        <Label id="who" width="680" height="34" translation="[176,104]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+        </Label>
+        <Rectangle id="track" width="440" height="6" translation="[176,170]" color="0xFFFFFF40" />
+        <Rectangle id="fill" width="0" height="6" translation="[176,170]" color="0xFFFFFFFF" />
+        <Label id="pos" width="230" height="34" translation="[630,156]" horizAlign="right" color="0xFFFFFFB3">
+            <Font role="font" uri="font:MediumSystemFontFile" size="22" />
+        </Label>
+        <Label id="state" width="680" height="30" translation="[176,186]" color="0xFFFFFF8C">
+            <Font role="font" uri="font:MediumSystemFontFile" size="22" />
+        </Label>
+    </children>
+</component>

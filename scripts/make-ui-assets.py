@@ -255,6 +255,124 @@ def chevron_down(d, n):
     d.line([(n * 0.22, n * 0.38), (n * 0.5, n * 0.66), (n * 0.78, n * 0.38)], fill=WHITE, width=int(n * 0.12), joint="curve")
 
 
+def home_icon(d, n):
+    w = int(n * 0.08)
+    d.polygon([(n * 0.5, n * 0.1), (n * 0.92, n * 0.48), (n * 0.08, n * 0.48)], fill=WHITE)
+    d.rectangle([n * 0.2, n * 0.44, n * 0.8, n * 0.9], fill=WHITE)
+    d.rectangle([n * 0.42, n * 0.6, n * 0.58, n * 0.9], fill=(0, 0, 0, 0))
+
+
+def search_icon(d, n):
+    w = int(n * 0.1)
+    d.ellipse([n * 0.12, n * 0.12, n * 0.66, n * 0.66], outline=WHITE, width=w)
+    d.line([(n * 0.6, n * 0.6), (n * 0.88, n * 0.88)], fill=WHITE, width=int(n * 0.12))
+
+
+def radiowaves(d, n):
+    w = int(n * 0.08)
+    d.ellipse([n * 0.41, n * 0.41, n * 0.59, n * 0.59], fill=WHITE)
+    for r, a in ((0.24, 0), (0.4, 0)):
+        box = [n * (0.5 - r), n * (0.5 - r), n * (0.5 + r), n * (0.5 + r)]
+        d.arc(box, 140, 220, fill=WHITE, width=w)
+        d.arc(box, -40, 40, fill=WHITE, width=w)
+
+
+def clock_icon(d, n):
+    w = int(n * 0.08)
+    d.ellipse([n * 0.1, n * 0.1, n * 0.9, n * 0.9], outline=WHITE, width=w)
+    d.line([(n * 0.5, n * 0.24), (n * 0.5, n * 0.52), (n * 0.68, n * 0.64)], fill=WHITE, width=w, joint="curve")
+
+
+def film_icon(d, n):
+    w = int(n * 0.07)
+    d.rounded_rectangle([n * 0.12, n * 0.16, n * 0.88, n * 0.84], n * 0.06, outline=WHITE, width=w)
+    d.line([(n * 0.32, n * 0.16), (n * 0.32, n * 0.84)], fill=WHITE, width=w)
+    d.line([(n * 0.68, n * 0.16), (n * 0.68, n * 0.84)], fill=WHITE, width=w)
+    for y in (0.38, 0.62):
+        d.line([(n * 0.12, n * y), (n * 0.32, n * y)], fill=WHITE, width=w)
+        d.line([(n * 0.68, n * y), (n * 0.88, n * y)], fill=WHITE, width=w)
+
+
+def tv_icon(d, n):
+    w = int(n * 0.07)
+    d.rounded_rectangle([n * 0.08, n * 0.18, n * 0.92, n * 0.74], n * 0.06, outline=WHITE, width=w)
+    d.line([(n * 0.32, n * 0.86), (n * 0.68, n * 0.86)], fill=WHITE, width=w)
+
+
+def folder_icon(d, n):
+    w = int(n * 0.07)
+    d.polygon([(n * 0.1, n * 0.22), (n * 0.4, n * 0.22), (n * 0.48, n * 0.32), (n * 0.9, n * 0.32), (n * 0.9, n * 0.82), (n * 0.1, n * 0.82)], outline=WHITE)
+    d.line([(n * 0.1, n * 0.22), (n * 0.4, n * 0.22), (n * 0.48, n * 0.32), (n * 0.9, n * 0.32), (n * 0.9, n * 0.82), (n * 0.1, n * 0.82), (n * 0.1, n * 0.22)], fill=WHITE, width=w, joint="curve")
+
+
+def gear_icon(d, n):
+    import math
+    pts = []
+    for i in range(16):
+        r = n * (0.44 if i % 2 == 0 else 0.34)
+        a = i * math.pi / 8
+        pts.append((n / 2 + r * math.cos(a), n / 2 + r * math.sin(a)))
+    d.polygon(pts, fill=WHITE)
+    d.ellipse([n * 0.36, n * 0.36, n * 0.64, n * 0.64], fill=(0, 0, 0, 0))
+
+
+def house_outline(d, n):
+    w = int(n * 0.07)
+    d.line([(n * 0.1, n * 0.48), (n * 0.5, n * 0.12), (n * 0.9, n * 0.48)], fill=WHITE, width=w, joint="curve")
+    d.line([(n * 0.22, n * 0.4), (n * 0.22, n * 0.88), (n * 0.78, n * 0.88), (n * 0.78, n * 0.4)], fill=WHITE, width=w, joint="curve")
+    d.rectangle([n * 0.43, n * 0.62, n * 0.57, n * 0.88], fill=WHITE)
+
+
+def palette_icon(d, n):
+    w = int(n * 0.07)
+    d.ellipse([n * 0.08, n * 0.12, n * 0.92, n * 0.88], outline=WHITE, width=w)
+    d.ellipse([n * 0.56, n * 0.56, n * 0.78, n * 0.78], fill=(0, 0, 0, 0), outline=WHITE, width=w)
+    for x, y in ((0.3, 0.36), (0.5, 0.26), (0.7, 0.36), (0.26, 0.58)):
+        d.ellipse([n * (x - 0.06), n * (y - 0.06), n * (x + 0.06), n * (y + 0.06)], fill=WHITE)
+
+
+def grid_icon(d, n):
+    w = int(n * 0.07)
+    for x, y in ((0.12, 0.12), (0.54, 0.12), (0.12, 0.54), (0.54, 0.54)):
+        d.rounded_rectangle([n * x, n * y, n * (x + 0.34), n * (y + 0.34)], n * 0.06, outline=WHITE, width=w)
+
+
+def playrect_icon(d, n):
+    w = int(n * 0.07)
+    d.rounded_rectangle([n * 0.08, n * 0.16, n * 0.92, n * 0.84], n * 0.1, outline=WHITE, width=w)
+    d.polygon([(n * 0.42, n * 0.34), (n * 0.42, n * 0.66), (n * 0.66, n * 0.5)], fill=WHITE)
+
+
+def server_icon(d, n):
+    w = int(n * 0.07)
+    for y in (0.14, 0.42, 0.7):
+        d.rounded_rectangle([n * 0.1, n * y, n * 0.9, n * (y + 0.2)], n * 0.05, outline=WHITE, width=w)
+        d.ellipse([n * 0.7, n * (y + 0.07), n * 0.77, n * (y + 0.14)], fill=WHITE)
+
+
+def remote_icon(d, n):
+    w = int(n * 0.07)
+    d.rounded_rectangle([n * 0.3, n * 0.06, n * 0.7, n * 0.94], n * 0.14, outline=WHITE, width=w)
+    d.ellipse([n * 0.41, n * 0.2, n * 0.59, n * 0.38], outline=WHITE, width=w)
+    for y in (0.52, 0.66, 0.8):
+        d.ellipse([n * 0.44, n * (y - 0.035), n * 0.56, n * (y + 0.035)], fill=WHITE)
+
+
+def info_ring(d, n):
+    w = int(n * 0.07)
+    d.ellipse([n * 0.08, n * 0.08, n * 0.92, n * 0.92], outline=WHITE, width=w)
+    d.ellipse([n * 0.45, n * 0.24, n * 0.55, n * 0.34], fill=WHITE)
+    d.rounded_rectangle([n * 0.45, n * 0.42, n * 0.55, n * 0.74], n * 0.03, fill=WHITE)
+
+
+def bubble_icon(d, n):
+    w = int(n * 0.07)
+    d.rounded_rectangle([n * 0.08, n * 0.12, n * 0.92, n * 0.7], n * 0.12, outline=WHITE, width=w)
+    d.polygon([(n * 0.26, n * 0.66), (n * 0.44, n * 0.66), (n * 0.24, n * 0.88)], fill=WHITE)
+    for y in (0.32, 0.48):
+        d.line([(n * 0.24, n * y), (n * 0.76, n * y)], fill=WHITE, width=w)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     save(nine(shape(60, 60, 30, GLASS_FILL, GLASS_STROKE, 2)), "glass_pill.9.png")
@@ -295,6 +413,18 @@ def main():
     for name, fn in (("eye", eye), ("eyeslash", eye_slash), ("star", star), ("chevron", chevron_down)):
         icon(name, 28, fn)
     save(nine(ring(24, 24, 5, 2, (255, 255, 255, 191))), "outline_box_r4.9.png")
+    for name, fn in (("home", home_icon), ("search", search_icon), ("nowplaying", radiowaves), ("clock", clock_icon),
+                     ("film", film_icon), ("tv", tv_icon), ("folder", folder_icon), ("gear", gear_icon), ("heart", heart)):
+        icon(name, 36, fn)
+    for name, fn in (("general", palette_icon), ("home", house_outline), ("libraries", grid_icon), ("subtitles", bubble_icon),
+                     ("playback", playrect_icon), ("servers", server_icon), ("remote", remote_icon), ("about", info_ring)):
+        icon("tab_" + name, 44, fn)
+    icon("server", 36, server_icon)
+    # Settings: a section card (white 4 % with an 8 % edge, as on the Mac) and the switch
+    save(nine(shape(48, 48, 18, (255, 255, 255, 12), (255, 255, 255, 26), 2)), "card_r18.9.png")
+    save(nine(shape(44, 44, 22, WHITE)), "switch_track.9.png")
+    save(circle(36, WHITE), "switch_knob.png")
+    save(circle(70, WHITE), "white_circle_70.png")
     icon("play", 72, play)
     icon("pause", 72, pause)
     # player: big glass circle (pause), scrubber thumb, top/bottom shade, Up next card

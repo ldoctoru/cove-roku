@@ -42,11 +42,161 @@ namespace Prefs
         return Util.readText("startQuality").toInt()
     end function
 
+    ' A choice with a default ("sidebar", "both", ...)
+    function text(key as string, fallback as string) as string
+        v = Util.readText(key)
+        if v = "" then return fallback
+        return v
+    end function
+
+    ' ---------------------------------------------------------------- General / Home (Mac keys and defaults)
+
+    function navStyle() as string
+        return text("navStyle", "sidebar")
+    end function
+
+    function topBarLabels() as string
+        return text("topBarLabels", "both")
+    end function
+
+    function showRecent() as boolean
+        return flagOn("showRecent", true)
+    end function
+
+    function showFavorites() as boolean
+        return flagOn("showFavorites", true)
+    end function
+
+    function showNowPlaying() as boolean
+        return flagOn("showNowPlaying", true)
+    end function
+
+    function showUpNextRow() as boolean
+        return flagOn("showUpNextRow", true)
+    end function
+
+    function castLarge() as boolean
+        return text("castSize", "normal") = "large"
+    end function
+
+    function showEpisodeDescription() as boolean
+        return flagOn("showEpisodeDescription", true)
+    end function
+
+    function skipSeconds() as integer
+        v = Util.readText("skipSeconds").toInt()
+        if v <= 0 then v = 10
+        return v
+    end function
+
+    ' ---------------------------------------------------------------- libraries
+
+    ' Per library (Mac LibPref + LibraryDefaults): { nav, home, style, sort, show, name }
+    function library(id as string) as object
+        d = Util.readJson("lib:" + id)
+        if type(d) <> "roAssociativeArray" then d = {}
+        if d.nav = invalid then d.nav = true
+        if d.home = invalid then d.home = true
+        if d.style = invalid then d.style = "latest"
+        if d.sort = invalid then d.sort = "name"
+        if d.show = invalid then d.show = "all"
+        if d.name = invalid then d.name = ""
+        return d
+    end function
+
+    sub setLibrary(id as string, key as string, value as dynamic)
+        d = library(id)
+        d[key] = value
+        Util.writeText("lib:" + id, formatJson(d))
+    end sub
+
+    ' The server's libraries ([{ id, title, ... }]) in the saved order, with the saved names
+    function orderLibraries(libs as object) as object
+        order = Util.readText("libOrder").split(",")
+        out = []
+        used = {}
+        for each id in order
+            for each l in libs
+                if Util.toText(l.id) = id and not used.doesExist(id)
+                    out.push(l)
+                    used[id] = true
+                end if
+            end for
+        end for
+        for each l in libs
+            if not used.doesExist(Util.toText(l.id)) then out.push(l)
+        end for
+        for each l in out
+            n = library(Util.toText(l.id)).name
+            l.serverTitle = Util.toText(l.title)
+            if n <> "" then l.title = n
+        end for
+        return out
+    end function
+
+    sub saveOrder(ids as object)
+        Util.writeText("libOrder", Util.join(ids, ","))
+    end sub
+
+    ' ---------------------------------------------------------------- subtitle style (Mac PlayerView sizes / colors / ...)
+
+    ' For the Video node's captionStyle; Roku's own caption settings win when they aren't "Default"
+    function captionStyle() as object
+        s = {}
+        size = text("subTextSize", "normal")
+        ' (Roku has three sizes: Normal keeps Roku's own)
+        if size = "smaller" or size = "small" then s["Text/Size"] = "Small"
+        if size = "large" or size = "larger" then s["Text/Size"] = "Large"
+        col = text("subColor", "white")
+        if col = "white" then s["Text/Color"] = "White"
+        if col = "yellow" then s["Text/Color"] = "Yellow"
+        if col = "black" then s["Text/Color"] = "Black"
+        ' (Roku has no grey: white at 75 %)
+        if col = "gray"
+            s["Text/Color"] = "White"
+            s["Text/Opacity"] = "75%"
+        end if
+        sh = text("subShadow", "drop")
+        if sh = "none" then s["Text/Effect"] = "None"
+        if sh = "drop" then s["Text/Effect"] = "Drop shadow (right)"
+        if sh = "outline" then s["Text/Effect"] = "Uniform"
+        if sh = "raised" then s["Text/Effect"] = "Raised"
+        bg = text("subBg", "none")
+        if bg = "none" then s["Background/Opacity"] = "Off"
+        if bg = "semi"
+            s["Background/Color"] = "Black"
+            s["Background/Opacity"] = "50%"
+        end if
+        if bg = "black"
+            s["Background/Color"] = "Black"
+            s["Background/Opacity"] = "100%"
+        end if
+        return s
+    end function
+
+    function subBottom() as integer
+        v = Util.readText("subBottom")
+        if v = "" then return 10
+        return v.toInt()
+    end function
+
+    ' ---------------------------------------------------------------- reset
+
+    ' Every setting back to its default; the servers and sign-ins are kept (as on the Mac)
+    sub resetAll()
+        sec = createObject("roRegistrySection", "Cove")
+        keep = { servers: true, active: true }
+        for each k in sec.getKeyList()
+            if not keep.doesExist(k) then sec.delete(k)
+        end for
+        sec.flush()
+    end sub
+
     ' The Mac's subtitle languages, with the codes servers use for them (ISO 639-2/B, 639-2/T, 639-1)
     function languages() as object
         return [
             { name: "English", codes: ["eng", "en"] },
-            { name: "Romanian", codes: ["rum", "ron", "ro", "mol"] },
+            { name: "Romanian", codes: ["rum", "ron", "rom", "ro", "mol", "romanian", "română", "romana"] },
             { name: "Spanish", codes: ["spa", "es"] },
             { name: "French", codes: ["fre", "fra", "fr"] },
             { name: "German", codes: ["ger", "deu", "de"] },

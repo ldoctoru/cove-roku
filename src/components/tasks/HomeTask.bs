@@ -1,5 +1,6 @@
 import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
+import "pkg:/source/Prefs.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -35,22 +36,33 @@ sub load()
     resume = getList("/Users/" + uid + "/Items/Resume?Limit=20&MediaTypes=Video&" + f, "/UserItems/Resume?userId=" + uid + "&Limit=20&MediaTypes=Video&" + f)
     if m.top.authFailed then return
     addRow(root, "Continue Watching", resume, true)
-    addRow(root, "Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20&" + f, ""), true)
-    addRow(root, "Favourites", getList("/Users/" + uid + "/Items?Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f, "/Items?userId=" + uid + "&Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f), false)
+    ' Settings → Home: Up Next and Favorites rows
+    if Prefs.showUpNextRow() then addRow(root, "Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20&" + f, ""), true)
+    if Prefs.flagOn("homeFavorites", true) then addRow(root, "Favourites", getList("/Users/" + uid + "/Items?Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f, "/Items?userId=" + uid + "&Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f), false)
 
     views = getList("/Users/" + uid + "/Views", "/UserViews?userId=" + uid)
-    for each v in views
-        ct = LCase(Util.toText(v.CollectionType))
-        if ct = "movies" or ct = "tvshows" or ct = "homevideos" or ct = "musicvideos" or ct = "mixed" or ct = ""
-            latest = getList("/Users/" + uid + "/Items/Latest?ParentId=" + Util.toText(v.Id) + "&Limit=20&" + f, "/Items/Latest?userId=" + uid + "&ParentId=" + Util.toText(v.Id) + "&Limit=20&" + f)
-            addRow(root, "New in " + Util.toText(v.Name), latest, false)
-        end if
-    end for
-    addRow(root, "Libraries", views, true)
+    ' Settings → Libraries: their order and names, which are in the sidebar / on Home, and what the row shows
     libs = []
     for each v in views
-        libs.push({ id: Util.toText(v.Id), title: Util.toText(v.Name), itemType: Util.toText(v.Type), collectionType: LCase(Util.toText(v.CollectionType)) })
+        libs.push({ id: Util.toText(v.Id), title: Util.toText(v.Name), itemType: Util.toText(v.Type), collectionType: LCase(Util.toText(v.CollectionType)), view: v })
     end for
+    libs = Prefs.orderLibraries(libs)
+    shown = []
+    for each l in libs
+        lp = Prefs.library(l.id)
+        l.nav = lp.nav
+        ct = l.collectionType
+        if lp.nav and lp.home and (ct = "movies" or ct = "tvshows" or ct = "homevideos" or ct = "musicvideos" or ct = "mixed" or ct = "")
+            addRow(root, rowTitle(lp.style, l.title), libraryRow(uid, l, lp.style, f), false)
+        end if
+        if lp.nav
+            v = l.view
+            v.Name = l.title
+            shown.push(v)
+        end if
+        l.delete("view")
+    end for
+    addRow(root, "Libraries", shown, true)
     m.top.libraries = libs
 
     if root.getChildCount() = 0
@@ -64,6 +76,29 @@ sub load()
     print "Cove: home rows "; root.getChildCount()
     m.top.content = root
 end sub
+
+' "New in Movies", "Top Rated in Movies", ...
+function rowTitle(style as string, name as string) as string
+    if style = "top" then return "Top Rated in " + name
+    if style = "random" then return "Picks from " + name
+    if style = "az" then return name + " A-Z"
+    return "New in " + name
+end function
+
+' A library's Home row: Latest (what the server added last), Top Rated, Random or A-Z
+function libraryRow(uid as string, l as object, style as string, f as string) as object
+    if style = "latest"
+        return getList("/Users/" + uid + "/Items/Latest?ParentId=" + l.id + "&Limit=20&" + f, "/Items/Latest?userId=" + uid + "&ParentId=" + l.id + "&Limit=20&" + f)
+    end if
+    sortQ = "SortBy=SortName&SortOrder=Ascending"
+    if style = "top" then sortQ = "SortBy=CommunityRating,SortName&SortOrder=Descending"
+    if style = "random" then sortQ = "SortBy=Random"
+    q = "ParentId=" + l.id + "&Recursive=true&" + sortQ + "&Limit=20&" + f
+    types = Items.typesFor(l.collectionType)
+    if types = "" then types = "Movie,Series,Video"
+    q = q + "&IncludeItemTypes=" + types
+    return getList("/Users/" + uid + "/Items?" + q, "/Items?userId=" + uid + "&" + q)
+end function
 
 ' GET a list (an array, or { Items: [...] }); on 404 try the newer Jellyfin route
 function getList(path as string, fallback as string) as object

@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Prefs.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Playback.bs"
@@ -168,6 +169,11 @@ sub showItem(it as object)
         m.tracks = Tracks.fromItem(it, m.opts.sourceId)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
         s = Tracks.defaultSub(m.tracks, "")
+        ' Settings → Always load my subtitle language (the CC menu then shows it)
+        if Prefs.subAlways()
+            a = Tracks.subForLanguage(m.tracks, Prefs.subLang())
+            if a >= 0 then s = a
+        end if
         if s >= 0
             m.opts.sub = s
             m.opts.burn = not Tracks.findSub(m.tracks, s).isText
@@ -619,6 +625,7 @@ sub onPicked(ev as object)
         m.opts.audio = v
     else if c.purpose = "subs"
         s = Tracks.findSub(m.tracks, v)
+        m.opts.subPicked = true
         m.opts.sub = v
         m.opts.burn = s <> invalid and not s.isText
     else if c.purpose = "quality"
@@ -710,6 +717,7 @@ sub rebuildRows()
     sizes = []
     heights = []
     labels = []
+    showDesc = Prefs.showEpisodeDescription()
     if m.episodeList.count() > 0
         row = newRow(root, "", "episodes")
         for each e in m.episodeList
@@ -719,6 +727,8 @@ sub rebuildRows()
             rt = ""
             if e.RunTimeTicks <> invalid then rt = Int(e.RunTimeTicks / 600000000).toStr() + "m"
             n.addFields({ kind: "episode", runtime: rt })
+            ' Settings → Libraries → Show episode descriptions
+            if not showDesc then n.overview = ""
             row.appendChild(n)
         end for
         sizes.push([516, 426])
@@ -730,8 +740,14 @@ sub rebuildRows()
         for each p in m.castList
             row.appendChild(Items.personNode(srv, p))
         end for
-        sizes.push([180, 296])
-        heights.push(296)
+        ' Settings → Libraries → Cast & Crew: Normal / Large
+        if Prefs.castLarge()
+            sizes.push([236, 356])
+            heights.push(356)
+        else
+            sizes.push([180, 296])
+            heights.push(296)
+        end if
         labels.push(true)
     end if
     if m.similarList.count() > 0
@@ -791,8 +807,17 @@ function subPrefKey() as string
     return "slang:" + Util.toText(m.item.Id)
 end function
 
+function displayLang(code as string) as string
+    for each l in Prefs.languages()
+        if LCase(l.name) = LCase(code) then return l.name
+    end for
+    return code
+end function
+
 function subPrefLabel() as string
     pref = Util.readText(subPrefKey())
+    ' Automatic follows Settings → Always load my subtitle language
+    if pref = "" and Prefs.subAlways() then return displayLang(Prefs.subLang())
     if pref = "" then return "Automatic"
     if pref = "off" then return "Off"
     for each l in m.subLangs
@@ -868,7 +893,9 @@ sub useBar()
         openPicker("season", "Seasons", o, m.seasonIndex.toStr())
     else
         pref = Util.readText(subPrefKey())
-        o = [{ id: "", label: "Automatic (forced subtitles only)" }, { id: "off", label: "Off" }]
+        auto = "Automatic (forced subtitles only)"
+        if Prefs.subAlways() then auto = "Automatic (" + displayLang(Prefs.subLang()) + ", from Settings)"
+        o = [{ id: "", label: auto }, { id: "off", label: "Off" }]
         for each l in m.subLangs
             o.push({ id: l.code, label: l.label })
         end for
