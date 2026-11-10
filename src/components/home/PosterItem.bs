@@ -27,6 +27,7 @@ sub onSize()
     c = m.top.itemContent
     m.landscape = c <> invalid and c.hasField("landscape") and c.landscape
     m.person = c <> invalid and c.hasField("kind") and c.kind = "person"
+    m.epCard = c <> invalid and c.hasField("kind") and c.kind = "episode"
     h = m.top.height - 2 * pad
     if not m.landscape then h = Int(w * 1.5)
     if m.person then h = w
@@ -70,6 +71,24 @@ sub onSize()
     sc.translation = [0, h - 150]
     sc.width = w
     sc.height = 150
+    if m.epCard
+        sc.translation = [0, h - 250]
+        sc.height = 250
+        lw = w - 40
+        m.top.findNode("epEyebrow").translation = [20, h - 196]
+        m.top.findNode("epTitle").translation = [20, h - 170]
+        for i = 0 to 2
+            l = m.top.findNode("epOv" + i.toStr())
+            l.translation = [20, h - 132 + i * 27]
+            l.width = lw
+        end for
+        m.top.findNode("epEyebrow").width = lw
+        m.top.findNode("epTitle").width = lw
+        m.top.findNode("epCheck").translation = [20, h - 36]
+        m.top.findNode("epTrack").translation = [20, h - 29]
+        m.top.findNode("epFill").translation = [20, h - 29]
+        m.top.findNode("epFoot").translation = [50, h - 42]
+    end if
     ot = m.top.findNode("overTitle")
     ot.translation = [21, h - 96]
     ot.width = w - 42
@@ -95,7 +114,8 @@ sub onContent()
     c = m.top.itemContent
     if c = invalid or m.w = invalid then return
     isPerson = c.hasField("kind") and c.kind = "person"
-    if (c.hasField("landscape") and c.landscape) <> m.landscape or isPerson <> m.person
+    isEp = c.hasField("kind") and c.kind = "episode"
+    if (c.hasField("landscape") and c.landscape) <> m.landscape or isPerson <> m.person or isEp <> m.epCard
         onSize()
         return
     end if
@@ -163,6 +183,48 @@ sub onContent()
         ot.translation = [21, m.h - 60]
         if os.visible then ot.translation = [21, m.h - 92]
         os.translation = [21, m.h - 56]
+    end if
+    ' episode card: its own text block replaces the wide-card overlay
+    epG = m.top.findNode("ep")
+    epG.visible = m.epCard
+    if m.epCard
+        ot.visible = false
+        os.visible = false
+        m.top.findNode("miniTrack").visible = false
+        mf.visible = false
+        ml.visible = false
+        m.top.findNode("scrim").visible = true
+        m.top.findNode("epEyebrow").text = UCase(c.episode)
+        m.top.findNode("epTitle").text = c.title
+        lines = Util.wrapLines(c.overview, 40, 3)
+        for i = 0 to 2
+            line = ""
+            if i < lines.count() then line = lines[i]
+            m.top.findNode("epOv" + i.toStr()).text = line
+        end for
+        runtime = ""
+        if c.hasField("runtime") then runtime = c.runtime
+        check = m.top.findNode("epCheck")
+        track = m.top.findNode("epTrack")
+        fill = m.top.findNode("epFill")
+        foot = m.top.findNode("epFoot")
+        check.visible = played
+        track.visible = hasProgress and not played
+        fill.visible = track.visible
+        fill.width = 64 * p
+        if track.visible
+            foot.translation = [96, m.h - 42]
+            foot.text = remain
+            if foot.text = "" then foot.text = runtime
+        else if played
+            foot.translation = [50, m.h - 42]
+            foot.text = runtime
+        else
+            foot.translation = [20, m.h - 42]
+            foot.text = runtime
+        end if
+        played = false
+        unplayed = 0
     end if
     ' favourite heart, watched check / unwatched count
     m.top.findNode("heart").visible = c.hasField("favorite") and c.favorite

@@ -35,6 +35,24 @@
             <Label id="miniLeft" color="0xFFFFFFFF" visible="false">
                 <Font role="font" uri="font:MediumSystemFontFile" size="22" />
             </Label>
+            <!-- episode card (series page): EPISODE n, name, 3-line overview, check / progress + runtime -->
+            <Group id="ep" visible="false">
+                <Label id="epEyebrow" color="0xFFFFFFB3">
+                    <Font role="font" uri="font:MediumSystemFontFile" size="20" />
+                </Label>
+                <Label id="epTitle" color="0xFFFFFFFF">
+                    <Font role="font" uri="font:BoldSystemFontFile" size="26" />
+                </Label>
+                <Label id="epOv0" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="21" /></Label>
+                <Label id="epOv1" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="21" /></Label>
+                <Label id="epOv2" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="21" /></Label>
+                <Poster id="epCheck" uri="pkg:/images/ui/icon_check_28.png" width="20" height="20" />
+                <Rectangle id="epTrack" width="64" height="6" color="0xFFFFFF59" />
+                <Rectangle id="epFill" height="6" color="0xFFFFFFFF" />
+                <Label id="epFoot" color="0xFFFFFFFF">
+                    <Font role="font" uri="font:MediumSystemFontFile" size="22" />
+                </Label>
+            </Group>
             <Rectangle id="barTrack" height="6" color="0x00000080" visible="false" />
             <Rectangle id="barFill" height="6" visible="false" />
             <Poster id="mask" />
