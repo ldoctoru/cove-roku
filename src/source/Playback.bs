@@ -80,7 +80,7 @@ namespace Playback
     ' subtitle is an image the server burns in, maxBitrate = 0 for automatic, defaultAudio = the file's default
     function options() as object
         ' (quality: Settings → Start with quality)
-        return { audio: -1, sub: -1, burn: false, maxBitrate: Prefs.startQuality(), defaultAudio: -1 }
+        return { audio: -1, sub: -1, burn: false, maxBitrate: Prefs.startQuality(), defaultAudio: -1, sourceId: "" }
     end function
 
     function bitrateOf(opts as object) as integer
@@ -98,6 +98,8 @@ namespace Playback
     function infoQuery(server as object, forceTranscode as boolean, opts as object) as string
         q = "UserId=" + Util.toText(server.userId) + "&IsPlayback=true&AutoOpenLiveStream=true&MaxStreamingBitrate=" + bitrateOf(opts).toStr()
         if opts.audio >= 0 then q = q + "&AudioStreamIndex=" + opts.audio.toStr()
+        ' a chosen version (several files for one title)
+        if Util.toText(opts.sourceId) <> "" then q = q + "&MediaSourceId=" + Util.toText(opts.sourceId)
         if opts.burn and opts.sub >= 0
             q = q + "&SubtitleStreamIndex=" + opts.sub.toStr()
         else
@@ -116,6 +118,9 @@ namespace Playback
         sources = info.MediaSources
         if type(sources) <> "roArray" or sources.count() = 0 then return invalid
         src = sources[0]
+        for each cand in sources
+            if Util.toText(opts.sourceId) <> "" and Util.toText(cand.Id) = Util.toText(opts.sourceId) then src = cand
+        end for
         r = {
             mediaSourceId: Util.toText(src.Id),
             playSessionId: Util.toText(info.PlaySessionId),

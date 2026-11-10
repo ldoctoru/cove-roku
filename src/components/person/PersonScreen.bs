@@ -1,0 +1,132 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Api.bs"
+import "pkg:/source/Items.bs"
+
+sub init()
+    t = m.global.theme
+    m.top.findNode("bg").color = t.bg
+    m.top.findNode("photoMask").uri = t.maskCircle
+    m.rows = m.top.findNode("rows")
+    m.status = m.top.findNode("status")
+    m.rows.observeField("rowItemSelected", "onSelected")
+    m.top.observeField("focusedChild", "onFocusChanged")
+    m.pending = []
+    m.lists = {}
+    m.waiting = 0
+end sub
+
+sub load()
+    p = m.top.person
+    srv = m.top.server
+    uid = Util.toText(srv.userId)
+    m.top.findNode("name").text = Util.toText(p.name)
+    ' the person: photo, birth, biography
+    sendRequest("GET", "/Users/" + uid + "/Items/" + p.id + "?Fields=Overview,ProductionLocations,PremiereDate", { kind: "person" })
+    ' their titles on this server, newest first (one request per row)
+    base = "/Users/" + uid + "/Items?PersonIds=" + p.id + "&Recursive=true&SortBy=ProductionYear,SortName&SortOrder=Descending&Limit=100&" + Items.fields()
+    m.waiting = 2
+    for each row in [{ key: "movies", types: "Movie" }, { key: "shows", types: "Series" }]
+        t = createObject("roSGNode", "ItemsTask")
+        t.server = srv
+        t.path = base + "&IncludeItemTypes=" + row.types
+        t.fallback = ""
+        t.kind = ""
+        t.gen = 0
+        t.addFields({ rowKey: row.key })
+        t.observeField("result", "onTitles")
+        t.observeField("error", "onTitlesError")
+        m.pending.push(t)
+        t.control = "RUN"
+    end for
+end sub
+
+sub sendRequest(method as string, path as string, tag as object)
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: "", tag: tag, timeout: 20000 }
+    t.observeField("response", "onResponse")
+    m.pending.push(t)
+    t.control = "RUN"
+end sub
+
+sub onResponse(ev as object)
+    r = ev.getData()
+    if r.code <> 200 or r.json = invalid then return
+    it = r.json
+    srv = m.top.server
+    imgTag = ""
+    if it.ImageTags <> invalid then imgTag = Util.toText(it.ImageTags.Primary)
+    if imgTag <> "" then m.top.findNode("photo").uri = Items.imageUrl(srv, Util.toText(it.Id), "Primary", imgTag, 240)
+    born = ""
+    d = Util.toText(it.PremiereDate)
+    if d.len() >= 10
+        months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+        mo = d.mid(5, 2).toInt()
+        if mo >= 1 and mo <= 12 then born = "Born " + months[mo - 1] + " " + d.mid(8, 2).toInt().toStr() + ", " + d.left(4)
+    end if
+    if type(it.ProductionLocations) = "roArray" and it.ProductionLocations.count() > 0
+        place = Util.toText(it.ProductionLocations[0])
+        if born <> ""
+            born = born + "  ·  " + place
+        else
+            born = place
+        end if
+    end if
+    m.top.findNode("born").text = born
+    lines = Util.wrapLines(Util.toText(it.Overview), 96, 4)
+    for i = 0 to 3
+        s = ""
+        if i < lines.count() then s = lines[i]
+        m.top.findNode("bio" + i.toStr()).text = s
+    end for
+end sub
+
+sub onTitles(ev as object)
+    t = ev.getRoSGNode()
+    m.lists[t.rowKey] = ev.getData().nodes
+    m.waiting = m.waiting - 1
+    print "Cove: person "; t.rowKey; " "; ev.getData().nodes.getChildCount()
+    if m.waiting <= 0 then buildRows()
+end sub
+
+sub onTitlesError()
+    m.waiting = m.waiting - 1
+    if m.waiting <= 0 then buildRows()
+end sub
+
+sub buildRows()
+    root = createObject("roSGNode", "ContentNode")
+    for each row in [{ key: "movies", title: "Movies" }, { key: "shows", title: "Shows" }]
+        holder = m.lists[row.key]
+        if holder <> invalid and holder.getChildCount() > 0
+            r = root.createChild("ContentNode")
+            r.title = row.title
+            kids = []
+            for i = 0 to holder.getChildCount() - 1
+                kids.push(holder.getChild(i))
+            end for
+            r.appendChildren(kids)
+        end if
+    end for
+    if root.getChildCount() = 0
+        m.status.text = "No movies or shows with " + Util.toText(m.top.person.name) + " on this server."
+        m.status.translation = [100, 420]
+        return
+    end if
+    m.status.visible = false
+    m.rows.content = root
+    m.rows.visible = true
+    if m.top.isInFocusChain() then m.rows.setFocus(true)
+end sub
+
+sub onSelected()
+    s = m.rows.rowItemSelected
+    if s = invalid or s.count() < 2 or m.rows.content = invalid then return
+    row = m.rows.content.getChild(s[0])
+    if row = invalid then return
+    it = row.getChild(s[1])
+    if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
+end sub
+
+sub onFocusChanged()
+    if m.top.hasFocus() and m.rows.content <> invalid then m.rows.setFocus(true)
+end sub

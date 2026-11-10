@@ -8,7 +8,13 @@ sub init()
     m.grid.observeField("itemSelected", "onSelected")
     m.top.observeField("focusedChild", "onFocusChanged")
     m.sort = "name"
-    m.unwatched = false
+    m.show = "all"          ' all / unwatched / watched / favourites
+    m.genre = ""
+    m.letter = ""
+    m.genres = []
+    m.inBar = false
+    m.barIdx = 0
+    m.barIds = []
     m.total = 0
     m.loading = false
     m.gen = 0
@@ -20,7 +26,9 @@ end sub
 
 sub onLibrary()
     m.top.findNode("title").text = Util.toText(m.top.library.title)
+    drawBar()
     reload()
+    loadGenres()
 end sub
 
 sub reload()
@@ -35,14 +43,155 @@ end sub
 function sortQuery() as string
     if m.sort = "added" then return "SortBy=DateCreated,SortName&SortOrder=Descending"
     if m.sort = "year" then return "SortBy=ProductionYear,PremiereDate,SortName&SortOrder=Descending"
+    if m.sort = "rating" then return "SortBy=CommunityRating,SortName&SortOrder=Descending"
     return "SortBy=SortName&SortOrder=Ascending"
 end function
 
 function sortLabel() as string
     if m.sort = "added" then return "Date added"
     if m.sort = "year" then return "Year"
+    if m.sort = "rating" then return "Rating"
     return "Name"
 end function
+
+function showLabel() as string
+    if m.show = "unwatched" then return "Unwatched"
+    if m.show = "watched" then return "Watched"
+    if m.show = "favourites" then return "Favourites"
+    return "All"
+end function
+
+function filterQuery() as string
+    q = ""
+    if m.show = "unwatched" then q = q + "&Filters=IsUnplayed"
+    if m.show = "watched" then q = q + "&Filters=IsPlayed"
+    if m.show = "favourites" then q = q + "&Filters=IsFavorite"
+    if m.genre <> "" then q = q + "&Genres=" + m.genre.encodeUriComponent()
+    if m.letter = "#"
+        q = q + "&NameLessThan=A"
+    else if m.letter <> ""
+        q = q + "&NameStartsWith=" + m.letter
+    end if
+    return q
+end function
+
+' The library's genres for the Genre pill
+sub loadGenres()
+    lib = m.top.library
+    uid = Util.toText(m.top.server.userId)
+    q = "ParentId=" + Util.toText(lib.id) + "&UserId=" + uid + "&SortBy=SortName&Recursive=true"
+    types = Items.typesFor(Util.toText(lib.collectionType))
+    if types <> "" then q = q + "&IncludeItemTypes=" + types
+    t = createObject("roSGNode", "ItemsTask")
+    t.server = m.top.server
+    t.path = "/Genres?" + q
+    t.fallback = ""
+    t.kind = "names"
+    t.observeField("result", "onGenres")
+    m.genreTask = t
+    t.control = "RUN"
+end sub
+
+sub onGenres(ev as object)
+    m.genres = ev.getData().names
+    drawBar()
+end sub
+
+' ---------------------------------------------------------------- pills: Sort, Genre, A-Z, Show
+
+sub drawBar()
+    b = m.top.findNode("bar")
+    b.removeChildrenIndex(b.getChildCount(), 0)
+    ids = ["sort"]
+    texts = ["Sort: " + sortLabel()]
+    if m.genres.count() > 0
+        ids.push("genre")
+        g = "All"
+        if m.genre <> "" then g = m.genre
+        texts.push("Genre: " + g)
+    end if
+    ids.push("letter")
+    l = "All"
+    if m.letter <> "" then l = m.letter
+    texts.push("A–Z: " + l)
+    ids.push("show")
+    texts.push("Show: " + showLabel())
+    m.barIds = ids
+    if m.barIdx >= ids.count() then m.barIdx = ids.count() - 1
+    x = 0
+    focused = m.inBar and m.picker = invalid
+    for i = 0 to ids.count() - 1
+        isFocus = focused and i = m.barIdx
+        active = (ids[i] = "genre" and m.genre <> "") or (ids[i] = "letter" and m.letter <> "") or (ids[i] = "show" and m.show <> "all") or (ids[i] = "sort" and m.sort <> "name")
+        g = b.createChild("Group")
+        bg = g.createChild("Poster")
+        lab = g.createChild("Label")
+        f = createObject("roSGNode", "Font")
+        f.uri = "font:MediumSystemFontFile"
+        f.size = 26
+        lab.font = f
+        lab.text = texts[i]
+        lab.height = 52
+        lab.vertAlign = "center"
+        lab.translation = [24, 0]
+        w = lab.boundingRect().width + 84
+        bg.width = w
+        bg.height = 52
+        ch = g.createChild("Poster")
+        ch.uri = "pkg:/images/ui/icon_chevron_28.png"
+        ch.width = 22
+        ch.height = 22
+        ch.translation = [w - 44, 15]
+        if isFocus
+            bg.uri = "pkg:/images/ui/white_pill.9.png"
+            lab.color = "0x000000FF"
+        else
+            bg.uri = "pkg:/images/ui/glass_pill.9.png"
+            lab.color = "0xFFFFFFD9"
+            if active then lab.color = m.global.theme.accent
+        end if
+        ch.blendColor = lab.color
+        g.translation = [x, 0]
+        x = x + w + 16
+    end for
+end sub
+
+sub enterBar()
+    m.inBar = true
+    m.top.findNode("barKeys").setFocus(true)
+    drawBar()
+end sub
+
+sub leaveBar()
+    m.inBar = false
+    drawBar()
+    if m.grid.content <> invalid and m.grid.content.getChildCount() > 0
+        m.grid.setFocus(true)
+    else
+        m.top.setFocus(true)
+    end if
+end sub
+
+sub useBar()
+    id = m.barIds[m.barIdx]
+    if id = "sort"
+        openPicker("sort", "Sort by", [{ id: "name", label: "Name" }, { id: "added", label: "Date added" }, { id: "year", label: "Year" }, { id: "rating", label: "Rating" }], m.sort)
+    else if id = "genre"
+        o = [{ id: "", label: "All genres" }]
+        for each g in m.genres
+            o.push({ id: g, label: g })
+        end for
+        openPicker("genre", "Genre", o, m.genre)
+    else if id = "letter"
+        o = [{ id: "", label: "All" }, { id: "#", label: "#  (numbers and symbols)" }]
+        for i = 65 to 90
+            o.push({ id: chr(i), label: chr(i) })
+        end for
+        openPicker("letter", "Starts with", o, m.letter)
+    else if id = "show"
+        openPicker("show", "Show", [{ id: "all", label: "All" }, { id: "unwatched", label: "Unwatched" }, { id: "watched", label: "Watched" }, { id: "favourites", label: "Favourites" }], m.show)
+    end if
+end sub
 
 sub loadPage(startIndex as integer)
     lib = m.top.library
@@ -55,7 +204,7 @@ sub loadPage(startIndex as integer)
     else if Util.toText(lib.itemType) = "CollectionFolder" or Util.toText(lib.itemType) = "UserView"
         q = q + "&Recursive=true&IncludeItemTypes=Movie,Series,Video"
     end if
-    if m.unwatched then q = q + "&Filters=IsUnplayed"
+    q = q + filterQuery()
     m.loading = true
     t = createObject("roSGNode", "ItemsTask")
     t.server = m.top.server
@@ -83,11 +232,11 @@ sub onPage(ev as object)
     count = m.grid.content.getChildCount()
     if count = 0
         m.status.text = "Nothing here."
-        if m.unwatched then m.status.text = "Nothing unwatched here. Press * to show everything."
+        if filterQuery() <> "" then m.status.text = "Nothing matches these filters. Press Up to change them."
         m.status.visible = true
     else
         m.status.visible = false
-        if r.startIndex = 0 and m.top.isInFocusChain() then m.grid.setFocus(true)
+        if r.startIndex = 0 and m.top.isInFocusChain() and not m.inBar then m.grid.setFocus(true)
     end if
     updateInfo()
 end sub
@@ -99,9 +248,9 @@ sub onError(ev as object)
 end sub
 
 sub updateInfo()
-    s = m.total.toStr() + " titles   ·   sorted by " + sortLabel()
-    if m.total = 1 then s = "1 title   ·   sorted by " + sortLabel()
-    if m.unwatched then s = s + "   ·   unwatched only"
+    s = m.total.toStr() + " titles"
+    if m.total = 1 then s = "1 title"
+    if filterQuery() <> "" then s = s + "   ·   filtered"
     m.top.findNode("info").text = s
 end sub
 
@@ -119,27 +268,37 @@ sub onSelected()
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
-    if press and key = "options"
-        showSort()
+    if not press or m.picker <> invalid then return false
+    if m.inBar
+        if key = "left" and m.barIdx > 0
+            m.barIdx = m.barIdx - 1
+            drawBar()
+        else if key = "right" and m.barIdx < m.barIds.count() - 1
+            m.barIdx = m.barIdx + 1
+            drawBar()
+        else if key = "OK"
+            useBar()
+        else if key = "down"
+            leaveBar()
+        else if key = "back"
+            return false
+        end if
+        return true
+    end if
+    ' Up from the top row of the grid, or *: the filter pills
+    if key = "up" or key = "options"
+        enterBar()
         return true
     end if
     return false
 end function
 
-sub showSort()
-    filter = "Show unwatched only"
-    if m.unwatched then filter = "Show everything"
-    opts = [
-        { id: "name", label: "Sort by name" },
-        { id: "added", label: "Sort by date added" },
-        { id: "year", label: "Sort by year" },
-        { id: "filter", label: filter }
-    ]
+sub openPicker(purpose as string, title as string, options as object, selectedId as string)
     p = createObject("roSGNode", "Picker")
-    p.purpose = "sort"
-    p.title = "Sort and filter"
-    p.selectedId = m.sort
-    p.options = opts
+    p.purpose = purpose
+    p.title = title
+    p.selectedId = selectedId
+    p.options = options
     p.observeField("chosen", "onPicked")
     p.observeField("cancelled", "closePicker")
     m.top.appendChild(p)
@@ -154,19 +313,28 @@ sub closePicker()
         m.top.removeChild(m.picker)
         m.picker = invalid
     end if
-    m.grid.setFocus(true)
+    if m.inBar
+        m.top.findNode("barKeys").setFocus(true)
+    else
+        m.top.setFocus(true)
+    end if
+    drawBar()
 end sub
 
 sub onPicked(ev as object)
     id = ev.getData().id
+    purpose = m.picker.purpose
     closePicker()
-    if id = "filter"
-        m.unwatched = not m.unwatched
-    else if id <> m.sort
+    if purpose = "sort"
         m.sort = id
-    else
-        return
+    else if purpose = "genre"
+        m.genre = id
+    else if purpose = "letter"
+        m.letter = id
+    else if purpose = "show"
+        m.show = id
     end if
+    drawBar()
     reload()
 end sub
 
@@ -174,7 +342,7 @@ sub onFocusChanged()
     if not m.top.hasFocus() then return
     if m.picker <> invalid
         m.picker.setFocus(true)
-    else
+    else if not m.inBar and m.grid.content <> invalid and m.grid.content.getChildCount() > 0
         m.grid.setFocus(true)
     end if
 end sub

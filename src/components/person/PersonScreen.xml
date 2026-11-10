@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- A person (from Cast & Crew or search), like Cove for macOS's person page: round photo, name, born,
+     biography, then rows of their Movies and Shows on this server. OK on a title opens it.
+     Set server + person ({ id, name }); "action" = { id: "open", ... } like the home. -->
+<component name="PersonScreen" extends="Group">
+    <script type="text/brightscript" uri="PersonScreen.bs" />
+    <interface>
+        <field id="screenId" type="string" value="person" />
+        <field id="server" type="assocarray" />
+        <field id="person" type="assocarray" onChange="load" />
+        <field id="action" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />
+        <Group id="header" translation="[96,64]">
+            <Rectangle id="photoPh" width="240" height="240" color="0x262626FF" />
+            <Poster id="photo" width="240" height="240" loadWidth="240" loadHeight="240" loadDisplayMode="scaleToZoom" />
+            <Poster id="photoMask" width="240" height="240" />
+            <Label id="name" width="1340" height="76" translation="[290,10]" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="60" />
+            </Label>
+            <Label id="born" width="1340" height="40" translation="[290,90]" color="0xFFFFFF8C">
+                <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+            </Label>
+            <Label id="bio0" width="1400" height="34" translation="[290,140]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            <Label id="bio1" width="1400" height="34" translation="[290,174]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            <Label id="bio2" width="1400" height="34" translation="[290,208]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            <Label id="bio3" width="1400" height="34" translation="[290,242]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+        </Group>
+        <RowList id="rows" translation="[78,360]" itemComponentName="PosterItem" numRows="2"
+                 itemSize="[1842,520]" rowHeights="[520]" rowItemSize="[[276,466]]" rowItemSpacing="[[0,0]]"
+                 itemSpacing="[0,20]" showRowLabel="[true]" rowLabelOffset="[[18,8]]" rowLabelColor="0xFFFFFFFF"
+                 focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
+                 drawFocusFeedback="false" visible="false">
+            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />
+        </RowList>
+        <Label id="status" width="1720" height="44" translation="[100,520]" color="0xFFFFFFB3" text="Loading...">
+            <Font role="font" uri="font:MediumSystemFontFile" size="32" />
+        </Label>
+    </children>
+</component>

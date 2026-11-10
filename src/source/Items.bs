@@ -209,10 +209,13 @@ namespace Items
         c.addFields({ itemId: "", itemType: "Person", kind: "person", landscape: false })
         c.title = Util.toText(p.Name)
         role = Util.toText(p.Role)
-        if role = "" then role = Util.toText(p.Type)
+        if role = "" and Util.toText(p.Type) <> "Person" then role = Util.toText(p.Type)
         c.shortDescriptionLine2 = role
         c.itemId = Util.toText(p.Id)
-        c.hdPosterUrl = imageUrl(server, Util.toText(p.Id), "Primary", Util.toText(p.PrimaryImageTag), 160)
+        ' cast lists have PrimaryImageTag, /Persons has ImageTags.Primary
+        imgTag = Util.toText(p.PrimaryImageTag)
+        if imgTag = "" and p.ImageTags <> invalid then imgTag = Util.toText(p.ImageTags.Primary)
+        c.hdPosterUrl = imageUrl(server, Util.toText(p.Id), "Primary", imgTag, 160)
         return c
     end function
 

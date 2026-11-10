@@ -101,7 +101,12 @@ sub onSize()
     m.top.findNode("miniLeft").translation = [100, h - 40]
     m.title.width = w
     m.year.width = w
+    m.year.wrap = m.person
+    m.year.maxLines = 1
     if m.person
+        ' the role may take two lines (long character names were cut off)
+        m.year.maxLines = 2
+        m.year.height = 58
         m.title.width = m.top.width
         m.year.width = m.top.width
         m.top.findNode("name2").width = m.top.width

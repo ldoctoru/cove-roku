@@ -8,7 +8,10 @@ sub init()
     m.debounce = m.top.findNode("debounce")
     m.keyboard.observeField("text", "onText")
     m.debounce.observeField("fire", "search")
-    m.grid.observeField("itemSelected", "onSelected")
+    m.grid.observeField("rowItemSelected", "onSelected")
+    m.found = {}
+    m.taskList = []
+    m.waiting = 0
     m.top.observeField("focusedChild", "onFocusChanged")
     m.gen = 0
     m.task = invalid
@@ -29,40 +32,87 @@ sub search()
         return
     end if
     m.status.text = "Searching for " + chr(34) + term + chr(34) + "..."
+    m.found = {}
+    m.waiting = 0
+    m.waiting = 3
     uid = Util.toText(m.top.server.userId)
-    q = "SearchTerm=" + term.encodeUriComponent() + "&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&Limit=40&" + Items.fields()
+    enc = term.encodeUriComponent()
+    q = "SearchTerm=" + enc + "&Recursive=true&Limit=40&" + Items.fields()
+    runSearch("titles", "", "/Users/" + uid + "/Items?" + q + "&IncludeItemTypes=Movie,Series,Video", "/Items?userId=" + uid + "&" + q + "&IncludeItemTypes=Movie,Series,Video")
+    runSearch("episodes", "landscape", "/Users/" + uid + "/Items?" + q + "&IncludeItemTypes=Episode", "/Items?userId=" + uid + "&" + q + "&IncludeItemTypes=Episode")
+    runSearch("people", "person", "/Persons?SearchTerm=" + enc + "&UserId=" + uid + "&Limit=24&Recursive=true&Fields=PrimaryImageAspectRatio", "")
+end sub
+
+sub runSearch(key as string, kind as string, path as string, fallback as string)
     t = createObject("roSGNode", "ItemsTask")
     t.server = m.top.server
-    t.path = "/Users/" + uid + "/Items?" + q
-    t.fallback = "/Items?userId=" + uid + "&" + q
+    t.path = path
+    t.fallback = fallback
+    t.kind = kind
     t.gen = m.gen
+    t.addFields({ rowKey: key })
     t.observeField("result", "onResult")
     t.observeField("error", "onError")
-    m.task = t
+
+    m.taskList.push(t)
+    if m.taskList.count() > 9 then m.taskList.shift()
     t.control = "RUN"
 end sub
 
 sub onResult(ev as object)
     r = ev.getData()
     if r.gen <> m.gen then return
-    m.grid.content = r.nodes
-    n = r.nodes.getChildCount()
-    if n = 0
-        m.status.text = "No results for " + chr(34) + m.keyboard.text.trim() + chr(34) + "."
-    else if n = 1
-        m.status.text = "1 result   ·   press Right to choose"
-    else
-        m.status.text = n.toStr() + " results   ·   press Right to choose"
-    end if
+    m.found[ev.getRoSGNode().rowKey] = r.nodes
+    m.waiting = m.waiting - 1
+    if m.waiting <= 0 then showResults()
 end sub
 
 sub onError(ev as object)
-    m.status.text = ev.getData()
+    if ev.getRoSGNode().gen <> m.gen then return
+    m.waiting = m.waiting - 1
+    if m.waiting <= 0 then showResults()
+end sub
+
+' People first (when the term is a name), then movies & shows, then episodes
+sub showResults()
+    root = createObject("roSGNode", "ContentNode")
+    sizes = []
+    heights = []
+    total = 0
+    order = [{ key: "people", title: "People", size: [170, 296] }, { key: "titles", title: "Movies & Shows", size: [236, 406] }, { key: "episodes", title: "Episodes", size: [380, 240] }]
+    for each o in order
+        holder = m.found[o.key]
+        if holder <> invalid and holder.getChildCount() > 0
+            row = root.createChild("ContentNode")
+            row.title = o.title
+            kids = []
+            for i = 0 to holder.getChildCount() - 1
+                kids.push(holder.getChild(i))
+            end for
+            row.appendChildren(kids)
+            total = total + kids.count()
+            sizes.push(o.size)
+            heights.push(o.size[1] + 44)
+        end if
+    end for
+    if total = 0
+        m.grid.content = invalid
+        m.status.text = "No results for " + chr(34) + m.keyboard.text.trim() + chr(34) + "."
+        return
+    end if
+    m.grid.rowItemSize = sizes
+    m.grid.rowHeights = heights
+    m.grid.content = root
+    m.status.text = total.toStr() + " results   ·   press Right to choose"
+    if total = 1 then m.status.text = "1 result   ·   press Right to choose"
 end sub
 
 sub onSelected()
-    if m.grid.content = invalid then return
-    it = m.grid.content.getChild(m.grid.itemSelected)
+    s = m.grid.rowItemSelected
+    if s = invalid or s.count() < 2 or m.grid.content = invalid then return
+    row = m.grid.content.getChild(s[0])
+    if row = invalid then return
+    it = row.getChild(s[1])
     if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
 end sub
 
@@ -72,7 +122,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if key = "right" and m.keyboard.isInFocusChain() and hasResults
         m.grid.setFocus(true)
         return true
-    else if key = "left" and m.grid.hasFocus()
+    else if key = "left" and m.grid.isInFocusChain()
         m.keyboard.setFocus(true)
         return true
     end if
