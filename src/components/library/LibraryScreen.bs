@@ -158,7 +158,7 @@ end sub
 
 sub enterBar()
     m.inBar = true
-    m.top.setFocus(true)
+    m.top.findNode("barKeys").setFocus(true)
     drawBar()
 end sub
 
@@ -313,7 +313,11 @@ sub closePicker()
         m.top.removeChild(m.picker)
         m.picker = invalid
     end if
-    m.top.setFocus(true)
+    if m.inBar
+        m.top.findNode("barKeys").setFocus(true)
+    else
+        m.top.setFocus(true)
+    end if
     drawBar()
 end sub
 

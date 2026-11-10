@@ -20,6 +20,8 @@
             <Font role="font" uri="font:MediumSystemFontFile" size="26" />
         </Label>
         <Group id="bar" translation="[96,160]" />
+        <!-- holds the focus while the pills are active (the grid then drops its focus ring) -->
+        <Group id="barKeys" focusable="true" />
         <MarkupGrid id="grid" translation="[78,224]" itemComponentName="PosterItem" itemSize="[276,466]"
                     itemSpacing="[0,4]" numColumns="6" numRows="2" vertFocusAnimationStyle="fixedFocus"
                     drawFocusFeedback="false" />
