@@ -61,23 +61,26 @@ namespace Items
         own = tagOf(it.ImageTags, "Logo")
         if own <> "" then return imageUrl(server, Util.toText(it.Id), "Logo", own, w)
         if Util.toText(it.ParentLogoImageTag) <> "" then return imageUrl(server, Util.toText(it.ParentLogoItemId), "Logo", Util.toText(it.ParentLogoImageTag), w)
+        ' an episode without the parent's logo tag (e.g. from Continue Watching): ask for the series' logo; when the
+        ' series has none the request fails and the title text stays (the hero shows the logo only once it loaded)
+        if Util.toText(it.Type) = "Episode" and Util.toText(it.SeriesId) <> "" then return Util.toText(server.url) + "/Items/" + Util.toText(it.SeriesId) + "/Images/Logo?maxWidth=" + w.toStr() + "&quality=85"
         return ""
     end function
 
-    ' The hero line, as on the Mac: "Movie · Action · Drama · 2021 · PG-13 · 7.4/10"
     ' The hero line, as on the Mac home: "TV Show · Comedy · Romance · 2007" / "Movie · Drama · 1979"
     function heroMeta(it as object) as string
         parts = []
         t = Util.toText(it.Type)
         if t = "Movie" then parts.push("Movie")
-        if t = "Series" then parts.push("TV Show")
+        ' (an episode in the hero stands for its series, as on the Mac)
+        if t = "Series" or t = "Episode" then parts.push("TV Show")
         if type(it.Genres) = "roArray"
             for i = 0 to it.Genres.count() - 1
                 if i < 2 then parts.push(Util.toText(it.Genres[i]))
             end for
         end if
         y = Util.toText(it.ProductionYear)
-        if y <> "" and t <> "Episode" then parts.push(y)
+        if y <> "" then parts.push(y)
         return Util.join(parts, "  ·  ")
     end function
 
