@@ -442,16 +442,41 @@ sub onFavourite(r as object)
 end sub
 
 ' POST / DELETE /Users/{id}/PlayedItems/{item} (Jellyfin 10.9+: /UserPlayedItems/{item}); then reload
+' * on an episode card: resume / from the beginning / watched / its own page
+sub episodeMenu()
+    f = m.rows.rowItemFocused
+    if f = invalid or f.count() < 2 or m.rows.content = invalid then return
+    row = m.rows.content.getChild(f[0])
+    if row = invalid or row.rowKind <> "episodes" or f[1] >= m.episodeList.count() then return
+    e = m.episodeList[f[1]]
+    m.menuEp = e
+    o = []
+    at = Items.resumeAt(e)
+    if at > 30 then o.push({ id: "resume", label: "Resume from " + Playback.clock(at) })
+    o.push({ id: "start", label: "Play from the beginning" })
+    if Util.flag(e.UserData, "Played")
+        o.push({ id: "unwatched", label: "Mark as unwatched" })
+    else
+        o.push({ id: "watched", label: "Mark as watched" })
+    end if
+    o.push({ id: "page", label: "Episode details" })
+    openPicker("epmenu", Items.episodeLabel(e), o, "")
+end sub
+
 sub toggleWatched()
     if m.item = invalid then return
-    method = "POST"
-    if Util.flag(m.item.UserData, "Played") then method = "DELETE"
-    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/PlayedItems/" + Util.toText(m.item.Id), { kind: "watched", method: method, newRoute: false })
+    markPlayed(Util.toText(m.item.Id), not Util.flag(m.item.UserData, "Played"))
+end sub
+
+sub markPlayed(itemId as string, played as boolean)
+    method = "DELETE"
+    if played then method = "POST"
+    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/PlayedItems/" + itemId, { kind: "watched", method: method, newRoute: false, itemId: itemId })
 end sub
 
 sub onWatched(r as object)
     if r.code = 404 and not r.tag.newRoute
-        send(r.tag.method, "/UserPlayedItems/" + Util.toText(m.item.Id) + "?userId=" + Util.toText(m.top.server.userId), { kind: "watched", method: r.tag.method, newRoute: true })
+        send(r.tag.method, "/UserPlayedItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "watched", method: r.tag.method, newRoute: true, itemId: r.tag.itemId })
         return
     end if
     if r.code >= 200 and r.code < 300
@@ -511,6 +536,9 @@ sub onPickerCancelled()
     closePicker()
     if p <> invalid and (p.purpose = "season" or p.purpose = "slang")
         enterSeason()
+    else if p <> invalid and p.purpose = "epmenu"
+        m.state = "rows"
+        m.rows.setFocus(true)
     else
         enterButtons(false)
     end if
@@ -555,6 +583,23 @@ sub onPicked(ev as object)
         end if
         closePicker()
         showTracksMenu()
+        return
+    end if
+    if c.purpose = "epmenu"
+        e = m.menuEp
+        closePicker()
+        m.state = "rows"
+        m.rows.setFocus(true)
+        if e = invalid then return
+        if c.id = "resume"
+            requestPlay(e, Items.resumeAt(e))
+        else if c.id = "start"
+            requestPlay(e, 0)
+        else if c.id = "watched" or c.id = "unwatched"
+            markPlayed(Util.toText(e.Id), c.id = "watched")
+        else if c.id = "page"
+            m.top.openItem = { id: "open", itemId: Util.toText(e.Id), itemType: "Episode", collectionType: "", title: Util.toText(e.Name) }
+        end if
         return
     end if
     if c.purpose = "season"
@@ -961,6 +1006,10 @@ function onKeyEvent(key as string, press as boolean) as boolean
         end if
         return true
     else if m.state = "rows"
+        if key = "options"
+            episodeMenu()
+            return true
+        end if
         if key = "up" and m.seasonBar.visible
             enterSeason()
             return true
