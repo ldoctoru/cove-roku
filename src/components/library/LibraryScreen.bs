@@ -1,5 +1,6 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Items.bs"
+import "pkg:/source/Prefs.bs"
 
 sub init()
     m.grid = m.top.findNode("grid")
@@ -26,8 +27,15 @@ end sub
 
 sub onLibrary()
     m.top.findNode("title").text = Util.toText(m.top.library.title)
-    ' Recently Added: newest first (as on the Mac)
-    if feed() = "recent" then m.sort = "added"
+    ' Recently Added: newest first (as on the Mac); a library opens with its Settings → Libraries sort and filter
+    if feed() = "recent"
+        m.sort = "added"
+    else if Util.toText(m.top.library.id) <> ""
+        lp = Prefs.library(Util.toText(m.top.library.id))
+        sortMap = { name: "name", latest: "added", release: "year", top: "rating" }
+        if sortMap.doesExist(lp.sort) then m.sort = sortMap[lp.sort]
+        if lp.show = "unwatched" or lp.show = "watched" then m.show = lp.show
+    end if
     drawBar()
     reload()
     loadGenres()

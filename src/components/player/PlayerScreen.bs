@@ -188,6 +188,7 @@ sub onStream()
         c.subtitleTracks = [{ Language: lang, TrackName: subUrl, Description: sub_.label }]
     end if
     m.video.content = c
+    applyCaptionStyle()
     applySubtitle(subUrl)
     if subUrl <> "" then probeSubtitle(subUrl, sub_.index)
     m.video.control = "play"
@@ -214,6 +215,18 @@ sub onSubProbe(r as object)
     m.status.text = "The subtitles couldn't load as text." + chr(10) + "Adding them to the picture..."
     m.status.visible = true
     restartAt(m.video.position)
+end sub
+
+' Settings → Subtitles → Style: size, colour, shadow, background, and the distance from the bottom
+' (Roku's own caption settings win when they aren't Default)
+sub applyCaptionStyle()
+    m.video.captionStyle = Prefs.captionStyle()
+    pct = Prefs.subBottom()
+    if pct <> 10 and m.video.hasField("captionRenderArea")
+        ' a render area that ends pct % above the bottom; Roku centres the captions at its bottom
+        h = 1080 - Int(1080 * pct / 100)
+        m.video.captionRenderArea = { mode: "override", overridePlacement: true, scaleFonts: "off", x: 96, y: 0, width: 1728, height: h }
+    end if
 end sub
 
 sub applySubtitle(url as string)
@@ -613,9 +626,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
         else if key = "OK"
             togglePause()
         else if key = "left"
-            seekBy(-10)
+            seekBy(-Prefs.skipSeconds())
         else if key = "right"
-            seekBy(10)
+            seekBy(Prefs.skipSeconds())
         else
             showOsd(true)
         end if
@@ -638,9 +651,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
     else if m.area = "bar" and (key = "left" or key = "right")
         ' the progress bar has the focus: Left / Right move along it (presses add up, thumbnail shows)
         if key = "left"
-            seekBy(-10)
+            seekBy(-Prefs.skipSeconds())
         else
-            seekBy(10)
+            seekBy(Prefs.skipSeconds())
         end if
     else if key = "left"
         if m.idx > 0 then m.idx = m.idx - 1

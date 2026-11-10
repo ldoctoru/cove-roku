@@ -90,7 +90,11 @@
             <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="32" />
         </RowList>
 
-        <SideBar id="nav" />
+        <!-- Settings → General → Navigation: the sidebar (default) or the top bar; HomeScreen uses one of them -->
+        <Group id="navs">
+            <SideBar id="side" visible="false" />
+            <NavBar id="top" visible="false" />
+        </Group>
         <!-- Holds the focus while the hero buttons are active (keys reach HomeScreen.onKeyEvent) -->
         <Group id="heroKeys" focusable="true" />
 
@@ -106,7 +110,7 @@
             <Vector2DFieldInterpolator id="rowsMove" key="[0.0, 1.0]" fieldToInterp="rows.translation" />
             <FloatFieldInterpolator id="heroFadeI" key="[0.0, 1.0]" fieldToInterp="hero.opacity" />
             <FloatFieldInterpolator id="infoFadeI" key="[0.0, 1.0]" fieldToInterp="info.opacity" />
-            <FloatFieldInterpolator id="navFadeI" key="[0.0, 1.0]" fieldToInterp="nav.opacity" />
+            <FloatFieldInterpolator id="navFadeI" key="[0.0, 1.0]" fieldToInterp="navs.opacity" />
             <FloatFieldInterpolator id="bdDimI" key="[0.0, 1.0]" fieldToInterp="bdLayer.opacity" />
             <FloatFieldInterpolator id="rowsBgI" key="[0.0, 1.0]" fieldToInterp="rowsBg.opacity" />
         </Animation>

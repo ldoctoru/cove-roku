@@ -1,26 +1,30 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- Settings (Cove for macOS Settings, the parts that make sense on a TV): Appearance (accent, background),
-     Subtitles (always load my language + which one), Player (skip intros, play the next episode, start
-     quality), About. Up / Down move, OK opens the choices in the side panel (or flips an On / Off row).
-     "themeChanged" fires after the accent or background changed. -->
+<!-- Settings, built like Cove for macOS (Sources/Settings.swift): the tab name on top, a row of icon tabs (General,
+     Home, Libraries, Subtitles, Playback, Servers, Remote, About), then the tab's sections as cards with an
+     UPPERCASE title, a right-aligned "Label:" column, the controls beside it and grey notes under them.
+     Left / Right on the tabs change the tab, Down enters it; Up / Down move between rows, OK changes a setting
+     (choices open in the side panel; colours and tiles change with Left / Right), Back closes. Every change is
+     saved at once. "themeChanged" fires when something on Home must be rebuilt; "action" asks MainScene to
+     switch server ({ id: "connect", serverId }), sign out ({ id: "signout" }) or add one ({ id: "switch" }). -->
 <component name="SettingsScreen" extends="Group">
     <script type="text/brightscript" uri="SettingsScreen.bs" />
     <interface>
         <field id="screenId" type="string" value="settings" />
         <field id="server" type="assocarray" />
         <field id="themeChanged" type="boolean" alwaysNotify="true" />
+        <field id="action" type="assocarray" alwaysNotify="true" />
     </interface>
     <children>
         <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />
-        <Label text="Settings" width="1200" height="80" translation="[96,64]" color="0xFFFFFFFF">
-            <Font role="font" uri="font:BoldSystemFontFile" size="60" />
+        <Label id="tabTitle" width="1920" height="44" translation="[0,26]" horizAlign="center" color="0xFFFFFF8C">
+            <Font role="font" uri="font:BoldSystemFontFile" size="28" />
         </Label>
-        <Label id="sub" width="1200" height="40" translation="[96,144]" color="0xFFFFFF8C">
-            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
-        </Label>
-        <Group id="rows" translation="[96,214]" />
-        <Label id="note" width="640" height="400" translation="[1200,250]" wrap="true" color="0xFFFFFF8C">
-            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
-        </Label>
+        <Group id="tabs" translation="[0,78]" />
+        <Rectangle width="1920" height="1" translation="[0,214]" color="0xFFFFFF1F" />
+        <Group id="clip" translation="[0,215]" clippingRect="[0,0,1920,865]">
+            <Group id="content" />
+        </Group>
+        <Group id="keys" focusable="true" />
+        <Timer id="kbTimer" duration="0.4" repeat="false" />
     </children>
 </component>

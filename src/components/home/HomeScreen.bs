@@ -1,13 +1,29 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/Api.bs"
+import "pkg:/source/Prefs.bs"
 import "pkg:/source/Playback.bs"
 
 sub init()
     t = m.global.theme
     m.rows = m.top.findNode("rows")
     m.status = m.top.findNode("status")
-    m.nav = m.top.findNode("nav")
+    ' Sidebar or top bar (Settings → General → Navigation)
+    m.side = Prefs.navStyle() <> "topbar"
+    m.navs = m.top.findNode("navs")
+    if m.side
+        m.nav = m.top.findNode("side")
+        m.rowsX = 150
+    else
+        m.nav = m.top.findNode("top")
+        m.nav.labels = Prefs.topBarLabels()
+        m.rowsX = 78
+        m.top.findNode("hero").translation = [0, 0]
+        m.top.findNode("info").translation = [96, 96]
+        m.top.findNode("status").translation = [96, 520]
+        m.top.findNode("rows").itemSize = [1842, 466]
+    end if
+    m.nav.visible = true
     m.bdA = m.top.findNode("bdA")
     m.bdB = m.top.findNode("bdB")
     m.heroLogo = m.top.findNode("heroLogo")
@@ -146,26 +162,30 @@ end sub
 sub buildNav()
     items = [
         { id: "home", label: "Home", icon: "home" },
-        { id: "search", label: "Search", icon: "search" },
-        { id: "favorites", label: "Favorites", icon: "heart" },
-        { id: "nowplaying", label: "Now Playing", icon: "nowplaying", badge: m.nowPlaying },
-        { header: true, label: "Library" },
-        { id: "recent", label: "Recently Added", icon: "clock" }
+        { id: "search", label: "Search", icon: "search" }
     ]
+    ' Settings → Libraries: Favorites / Now Playing shown; General: Recently Added
+    if Prefs.showFavorites() then items.push({ id: "favorites", label: "Favorites", icon: "heart" })
+    if Prefs.showNowPlaying() then items.push({ id: "nowplaying", label: "Now Playing", icon: "nowplaying", badge: m.nowPlaying })
+    if m.side then items.push({ header: true, label: "Library" })
+    if Prefs.showRecent() then items.push({ id: "recent", label: "Recently Added", icon: "clock" })
     m.libraries = []
     libs = invalid
     if m.task <> invalid then libs = m.task.libraries
     if libs <> invalid
         for i = 0 to libs.count() - 1
             m.libraries.push(libs[i])
-            ct = Util.toText(libs[i].collectionType)
-            ic = "folder"
-            if ct = "movies" then ic = "film"
-            if ct = "tvshows" then ic = "tv"
-            items.push({ id: "lib:" + i.toStr(), label: Util.toText(libs[i].title), icon: ic })
+            ' (hidden from the sidebar in Settings → Libraries)
+            if libs[i].nav <> false
+                ct = Util.toText(libs[i].collectionType)
+                ic = "folder"
+                if ct = "movies" then ic = "film"
+                if ct = "tvshows" then ic = "tv"
+                items.push({ id: "lib:" + i.toStr(), label: Util.toText(libs[i].title), icon: ic })
+            end if
         end for
     end if
-    items.push({ header: true, label: "" })
+    if m.side then items.push({ header: true, label: "" })
     items.push({ id: "settings", label: "Settings", icon: "gear" })
     m.nav.items = items
 end sub
@@ -233,6 +253,7 @@ sub buildDots()
     if n < 2 then return
     ' centred over the page (right of the sidebar; the hero group is moved 80 px right)
     x = Int((1808 - (n * 10 + (n - 1) * 14)) / 2) + 112 - 80
+    if not m.side then x = Int((1920 - (n * 10 + (n - 1) * 14)) / 2)
     for i = 0 to n - 1
         d = dots.createChild("Poster")
         d.uri = "pkg:/images/ui/dot_10.png"
@@ -400,11 +421,11 @@ end sub
 sub animateTo(rowsY as integer, heroOp as float, infoOp as float, navOp as float, bdOp as float, rowsBgOp as float)
     m.slide.control = "stop"
     cur = m.rows.translation
-    m.top.findNode("rowsMove").keyValue = [[150, cur[1]], [150, rowsY]]
+    m.top.findNode("rowsMove").keyValue = [[m.rowsX, cur[1]], [m.rowsX, rowsY]]
     m.top.findNode("heroFadeI").keyValue = [m.top.findNode("hero").opacity, heroOp]
     m.top.findNode("infoFadeI").keyValue = [m.top.findNode("info").opacity, infoOp]
     ' (the sidebar stays, as on the Mac: callers pass 1.0)
-    m.top.findNode("navFadeI").keyValue = [m.nav.opacity, navOp]
+    m.top.findNode("navFadeI").keyValue = [m.navs.opacity, navOp]
     m.top.findNode("bdDimI").keyValue = [m.top.findNode("bdLayer").opacity, bdOp]
     m.top.findNode("rowsBgI").keyValue = [m.top.findNode("rowsBg").opacity, rowsBgOp]
     m.slide.control = "start"
@@ -428,15 +449,31 @@ sub enterHero(animate = true as boolean)
     paintButtons()
 end sub
 
+' The sidebar stays while the rows are up (as on the Mac); the top bar makes room for them
+function navInRows() as float
+    if m.side then return 1.0
+    return 0.0
+end function
+
 sub enterNav()
     if m.state <> "nav" then m.navReturn = m.state
     m.state = "nav"
-    m.heroTimer.control = "stop"
     m.nav.setFocus(true)
+    if m.side
+        m.heroTimer.control = "stop"
+    else
+        ' the top bar sits over the hero
+        goTop(true)
+        if m.heroes.count() > 0 then showBackdrop(m.heroes[m.heroIndex].backdrop)
+    end if
     paintButtons()
 end sub
 
 sub leaveNav()
+    if not m.side and m.heroes.count() > 0
+        enterHero()
+        return
+    end if
     if m.navReturn = "rows" and m.rows.visible
         m.state = "rows"
         m.rows.setFocus(true)
@@ -455,10 +492,10 @@ sub goTop(animate as boolean)
     if animate
         animateTo(rowsY, 1.0, 0.0, 1.0, 1.0, 0.0)
     else
-        m.rows.translation = [150, rowsY]
+        m.rows.translation = [m.rowsX, rowsY]
         m.top.findNode("hero").opacity = 1.0
         m.top.findNode("info").opacity = 0.0
-        m.nav.opacity = 1.0
+        m.navs.opacity = 1.0
         m.top.findNode("bdLayer").opacity = 1.0
         m.top.findNode("rowsBg").opacity = 0.0
         if m.heroes.count() = 0 then m.top.findNode("rowsBg").opacity = 1.0
@@ -471,12 +508,12 @@ sub enterRows(animate = true as boolean)
     m.heroTimer.control = "stop"
     m.rows.setFocus(true)
     if animate
-        animateTo(400, 0.0, 1.0, 1.0, 0.6, 1.0)
+        animateTo(400, 0.0, 1.0, navInRows(), 0.6, 1.0)
     else
-        m.rows.translation = [150, 400]
+        m.rows.translation = [m.rowsX, 400]
         m.top.findNode("hero").opacity = 0.0
         m.top.findNode("info").opacity = 1.0
-        m.nav.opacity = 1.0
+        m.navs.opacity = navInRows()
         m.top.findNode("bdLayer").opacity = 0.6
         m.top.findNode("rowsBg").opacity = 1.0
     end if
@@ -579,8 +616,10 @@ function onKeyEvent(key as string, press as boolean) as boolean
             if m.btn > 0
                 m.btn = m.btn - 1
                 paintButtons()
-            else
+            else if m.side
                 enterNav()
+            else
+                showHero(m.heroIndex - 1)
             end if
             return true
         else if key = "rewind" or key = "replay"
@@ -599,6 +638,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
             end if
             return true
         else if key = "up"
+            if not m.side then enterNav()
             return true
         else if key = "down"
             if m.rows.visible then enterRows()
@@ -608,12 +648,12 @@ function onKeyEvent(key as string, press as boolean) as boolean
             return true
         end if
     else if m.state = "nav"
-        if key = "right" or key = "back"
+        if (m.side and key = "right") or (not m.side and key = "down") or key = "back"
             leaveNav()
             return true
         end if
     else if m.state = "rows"
-        if key = "left"
+        if key = "left" and m.side
             ' (only reaches here at the first card of a row)
             enterNav()
             return true
