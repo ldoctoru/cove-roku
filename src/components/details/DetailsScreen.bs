@@ -5,82 +5,79 @@ import "pkg:/source/Playback.bs"
 import "pkg:/source/Tracks.bs"
 
 sub init()
-    m.buttons = m.top.findNode("buttons")
-    m.seasons = m.top.findNode("seasons")
-    m.episodes = m.top.findNode("episodes")
+    t = m.global.theme
+    m.rows = m.top.findNode("rows")
+    m.lower = m.top.findNode("lower")
+    m.seasonBar = m.top.findNode("seasonBar")
+    m.barIds = []
+    m.barIdx = 0
+    m.subLangs = []         ' [{ code, label }] subtitle languages of the series (from one episode)
+    m.streamsFor = ""
     m.status = m.top.findNode("status")
-    m.buttons.observeField("itemSelected", "onButton")
-    m.seasons.observeField("itemFocused", "onSeasonFocused")
-    m.episodes.observeField("itemFocused", "onEpisodeFocused")
-    m.episodes.observeField("itemSelected", "onEpisodeSelected")
+    m.logo = m.top.findNode("logo")
+    m.btnGroup = m.top.findNode("buttons")
+    m.btnKeys = m.top.findNode("btnKeys")
+    m.slide = m.top.findNode("slide")
+    m.top.findNode("scrimBottom").uri = t.scrimBottom
+    m.top.findNode("rowsFade").uri = t.fade
+    m.top.findNode("rowsSolid").color = t.bg
+    m.logo.observeField("loadStatus", "onLogoLoaded")
+    m.rows.observeField("rowItemSelected", "onRowSelected")
     m.top.observeField("focusedChild", "onFocusChanged")
     m.item = invalid
-    m.buttonIds = []
-    m.seasonList = []
-    m.episodeList = []
     m.pending = []
-    m.seasonGen = 0
     m.tracks = invalid
     m.opts = Playback.options()
     m.picker = invalid
     m.isFav = false
+    m.btns = []
+    m.btn = 0
+    m.state = "buttons"
+    m.logoReady = false
+    m.lines = 0
+    ' rows below the header
+    m.seasonList = []
+    m.seasonIndex = -1
+    m.seasonByUser = false
+    m.episodeList = []
+    m.castList = []
+    m.similarList = []
+    m.nextUp = invalid
+    m.seasonGen = 0
+    m.jumpToEpisodes = false
 end sub
+
+' ---------------------------------------------------------------- loading
+
+function itemPath() as string
+    return "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.itemId + "?Fields=Overview,People,Genres,MediaSources,MediaStreams,Chapters&EnableImageTypes=Primary,Backdrop,Thumb,Logo"
+end function
 
 sub load()
     m.status.text = "Loading..."
-    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.itemId + "?Fields=MediaSources,MediaStreams", { kind: "item" })
+    get(itemPath(), { kind: "item" })
 end sub
 
-' After playback: reload so Resume shows the new position
+' After playback: reload so Resume and the episodes show the new position
 sub onRefresh()
     if m.item = invalid then return
-    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.itemId + "?Fields=MediaSources,MediaStreams", { kind: "item" })
-    if m.seasonList.count() > 0 then loadEpisodes(m.seasons.itemFocused)
+    get(itemPath(), { kind: "item" })
+    if Util.toText(m.item.Type) = "Series"
+        loadNextUp()
+        if m.seasonIndex >= 0 then loadEpisodes(m.seasonIndex)
+    end if
 end sub
 
 sub get(path as string, tag as object)
-    t = createObject("roSGNode", "ApiTask")
-    t.request = { method: "GET", url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: "", tag: tag, timeout: 20000 }
-    t.observeField("response", "onResponse")
-    m.pending.push(t)
-    t.control = "RUN"
-end sub
-
-' Favourite on / off: POST / DELETE /Users/{id}/FavoriteItems/{item} (Jellyfin 10.9+: /UserFavoriteItems/{item})
-sub toggleFavourite()
-    if m.item = invalid then return
-    method = "POST"
-    if m.isFav then method = "DELETE"
-    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/FavoriteItems/" + Util.toText(m.item.Id), { kind: "fav", method: method, newRoute: false })
+    send("GET", path, tag)
 end sub
 
 sub send(method as string, path as string, tag as object)
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: "", tag: tag, timeout: 15000 }
+    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: "", tag: tag, timeout: 20000 }
     t.observeField("response", "onResponse")
     m.pending.push(t)
     t.control = "RUN"
-end sub
-
-sub onFavourite(r as object)
-    if r.code = 404 and not r.tag.newRoute
-        send(r.tag.method, "/UserFavoriteItems/" + Util.toText(m.item.Id) + "?userId=" + Util.toText(m.top.server.userId), { kind: "fav", method: r.tag.method, newRoute: true })
-        return
-    end if
-    if r.code >= 200 and r.code < 300
-        m.isFav = r.tag.method = "POST"
-        if m.item.UserData = invalid then m.item.UserData = {}
-        m.item.UserData.IsFavorite = m.isFav
-        m.top.changed = true
-        showItem(m.item)
-        if m.isFav
-            m.status.text = "Added to your favourites."
-        else
-            m.status.text = "Removed from your favourites."
-        end if
-    else
-        m.status.text = "Couldn't change the favourite. " + Api.describeFailure(r)
-    end if
 end sub
 
 sub onResponse(ev as object)
@@ -96,19 +93,37 @@ sub onResponse(ev as object)
     if k = "fav"
         onFavourite(r)
         return
+    else if k = "watched"
+        onWatched(r)
+        return
     end if
     if r.code <> 200 or r.json = invalid
-        m.status.text = "Couldn't load this title. " + Api.describeFailure(r)
+        if k = "item" then m.status.text = "Couldn't load this title. " + Api.describeFailure(r)
         return
     end if
     if k = "item"
         showItem(r.json)
     else if k = "seasons"
-        showSeasons(r.json)
+        onSeasons(r.json)
     else if k = "episodes" and r.tag.gen = m.seasonGen
-        showEpisodes(r.json)
+        onEpisodes(r.json)
+    else if k = "nextUp"
+        onNextUp(r.json)
+    else if k = "epStreams"
+        onEpisodeStreams(r.json)
+    else if k = "similar"
+        m.similarList = listOf(r.json)
+        rebuildRows()
     end if
 end sub
+
+function listOf(json as dynamic) as object
+    if type(json) = "roArray" then return json
+    if json <> invalid and GetInterface(json, "ifAssociativeArray") <> invalid and type(json.Items) = "roArray" then return json.Items
+    return []
+end function
+
+' ---------------------------------------------------------------- header
 
 sub showItem(it as object)
     first = m.item = invalid
@@ -116,38 +131,39 @@ sub showItem(it as object)
     srv = m.top.server
     m.status.text = ""
     t = Util.toText(it.Type)
-    title = Util.toText(it.Name)
-    if t = "Episode" then title = Util.toText(it.SeriesName)
-    m.top.findNode("title").text = title
-    m.top.findNode("meta").text = Items.meta(it)
-    setOverview(Util.toText(it.Overview))
-    m.top.findNode("poster").uri = Items.poster(srv, it, 300)
-    m.top.findNode("backdrop").uri = Items.backdrop(srv, it, 1280)
     m.isFav = Util.flag(it.UserData, "IsFavorite")
-    if t = "Series"
-        if m.isFav
-            m.status.text = "In your favourites   ·   press * to remove"
-        else
-            m.status.text = "Press * to add to favourites"
-        end if
-        if first then get("/Shows/" + Util.toText(it.Id) + "/Seasons?UserId=" + Util.toText(srv.userId), { kind: "seasons" })
-        return
+    m.top.findNode("backdrop").uri = Items.backdrop(srv, it, 1280)
+    ' an episode: series name and number above its own title; movies and series show their logo
+    eyebrow = ""
+    title = Util.toText(it.Name)
+    logoUrl = Items.logo(srv, it, 700)
+    if t = "Episode"
+        eyebrow = Util.toText(it.SeriesName)
+        chip = Items.episodeChip(it)
+        if chip <> "" then eyebrow = eyebrow + "  ·  " + chip
+        logoUrl = ""
     end if
-    ' Movie / episode / video: Resume + Play from the beginning, or Play
-    resumeAt = resumeSeconds(it)
-    ids = []
-    labels = []
-    if resumeAt > 30
-        ids.push("resume")
-        labels.push("Resume from " + Playback.clock(resumeAt))
-        ids.push("restart")
-        labels.push("Play from the beginning")
-    else
-        ids.push("restart")
-        labels.push("Play")
+    m.top.findNode("eyebrow").text = eyebrow
+    m.top.findNode("title").text = title
+    m.top.findNode("miniTitle").text = title
+    if logoUrl <> m.logo.uri
+        m.logoReady = false
+        m.logo.visible = false
+        m.top.findNode("title").visible = true
+        m.logo.uri = logoUrl
     end if
-    ' Audio / subtitles / quality for this playback (chosen once, kept on refresh)
-    if first or m.tracks = invalid
+    buildKind(it)
+    lines = Util.wrapLines(Util.toText(it.Overview), 72, 3)
+    m.lines = lines.count()
+    for i = 0 to 2
+        line = ""
+        if i < lines.count() then line = lines[i]
+        m.top.findNode("ov" + i.toStr()).text = line
+    end for
+    m.top.findNode("facts").text = Items.facts(it)
+    showPeople(it)
+    ' audio / subtitles / quality for this playback (chosen once, kept on refresh)
+    if t <> "Series" and (first or m.tracks = invalid)
         m.tracks = Tracks.fromItem(it)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
         s = Tracks.defaultSub(m.tracks, "")
@@ -156,87 +172,314 @@ sub showItem(it as object)
             m.opts.burn = not Tracks.findSub(m.tracks, s).isText
         end if
     end if
-    if m.tracks.audio.count() > 1
-        ids.push("audio")
-        labels.push("Audio: " + Tracks.audioLabel(m.tracks, effectiveAudio()))
+    if first
+        m.castList = []
+        if type(it.People) = "roArray"
+            for each p in it.People
+                k = Util.toText(p.Type)
+                if (k = "Actor" or k = "Director" or k = "Writer" or k = "GuestStar") and m.castList.count() < 20 then m.castList.push(p)
+            end for
+        end if
+        if t = "Series"
+            get("/Shows/" + Util.toText(it.Id) + "/Seasons?UserId=" + Util.toText(srv.userId) + "&" + Items.fields(), { kind: "seasons" })
+            loadNextUp()
+        end if
+        get("/Items/" + Util.toText(it.Id) + "/Similar?UserId=" + Util.toText(srv.userId) + "&Limit=12&" + Items.fields(), { kind: "similar" })
     end if
-    if m.tracks.subs.count() > 0
-        ids.push("subs")
-        labels.push("Subtitles: " + Tracks.subLabel(m.tracks, m.opts.sub))
-    end if
-    ids.push("quality")
-    labels.push("Quality: " + Tracks.qualityLabel(m.opts.maxBitrate))
-    ids.push("fav")
-    if m.isFav
-        labels.push("Remove from favourites")
-    else
-        labels.push("Add to favourites")
-    end if
-    focusAt = m.buttons.itemFocused
-    m.buttonIds = ids
-    setList(m.buttons, labels)
-    m.buttons.numRows = ids.count()
-    if focusAt > 0 and focusAt < ids.count() then m.buttons.jumpToItem = focusAt
-    m.buttons.visible = true
-    if m.top.isInFocusChain() then m.buttons.setFocus(true)
+    buildButtons()
+    layoutHeader()
+    rebuildRows()
+    if first and m.top.isInFocusChain() then enterButtons(false)
 end sub
 
-function resumeSeconds(it as object) as float
-    ud = it.UserData
-    if ud = invalid or GetInterface(ud, "ifAssociativeArray") = invalid then return 0
-    return Playback.seconds(ud.PlaybackPositionTicks)
+' "TV Show · Comedy  [TV-PG]  ★ 8.8": text, an outlined rating box and a yellow star, placed by measured width
+sub buildKind(it as object)
+    k = m.top.findNode("kind")
+    k.text = Items.kindText(it)
+    x = k.boundingRect().width
+    if k.text <> "" then x = x + 18
+    r = Util.toText(it.OfficialRating)
+    frame = m.top.findNode("ratingBox")
+    rl = m.top.findNode("rating")
+    rl.text = r
+    frame.visible = r <> ""
+    if r <> ""
+        rw = rl.boundingRect().width + 20
+        frame.width = rw
+        frame.translation = [x, 4]
+        rl.translation = [x + 10, 0]
+        x = x + rw + 18
+    end if
+    s = Items.score(it)
+    st = m.top.findNode("star")
+    sl = m.top.findNode("score")
+    sl.text = s
+    st.visible = s <> ""
+    if s <> ""
+        st.translation = [x, 8]
+        sl.translation = [x + 32, 0]
+    end if
+end sub
+
+sub showPeople(it as object)
+    stars = Util.wrapLines(Items.peopleNames(it, "Actor", 3), 34, 2)
+    director = Items.peopleNames(it, "Director", 2)
+    m.top.findNode("starL").visible = stars.count() > 0
+    for i = 0 to 1
+        line = ""
+        if i < stars.count() then line = stars[i]
+        m.top.findNode("star" + i.toStr()).text = line
+    end for
+    y = 116
+    if stars.count() < 2 then y = 82
+    if stars.count() = 0 then y = 0
+    m.top.findNode("dirL").translation = [0, y]
+    m.top.findNode("dir0").translation = [0, y + 34]
+    m.top.findNode("dirL").visible = director <> ""
+    m.top.findNode("dir0").text = director
+end sub
+
+' Bottom-anchored, as on the Mac: buttons at y=830, facts, overview, details, logo or title, eyebrow
+sub layoutHeader()
+    factsY = 770
+    m.top.findNode("facts").translation = [96, factsY]
+    ovY = factsY - 14 - m.lines * 38
+    m.top.findNode("ov").translation = [96, ovY]
+    kindY = ovY - 50
+    m.top.findNode("kindRow").translation = [96, kindY]
+    topY = kindY - 96
+    m.top.findNode("title").translation = [96, topY]
+    if m.logoReady
+        topY = kindY - 16 - m.logo.height
+        m.logo.translation = [96, topY]
+    end if
+    m.top.findNode("eyebrow").translation = [96, topY - 44]
+    m.top.findNode("people").translation = [1380, ovY]
+end sub
+
+sub onLogoLoaded()
+    if m.logo.loadStatus <> "ready" then return
+    bw = m.logo.bitmapWidth
+    bh = m.logo.bitmapHeight
+    if bw <= 0 or bh <= 0 then return
+    s = 630 / bw
+    if 165 / bh < s then s = 165 / bh
+    m.logo.width = Int(bw * s)
+    m.logo.height = Int(bh * s)
+    m.logoReady = true
+    m.logo.visible = true
+    m.top.findNode("title").visible = false
+    layoutHeader()
+end sub
+
+' ---------------------------------------------------------------- buttons
+
+' Play / Resume (white pill), then round buttons: Start over, favourite, audio & subtitles
+sub buildButtons()
+    it = m.item
+    t = Util.toText(it.Type)
+    btns = []
+    target = it
+    if t = "Series" then target = seriesTarget()
+    resumeAt = 0.0
+    if target <> invalid then resumeAt = Items.resumeAt(target)
+    label = "Play"
+    if resumeAt > 30 then label = "Resume"
+    if t = "Series" and target <> invalid
+        chip = "S" + Util.toText(target.ParentIndexNumber) + ":E" + Util.toText(target.IndexNumber)
+        label = label + " " + chip
+    else if resumeAt > 30
+        label = "Resume from " + Playback.clock(resumeAt)
+    end if
+    if t <> "Series" or target <> invalid then btns.push({ id: "play", pill: true, label: label })
+    if resumeAt > 30 then btns.push({ id: "restart", icon: "restart" })
+    favIcon = "plus"
+    if m.isFav then favIcon = "check"
+    btns.push({ id: "fav", icon: favIcon })
+    ' watched: the eye marks it (a series: every episode) watched, the crossed eye unwatched
+    watchIcon = "eye"
+    if Util.flag(it.UserData, "Played") then watchIcon = "eyeslash"
+    btns.push({ id: "watched", icon: watchIcon })
+    if t <> "Series" and m.tracks <> invalid then btns.push({ id: "tracks", icon: "captions" })
+    m.btns = btns
+    if m.btn >= btns.count() then m.btn = 0
+    drawButtons()
+end sub
+
+' The series' episode to play: the next one to watch, else the first of the loaded season
+function seriesTarget() as dynamic
+    if m.nextUp <> invalid then return m.nextUp
+    if m.episodeList.count() > 0 then return m.episodeList[0]
+    return invalid
 end function
 
-sub setOverview(text as string)
-    lines = Util.wrapLines(text, 100, 4)
-    for i = 0 to 3
-        line = ""
-        if i < lines.count() then line = lines[i]
-        m.top.findNode("ov" + i.toStr()).text = line
+sub drawButtons()
+    m.btnGroup.removeChildrenIndex(m.btnGroup.getChildCount(), 0)
+    focused = m.state = "buttons" and m.picker = invalid
+    x = 0
+    for i = 0 to m.btns.count() - 1
+        b = m.btns[i]
+        isFocus = focused and i = m.btn
+        g = m.btnGroup.createChild("Group")
+        g.translation = [x, 0]
+        if b.pill <> invalid
+            w = b.label.len() * 16 + 110
+            if w < 255 then w = 255
+            g.scaleRotateCenter = [w / 2, 34]
+            if isFocus
+                ring = g.createChild("Poster")
+                ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
+                ring.translation = [-8, -8]
+                ring.width = w + 16
+                ring.height = 85
+                g.scale = [1.06, 1.06]
+            end if
+            bg = g.createChild("Poster")
+            bg.uri = "pkg:/images/ui/white_pill.9.png"
+            bg.width = w
+            bg.height = 69
+            ic = g.createChild("Poster")
+            ic.uri = "pkg:/images/ui/icon_play_28.png"
+            ic.width = 28
+            ic.height = 28
+            ic.translation = [40, 20]
+            ic.blendColor = "0x000000FF"
+            l = g.createChild("Label")
+            l.text = b.label
+            l.width = w - 84
+            l.height = 69
+            l.translation = [78, 0]
+            l.vertAlign = "center"
+            l.color = "0x000000FF"
+            f = createObject("roSGNode", "Font")
+            f.uri = "font:BoldSystemFontFile"
+            f.size = 28
+            l.font = f
+            x = x + w + 21
+        else
+            g.scaleRotateCenter = [34, 34]
+            bg = g.createChild("Poster")
+            bg.width = 69
+            bg.height = 69
+            ic = g.createChild("Poster")
+            ic.uri = "pkg:/images/ui/icon_" + b.icon + "_28.png"
+            ic.width = 28
+            ic.height = 28
+            ic.translation = [20, 20]
+            if isFocus
+                bg.uri = "pkg:/images/ui/white_circle_69.png"
+                ic.blendColor = "0x000000FF"
+                g.scale = [1.06, 1.06]
+            else
+                bg.uri = "pkg:/images/ui/glass_circle_69.png"
+                ic.blendColor = "0xFFFFFFFF"
+            end if
+            x = x + 69 + 18
+        end if
     end for
 end sub
 
-sub setList(list as object, labels as object)
-    c = createObject("roSGNode", "ContentNode")
-    for each l in labels
-        n = c.createChild("ContentNode")
-        n.title = l
-    end for
-    list.content = c
-end sub
-
-sub onButton()
-    id = m.buttonIds[m.buttons.itemSelected]
-    if id = "audio"
-        o = []
-        for each a in m.tracks.audio
-            o.push({ id: a.index.toStr(), label: a.label })
-        end for
-        openPicker("audio", "Audio", o, effectiveAudio().toStr())
-        return
-    else if id = "subs"
-        o = [{ id: "-1", label: "Off" }]
-        for each s in m.tracks.subs
-            o.push({ id: s.index.toStr(), label: s.label })
-        end for
-        openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
-        return
-    else if id = "quality"
-        openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
-        return
+sub useButton()
+    if m.btn >= m.btns.count() then return
+    id = m.btns[m.btn].id
+    it = m.item
+    if id = "play"
+        target = it
+        if Util.toText(it.Type) = "Series" then target = seriesTarget()
+        if target = invalid then return
+        start = Items.resumeAt(target)
+        if start <= 30 then start = 0
+        requestPlay(target, start)
+    else if id = "restart"
+        target = it
+        if Util.toText(it.Type) = "Series" then target = seriesTarget()
+        if target <> invalid then requestPlay(target, 0)
     else if id = "fav"
         toggleFavourite()
+    else if id = "watched"
+        toggleWatched()
+    else if id = "tracks"
+        showTracksMenu()
+    end if
+end sub
+
+sub requestPlay(it as object, start as float)
+    sub_ = ""
+    if Util.toText(it.Type) = "Episode" then sub_ = Items.episodeLabel(it)
+    title = Util.toText(it.Name)
+    if Util.toText(it.Type) = "Episode" then title = Util.toText(it.SeriesName)
+    p = { id: Util.toText(it.Id), title: title, subtitle: sub_, start: start }
+    ' Choices from this page apply to this movie / episode (other episodes use the defaults)
+    if m.item <> invalid and Util.toText(it.Id) = Util.toText(m.item.Id) and Util.toText(m.item.Type) <> "Series" then p.options = m.opts
+    m.top.play = p
+end sub
+
+' ---------------------------------------------------------------- favourite
+
+' POST / DELETE /Users/{id}/FavoriteItems/{item} (Jellyfin 10.9+: /UserFavoriteItems/{item})
+sub toggleFavourite()
+    if m.item = invalid then return
+    method = "POST"
+    if m.isFav then method = "DELETE"
+    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/FavoriteItems/" + Util.toText(m.item.Id), { kind: "fav", method: method, newRoute: false })
+end sub
+
+sub onFavourite(r as object)
+    if r.code = 404 and not r.tag.newRoute
+        send(r.tag.method, "/UserFavoriteItems/" + Util.toText(m.item.Id) + "?userId=" + Util.toText(m.top.server.userId), { kind: "fav", method: r.tag.method, newRoute: true })
         return
     end if
-    start = 0.0
-    if id = "resume" then start = resumeSeconds(m.item)
-    requestPlay(m.item, start)
+    if r.code >= 200 and r.code < 300
+        m.isFav = r.tag.method = "POST"
+        if m.item.UserData = invalid then m.item.UserData = {}
+        m.item.UserData.IsFavorite = m.isFav
+        m.top.changed = true
+        buildButtons()
+    else
+        m.status.text = "Couldn't change the favourite. " + Api.describeFailure(r)
+    end if
 end sub
+
+' POST / DELETE /Users/{id}/PlayedItems/{item} (Jellyfin 10.9+: /UserPlayedItems/{item}); then reload
+sub toggleWatched()
+    if m.item = invalid then return
+    method = "POST"
+    if Util.flag(m.item.UserData, "Played") then method = "DELETE"
+    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/PlayedItems/" + Util.toText(m.item.Id), { kind: "watched", method: method, newRoute: false })
+end sub
+
+sub onWatched(r as object)
+    if r.code = 404 and not r.tag.newRoute
+        send(r.tag.method, "/UserPlayedItems/" + Util.toText(m.item.Id) + "?userId=" + Util.toText(m.top.server.userId), { kind: "watched", method: r.tag.method, newRoute: true })
+        return
+    end if
+    if r.code >= 200 and r.code < 300
+        m.top.changed = true
+        onRefresh()
+        if r.tag.method = "POST"
+            m.status.text = "Marked as watched."
+        else
+            m.status.text = "Marked as unwatched."
+        end if
+    else
+        m.status.text = "Couldn't change it. " + Api.describeFailure(r)
+    end if
+end sub
+
+' ---------------------------------------------------------------- audio, subtitles, quality
 
 function effectiveAudio() as integer
     if m.opts.audio >= 0 then return m.opts.audio
     return m.opts.defaultAudio
 end function
+
+sub showTracksMenu()
+    o = []
+    if m.tracks.audio.count() > 1 then o.push({ id: "audio", label: "Audio: " + Tracks.audioLabel(m.tracks, effectiveAudio()) })
+    if m.tracks.subs.count() > 0 then o.push({ id: "subs", label: "Subtitles: " + Tracks.subLabel(m.tracks, m.opts.sub) })
+    o.push({ id: "quality", label: "Quality: " + Tracks.qualityLabel(m.opts.maxBitrate) })
+    openPicker("menu", "Audio & Subtitles", o, "")
+end sub
 
 sub openPicker(purpose as string, title as string, options as object, selectedId as string)
     closePicker()
@@ -259,15 +502,50 @@ sub closePicker()
         m.top.removeChild(m.picker)
         m.picker = invalid
     end if
-    m.buttons.setFocus(true)
 end sub
 
 sub onPickerCancelled()
+    p = m.picker
     closePicker()
+    if p <> invalid and (p.purpose = "season" or p.purpose = "slang")
+        enterSeason()
+    else
+        enterButtons(false)
+    end if
 end sub
 
 sub onPicked(ev as object)
     c = ev.getData()
+    if c.purpose = "menu"
+        if c.id = "audio"
+            o = []
+            for each a in m.tracks.audio
+                o.push({ id: a.index.toStr(), label: a.label })
+            end for
+            openPicker("audio", "Audio", o, effectiveAudio().toStr())
+        else if c.id = "subs"
+            o = [{ id: "-1", label: "Off" }]
+            for each s in m.tracks.subs
+                o.push({ id: s.index.toStr(), label: s.label })
+            end for
+            openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
+        else if c.id = "quality"
+            openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
+        end if
+        return
+    end if
+    if c.purpose = "season"
+        closePicker()
+        selectSeason(c.id.toInt(), true)
+        m.jumpToEpisodes = false
+        enterSeason()
+        return
+    else if c.purpose = "slang"
+        Util.writeText(subPrefKey(), c.id)
+        closePicker()
+        enterSeason()
+        return
+    end if
     v = c.id.toInt()
     if c.purpose = "audio"
         m.opts.audio = v
@@ -279,43 +557,52 @@ sub onPicked(ev as object)
         m.opts.maxBitrate = v
     end if
     closePicker()
-    showItem(m.item)
+    showTracksMenu()
 end sub
 
-sub requestPlay(it as object, start as float)
-    sub_ = ""
-    if Util.toText(it.Type) = "Episode" then sub_ = Items.episodeLabel(it)
-    title = Util.toText(it.Name)
-    if Util.toText(it.Type) = "Episode" then title = Util.toText(it.SeriesName)
-    p = { id: Util.toText(it.Id), title: title, subtitle: sub_, start: start }
-    ' Choices from this page apply to this movie / episode (episodes picked from the list use the defaults)
-    if m.item <> invalid and Util.toText(it.Id) = Util.toText(m.item.Id) and Util.toText(m.item.Type) <> "Series" then p.options = m.opts
-    m.top.play = p
+' ---------------------------------------------------------------- series: seasons, episodes, next up
+
+sub loadNextUp()
+    srv = m.top.server
+    get("/Shows/NextUp?SeriesId=" + Util.toText(m.item.Id) + "&UserId=" + Util.toText(srv.userId) + "&Limit=1&" + Items.fields(), { kind: "nextUp" })
 end sub
 
-' ---------------------------------------------------------------- series
-
-sub showSeasons(json as object)
-    list = json
-    if GetInterface(json, "ifAssociativeArray") <> invalid then list = json.Items
-    if type(list) <> "roArray" or list.count() = 0
-        m.status.text = "No seasons found for this series."
-        return
+sub onNextUp(json as object)
+    list = listOf(json)
+    m.nextUp = invalid
+    if list.count() > 0 then m.nextUp = list[0]
+    buildButtons()
+    ' open on the season of the next episode, unless the user picked one
+    if m.nextUp <> invalid and not m.seasonByUser and m.seasonList.count() > 0
+        i = seasonIndexOf(Util.toText(m.nextUp.SeasonId))
+        if i >= 0 and i <> m.seasonIndex then selectSeason(i, false)
     end if
-    m.seasonList = list
-    labels = []
-    for each s in list
-        labels.push(Util.toText(s.Name))
-    end for
-    setList(m.seasons, labels)
-    m.seasons.visible = true
-    m.episodes.visible = true
-    if m.top.isInFocusChain() then m.episodes.setFocus(true)
-    loadEpisodes(0)
 end sub
 
-sub onSeasonFocused()
-    loadEpisodes(m.seasons.itemFocused)
+function seasonIndexOf(id as string) as integer
+    for i = 0 to m.seasonList.count() - 1
+        if Util.toText(m.seasonList[i].Id) = id then return i
+    end for
+    return -1
+end function
+
+sub onSeasons(json as object)
+    m.seasonList = listOf(json)
+    if m.seasonList.count() = 0 then return
+    i = 0
+    if m.nextUp <> invalid
+        k = seasonIndexOf(Util.toText(m.nextUp.SeasonId))
+        if k >= 0 then i = k
+    end if
+    selectSeason(i, false)
+end sub
+
+sub selectSeason(i as integer, byUser as boolean)
+    m.seasonIndex = i
+    if byUser then m.seasonByUser = true
+    m.jumpToEpisodes = byUser
+    loadEpisodes(i)
+    rebuildRows()
 end sub
 
 sub loadEpisodes(index as integer)
@@ -326,55 +613,335 @@ sub loadEpisodes(index as integer)
     get("/Shows/" + Util.toText(m.item.Id) + "/Episodes?SeasonId=" + Util.toText(s.Id) + "&UserId=" + Util.toText(srv.userId) + "&" + Items.fields(), { kind: "episodes", gen: m.seasonGen })
 end sub
 
-sub showEpisodes(json as object)
-    list = json
-    if GetInterface(json, "ifAssociativeArray") <> invalid then list = json.Items
-    if type(list) <> "roArray" then list = []
-    m.episodeList = list
-    labels = []
-    for each e in list
-        l = ""
-        if e.IndexNumber <> invalid then l = Util.toText(e.IndexNumber) + ".  "
-        l = l + Util.toText(e.Name)
-        ud = e.UserData
-        if Util.flag(ud, "Played")
-            l = l + "   ·  watched"
-        else if resumeSeconds(e) > 30
-            l = l + "   ·  " + Playback.clock(resumeSeconds(e)) + " watched"
+sub onEpisodes(json as object)
+    m.episodeList = listOf(json)
+    target = seriesTarget()
+    if target <> invalid then loadEpisodeStreams(target)
+    if m.nextUp = invalid then buildButtons()
+    rebuildRows()
+end sub
+
+' ---------------------------------------------------------------- rows
+
+' Rows in order: the chosen season's episodes (series; the season pill above it picks the season),
+' Cast & Crew, More Like This. Rebuilt when data arrives; the focus stays on the same row and item.
+sub rebuildRows()
+    srv = m.top.server
+    keepKind = ""
+    keepItem = 0
+    f = m.rows.rowItemFocused
+    ' (rowItemFocused is an empty array until the list has content)
+    if f <> invalid and f.count() >= 2 and m.rows.content <> invalid
+        r = m.rows.content.getChild(f[0])
+        if r <> invalid
+            keepKind = r.rowKind
+            keepItem = f[1]
         end if
-        labels.push(l)
+    end if
+    root = createObject("roSGNode", "ContentNode")
+    sizes = []
+    heights = []
+    labels = []
+    if m.episodeList.count() > 0
+        row = newRow(root, "", "episodes")
+        for each e in m.episodeList
+            n = Items.node(srv, e, true)
+            n.title = Util.toText(e.Name)
+            n.episode = "Episode " + Util.toText(e.IndexNumber)
+            rt = ""
+            if e.RunTimeTicks <> invalid then rt = Int(e.RunTimeTicks / 600000000).toStr() + "m"
+            n.addFields({ kind: "episode", runtime: rt })
+            row.appendChild(n)
+        end for
+        sizes.push([516, 426])
+        heights.push(426)
+        labels.push(false)
+    end if
+    if m.castList.count() > 0
+        row = newRow(root, "Cast & Crew", "cast")
+        for each p in m.castList
+            row.appendChild(Items.personNode(srv, p))
+        end for
+        sizes.push([180, 296])
+        heights.push(296)
+        labels.push(true)
+    end if
+    if m.similarList.count() > 0
+        row = newRow(root, "More Like This", "similar")
+        for each s in m.similarList
+            row.appendChild(Items.node(srv, s, false))
+        end for
+        sizes.push([276, 466])
+        heights.push(466)
+        labels.push(true)
+    end if
+    ' the season / subtitle pills sit above the episodes, like the Mac's "Season 1 ⌃" header
+    hasBar = Util.toText(m.item.Type) = "Series" and m.seasonList.count() > 0
+    m.seasonBar.visible = hasBar
+    if hasBar
+        m.rows.translation = [0, 84]
+        drawSeasonBar()
+    else
+        m.rows.translation = [0, 0]
+    end if
+    if root.getChildCount() = 0
+        m.rows.visible = false
+        return
+    end if
+    m.rows.rowItemSize = sizes
+    m.rows.rowHeights = heights
+    m.rows.showRowLabel = labels
+    m.rows.content = root
+    m.rows.visible = true
+    ' keep the place, or go to the first episode after a season was chosen
+    target = -1
+    item = 0
+    for i = 0 to root.getChildCount() - 1
+        k = root.getChild(i).rowKind
+        if m.jumpToEpisodes and k = "episodes"
+            target = i
+            item = 0
+        else if not m.jumpToEpisodes and k = keepKind and target < 0
+            target = i
+            item = keepItem
+            if item >= root.getChild(i).getChildCount() then item = root.getChild(i).getChildCount() - 1
+        end if
     end for
-    setList(m.episodes, labels)
+    if m.jumpToEpisodes and target >= 0 then m.jumpToEpisodes = false
+    if target >= 0 then m.rows.jumpToRowItem = [target, item]
+    if m.state = "rows" then m.rows.setFocus(true)
 end sub
 
-sub onEpisodeFocused()
-    i = m.episodes.itemFocused
-    if i < 0 or i >= m.episodeList.count() then return
-    e = m.episodeList[i]
-    m.top.findNode("meta").text = Items.meta(e)
-    setOverview(Util.toText(e.Overview))
+' ---------------------------------------------------------------- season / subtitle pills (series)
+
+function seasonName() as string
+    if m.seasonIndex >= 0 and m.seasonIndex < m.seasonList.count() then return Util.toText(m.seasonList[m.seasonIndex].Name)
+    return "Season"
+end function
+
+function subPrefKey() as string
+    return "slang:" + Util.toText(m.item.Id)
+end function
+
+function subPrefLabel() as string
+    pref = Util.readText(subPrefKey())
+    if pref = "" then return "Automatic"
+    if pref = "off" then return "Off"
+    for each l in m.subLangs
+        if l.code = pref then return l.label
+    end for
+    return UCase(pref)
+end function
+
+' "Season 6  v" on the left; "Subtitles  Romanian  v" on the right (when the episodes have subtitles)
+sub drawSeasonBar()
+    b = m.seasonBar
+    b.removeChildrenIndex(b.getChildCount(), 0)
+    ids = ["season"]
+    texts = [seasonName()]
+    if m.subLangs.count() > 0
+        ids.push("slang")
+        texts.push("Subtitles:  " + subPrefLabel())
+    end if
+    m.barIds = ids
+    if m.barIdx >= ids.count() then m.barIdx = 0
+    focused = m.state = "season" and m.picker = invalid
+    for i = 0 to ids.count() - 1
+        isFocus = focused and i = m.barIdx
+        g = b.createChild("Group")
+        bold = i = 0
+        size = 36
+        if not bold then size = 26
+        l = g.createChild("Label")
+        f = createObject("roSGNode", "Font")
+        f.uri = "font:BoldSystemFontFile"
+        if not bold then f.uri = "font:MediumSystemFontFile"
+        f.size = size
+        l.font = f
+        l.text = texts[i]
+        l.height = 60
+        l.vertAlign = "center"
+        tw = l.boundingRect().width
+        w = tw + 80
+        bg = createObject("roSGNode", "Poster")
+        bg.width = w
+        bg.height = 60
+        if isFocus
+            bg.uri = "pkg:/images/ui/white_pill.9.png"
+            l.color = "0x000000FF"
+        else
+            bg.uri = "pkg:/images/ui/glass_pill.9.png"
+            l.color = "0xFFFFFFFF"
+            if not bold then l.color = "0xFFFFFFD9"
+        end if
+        g.insertChild(bg, 0)
+        l.translation = [26, 0]
+        ch = g.createChild("Poster")
+        ch.uri = "pkg:/images/ui/icon_chevron_28.png"
+        ch.width = 24
+        ch.height = 24
+        ch.translation = [w - 46, 18]
+        ch.blendColor = l.color
+        if i = 0
+            g.translation = [0, 0]
+        else
+            g.translation = [1806 - w, 0]
+        end if
+    end for
 end sub
 
-' OK on an episode plays it, resuming where you stopped
-sub onEpisodeSelected()
-    i = m.episodes.itemSelected
-    if i < 0 or i >= m.episodeList.count() then return
-    e = m.episodeList[i]
-    requestPlay(e, resumeSeconds(e))
+sub useBar()
+    id = m.barIds[m.barIdx]
+    if id = "season"
+        o = []
+        for i = 0 to m.seasonList.count() - 1
+            o.push({ id: i.toStr(), label: Util.toText(m.seasonList[i].Name) })
+        end for
+        openPicker("season", "Seasons", o, m.seasonIndex.toStr())
+    else
+        pref = Util.readText(subPrefKey())
+        o = [{ id: "", label: "Automatic (forced subtitles only)" }, { id: "off", label: "Off" }]
+        for each l in m.subLangs
+            o.push({ id: l.code, label: l.label })
+        end for
+        openPicker("slang", "Subtitles for this series", o, pref)
+    end if
+end sub
+
+' The series' subtitle languages, read from one of its episodes
+sub loadEpisodeStreams(ep as dynamic)
+    if ep = invalid or Util.toText(ep.Id) = m.streamsFor then return
+    m.streamsFor = Util.toText(ep.Id)
+    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.streamsFor + "?Fields=MediaStreams,MediaSources", { kind: "epStreams" })
+end sub
+
+sub onEpisodeStreams(json as object)
+    tr = Tracks.fromItem(json)
+    seen = {}
+    langs = []
+    for each s in tr.subs
+        code = s.language
+        if code <> "" and not seen.doesExist(code)
+            seen[code] = true
+            label = s.label
+            cut = label.instr(" (")
+            if cut > 0 then label = label.left(cut)
+            label = label.replace("  (burned in)", "")
+            langs.push({ code: code, label: label })
+        end if
+    end for
+    m.subLangs = langs
+    if m.seasonBar.visible then drawSeasonBar()
+end sub
+
+function newRow(root as object, title as string, kind as string) as object
+    row = root.createChild("ContentNode")
+    row.title = title
+    row.addFields({ rowKind: kind })
+    return row
+end function
+
+sub onRowSelected()
+    s = m.rows.rowItemSelected
+    if s = invalid or s.count() < 2 or m.rows.content = invalid then return
+    row = m.rows.content.getChild(s[0])
+    if row = invalid then return
+    k = row.rowKind
+    i = s[1]
+    if k = "episodes" and i < m.episodeList.count()
+        e = m.episodeList[i]
+        start = Items.resumeAt(e)
+        if start <= 30 then start = 0
+        requestPlay(e, start)
+    else if k = "similar" and i < m.similarList.count()
+        it = m.similarList[i]
+        m.top.openItem = { id: "open", itemId: Util.toText(it.Id), itemType: Util.toText(it.Type), collectionType: "", title: Util.toText(it.Name) }
+    end if
+end sub
+
+' ---------------------------------------------------------------- focus areas
+
+sub animate(rowsY as integer, headerOp as float, miniOp as float, bgOp as float)
+    m.slide.control = "stop"
+    m.top.findNode("rowsMove").keyValue = [m.lower.translation, [78, rowsY]]
+    m.top.findNode("headerFade").keyValue = [m.top.findNode("header").opacity, headerOp]
+    m.top.findNode("miniFade").keyValue = [m.top.findNode("miniTitle").opacity, miniOp]
+    m.top.findNode("bgFade").keyValue = [m.top.findNode("rowsBg").opacity, bgOp]
+    m.slide.control = "start"
+end sub
+
+sub enterButtons(slideBack = true as boolean)
+    m.state = "buttons"
+    m.btnKeys.setFocus(true)
+    if slideBack then animate(950, 1.0, 0.0, 0.0)
+    drawButtons()
+    if m.seasonBar.visible then drawSeasonBar()
+end sub
+
+sub enterSeason()
+    m.state = "season"
+    m.btnKeys.setFocus(true)
+    animate(150, 0.0, 1.0, 1.0)
+    drawButtons()
+    drawSeasonBar()
+end sub
+
+sub enterRows()
+    if not m.rows.visible then return
+    m.state = "rows"
+    m.rows.setFocus(true)
+    animate(150, 0.0, 1.0, 1.0)
+    drawButtons()
+    if m.seasonBar.visible then drawSeasonBar()
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
-    if press and key = "options" and m.item <> invalid and Util.toText(m.item.Type) = "Series"
-        toggleFavourite()
+    if not press or m.picker <> invalid then return false
+    if m.state = "buttons"
+        if key = "left" and m.btn > 0
+            m.btn = m.btn - 1
+            drawButtons()
+            return true
+        else if key = "right" and m.btn < m.btns.count() - 1
+            m.btn = m.btn + 1
+            drawButtons()
+            return true
+        else if key = "OK"
+            useButton()
+            return true
+        else if key = "down"
+            if m.seasonBar.visible
+                enterSeason()
+            else
+                enterRows()
+            end if
+            return true
+        else if key = "left" or key = "right" or key = "up"
+            return true
+        end if
+    else if m.state = "season"
+        if key = "left" and m.barIdx > 0
+            m.barIdx = m.barIdx - 1
+            drawSeasonBar()
+        else if key = "right" and m.barIdx < m.barIds.count() - 1
+            m.barIdx = m.barIdx + 1
+            drawSeasonBar()
+        else if key = "OK"
+            useBar()
+        else if key = "down"
+            enterRows()
+        else if key = "up" or key = "back"
+            enterButtons()
+        end if
         return true
-    end if
-    if not press or not m.seasons.visible then return false
-    if key = "left" and m.episodes.hasFocus()
-        m.seasons.setFocus(true)
-        return true
-    else if key = "right" and m.seasons.hasFocus()
-        m.episodes.setFocus(true)
-        return true
+    else if m.state = "rows"
+        if key = "up" and m.seasonBar.visible
+            enterSeason()
+            return true
+        else if key = "up" or key = "back"
+            enterButtons()
+            return true
+        end if
     end if
     return false
 end function
@@ -383,9 +950,11 @@ sub onFocusChanged()
     if not m.top.hasFocus() then return
     if m.picker <> invalid
         m.picker.setFocus(true)
-    else if m.buttons.visible
-        m.buttons.setFocus(true)
-    else if m.episodes.visible
-        m.episodes.setFocus(true)
+    else if m.state = "rows" and m.rows.visible
+        m.rows.setFocus(true)
+    else
+        m.state = "buttons"
+        m.btnKeys.setFocus(true)
+        drawButtons()
     end if
 end sub

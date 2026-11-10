@@ -6,7 +6,7 @@ namespace Items
 
     ' Fields asked for in every list request (the rest the server sends by default)
     function fields() as string
-        return "Fields=Overview,ProductionYear,PrimaryImageAspectRatio,OfficialRating,CommunityRating&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb&EnableUserData=true"
+        return "Fields=Overview,ProductionYear,PrimaryImageAspectRatio,OfficialRating,CommunityRating,Genres&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb,Logo&EnableUserData=true"
     end function
 
     ' (the tag parameter must not be called "tag": BrighterScript would read it as the tag() function below)
@@ -54,6 +54,166 @@ namespace Items
         b = first(it.ParentBackdropImageTags)
         if b <> "" then return imageUrl(server, Util.toText(it.ParentBackdropItemId), "Backdrop", b, w)
         return ""
+    end function
+
+    ' The title logo (clear art): the item's own, or for an episode its series'
+    function logo(server as object, it as object, w as integer) as string
+        own = tagOf(it.ImageTags, "Logo")
+        if own <> "" then return imageUrl(server, Util.toText(it.Id), "Logo", own, w)
+        if Util.toText(it.ParentLogoImageTag) <> "" then return imageUrl(server, Util.toText(it.ParentLogoItemId), "Logo", Util.toText(it.ParentLogoImageTag), w)
+        return ""
+    end function
+
+    ' The hero line, as on the Mac: "Movie · Action · Drama · 2021 · PG-13 · 7.4/10"
+    function heroMeta(it as object) as string
+        parts = []
+        t = Util.toText(it.Type)
+        if t = "Movie" then parts.push("Movie")
+        if t = "Series" then parts.push("TV Show")
+        if type(it.Genres) = "roArray"
+            for i = 0 to it.Genres.count() - 1
+                if i < 2 then parts.push(Util.toText(it.Genres[i]))
+            end for
+        end if
+        y = Util.toText(it.ProductionYear)
+        if y <> "" and t <> "Episode" then parts.push(y)
+        r = Util.toText(it.OfficialRating)
+        if r <> "" then parts.push(r)
+        if it.CommunityRating <> invalid
+            cr = Int(it.CommunityRating * 10 + 0.5)
+            parts.push((cr \ 10).toStr() + "." + (cr mod 10).toStr() + "/10")
+        end if
+        return Util.join(parts, "  ·  ")
+    end function
+
+    ' The details page line before the rating box: "TV Show · Comedy" / "Movie · Drama · Crime"
+    function kindText(it as object) as string
+        parts = []
+        t = Util.toText(it.Type)
+        if t = "Movie" then parts.push("Movie")
+        if t = "Series" then parts.push("TV Show")
+        if t = "Episode" then parts.push(episodeLabel(it))
+        if type(it.Genres) = "roArray"
+            for i = 0 to it.Genres.count() - 1
+                if i < 3 then parts.push(Util.toText(it.Genres[i]))
+            end for
+        end if
+        return Util.join(parts, "  ·  ")
+    end function
+
+    ' "8.8" (community rating), or ""
+    function score(it as object) as string
+        if it.CommunityRating = invalid then return ""
+        cr = Int(it.CommunityRating * 10 + 0.5)
+        return (cr \ 10).toStr() + "." + (cr mod 10).toStr()
+    end function
+
+    ' "S1, E2" (hero chip)
+    function episodeChip(it as object) as string
+        if Util.toText(it.Type) <> "Episode" then return ""
+        s = ""
+        if it.ParentIndexNumber <> invalid then s = "S" + Util.toText(it.ParentIndexNumber)
+        if it.IndexNumber <> invalid
+            if s <> "" then s = s + ", "
+            s = s + "E" + Util.toText(it.IndexNumber)
+        end if
+        return s
+    end function
+
+    ' "42m left" from the resume position
+    function timeLeft(it as object) as string
+        ud = it.UserData
+        if ud = invalid or GetInterface(ud, "ifAssociativeArray") = invalid or it.RunTimeTicks = invalid then return ""
+        if ud.PlaybackPositionTicks = invalid then return ""
+        remain = Int((it.RunTimeTicks - ud.PlaybackPositionTicks) / 600000000)
+        if remain <= 0 then return ""
+        if remain >= 60 then return (remain \ 60).toStr() + "h " + (remain mod 60).toStr() + "m left"
+        return remain.toStr() + "m left"
+    end function
+
+    ' Seconds into the item where playback stopped (0 = not started)
+    function resumeAt(it as object) as float
+        ud = it.UserData
+        if ud = invalid or GetInterface(ud, "ifAssociativeArray") = invalid or ud.PlaybackPositionTicks = invalid then return 0
+        return ud.PlaybackPositionTicks / 10000000
+    end function
+
+    ' "21:43": when the item ends if started now (from the resume point when there is one)
+    function endsAt(it as object) as string
+        if it.RunTimeTicks = invalid then return ""
+        remainSec = Int((it.RunTimeTicks / 10000000) - resumeAt(it))
+        if remainSec <= 0 then return ""
+        dt = createObject("roDateTime")
+        dt.toLocalTime()
+        dt.fromSeconds(dt.asSeconds() + remainSec)
+        return dt.getHours().toStr() + ":" + Right("0" + dt.getMinutes().toStr(), 2)
+    end function
+
+    ' "1979  ·  2h 4m  ·  Ends at 21:43  ·  4K  ·  CC"
+    function facts(it as object) as string
+        parts = []
+        y = Util.toText(it.ProductionYear)
+        ' a series: "1989 – 1998", or "2019 – Present" while it runs
+        if Util.toText(it.Type) = "Series" and y <> ""
+            endY = Util.toText(it.EndDate).left(4)
+            if endY <> "" and endY <> y
+                y = y + " – " + endY
+            else if LCase(Util.toText(it.Status)) = "continuing"
+                y = y + " – Present"
+            end if
+        end if
+        if y <> "" then parts.push(y)
+        if it.RunTimeTicks <> invalid
+            mins = Int(it.RunTimeTicks / 600000000)
+            if mins >= 60
+                parts.push((mins \ 60).toStr() + "h " + (mins mod 60).toStr() + "m")
+            else if mins > 0
+                parts.push(mins.toStr() + "m")
+            end if
+        end if
+        e = endsAt(it)
+        if e <> "" and Util.toText(it.Type) <> "Series" then parts.push("Ends at " + e)
+        streams = it.MediaStreams
+        if type(it.MediaSources) = "roArray" and it.MediaSources.count() > 0 and type(it.MediaSources[0].MediaStreams) = "roArray" then streams = it.MediaSources[0].MediaStreams
+        if type(streams) = "roArray"
+            hasSubs = false
+            for each s in streams
+                kind = Util.toText(s.Type)
+                if kind = "Video" and s.Width <> invalid
+                    if s.Width >= 3000
+                        parts.push("4K")
+                    else if s.Width >= 1200
+                        parts.push("HD")
+                    end if
+                end if
+                if kind = "Subtitle" then hasSubs = true
+            end for
+            if hasSubs then parts.push("CC")
+        end if
+        return Util.join(parts, "  ·  ")
+    end function
+
+    ' Names of people of one type ("Actor", "Director"), at most max
+    function peopleNames(it as object, kind as string, max as integer) as string
+        names = []
+        if type(it.People) <> "roArray" then return ""
+        for each p in it.People
+            if Util.toText(p.Type) = kind and names.count() < max then names.push(Util.toText(p.Name))
+        end for
+        return Util.join(names, ", ")
+    end function
+
+    ' A cast tile: round photo, name, role
+    function personNode(server as object, p as object) as object
+        c = createObject("roSGNode", "ContentNode")
+        c.addFields({ itemId: "", itemType: "Person", kind: "person", landscape: false })
+        c.title = Util.toText(p.Name)
+        role = Util.toText(p.Role)
+        if role = "" then role = Util.toText(p.Type)
+        c.shortDescriptionLine2 = role
+        c.itemId = Util.toText(p.Id)
+        c.hdPosterUrl = imageUrl(server, Util.toText(p.Id), "Primary", Util.toText(p.PrimaryImageTag), 160)
+        return c
     end function
 
     ' "S2:E5 · Episode name"
@@ -117,7 +277,7 @@ namespace Items
     ' One ContentNode for a row tile. landscape: 16:9 tile (Continue Watching, Next Up, libraries)
     function node(server as object, it as object, isLandscape as boolean) as object
         c = createObject("roSGNode", "ContentNode")
-        c.addFields({ itemId: "", itemType: "", collectionType: "", meta: "", overview: "", backdrop: "", progress: 0.0, landscape: false })
+        c.addFields({ itemId: "", itemType: "", collectionType: "", meta: "", heroMeta: "", chip: "", overview: "", backdrop: "", logo: "", progress: 0.0, landscape: false, favorite: false, played: false, unplayed: 0, timeLeft: "", resumeAt: 0.0, episode: "" })
         t = Util.toText(it.Type)
         title = Util.toText(it.Name)
         line2 = ""
@@ -137,12 +297,21 @@ namespace Items
         c.overview = Util.toText(it.Overview)
         c.landscape = isLandscape
         if isLandscape
-            c.hdPosterUrl = landscape(server, it, 400)
+            c.hdPosterUrl = landscape(server, it, 480)
         else
-            c.hdPosterUrl = poster(server, it, 220)
+            c.hdPosterUrl = poster(server, it, 240)
         end if
         c.backdrop = backdrop(server, it, 1280)
+        c.logo = logo(server, it, 700)
+        c.heroMeta = heroMeta(it)
+        c.chip = episodeChip(it)
         c.progress = progress(it)
+        c.favorite = Util.flag(it.UserData, "IsFavorite")
+        c.played = Util.flag(it.UserData, "Played")
+        if it.UserData <> invalid and it.UserData.UnplayedItemCount <> invalid then c.unplayed = it.UserData.UnplayedItemCount
+        c.timeLeft = timeLeft(it)
+        c.resumeAt = resumeAt(it)
+        if t = "Episode" then c.episode = episodeLabel(it)
         return c
     end function
 

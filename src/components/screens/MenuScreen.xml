@@ -19,18 +19,18 @@
         <Label id="title" width="1500" height="70" translation="[290,90]" color="0xFFFFFFFF">
             <Font role="font" uri="font:BoldSystemFontFile" size="52" />
         </Label>
-        <Label id="subtitle" width="1500" height="44" translation="[290,160]" color="0x9AA0B0FF">
+        <Label id="subtitle" width="1500" height="44" translation="[290,160]" color="0xFFFFFF8C">
             <Font role="font" uri="font:MediumSystemFontFile" size="28" />
         </Label>
         <Label id="code" width="1920" height="130" translation="[0,290]" horizAlign="center" color="0xFFFFFFFF" visible="false">
             <Font role="font" uri="font:BoldSystemFontFile" size="110" />
         </Label>
-        <LabelList id="list" translation="[290,300]" itemSize="[1340,76]" numRows="7" itemSpacing="[0,8]"
-                   vertFocusAnimationStyle="floatingFocus" color="0xC8CCD8FF" focusedColor="0x0B0D14FF">
+        <LabelList id="list" focusBitmapUri="pkg:/images/ui/white_rr12.9.png" translation="[290,300]" itemSize="[1340,76]" numRows="7" itemSpacing="[0,8]"
+                   vertFocusAnimationStyle="floatingFocus" color="0xFFFFFFCC" focusedColor="0x000000FF">
             <Font role="font" uri="font:MediumSystemFontFile" size="36" />
             <Font role="focusedFont" uri="font:BoldSystemFontFile" size="36" />
         </LabelList>
-        <Label id="status" width="1340" height="44" translation="[290,960]" color="0xF2C14EFF">
+        <Label id="status" width="1340" height="44" translation="[290,960]" color="0xFFFFFFB3">
             <Font role="font" uri="font:MediumSystemFontFile" size="30" />
         </Label>
     </children>

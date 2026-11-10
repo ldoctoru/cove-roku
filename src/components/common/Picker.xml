@@ -12,15 +12,16 @@
         <field id="cancelled" type="boolean" alwaysNotify="true" />
     </interface>
     <children>
-        <Rectangle width="1920" height="1080" color="0x00000088" />
-        <Rectangle width="760" height="1080" translation="[1160,0]" color="0x14182AF2" />
-        <Label id="title" width="640" height="60" translation="[1220,90]" color="0xFFFFFFFF">
-            <Font role="font" uri="font:BoldSystemFontFile" size="40" />
+        <!-- Glass side panel (Cove player panels): dark rounded panel on the right over a dimmed screen -->
+        <Rectangle width="1920" height="1080" color="0x00000066" />
+        <Poster uri="pkg:/images/ui/panel_r21.9.png" width="600" height="972" translation="[1272,54]" />
+        <Label id="title" width="540" height="50" translation="[1302,86]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="32" />
         </Label>
-        <LabelList id="list" translation="[1220,190]" itemSize="[640,68]" numRows="11" itemSpacing="[0,6]"
-                   color="0xC8CCD8FF" focusedColor="0x0B0D14FF">
-            <Font role="font" uri="font:MediumSystemFontFile" size="30" />
-            <Font role="focusedFont" uri="font:BoldSystemFontFile" size="30" />
+        <LabelList id="list" focusBitmapUri="pkg:/images/ui/white_rr12.9.png" translation="[1296,160]" itemSize="[552,66]" numRows="12" itemSpacing="[0,6]"
+                   color="0xFFFFFFD9" focusedColor="0x000000FF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="28" />
+            <Font role="focusedFont" uri="font:BoldSystemFontFile" size="28" />
         </LabelList>
     </children>
 </component>
