@@ -32,6 +32,7 @@ sub init()
     catch e
         print "Cove: device check failed: "; e.message
     end try
+    m.pendingLink = invalid
     start()
 end sub
 
@@ -155,6 +156,56 @@ sub showHome(server as object)
     h.observeField("action", "onHomeAction")
     reset(h)
     h.server = server
+    ' a deep link that came before the sign-in finished
+    if m.pendingLink <> invalid
+        link = m.pendingLink
+        m.pendingLink = invalid
+        openDeepLink(link)
+    end if
+end sub
+
+' ---------------------------------------------------------------- deep links
+
+' contentId is the server's item id. movie / episode / shortFormVideo / tvSpecial play from the saved position;
+' series / season and anything else open their page. Without a signed-in server the link waits for Home.
+sub onDeepLink()
+    link = m.top.deepLink
+    if link = invalid or Util.toText(link.contentId) = "" then return
+    if m.server = invalid or Util.toText(m.server.token) = "" or m.stack.count() = 0
+        m.pendingLink = link
+        return
+    end if
+    openDeepLink(link)
+end sub
+
+sub openDeepLink(link as object)
+    request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(link.contentId), true, "", { kind: "deeplink", mediaType: LCase(Util.toText(link.mediaType)) })
+end sub
+
+sub onDeepLinkItem(r as object)
+    if r.code <> 200 or r.json = invalid
+        showNotice("Not found", "This title isn't on " + Util.toText(m.server.name) + ".")
+        return
+    end if
+    it = r.json
+    mt = r.tag.mediaType
+    t = Util.toText(it.Type)
+    playable = mt = "movie" or mt = "episode" or mt = "shortformvideo" or mt = "tvspecial"
+    if playable and (t = "Movie" or t = "Episode" or t = "Video")
+        title = Util.toText(it.Name)
+        sub_ = ""
+        if t = "Episode"
+            title = Util.toText(it.SeriesName)
+            sub_ = "S" + Util.toText(it.ParentIndexNumber) + ":E" + Util.toText(it.IndexNumber) + "  ·  " + Util.toText(it.Name)
+        end if
+        ' (the saved position, as a bookmark)
+        atSec = 0.0
+        if it.UserData <> invalid and it.UserData.PlaybackPositionTicks <> invalid then atSec = it.UserData.PlaybackPositionTicks / 10000000
+        if atSec < 30 then atSec = 0.0
+        startPlayer({ id: Util.toText(it.Id), title: title, subtitle: sub_, start: atSec })
+    else
+        openItem({ itemId: Util.toText(it.Id), itemType: t, collectionType: LCase(Util.toText(it.CollectionType)), title: Util.toText(it.Name) })
+    end if
 end sub
 
 sub onHomeAction(ev as object)
@@ -454,6 +505,8 @@ sub onResponse(ev as object)
         onSignIn(r)
     else if kind = "validate"
         onValidate(r)
+    else if kind = "deeplink"
+        onDeepLinkItem(r)
     else if kind = "logout"
         print "Cove: signed out of the removed server -> "; r.code
     end if
