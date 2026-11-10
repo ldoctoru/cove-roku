@@ -216,10 +216,7 @@ namespace Playback
     ' 89 42 49 46, frame count at 12, time unit (ms) at 16, then from 64 an index of (timestamp, offset)
     ' pairs, 4-byte little-endian each, then the JPEGs. Returns { path, times (ms), offsets } or invalid.
     function readBif(path as string) as dynamic
-        fs = createObject("roFileSystem")
-        st = fs.stat(path)
-        size = 0
-        if st <> invalid and st.size <> invalid then size = st.size
+        ' (no roFileSystem here: it can't be created on the render thread, where this runs)
         head = createObject("roByteArray")
         ok = head.readFile(path, 0, 64)
         if not ok or head.count() < 64
@@ -227,7 +224,7 @@ namespace Playback
             head = createObject("roByteArray")
             head.readFile(path)
         end if
-        print "Cove: BIF file "; size; " bytes, read "; head.count(); ", starts "; head.toHexString().left(32)
+        print "Cove: BIF read "; head.count(); " bytes, starts "; head.toHexString().left(32)
         if head.count() < 72 then return invalid
         if head[0] <> &h89 or head[1] <> &h42 or head[2] <> &h49 or head[3] <> &h46 then return invalid
         count = le32(head, 12)
