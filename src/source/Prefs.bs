@@ -46,7 +46,7 @@ namespace Prefs
     function languages() as object
         return [
             { name: "English", codes: ["eng", "en"] },
-            { name: "Romanian", codes: ["rum", "ron", "ro", "mol"] },
+            { name: "Romanian", codes: ["rum", "ron", "rom", "ro", "mol", "romanian", "română", "romana"] },
             { name: "Spanish", codes: ["spa", "es"] },
             { name: "French", codes: ["fre", "fra", "fr"] },
             { name: "German", codes: ["ger", "deu", "de"] },

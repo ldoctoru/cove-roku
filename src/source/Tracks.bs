@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Prefs.bs"
 import "pkg:/source/Playback.bs"
 
 ' Audio and subtitle tracks, intro / credits markers and quality choices for one item.
@@ -89,8 +90,11 @@ namespace Tracks
         return list[0].label
     end function
 
-    ' A subtitle in one of these language codes (text ones first), or -1
-    function subInCodes(t as object, codes as object) as integer
+    ' The subtitle for a language from Settings ("romanian"): by its codes (rum / ron / rom / ro ...), else by the
+    ' track's name ("Romanian (SRT)", "Română"); text ones first. -1 if there is none.
+    function subForLanguage(t as object, langName as string) as integer
+        codes = Prefs.codesFor(langName)
+        name = LCase(langName)
         for each pass in [true, false]
             for each s in t.subs
                 if s.isText or not pass
@@ -98,6 +102,11 @@ namespace Tracks
                         if s.language = c then return s.index
                     end for
                 end if
+            end for
+        end for
+        for each pass in [true, false]
+            for each s in t.subs
+                if (s.isText or not pass) and LCase(s.label).instr(name) >= 0 then return s.index
             end for
         end for
         return -1

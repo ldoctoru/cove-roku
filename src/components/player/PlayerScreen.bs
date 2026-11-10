@@ -102,8 +102,19 @@ sub onInfo(r as object)
         ' The series' subtitle language (series page pill, or the last choice made in the player for it):
         ' "" = automatic (forced subtitles only), "off", or a language code
         ' Settings → "Always load my subtitle language" wins over the series' language, as on the Mac
+        ' (also when the title was started from its details page: unless a subtitle was picked there by hand)
         always = -1
-        if m.top.item.options = invalid and Prefs.subAlways() then always = Tracks.subInCodes(m.tracks, Prefs.codesFor(Prefs.subLang()))
+        picked = m.top.item.options <> invalid and m.top.item.options.subPicked = true
+        ' a language chosen for this series on its page (or in the player) is more specific and wins
+        seriesPref = ""
+        if seriesKey() <> "" then seriesPref = Util.readText(seriesKey())
+        if Prefs.subAlways() and not picked and seriesPref = "" and m.subLang = "" then always = Tracks.subForLanguage(m.tracks, Prefs.subLang())
+        langs = []
+        for each s in m.tracks.subs
+            langs.push(s.language + "=" + s.label)
+        end for
+        print "Cove: subtitles available: "; Util.join(langs, " | ")
+        if Prefs.subAlways() then print "Cove: always load "; Prefs.subLang(); " -> track "; always
         if always >= 0
             m.opts.sub = always
             m.opts.burn = not Tracks.findSub(m.tracks, always).isText
