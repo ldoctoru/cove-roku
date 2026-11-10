@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Prefs.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Tracks.bs"
@@ -19,6 +20,9 @@ sub init()
     m.progressTimer.observeField("fire", "onProgressTimer")
     m.closeTimer.observeField("fire", "finish")
     m.countdown.observeField("fire", "onCountdown")
+    m.watchdog = m.top.findNode("watchdog")
+    m.watchdog.observeField("fire", "onWatchdog")
+    m.thumbFiles = {}
     m.osd = m.top.findNode("osd")
     m.hideTimer = m.top.findNode("hideTimer")
     m.seekTimer = m.top.findNode("seekTimer")
@@ -65,6 +69,11 @@ sub resetState()
     m.action.visible = false
     m.upNext.visible = false
     m.countdown.control = "stop"
+    m.watchdog.control = "stop"
+    m.thumbs = invalid       ' { kind: "bif", ... } or { kind: "tiles", ... } for seek thumbnails
+    m.thumbShown = -1
+    m.top.findNode("preview").visible = false
+    clearThumbFiles()
 end sub
 
 ' A new item (also the next episode): load its details first (tracks, markers), then ask for a stream
@@ -77,7 +86,7 @@ sub begin()
     if it.options <> invalid and it.options.audio <> invalid then m.opts = it.options
     m.status.text = "Starting..."
     m.status.visible = true
-    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + it.id + "?Fields=MediaSources,MediaStreams,Chapters", { kind: "info" })
+    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + it.id + "?Fields=MediaSources,MediaStreams,Chapters,Trickplay", { kind: "info" })
 end sub
 
 sub onInfo(r as object)
@@ -90,7 +99,14 @@ sub onInfo(r as object)
         ' Not chosen on the details page: forced subtitles, or the language chosen for the previous episode
         ' The series' subtitle language (series page pill, or the last choice made in the player for it):
         ' "" = automatic (forced subtitles only), "off", or a language code
-        if m.top.item.options = invalid
+        ' Settings → "Always load my subtitle language" wins over the series' language, as on the Mac
+        always = -1
+        if m.top.item.options = invalid and Prefs.subAlways() then always = Tracks.subInCodes(m.tracks, Prefs.codesFor(Prefs.subLang()))
+        if always >= 0
+            m.opts.sub = always
+            m.opts.burn = not Tracks.findSub(m.tracks, always).isText
+            print "Cove: subtitles in "; Prefs.subLang(); " (Settings)"
+        else if m.top.item.options = invalid
             pref = m.subLang
             if pref = "" and seriesKey() <> "" then pref = Util.readText(seriesKey())
             if pref <> "off"
@@ -134,6 +150,15 @@ sub onStream()
     s = m.playTask.stream
     s.itemId = m.top.item.id
     m.session = s
+    ' left while the server was preparing it: stop that conversion and go
+    if m.closing
+        stopEncoding()
+        return
+    end if
+    print "Cove: play "; s.method; " ("; s.streamFormat; ")"
+    m.watchdog.control = "stop"
+    m.watchdog.control = "start"
+    if m.thumbs = invalid then loadThumbs(s)
     c = createObject("roSGNode", "ContentNode")
     c.url = s.url
     c.streamFormat = s.streamFormat
@@ -182,6 +207,7 @@ sub onState()
     if st = "playing" and m.osdShown then m.hideTimer.control = "start"
     if st = "playing"
         m.status.visible = false
+        m.watchdog.control = "stop"
         if not m.started
             m.started = true
             report("/Sessions/Playing", false)
@@ -205,22 +231,50 @@ sub onVideoError()
     atSec = m.video.position
     if atSec < 1 then atSec = m.startAt
     if not m.retried
-        m.retried = true
-        stopEncoding()
-        m.started = false
-        m.failed = false
-        m.progressTimer.control = "stop"
-        m.status.text = "Converting the video for this Roku..."
-        m.status.visible = true
-        start(atSec, true)
+        retryConverted(atSec)
         return
     end if
     m.status.text = "This video can't be played on this Roku." + chr(10) + Util.toText(m.video.errorMsg) + "  (" + Util.toText(m.video.errorCode) + ")" + chr(10) + "Press Back to return."
     m.status.visible = true
 end sub
 
+' Every 10 s: progress while playing; while paused a ping plus the paused progress, so the server keeps
+' its conversion running (it ends one after about a minute without news)
 sub onProgressTimer()
-    if m.video.state = "playing" then report("/Sessions/Playing/Progress", false)
+    st = m.video.state
+    if st = "playing"
+        report("/Sessions/Playing/Progress", false)
+    else if st = "paused" and m.session <> invalid
+        fire("POST", "/Sessions/Playing/Ping?PlaySessionId=" + Util.toText(m.session.playSessionId), "")
+        report("/Sessions/Playing/Progress", true)
+    end if
+end sub
+
+' The video didn't start: try once with the server converting it, then explain
+sub onWatchdog()
+    if m.started or m.closing then return
+    print "Cove: video didn't start within 45 s (state "; m.video.state; ")"
+    atSec = m.startAt
+    if not m.retried
+        retryConverted(atSec)
+        return
+    end if
+    m.video.control = "stop"
+    stopEncoding()
+    m.status.text = "The server didn't start the video." + chr(10) + "Try again, or choose a lower quality with *." + chr(10) + "Press Back to return."
+    m.status.visible = true
+end sub
+
+sub retryConverted(atSec as float)
+    m.retried = true
+    m.video.control = "stop"
+    stopEncoding()
+    m.started = false
+    m.failed = false
+    m.progressTimer.control = "stop"
+    m.status.text = "Converting the video for this Roku..."
+    m.status.visible = true
+    start(atSec, true)
 end sub
 
 ' ---------------------------------------------------------------- skip intro / next episode
@@ -232,7 +286,12 @@ sub onPosition()
     mk = m.marks
     inIntro = mk.introStart >= 0 and mk.introEnd > mk.introStart and p >= mk.introStart and p < mk.introEnd - 2
     inCredits = m.next <> invalid and mk.credits > 0 and p >= mk.credits
-    if inIntro and not m.introDismissed
+    if inIntro and not m.introDismissed and Prefs.autoSkipIntro()
+        ' Settings → Skip intros automatically
+        m.introDismissed = true
+        print "Cove: skipping the intro to "; Int(mk.introEnd); " s"
+        m.video.seek = mk.introEnd
+    else if inIntro and not m.introDismissed
         showAction("intro", "Skip intro")
     else if inCredits and not m.creditsDismissed
         showAction("next", "Next episode")
@@ -273,7 +332,8 @@ sub dismissAction()
 end sub
 
 sub onFinished()
-    if m.next <> invalid
+    ' Settings → Play the next episode automatically (off: the player closes at the end)
+    if m.next <> invalid and Prefs.autoNext()
         report("/Sessions/Playing/Stopped", false, m.video.duration)
         stopEncoding()
         m.progressTimer.control = "stop"
@@ -315,6 +375,7 @@ sub playEpisode(n as dynamic)
     m.countdown.control = "stop"
     if m.started
         report("/Sessions/Playing/Stopped", false)
+        markIfWatched(m.video.position)
         stopEncoding()
     end if
     keep = Tracks.findSub(m.tracks, m.opts.sub)
@@ -444,6 +505,7 @@ sub restartAt(atSec as float)
     m.retried = false
     m.failed = false
     m.progressTimer.control = "stop"
+    m.watchdog.control = "stop"
     start(atSec, false)
 end sub
 
@@ -514,30 +576,49 @@ function onKeyEvent(key as string, press as boolean) as boolean
             m.osdShown = false
             fadeOsd(0.0)
         end if
+    else if m.area = "bar" and (key = "left" or key = "right")
+        ' the progress bar has the focus: Left / Right move along it (presses add up, thumbnail shows)
+        if key = "left"
+            seekBy(-10)
+        else
+            seekBy(10)
+        end if
     else if key = "left"
         if m.idx > 0 then m.idx = m.idx - 1
         drawControls()
     else if key = "right"
         if m.idx < areaSize() - 1 then m.idx = m.idx + 1
         drawControls()
-    else if key = "down" and m.area = "center" and m.toolIds.count() > 0
-        m.area = "tools"
-        m.idx = m.toolIds.count() - 1
-        drawControls()
+    else if key = "down" and m.area = "center"
+        setArea("bar", 0)
+    else if key = "down" and m.area = "bar" and m.toolIds.count() > 0
+        setArea("tools", m.toolIds.count() - 1)
     else if key = "up" and m.area = "tools"
-        m.area = "center"
-        m.idx = 1
-        drawControls()
+        setArea("bar", 0)
+    else if key = "up" and m.area = "bar"
+        setArea("center", 1)
     else if key = "OK"
-        useControl()
+        if m.area = "bar"
+            togglePause()
+        else
+            useControl()
+        end if
     end if
     return true
 end function
 
 ' ---------------------------------------------------------------- controls
 
+sub setArea(area as string, idx as integer)
+    m.area = area
+    m.idx = idx
+    drawControls()
+    updateBar(currentPos())
+end sub
+
 function areaSize() as integer
     if m.area = "tools" then return m.toolIds.count()
+    if m.area = "bar" then return 1
     return 3
 end function
 
@@ -699,8 +780,9 @@ end sub
 sub showOsd(autoHide as boolean)
     if not m.osdShown
         m.osdShown = true
-        m.area = "center"
-        m.idx = 1
+        ' the progress bar starts with the focus (Left / Right seek), Up: the centre buttons, Down: the tools
+        m.area = "bar"
+        m.idx = 0
         fadeOsd(1.0)
     end if
     updateBar(currentPos())
@@ -757,8 +839,25 @@ sub updateBar(atSec as float)
     if frac < 0 then frac = 0
     w = Int(1600 * frac)
     m.top.findNode("fill").width = w
-    m.top.findNode("thumb").translation = [119 + w, 22]
+    ' focused bar: thicker line and a bigger knob
+    barFocus = m.osdShown and m.area = "bar" and m.picker = invalid
+    sz = 22
+    lineH = 6
+    if barFocus
+        sz = 36
+        lineH = 10
+    end if
+    th = m.top.findNode("thumb")
+    th.width = sz
+    th.height = sz
+    th.translation = [130 + w - sz / 2, 33 - sz / 2]
+    for each id in ["track", "fill"]
+        r = m.top.findNode(id)
+        r.height = lineH
+        r.translation = [130, 33 - lineH / 2]
+    end for
     m.top.findNode("elapsed").text = Playback.clock(atSec)
+    showPreview(atSec, 154 + w)
     remain = d - atSec
     if remain < 0 then remain = 0
     if d > 0
@@ -774,15 +873,133 @@ sub updateCenter()
 end sub
 
 ' Report the stop (the server saves the position / marks it watched), end the server's conversion, then leave
+' ---------------------------------------------------------------- seek thumbnails
+
+sub loadThumbs(s as object)
+    m.thumbs = { kind: "none" }
+    srv = m.top.server
+    if Util.toText(srv.type) = "jellyfin"
+        if m.info <> invalid
+            tp = Playback.trickplayInfo(srv, m.info, Util.toText(s.mediaSourceId))
+            if tp <> invalid
+                tp.kind = "tiles"
+                m.thumbs = tp
+                print "Cove: trickplay "; tp.width; "x"; tp.height; " every "; tp.interval; " ms"
+            end if
+        end if
+        return
+    end if
+    ' Emby: download the BIF file once (a few MB at 320 px)
+    path = "tmp:/cove.bif"
+    DeleteFile(path)
+    url = "/Videos/" + m.top.item.id + "/index.bif?Width=320&MediaSourceId=" + Util.toText(s.mediaSourceId)
+    print "Cove: GET "; url
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "GET", url: Util.toText(srv.url) + url, headers: Api.headers(srv, true), saveTo: path, timeout: 60000, tag: { kind: "bif", itemId: m.top.item.id } }
+    t.observeField("response", "onResponse")
+    m.pending.push(t)
+    t.control = "RUN"
+end sub
+
+sub onBif(r as object)
+    print "Cove:   -> "; r.code; " (thumbnails)"
+    if r.tag.itemId <> m.top.item.id or r.code <> 200 then return
+    b = Playback.readBif("tmp:/cove.bif")
+    if b = invalid
+        print "Cove: no usable BIF"
+        return
+    end if
+    b.kind = "bif"
+    m.thumbs = b
+    n = b.offsets.count() - 1
+    gapMs = 0
+    if n > 1 then gapMs = b.times[1] - b.times[0]
+    print "Cove: BIF "; n; " frames, every "; gapMs; " ms"
+end sub
+
+' The frame for atSec above the scrubber at x (only while seeking)
+sub showPreview(atSec as float, x as integer)
+    pv = m.top.findNode("preview")
+    th = m.thumbs
+    if m.seekTarget < 0 or th = invalid or th.kind = "none"
+        pv.visible = false
+        return
+    end if
+    px = x - 168
+    if px < 24 then px = 24
+    if px > 1896 - 336 then px = 1896 - 336
+    pv.translation = [px, 712]
+    m.top.findNode("previewTime").text = Playback.clock(atSec)
+    img = m.top.findNode("previewImg")
+    if th.kind = "bif"
+        ' the last frame at or before atSec (binary search over the frame times)
+        ms = atSec * 1000
+        lo = 0
+        hi = th.offsets.count() - 2
+        i = 0
+        while lo <= hi
+            mid = (lo + hi) \ 2
+            if th.times[mid] >= 0 and th.times[mid] <= ms
+                i = mid
+                lo = mid + 1
+            else
+                hi = mid - 1
+            end if
+        end while
+        if i <> m.thumbShown
+            f = "tmp:/cove_th" + i.toStr() + ".jpg"
+            if not m.thumbFiles.doesExist(f)
+                ba = createObject("roByteArray")
+                start_ = th.offsets[i]
+                size = th.offsets[i + 1] - start_
+                if size <= 0 or not ba.readFile(th.path, start_, size) then return
+                ba.writeFile(f)
+                m.thumbFiles[f] = true
+            end if
+            img.width = 320
+            img.height = 180
+            img.translation = [0, 0]
+            img.uri = f
+            m.thumbShown = i
+        end if
+    else
+        i = Int(atSec * 1000 / th.interval)
+        if th.count <> invalid and i >= th.count then i = th.count - 1
+        per = th.cols * th.rows
+        tile = i \ per
+        within = i mod per
+        col = within mod th.cols
+        row = within \ th.cols
+        ' one tile image holds cols x rows thumbnails: scale it so one is 320 x 180 and shift it under the clip
+        img.width = 320 * th.cols
+        img.height = 180 * th.rows
+        img.translation = [-col * 320, -row * 180]
+        img.uri = th.url + tile.toStr() + th.query
+    end if
+    pv.visible = true
+end sub
+
+sub clearThumbFiles()
+    if m.thumbFiles = invalid then return
+    for each f in m.thumbFiles
+        DeleteFile(f)
+    end for
+    m.thumbFiles = {}
+    DeleteFile("tmp:/cove.bif")
+end sub
+
 sub close()
     if m.closing then return
     m.closing = true
     m.progressTimer.control = "stop"
     m.countdown.control = "stop"
+    m.watchdog.control = "stop"
     atSec = m.video.position
     m.video.control = "stop"
     if m.started then report("/Sessions/Playing/Stopped", false, atSec)
+    markIfWatched(atSec)
     stopEncoding()
+    clearThumbFiles()
     m.closeTimer.control = "start"
 end sub
 
@@ -793,7 +1010,27 @@ end sub
 sub stopEncoding()
     s = m.session
     if s = invalid or s.method = "DirectPlay" then return
-    fire("DELETE", "/Videos/ActiveEncodings?DeviceId=" + Util.deviceId() + "&PlaySessionId=" + Util.toText(s.playSessionId), "")
+    path = "/Videos/ActiveEncodings?DeviceId=" + Util.deviceId() + "&PlaySessionId=" + Util.toText(s.playSessionId)
+    fire("DELETE", path, "")
+    ' again after 2 s and 6 s: a conversion the server was still starting can survive the first one
+    fire("DELETE", path, "", 2000)
+    fire("DELETE", path, "", 6000)
+end sub
+
+' Closing past 90 % (or in the credits) counts as watched, like on the Mac
+sub markIfWatched(atSec as float)
+    d = m.video.duration
+    if m.info = invalid or d <= 0 or Util.flag(m.info.UserData, "Played") then return
+    inCredits = m.marks.credits > 0 and atSec >= m.marks.credits
+    if atSec < d * 0.9 and not inCredits then return
+    print "Cove: marking watched at "; Int(atSec); " of "; Int(d); " s"
+    uid = Util.toText(m.top.server.userId)
+    if Util.toText(m.top.server.type) = "jellyfin"
+        fire("POST", "/UserPlayedItems/" + m.top.item.id + "?userId=" + uid, "")
+    else
+        fire("POST", "/Users/" + uid + "/PlayedItems/" + m.top.item.id, "")
+    end if
+    m.info.UserData.Played = true
 end sub
 
 sub report(path as string, paused as boolean, atSec = -1 as float)
@@ -826,6 +1063,8 @@ sub onResponse(ev as object)
     k = r.tag.kind
     if k = "info"
         onInfo(r)
+    else if k = "bif"
+        onBif(r)
     else if k = "segments" and r.code = 200
         m.marks = Tracks.fromSegments(r.json, m.marks)
     else if k = "episodes" and r.code = 200 and r.json <> invalid
@@ -847,13 +1086,13 @@ end sub
 
 ' A request whose answer nobody waits for. The task is parked in the scene's "tasks" group so it keeps running
 ' after this screen is gone (finished ones are cleared each time).
-sub fire(method as string, path as string, body as string)
+sub fire(method as string, path as string, body as string, delay = 0 as integer)
     holder = m.top.getScene().findNode("tasks")
     for i = holder.getChildCount() - 1 to 0 step -1
         if holder.getChild(i).state = "done" or holder.getChild(i).state = "stop" then holder.removeChildIndex(i)
     end for
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: body, tag: { kind: "fire" } }
+    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: body, delay: delay, tag: { kind: "fire" } }
     holder.appendChild(t)
     t.control = "RUN"
 end sub

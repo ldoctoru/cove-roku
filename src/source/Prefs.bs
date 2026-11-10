@@ -1,0 +1,83 @@
+import "pkg:/source/Util.bs"
+
+' Settings kept on the Roku (registry), with the same defaults as Cove for macOS (Sources/Settings.swift):
+' accent / background (read by Theme.bs), "Always load my subtitle language" + the language, skip intros and
+' play the next episode automatically (both on), and the quality to start with (Automatic).
+namespace Prefs
+
+    function flagOn(key as string, fallback as boolean) as boolean
+        v = Util.readText(key)
+        if v = "" then return fallback
+        return v = "on"
+    end function
+
+    sub setFlag(key as string, on as boolean)
+        if on
+            Util.writeText(key, "on")
+        else
+            Util.writeText(key, "off")
+        end if
+    end sub
+
+    function subAlways() as boolean
+        return flagOn("subAlways", false)
+    end function
+
+    ' The language name, lower case ("romanian"); default English as on the Mac
+    function subLang() as string
+        v = Util.readText("subLang")
+        if v = "" then v = "english"
+        return v
+    end function
+
+    function autoSkipIntro() as boolean
+        return flagOn("autoSkipIntro", true)
+    end function
+
+    function autoNext() as boolean
+        return flagOn("autoNext", true)
+    end function
+
+    function startQuality() as integer
+        return Util.readText("startQuality").toInt()
+    end function
+
+    ' The Mac's subtitle languages, with the codes servers use for them (ISO 639-2/B, 639-2/T, 639-1)
+    function languages() as object
+        return [
+            { name: "English", codes: ["eng", "en"] },
+            { name: "Romanian", codes: ["rum", "ron", "ro", "mol"] },
+            { name: "Spanish", codes: ["spa", "es"] },
+            { name: "French", codes: ["fre", "fra", "fr"] },
+            { name: "German", codes: ["ger", "deu", "de"] },
+            { name: "Italian", codes: ["ita", "it"] },
+            { name: "Portuguese", codes: ["por", "pt", "pob"] },
+            { name: "Dutch", codes: ["dut", "nld", "nl"] },
+            { name: "Hungarian", codes: ["hun", "hu"] },
+            { name: "Polish", codes: ["pol", "pl"] },
+            { name: "Russian", codes: ["rus", "ru"] },
+            { name: "Turkish", codes: ["tur", "tr"] },
+            { name: "Greek", codes: ["gre", "ell", "el"] },
+            { name: "Swedish", codes: ["swe", "sv"] },
+            { name: "Norwegian", codes: ["nor", "nob", "nno", "no", "nb", "nn"] },
+            { name: "Danish", codes: ["dan", "da"] },
+            { name: "Finnish", codes: ["fin", "fi"] },
+            { name: "Czech", codes: ["cze", "ces", "cs"] },
+            { name: "Arabic", codes: ["ara", "ar"] },
+            { name: "Hebrew", codes: ["heb", "he"] },
+            { name: "Japanese", codes: ["jpn", "ja"] },
+            { name: "Korean", codes: ["kor", "ko"] },
+            { name: "Chinese", codes: ["chi", "zho", "zh"] }
+        ]
+    end function
+
+    ' Codes for a language name ("romanian" -> ["rum", "ron", ...]); the name itself if it isn't in the list
+    function codesFor(langName as string) as object
+        want = LCase(langName)
+        for each l in languages()
+            if LCase(l.name) = want then return l.codes
+        end for
+        return [want]
+    end function
+
+end namespace

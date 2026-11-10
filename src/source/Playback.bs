@@ -1,3 +1,4 @@
+import "pkg:/source/Prefs.bs"
 import "pkg:/source/Util.bs"
 import "pkg:/source/DeviceCaps.bs"
 
@@ -78,7 +79,8 @@ namespace Playback
     ' Choices for one playback: audio / sub = stream index (-1: default audio / no subtitles), burn = the
     ' subtitle is an image the server burns in, maxBitrate = 0 for automatic, defaultAudio = the file's default
     function options() as object
-        return { audio: -1, sub: -1, burn: false, maxBitrate: 0, defaultAudio: -1 }
+        ' (quality: Settings → Start with quality)
+        return { audio: -1, sub: -1, burn: false, maxBitrate: Prefs.startQuality(), defaultAudio: -1 }
     end function
 
     function bitrateOf(opts as object) as integer
@@ -205,6 +207,89 @@ namespace Playback
         if h > 0 then out = h.toStr() + ":" + Right("0" + mm.toStr(), 2) + ":"
         if h = 0 then out = mm.toStr() + ":"
         return out + Right("0" + ss.toStr(), 2)
+    end function
+
+
+    ' ---------------------------------------------------------------- seek thumbnails
+
+    ' Emby's BIF thumbnails (Roku's own format, parsed like Cove for macOS PlayerModel.parseBIF): magic
+    ' 89 42 49 46, frame count at 12, time unit (ms) at 16, then from 64 an index of (timestamp, offset)
+    ' pairs, 4-byte little-endian each, then the JPEGs. Returns { path, times (ms), offsets } or invalid.
+    function readBif(path as string) as dynamic
+        ' (no roFileSystem here: it can't be created on the render thread, where this runs)
+        head = createObject("roByteArray")
+        ok = head.readFile(path, 0, 64)
+        if not ok or head.count() < 64
+            ' (some firmware refuses a partial read: read it all, it's a few MB at most)
+            head = createObject("roByteArray")
+            head.readFile(path)
+        end if
+        print "Cove: BIF read "; head.count(); " bytes, starts "; head.toHexString().left(32)
+        if head.count() < 72 then return invalid
+        if head[0] <> &h89 or head[1] <> &h42 or head[2] <> &h49 or head[3] <> &h46 then return invalid
+        count = le32(head, 12)
+        unit = le32(head, 16)
+        if unit <= 0 then unit = 1000
+        if count <= 0 or count > 50000 then return invalid
+        idx = head
+        if head.count() < 64 + (count + 1) * 8
+            idx = createObject("roByteArray")
+            if not idx.readFile(path, 64, (count + 1) * 8) then return invalid
+            base = 0
+        else
+            base = 64
+        end if
+        times = []
+        offsets = []
+        for i = 0 to count
+            ts = le32(idx, base + i * 8)
+            if ts = &hFFFFFFFF or ts = -1 then ts = -1
+            times.push(ts * unit)
+            offsets.push(le32(idx, base + i * 8 + 4))
+        end for
+        return { path: path, times: times, offsets: offsets }
+    end function
+
+    function le32(b as object, at as integer) as integer
+        if at + 3 >= b.count() then return 0
+        return b[at] + b[at + 1] * 256 + b[at + 2] * 65536 + b[at + 3] * 16777216
+    end function
+
+    ' Jellyfin trickplay: tiles of TileWidth x TileHeight thumbnails, from the item's "Trickplay" field.
+    ' Returns { width, height, cols, rows, count, interval, url, query } or invalid.
+    function trickplayInfo(server as object, item as object, sourceId as string) as dynamic
+        tp = item.Trickplay
+        if type(tp) <> "roAssociativeArray" then return invalid
+        widths = tp[sourceId]
+        if type(widths) <> "roAssociativeArray"
+            for each k in tp
+                widths = tp[k]
+                exit for
+            end for
+        end if
+        if type(widths) <> "roAssociativeArray" then return invalid
+        best = invalid
+        bestW = 0
+        for each w in widths
+            n = w.toInt()
+            ' the smallest at least 240 wide (Roku memory), else the largest
+            if best = invalid or (n >= 240 and (bestW < 240 or n < bestW)) or (bestW < 240 and n > bestW)
+                best = widths[w]
+                bestW = n
+            end if
+        end for
+        if best = invalid or best.Width = invalid or best.TileWidth = invalid then return invalid
+        r = {}
+        r.width = best.Width
+        r.height = best.Height
+        r.cols = best.TileWidth
+        r.rows = best.TileHeight
+        r.count = best.ThumbnailCount
+        r.interval = best.Interval
+        if r.interval = invalid or r.interval <= 0 then r.interval = 10000
+        r.url = Util.toText(server.url) + "/Videos/" + Util.toText(item.Id) + "/Trickplay/" + bestW.toStr() + "/"
+        r.query = ".jpg?MediaSourceId=" + sourceId + "&api_key=" + Util.toText(server.token)
+        return r
     end function
 
 end namespace

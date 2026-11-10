@@ -45,8 +45,13 @@ namespace Api
         method = UCase(Util.toText(req.method))
         if method = "" then method = "GET"
         body = Util.toText(req.body)
+        ' a request that should run later (e.g. stopping a server conversion again after 2 s and 6 s)
+        if req.delay <> invalid and req.delay > 0 then sleep(req.delay)
         started = false
-        if method = "GET"
+        if req.saveTo <> invalid
+            ' download to a file (BIF thumbnails); the response has only the code
+            started = xfer.asyncGetToFile(req.saveTo)
+        else if method = "GET"
             started = xfer.asyncGetToString()
         else
             xfer.setRequest(method)
@@ -62,7 +67,8 @@ namespace Api
         msg = wait(timeout, port)
         if type(msg) = "roUrlEvent"
             res.code = msg.getResponseCode()
-            text = msg.getString()
+            text = invalid
+            if req.saveTo = invalid then text = msg.getString()
             if text <> invalid and text <> "" then res.json = parseJson(text)
             if res.code < 0 then res.error = Util.toText(msg.getFailureReason())
         else
