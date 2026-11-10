@@ -223,7 +223,7 @@ namespace Playback
         if not ok or head.count() < 64
             ' (some firmware refuses a partial read: read it all, it's a few MB at most)
             head = createObject("roByteArray")
-            ok = head.readFile(path)
+            head.readFile(path)
         end if
         print "Cove: BIF file "; size; " bytes, read "; head.count(); ", starts "; head.toHexString().left(32)
         if head.count() < 72 then return invalid
