@@ -30,7 +30,7 @@ To show your libraries and play videos, Cove sends requests to the server you ad
 - the Roku's video capabilities (for example 4K, HDR or the supported formats), so the server can choose a stream that plays.
 
 How your server stores and uses this information is decided by **whoever runs that server** (usually you, or the person who gave you access) and by the Emby or Jellyfin software. Please see their privacy policies:
-[Emby](https://emby.media/privacy-policy.html) and [Jellyfin](https://jellyfin.org/).
+[Emby](https://emby.media/privacy.html) and [Jellyfin](https://jellyfin.org/).
 
 If your server address starts with `https://`, the connection is encrypted and the server's certificate is checked. With `http://` (common on home networks) it is not encrypted.
 
