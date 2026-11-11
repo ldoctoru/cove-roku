@@ -8,6 +8,21 @@ sub main(args as dynamic)
     ' (registered before the screen shows, so no input event is missed)
     input = createObject("roInput")
     input.setMessagePort(port)
+    ' Memory monitoring (required by Roku): warnings near the app's memory limit (80 / 85 / 90 / 95 %), or the
+    ' device's general low-memory events on models without per-app limits
+    mem = createObject("roAppMemoryMonitor")
+    memOk = false
+    if mem <> invalid
+        mem.setMessagePort(port)
+        memOk = mem.EnableMemoryWarningEvent(true)
+        limit = mem.GetChannelMemoryLimit()
+        if limit <> invalid then print "Cove: memory limit "; formatJson(limit); ", available "; mem.GetChannelAvailableMemory(); " KB"
+    end if
+    if not memOk
+        di = createObject("roDeviceInfo")
+        di.setMessagePort(port)
+        di.EnableLowGeneralMemoryEvent(true)
+    end if
     scene = screen.createScene("MainScene")
     screen.show()
     if args <> invalid and args.contentId <> invalid and args.mediaType <> invalid
@@ -20,6 +35,13 @@ sub main(args as dynamic)
         msgType = type(msg)
         if msgType = "roSGScreenEvent"
             if msg.isScreenClosed() then return
+        else if msgType = "roAppMemoryNotificationEvent"
+            pct = msg.getInfo().lookup("MemoryUsagePercent")
+            if mem <> invalid then pct = mem.GetMemoryLimitPercent()
+            print "Cove: memory warning, "; pct; "% of the limit used, "; mem.GetChannelAvailableMemory(); " KB left"
+        else if msgType = "roDeviceInfoEvent"
+            info = msg.getInfo()
+            if info.generalMemoryLevel <> invalid then print "Cove: device memory level "; info.generalMemoryLevel
         else if msgType = "roInputEvent"
             if msg.isInput()
                 info = msg.getInfo()

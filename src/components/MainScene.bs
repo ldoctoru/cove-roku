@@ -15,6 +15,7 @@ sub init()
     m.stack = []
     m.pending = []              ' running ApiTasks (kept referenced until they answer)
     m.beaconSent = false
+    m.inDialog = false
     m.server = invalid          ' the server being added / signed in to
     m.users = []                ' its public users
     m.quickConnect = false      ' Jellyfin Quick Connect enabled on it
@@ -64,10 +65,23 @@ sub push(s as object)
     m.screens.appendChild(s)
     m.stack.push(s)
     s.setFocus(true)
-    if not m.beaconSent
-        m.beaconSent = true
-        m.top.signalBeacon("AppLaunchComplete")
+    ' the server list / sign-in shown before Home is a dialog for Roku's launch timing
+    sid = Util.toText(s.screenId)
+    if not m.beaconSent and not m.inDialog and (sid = "servers" or sid = "signin" or sid = "address")
+        m.inDialog = true
+        m.top.signalBeacon("AppDialogInitiate")
     end if
+end sub
+
+' Home is on screen: the launch is complete (after the dialog, if one was shown)
+sub launchComplete()
+    if m.beaconSent then return
+    if m.inDialog
+        m.inDialog = false
+        m.top.signalBeacon("AppDialogComplete")
+    end if
+    m.beaconSent = true
+    m.top.signalBeacon("AppLaunchComplete")
 end sub
 
 ' Settings → Servers: connect to another server, sign out, or add one
@@ -156,6 +170,7 @@ sub showHome(server as object)
     h.observeField("action", "onHomeAction")
     reset(h)
     h.server = server
+    launchComplete()
     ' a deep link that came before the sign-in finished
     if m.pendingLink <> invalid
         link = m.pendingLink
