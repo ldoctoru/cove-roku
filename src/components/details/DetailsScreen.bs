@@ -43,6 +43,7 @@ sub init()
     m.episodeList = []
     m.shownEps = []         ' the episodes in the row: unwatched only unless "Show all" (Mac shownEpisodes)
     m.showAllEps = false
+    m.episodesSeason = -1   ' the season whose episodes m.episodeList holds
     m.castList = []
     m.similarList = []
     m.nextUp = invalid
@@ -68,6 +69,7 @@ sub onRefresh()
     if Util.toText(m.item.Type) = "Series"
         loadNextUp()
         if m.seasonIndex >= 0 then loadEpisodes(m.seasonIndex)
+        reloadSeasonCounts()
     end if
 end sub
 
@@ -117,6 +119,8 @@ sub onResponse(ev as object)
     else if k = "similar"
         m.similarList = listOf(r.json)
         rebuildRows()
+    else if k = "seasonCounts"
+        onSeasonCounts(r.json)
     end if
 end sub
 
@@ -542,7 +546,7 @@ end sub
 sub onPickerCancelled()
     p = m.picker
     closePicker()
-    if p <> invalid and (p.purpose = "season" or p.purpose = "slang")
+    if p <> invalid and (p.purpose = "season" or p.purpose = "slang" or p.purpose = "seasonmenu")
         enterSeason()
     else if p <> invalid and p.purpose = "epmenu"
         m.state = "rows"
@@ -608,6 +612,12 @@ sub onPicked(ev as object)
         else if c.id = "page"
             m.top.openItem = { id: "open", itemId: Util.toText(e.Id), itemType: "Episode", collectionType: "", title: Util.toText(e.Name) }
         end if
+        return
+    end if
+    if c.purpose = "seasonmenu"
+        closePicker()
+        enterSeason()
+        useSeasonMenu(c.id)
         return
     end if
     if c.purpose = "season"
@@ -693,6 +703,7 @@ end sub
 
 sub onEpisodes(json as object)
     m.episodeList = listOf(json)
+    m.episodesSeason = m.seasonIndex
     target = seriesTarget()
     if target <> invalid then loadEpisodeStreams(target)
     if m.nextUp = invalid then buildButtons()
@@ -886,6 +897,7 @@ sub drawSeasonBar()
         end if
         g.insertChild(bg, 0)
         l.translation = [26, 0]
+        if ids[i] = "season" then w = addSeasonBadge(g, tw, w)
         if not isFilter
             ch = g.createChild("Poster")
             ch.uri = "pkg:/images/ui/icon_chevron_28.png"
@@ -915,7 +927,7 @@ sub useBar()
     if id = "season"
         o = []
         for i = 0 to m.seasonList.count() - 1
-            o.push({ id: i.toStr(), label: Util.toText(m.seasonList[i].Name) })
+            o.push({ id: i.toStr(), label: Util.toText(m.seasonList[i].Name) + unwatchedSuffix(i) })
         end for
         openPicker("season", "Seasons", o, m.seasonIndex.toStr())
     else
@@ -954,6 +966,113 @@ sub onEpisodeStreams(json as object)
     end for
     m.subLangs = langs
     if m.seasonBar.visible then drawSeasonBar()
+end sub
+
+' ---------------------------------------------------------------- season counts, mark season watched
+
+' Unwatched episodes of a season: counted from the loaded episodes for the chosen one (fresh after a change),
+' otherwise the server's UserData.UnplayedItemCount; -1 when unknown
+function unwatchedIn(index as integer) as integer
+    if index < 0 or index >= m.seasonList.count() then return -1
+    if index = m.seasonIndex and index = m.episodesSeason and m.episodeList.count() > 0
+        n = 0
+        for each e in m.episodeList
+            if not Util.flag(e.UserData, "Played") then n = n + 1
+        end for
+        return n
+    end if
+    ud = m.seasonList[index].UserData
+    if ud = invalid or ud.UnplayedItemCount = invalid then return -1
+    return Int(ud.UnplayedItemCount)
+end function
+
+function unwatchedSuffix(index as integer) as string
+    n = unwatchedIn(index)
+    if n < 0 then return ""
+    if n = 0 then return "  ·  watched"
+    return "  ·  " + n.toStr() + " unwatched"
+end function
+
+' The Mac's CountBadge after the season name: the unwatched count in a capsule, a check when all are watched.
+' Widens the pill (returns the new width).
+function addSeasonBadge(g as object, textW as integer, w as integer) as integer
+    n = unwatchedIn(m.seasonIndex)
+    if n < 0 then return w
+    x = 26 + textW + 14
+    if n = 0
+        bg = g.createChild("Poster")
+        bg.uri = "pkg:/images/ui/badge_circle.png"
+        bg.width = 36
+        bg.height = 36
+        bg.translation = [x, 12]
+        ic = g.createChild("Poster")
+        ic.uri = "pkg:/images/ui/icon_check_28.png"
+        ic.width = 22
+        ic.height = 22
+        ic.translation = [x + 7, 19]
+        return w + 50
+    end if
+    t = n.toStr()
+    if n > 99 then t = "99+"
+    bw = 36 + (t.len() - 1) * 12
+    bg = g.createChild("Poster")
+    bg.uri = "pkg:/images/ui/badge_capsule.9.png"
+    bg.width = bw
+    bg.height = 36
+    bg.translation = [x, 12]
+    lab = g.createChild("Label")
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:BoldSystemFontFile"
+    f.size = 20
+    lab.font = f
+    lab.text = t
+    lab.color = "0xFFFFFFFF"
+    lab.width = bw
+    lab.height = 36
+    lab.horizAlign = "center"
+    lab.vertAlign = "center"
+    lab.translation = [x, 12]
+    ' the pill's background is the first child: widen it too
+    g.getChild(0).width = w + bw + 14
+    return w + bw + 14
+end function
+
+' After a change (or playback): the seasons again, only for their counts
+sub reloadSeasonCounts()
+    if m.item = invalid or m.seasonList.count() = 0 then return
+    get("/Shows/" + Util.toText(m.item.Id) + "/Seasons?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields(), { kind: "seasonCounts" })
+end sub
+
+sub onSeasonCounts(json as dynamic)
+    list = listOf(json)
+    if list.count() <> m.seasonList.count() then return
+    for i = 0 to list.count() - 1
+        if Util.toText(list[i].Id) <> Util.toText(m.seasonList[i].Id) then return
+    end for
+    m.seasonList = list
+    if m.seasonBar.visible then drawSeasonBar()
+end sub
+
+' * on the season bar: mark the whole season watched / unwatched (Played on the season id, as on the Mac)
+sub seasonMenu()
+    if m.seasonIndex < 0 or m.seasonIndex >= m.seasonList.count() then return
+    n = unwatchedIn(m.seasonIndex)
+    o = []
+    if n <> 0 then o.push({ id: "swatched", label: "Mark season as watched" })
+    total = m.episodeList.count()
+    if n < 0 or total = 0 or n < total then o.push({ id: "sunwatched", label: "Mark season as unwatched" })
+    openPicker("seasonmenu", seasonName(), o, "")
+end sub
+
+sub useSeasonMenu(id as string)
+    if m.seasonIndex < 0 or m.seasonIndex >= m.seasonList.count() then return
+    sid = Util.toText(m.seasonList[m.seasonIndex].Id)
+    print "Cove: mark season "; sid; " "; id
+    if id = "swatched"
+        markPlayed(sid, true)
+    else if id = "sunwatched"
+        markPlayed(sid, false)
+    end if
 end sub
 
 ' The season has both watched and unwatched episodes, so "hide watched" makes sense (Mac canFilterWatched)
@@ -1072,6 +1191,8 @@ function onKeyEvent(key as string, press as boolean) as boolean
             drawSeasonBar()
         else if key = "OK"
             useBar()
+        else if key = "options"
+            seasonMenu()
         else if key = "down"
             enterRows()
         else if key = "up" or key = "back"
