@@ -23,6 +23,13 @@ sub main(args as dynamic)
         di.setMessagePort(port)
         di.EnableLowGeneralMemoryEvent(true)
     end if
+    ' (the registry is 16 KB per app, shared by the sign-ins and the settings)
+    try
+        Prefs.migrateSeriesLangs()
+        print "Cove: registry space available "; createObject("roRegistry").GetSpaceAvailable(); " bytes"
+    catch e
+        print "Cove: registry check failed: "; e.message
+    end try
     scene = screen.createScene("MainScene")
     screen.show()
     if args <> invalid and args.contentId <> invalid and args.mediaType <> invalid

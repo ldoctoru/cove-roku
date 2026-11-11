@@ -112,7 +112,7 @@ sub onInfo(r as object)
         picked = m.top.item.options <> invalid and m.top.item.options.subPicked = true
         ' a language chosen for this series on its page (or in the player) is more specific and wins
         seriesPref = ""
-        if seriesKey() <> "" then seriesPref = Util.readText(seriesKey())
+        if seriesKey() <> "" then seriesPref = Prefs.seriesSubLang(seriesKey())
         if Prefs.subAlways() and not picked and seriesPref = "" and m.subLang = "" then always = Tracks.subForLanguage(m.tracks, Prefs.subLang())
         langs = []
         for each s in m.tracks.subs
@@ -126,7 +126,7 @@ sub onInfo(r as object)
             print "Cove: subtitles in "; Prefs.subLang(); " (Settings)"
         else if m.top.item.options = invalid
             pref = m.subLang
-            if pref = "" and seriesKey() <> "" then pref = Util.readText(seriesKey())
+            if pref = "" and seriesKey() <> "" then pref = Prefs.seriesSubLang(seriesKey())
             if pref <> "off"
                 s = Tracks.defaultSub(m.tracks, pref)
                 if s >= 0
@@ -146,7 +146,7 @@ end sub
 
 function seriesKey() as string
     if m.info = invalid or Util.toText(m.info.SeriesId) = "" then return ""
-    return "slang:" + Util.toText(m.info.SeriesId)
+    return Util.toText(m.info.SeriesId)
 end function
 
 ' Asks the server for a stream; forceTranscode after a playback error
@@ -197,7 +197,7 @@ end sub
 sub onStream(ev as object)
     t = ev.getRoSGNode()
     s = ev.getData()
-    if m.playTask = invalid or not t.isSameNode(m.playTask) or s = invalid or Util.toText(s.url) = ""
+    if m.playTask = invalid or not t.isSameNode(m.playTask) or s = invalid
         ' (a stale answer: end its conversion instead of playing it)
         onOrphanStream(ev)
         return
@@ -598,7 +598,7 @@ sub onPicked(ev as object)
         if s <> invalid then m.subLang = s.language
         if s = invalid then m.subLang = "off"
         ' remembered for the series, like on the Mac
-        if seriesKey() <> "" and m.subLang <> "" then Util.writeText(seriesKey(), m.subLang)
+        if seriesKey() <> "" and m.subLang <> "" then Prefs.setSeriesSubLang(seriesKey(), m.subLang)
         ' Turning a subtitle on restarts the stream at the same position with it attached (as at the start):
         ' changing the subtitle tracks of the playing video froze playback on the Streambar.
         ' Turning one off (when it isn't burned in) works on the spot.

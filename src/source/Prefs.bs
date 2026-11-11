@@ -180,6 +180,64 @@ namespace Prefs
         return v.toInt()
     end function
 
+    ' ---------------------------------------------------------------- subtitle language per series
+
+    ' "" = automatic, "off", or a language code. All series share one key ("seriesLangs", most recent last,
+    ' at most 100): one key per series grew the registry without limit, and it also holds the sign-ins.
+    function seriesSubLang(seriesId as string) as string
+        if seriesId = "" then return ""
+        for each e in seriesLangList()
+            if Util.toText(e.id) = seriesId then return Util.toText(e.lang)
+        end for
+        return ""
+    end function
+
+    sub setSeriesSubLang(seriesId as string, lang as string)
+        if seriesId = "" then return
+        kept = []
+        for each e in seriesLangList()
+            if Util.toText(e.id) <> seriesId then kept.push(e)
+        end for
+        if lang <> "" then kept.push({ id: seriesId, lang: lang })
+        while kept.count() > 100
+            kept.shift()
+        end while
+        Util.writeText("seriesLangs", formatJson(kept))
+    end sub
+
+    function seriesLangList() as object
+        v = Util.readJson("seriesLangs")
+        if type(v) <> "roArray" then return []
+        return v
+    end function
+
+    ' Once: the old "slang:<id>" keys move into the list (deleted first, so a full registry has room for it)
+    sub migrateSeriesLangs()
+        sec = createObject("roRegistrySection", "Cove")
+        old = []
+        for each k in sec.getKeyList()
+            if k.startsWith("slang:") then old.push(k)
+        end for
+        if old.count() = 0 then return
+        kept = seriesLangList()
+        for each k in old
+            v = sec.read(k)
+            sid = k.mid(6)
+            known = false
+            for each e in kept
+                if Util.toText(e.id) = sid then known = true
+            end for
+            if v <> "" and not known then kept.push({ id: sid, lang: v })
+            sec.delete(k)
+        end for
+        sec.flush()
+        while kept.count() > 100
+            kept.shift()
+        end while
+        Util.writeText("seriesLangs", formatJson(kept))
+        print "Cove: moved "; old.count(); " series subtitle languages into one registry key"
+    end sub
+
     ' ---------------------------------------------------------------- reset
 
     ' Every setting back to its default; the servers and sign-ins are kept (as on the Mac)
