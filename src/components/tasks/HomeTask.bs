@@ -46,13 +46,12 @@ sub load()
     for each v in views
         libs.push({ id: Util.toText(v.Id), title: Util.toText(v.Name), itemType: Util.toText(v.Type), collectionType: LCase(Util.toText(v.CollectionType)), view: v })
     end for
-    libs = Prefs.orderLibraries(libs)
+    libs = Prefs.orderLibraries(libs, Util.toText(srv.id))
     shown = []
     for each l in libs
         lp = Prefs.library(l.id)
         l.nav = lp.nav
-        ct = l.collectionType
-        if lp.nav and lp.home and (ct = "movies" or ct = "tvshows" or ct = "homevideos" or ct = "musicvideos" or ct = "mixed" or ct = "")
+        if lp.nav and lp.home and Prefs.hasHomeRow(l.collectionType)
             addRow(root, rowTitle(lp.style, l.title), libraryRow(uid, l, lp.style, f), false)
         end if
         if lp.nav

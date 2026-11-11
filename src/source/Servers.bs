@@ -42,6 +42,12 @@ namespace Servers
         end for
         saveAll(kept)
         if Util.readText("active") = id then Util.writeText("active", "")
+        ' (its library order goes with it)
+        sec = createObject("roRegistrySection", "Cove")
+        if sec.exists("libOrder:" + id)
+            sec.delete("libOrder:" + id)
+            sec.flush()
+        end if
     end sub
 
     function active() as dynamic

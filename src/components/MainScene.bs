@@ -97,6 +97,9 @@ sub onSettingsAction(ev as object)
     else if a.id = "switch"
         m.themeDirty = false
         showServers("")
+    else if a.id = "renamed"
+        ' the current server was renamed: keep MainScene's copy in step, Home is rebuilt when Settings closes
+        if m.server <> invalid and Util.toText(m.server.id) = Util.toText(a.serverId) then m.server.name = Util.toText(a.name)
     end if
 end sub
 
