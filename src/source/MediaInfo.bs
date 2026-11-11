@@ -143,4 +143,25 @@ namespace MediaInfo
         return ""
     end function
 
+    ' Server date (ISO 8601, UTC) → "May 4, 2023" or with the local time "May 4, 2023 · 21:05" ("" when missing)
+    function dateText(iso as dynamic, withTime as boolean) as string
+        t = Util.toText(iso)
+        if t.len() < 10 or t.left(4) = "0001" then return ""
+        d = createObject("roDateTime")
+        if t.len() >= 19
+            d.FromISO8601String(t.left(19) + "Z")
+        else
+            d.FromISO8601String(t.left(10) + "T00:00:00Z")
+        end if
+        if withTime then d.ToLocalTime()
+        out = d.asDateString("short-month-no-weekday")
+        if withTime
+            mins = d.GetMinutes()
+            mm = mins.toStr()
+            if mins < 10 then mm = "0" + mm
+            out = out + " · " + d.GetHours().toStr() + ":" + mm
+        end if
+        return out
+    end function
+
 end namespace

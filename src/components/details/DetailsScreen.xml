@@ -2,7 +2,8 @@
 <!-- A movie, episode or series in Cove's Glass style (Sources/Views.swift detail page).
      Full-screen backdrop; bottom-left: eyebrow, logo or title, details, overview, facts and the button row
      (Play / Resume, Start over, + / check favourite, CC audio and subtitles); right: Starring / Director.
-     Below (Down): rows of seasons and episodes (series), cast and More Like This.
+     Below (Down): rows of seasons and episodes (series), cast and More Like This; below the last row About
+     (tagline, genres, studios, dates, media info).
      "play" asks MainScene to start the player, "openItem" to open another title. -->
 <component name="DetailsScreen" extends="Group">
     <script type="text/brightscript" uri="DetailsScreen.bs" />
@@ -84,6 +85,9 @@
             </RowList>
         </Group>
 
+        <!-- About (Down from the last row): tagline, genres, studios, dates, media info -->
+        <AboutPanel id="about" translation="[96,170]" opacity="0" />
+
         <!-- holds the focus while the buttons are active (keys reach onKeyEvent) -->
         <Group id="btnKeys" focusable="true" />
 
@@ -95,6 +99,9 @@
             <FloatFieldInterpolator id="headerFade" key="[0.0, 1.0]" fieldToInterp="header.opacity" />
             <FloatFieldInterpolator id="miniFade" key="[0.0, 1.0]" fieldToInterp="miniTitle.opacity" />
             <FloatFieldInterpolator id="bgFade" key="[0.0, 1.0]" fieldToInterp="rowsBg.opacity" />
+        </Animation>
+        <Animation id="aboutAnim" duration="0.3" easeFunction="linear">
+            <FloatFieldInterpolator id="aboutFade" key="[0.0, 1.0]" fieldToInterp="about.opacity" />
         </Animation>
     </children>
 </component>
