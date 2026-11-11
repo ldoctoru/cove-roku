@@ -42,6 +42,9 @@ sub init()
     m.tasksHolder = invalid
     tasksHolder()
     m.picker = invalid
+    m.pausedByPicker = false  ' the picker paused the video (closing it resumes only then)
+    m.bifTask = invalid
+    m.bifPath = ""
     m.subLang = ""          ' subtitle language chosen in this session, kept for the next episode
     resetState()
 end sub
@@ -136,9 +139,9 @@ sub onInfo(r as object)
             end if
         end if
         ' Jellyfin keeps intro / credits as media segments
-        if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro", { kind: "segments" })
+        if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro", { kind: "segments", itemId: m.top.item.id })
         if Util.toText(r.json.Type) = "Episode" and Util.toText(r.json.SeriesId) <> ""
-            get("/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields(), { kind: "episodes" })
+            get("/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields(), { kind: "episodes", itemId: m.top.item.id })
         end if
     end if
     start(m.startAt, false)
@@ -366,6 +369,8 @@ end sub
 
 sub retryConverted(atSec as float)
     m.retried = true
+    ' (end the first session on the server too, as restartAt does: the retry starts a new PlaySessionId)
+    if m.started then report("/Sessions/Playing/Stopped", false, atSec)
     m.video.control = "stop"
     stopEncoding()
     m.started = false
@@ -502,6 +507,8 @@ function effectiveAudio() as integer
 end function
 
 sub openPicker(purpose as string, title as string, options as object, selectedId as string)
+    ' (a picker opened from another one keeps the first one's answer)
+    if m.picker = invalid then m.pausedByPicker = m.video.state = "playing"
     closePicker()
     if m.video.state = "playing" then m.video.control = "pause"
     p = createObject("roSGNode", "Picker")
@@ -528,7 +535,13 @@ end sub
 sub onPickerCancelled()
     closePicker()
     m.keys.setFocus(true)
-    if m.video.state = "paused" then m.video.control = "resume"
+    resumeAfterPicker()
+end sub
+
+' Play on only if the picker paused the video: one the user had paused stays paused
+sub resumeAfterPicker()
+    if m.pausedByPicker and m.video.state = "paused" then m.video.control = "resume"
+    m.pausedByPicker = false
 end sub
 
 sub onPicked(ev as object)
@@ -569,8 +582,8 @@ sub onPicked(ev as object)
             m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
             buildTools()
             restartAt(m.video.position)
-        else if m.video.state = "paused"
-            m.video.control = "resume"
+        else
+            resumeAfterPicker()
         end if
         return
     end if
@@ -613,8 +626,8 @@ sub onPicked(ev as object)
     drawControls()
     if restart
         restartAt(m.video.position)
-    else if m.video.state = "paused"
-        m.video.control = "resume"
+    else
+        resumeAfterPicker()
     end if
 end sub
 
@@ -1012,21 +1025,27 @@ sub loadThumbs(s as object)
         return
     end if
     ' Emby: download the BIF file once (a few MB at 320 px)
-    path = "tmp:/cove.bif"
+    ' (a file per title: after an episode switch the old download can still be writing its own)
+    path = "tmp:/cove-" + m.top.item.id + ".bif"
     DeleteFile(path)
     url = "/Videos/" + m.top.item.id + "/index.bif?Width=320&MediaSourceId=" + Util.toText(s.mediaSourceId)
     print "Cove: GET "; url
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: "GET", url: Util.toText(srv.url) + url, headers: Api.headers(srv, true), saveTo: path, timeout: 60000, tag: { kind: "bif", itemId: m.top.item.id } }
+    t.request = { method: "GET", url: Util.toText(srv.url) + url, headers: Api.headers(srv, true), saveTo: path, timeout: 60000, tag: { kind: "bif", itemId: m.top.item.id, path: path } }
     t.observeField("response", "onResponse")
+    m.bifTask = t
+    m.bifPath = path
     m.pending.push(t)
     t.control = "RUN"
 end sub
 
 sub onBif(r as object)
     print "Cove:   -> "; r.code; " (thumbnails)"
-    if r.tag.itemId <> m.top.item.id or r.code <> 200 then return
-    b = Playback.readBif("tmp:/cove.bif")
+    if r.tag.itemId <> m.top.item.id or r.code <> 200
+        DeleteFile(Util.toText(r.tag.path))
+        return
+    end if
+    b = Playback.readBif(r.tag.path)
     if b = invalid
         print "Cove: no usable BIF"
         return
@@ -1107,7 +1126,11 @@ sub clearThumbFiles()
         DeleteFile(f)
     end for
     m.thumbFiles = {}
-    DeleteFile("tmp:/cove.bif")
+    if m.bifPath <> "" then DeleteFile(m.bifPath)
+    ' a download still running deletes its file when it ends (the player is gone or on another title)
+    if m.bifTask <> invalid then m.bifTask.discard = true
+    m.bifTask = invalid
+    m.bifPath = ""
 end sub
 
 sub close()
@@ -1163,11 +1186,11 @@ sub markIfWatched(atSec as float)
     if atSec < d * 0.9 and not inCredits then return
     print "Cove: marking watched at "; Int(atSec); " of "; Int(d); " s"
     uid = Util.toText(m.top.server.userId)
-    if Util.toText(m.top.server.type) = "jellyfin"
-        fire("POST", "/UserPlayedItems/" + m.top.item.id + "?userId=" + uid, "")
-    else
-        fire("POST", "/Users/" + uid + "/PlayedItems/" + m.top.item.id, "")
-    end if
+    ' Emby and Jellyfin up to 10.8 know only /Users/{id}/PlayedItems; Jellyfin 10.9+ also /UserPlayedItems, used
+    ' if the first answers 404 (as on Home)
+    fallback = ""
+    if Util.toText(m.top.server.type) = "jellyfin" then fallback = "/UserPlayedItems/" + m.top.item.id + "?userId=" + uid
+    fire("POST", "/Users/" + uid + "/PlayedItems/" + m.top.item.id, "", 0, fallback)
     m.info.UserData.Played = true
 end sub
 
@@ -1208,6 +1231,9 @@ sub onResponse(ev as object)
         onBif(r)
     else if k = "subProbe"
         onSubProbe(r)
+    else if (k = "segments" or k = "episodes") and r.tag.itemId <> m.top.item.id
+        ' (the previous episode's answer after Next / Episodes)
+        return
     else if k = "segments" and r.code = 200
         m.marks = Tracks.fromSegments(r.json, m.marks)
     else if k = "episodes" and r.code = 200 and r.json <> invalid
@@ -1229,10 +1255,12 @@ end sub
 
 ' A request whose answer nobody waits for. The task is parked in the scene's "tasks" group so it keeps running
 ' after this screen is gone (finished ones are cleared each time).
-sub fire(method as string, path as string, body as string, delay = 0 as integer)
+sub fire(method as string, path as string, body as string, delay = 0 as integer, fallbackPath = "" as string)
     holder = tasksHolder()
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: body, delay: delay, tag: { kind: "fire" } }
+    req = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: body, delay: delay, tag: { kind: "fire" } }
+    if fallbackPath <> "" then req.fallbackUrl = Util.toText(m.top.server.url) + fallbackPath
+    t.request = req
     if holder = invalid
         ' (no scene any more: keep it referenced here instead)
         m.pending.push(t)

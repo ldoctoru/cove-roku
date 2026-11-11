@@ -5,5 +5,7 @@
     <interface>
         <field id="request" type="assocarray" />
         <field id="response" type="assocarray" />
+        <!-- set while a saveTo download runs: the file is deleted when it ends -->
+        <field id="discard" type="boolean" value="false" />
     </interface>
 </component>
