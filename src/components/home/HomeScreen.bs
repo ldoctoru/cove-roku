@@ -63,6 +63,7 @@ sub init()
     m.top.findNode("hero").visible = false
     m.picker = invalid
     m.menuItem = invalid
+    m.timersPaused = false
 end sub
 
 ' ---------------------------------------------------------------- loading
@@ -133,7 +134,8 @@ sub onContent(ev as object)
     m.status.visible = false
     buildNav()
     loadSessions()
-    m.sessionsTimer.control = "start"
+    ' (a reload can answer while another screen is on top: polling starts again when Home is back)
+    if m.top.isInFocusChain() then m.sessionsTimer.control = "start"
     buildHeroes(content)
     if not wasReload or m.state = "loading"
         if m.heroes.count() > 0
@@ -595,6 +597,25 @@ end sub
 ' ---------------------------------------------------------------- keys
 
 sub onFocusChanged()
+    ' Hidden under another screen (details, player, a dialog): no hero rotation, backdrop loads or session
+    ' polling until Home has the focus again
+    if not m.top.isInFocusChain()
+        if not m.timersPaused
+            m.timersPaused = true
+            m.heroTimer.control = "stop"
+            m.sessionsTimer.control = "stop"
+            m.backdropTimer.control = "stop"
+        end if
+        return
+    end if
+    if m.timersPaused
+        m.timersPaused = false
+        if m.rows.visible
+            loadSessions()
+            m.sessionsTimer.control = "start"
+        end if
+        if m.state = "hero" then m.heroTimer.control = "start"
+    end if
     if not m.top.hasFocus() then return
     if m.picker <> invalid
         m.picker.setFocus(true)
@@ -658,6 +679,8 @@ function onKeyEvent(key as string, press as boolean) as boolean
             return true
         end if
     else if m.state = "nav"
+        ' no hero: Back from the rows comes here, so a second Back must leave the app instead of going round
+        if key = "back" and m.heroes.count() = 0 then return false
         if (m.side and key = "right") or (not m.side and key = "down") or key = "back"
             leaveNav()
             return true
@@ -796,8 +819,9 @@ sub onFavResponse(ev as object)
             if h.itemId = r.tag.itemId then h.favorite = r.tag.method = "POST"
         end for
         paintButtons()
-        ' (the Favourites row and the hearts on the cards)
-        if m.state = "rows" then m.top.reload = true
+        ' the Favourites row and the hearts on the cards change too (also for + on the hero); the reload keeps
+        ' the focus and the hero shown
+        m.top.reload = true
     end if
 end sub
 
@@ -819,12 +843,13 @@ sub onOptionsButton(ev as object)
     d.unobserveField("buttonSelected")
     d.unobserveField("wasClosed")
     d.close = true
+    ' (Reload: the state first, so the focus doesn't go to the rows that are about to be hidden)
+    if b = 1 then m.state = "loading"
     restoreFocus()
     if b = 0
         m.top.action = { id: "search" }
     else if b = 1
         m.rows.visible = false
-        m.state = "loading"
         load()
     else if b = 2
         m.top.action = { id: "switch" }

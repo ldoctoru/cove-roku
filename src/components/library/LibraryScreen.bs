@@ -21,6 +21,7 @@ sub init()
     m.gen = 0
     m.task = invalid
     m.picker = invalid
+    m.keepIndex = -1        ' refresh: the card to focus again once the first page is back
     ' (the grid gets focus as soon as the screen is shown, before the library is set: never leave it without content)
     m.grid.content = createObject("roSGNode", "ContentNode")
 end sub
@@ -47,7 +48,19 @@ sub reload()
     m.grid.content = createObject("roSGNode", "ContentNode")
     m.status.text = "Loading..."
     m.status.visible = true
-    loadPage(0)
+    loadPage(0, 60)
+end sub
+
+' Back on this page after a favourite / watched change or playback (MainScene sets "stale"): load it again,
+' keeping the grid on screen until the new items arrive and the focus on the same card
+sub onRefresh()
+    if m.top.library = invalid or m.top.server = invalid then return
+    m.gen = m.gen + 1
+    m.keepIndex = m.grid.itemFocused
+    ' (enough items in one request to reach the focused card)
+    limit = 60
+    if m.keepIndex >= 40 then limit = (Int((m.keepIndex + 21) / 60) + 1) * 60
+    loadPage(0, limit)
 end sub
 
 function sortQuery() as string
@@ -83,7 +96,7 @@ function filterQuery() as string
     flags = []
     if m.show = "unwatched" then flags.push("IsUnplayed")
     if m.show = "watched" then flags.push("IsPlayed")
-    if m.show = "favourites" or feed() = "favorites" then flags.push("IsFavorite")
+    if m.show = "favourites" or feed() = "favorites" then flags.push("IsFavorite")   ' (once, also on Favorites)
     if flags.count() > 0 then q = q + "&Filters=" + Util.join(flags, ",")
     if m.genre <> "" then q = q + "&Genres=" + m.genre.encodeUriComponent()
     if m.letter = "#"
@@ -92,6 +105,11 @@ function filterQuery() as string
         q = q + "&NameStartsWith=" + m.letter
     end if
     return q
+end function
+
+' A filter the user picked (the Favorites page's own IsFavorite doesn't count)
+function userFiltered() as boolean
+    return m.show <> "all" or m.genre <> "" or m.letter <> ""
 end function
 
 ' The library's genres for the Genre pill
@@ -209,15 +227,18 @@ sub useBar()
         end for
         openPicker("letter", "Starts with", o, m.letter)
     else if id = "show"
-        openPicker("show", "Show", [{ id: "all", label: "All" }, { id: "unwatched", label: "Unwatched" }, { id: "watched", label: "Watched" }, { id: "favourites", label: "Favourites" }], m.show)
+        o = [{ id: "all", label: "All" }, { id: "unwatched", label: "Unwatched" }, { id: "watched", label: "Watched" }]
+        ' (everything on the Favorites page is one already)
+        if feed() <> "favorites" then o.push({ id: "favourites", label: "Favourites" })
+        openPicker("show", "Show", o, m.show)
     end if
 end sub
 
-sub loadPage(startIndex as integer)
+sub loadPage(startIndex as integer, limit as integer)
     lib = m.top.library
     uid = Util.toText(m.top.server.userId)
     types = Items.typesFor(Util.toText(lib.collectionType))
-    q = sortQuery() + "&StartIndex=" + startIndex.toStr() + "&Limit=60&" + Items.fields()
+    q = sortQuery() + "&StartIndex=" + startIndex.toStr() + "&Limit=" + limit.toStr() + "&" + Items.fields()
     if Util.toText(lib.id) <> "" then q = "ParentId=" + Util.toText(lib.id) + "&" + q
     ' A library: everything of its kind inside it; a folder / collection: just what it contains
     if feed() = "favorites"
@@ -249,6 +270,8 @@ sub onPage(ev as object)
     m.loading = false
     m.total = r.total
     holder = r.nodes
+    ' (a refresh replaces what was shown only now, so the grid doesn't go blank while it loads)
+    if r.startIndex = 0 then m.grid.content = createObject("roSGNode", "ContentNode")
     nodes = []
     for i = 0 to holder.getChildCount() - 1
         nodes.push(holder.getChild(i))
@@ -257,16 +280,26 @@ sub onPage(ev as object)
     count = m.grid.content.getChildCount()
     if count = 0
         m.status.text = "Nothing here."
-        if filterQuery() <> "" then m.status.text = "Nothing matches these filters. Press Up to change them."
+        if feed() = "favorites" then m.status.text = "No favorites yet. Add titles with the heart on their page, or * on a card on Home."
+        if userFiltered() then m.status.text = "Nothing matches these filters. Press Up to change them."
         m.status.visible = true
     else
         m.status.visible = false
         if r.startIndex = 0 and m.top.isInFocusChain() and not m.inBar then m.grid.setFocus(true)
+        if r.startIndex = 0 and m.keepIndex > 0
+            k = m.keepIndex
+            if k > count - 1 then k = count - 1
+            m.grid.jumpToItem = k
+        end if
     end if
+    m.keepIndex = -1
     updateInfo()
 end sub
 
 sub onError(ev as object)
+    ' (the answer to a page of an earlier sort / filter: the current request is still running)
+    if ev.getRoSGNode().gen <> m.gen then return
+    m.keepIndex = -1
     m.loading = false
     m.status.text = ev.getData()
     m.status.visible = true
@@ -283,7 +316,7 @@ end sub
 sub onFocused()
     if m.grid.content = invalid or m.top.library = invalid then return
     count = m.grid.content.getChildCount()
-    if not m.loading and count < m.total and m.grid.itemFocused >= count - 21 then loadPage(count)
+    if not m.loading and count < m.total and m.grid.itemFocused >= count - 21 then loadPage(count, 60)
 end sub
 
 sub onSelected()
@@ -364,6 +397,10 @@ sub onPicked(ev as object)
 end sub
 
 sub onFocusChanged()
+    if m.top.stale and m.top.isInFocusChain()
+        m.top.stale = false
+        onRefresh()
+    end if
     if not m.top.hasFocus() then return
     if m.picker <> invalid
         m.picker.setFocus(true)
