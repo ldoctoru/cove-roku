@@ -26,7 +26,7 @@ sub work()
         print "Cove: play "; s.method; " ("; s.streamFormat; ", source video "; s.sourceVideoCodec; ")"
         m.top.stream = s
     catch e
-        print "Cove: PlayTask failed: "; e.message
+        print "Cove: PlayTask failed: "; Util.redact(Util.toText(e.message))
         m.top.error = "Couldn't start playback: " + Util.toText(e.message)
     end try
 end sub

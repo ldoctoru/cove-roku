@@ -38,6 +38,9 @@ sub init()
     m.video.notificationInterval = 1
     m.top.observeField("focusedChild", "onFocusChanged")
     m.pending = []
+    m.orphans = []          ' superseded PlayTasks, kept until they answer so their server conversion can be ended
+    m.tasksHolder = invalid
+    tasksHolder()
     m.picker = invalid
     m.subLang = ""          ' subtitle language chosen in this session, kept for the next episode
     resetState()
@@ -48,6 +51,7 @@ sub resetState()
     m.osdShown = false
     m.osd.opacity = 0
     m.session = invalid
+    if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = invalid
     m.retried = false
     m.started = false
@@ -82,12 +86,13 @@ sub begin()
     resetState()
     it = m.top.item
     m.startAt = it.start
+    tasksHolder()
     m.top.findNode("title").text = Util.toText(it.title)
     m.top.findNode("episode").text = Util.toText(it.subtitle)
     if it.options <> invalid and it.options.audio <> invalid then m.opts = it.options
     m.status.text = "Starting..."
     m.status.visible = true
-    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + it.id + "?Fields=MediaSources,MediaStreams,Chapters,Trickplay", { kind: "info" })
+    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + it.id + "?Fields=MediaSources,MediaStreams,Chapters,Trickplay", { kind: "info", itemId: it.id })
 end sub
 
 sub onInfo(r as object)
@@ -149,6 +154,8 @@ sub start(startSeconds as float, forceTranscode as boolean)
     m.startAt = startSeconds
     m.status.text = "Starting..."
     m.status.visible = true
+    ' (a change while "Starting...": the earlier request is superseded, only its conversion still needs ending)
+    if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = createObject("roSGNode", "PlayTask")
     m.playTask.server = m.top.server
     m.playTask.itemId = m.top.item.id
@@ -159,8 +166,45 @@ sub start(startSeconds as float, forceTranscode as boolean)
     m.playTask.control = "RUN"
 end sub
 
-sub onStream()
-    s = m.playTask.stream
+' A PlayTask that is no longer wanted (new settings, another episode, the player closed): its answer is
+' ignored, but a conversion the server started for it is stopped
+sub orphanPlayTask(t as object)
+    t.unobserveField("stream")
+    t.unobserveField("error")
+    if t.state = "done" or t.state = "stop" then return
+    t.observeField("stream", "onOrphanStream")
+    t.observeField("error", "onOrphanStream")
+    m.orphans.push(t)
+end sub
+
+sub onOrphanStream(ev as object)
+    t = ev.getRoSGNode()
+    t.unobserveField("stream")
+    t.unobserveField("error")
+    for i = 0 to m.orphans.count() - 1
+        if m.orphans[i].isSameNode(t)
+            m.orphans.delete(i)
+            exit for
+        end if
+    end for
+    s = t.stream
+    if s <> invalid and Util.toText(s.method) <> ""
+        print "Cove: ending the superseded play session "; Util.toText(s.playSessionId)
+        stopEncodingFor(s)
+    end if
+end sub
+
+sub onStream(ev as object)
+    t = ev.getRoSGNode()
+    s = ev.getData()
+    if m.playTask = invalid or not t.isSameNode(m.playTask) or s = invalid or Util.toText(s.url) = ""
+        ' (a stale answer: end its conversion instead of playing it)
+        onOrphanStream(ev)
+        return
+    end if
+    t.unobserveField("stream")
+    t.unobserveField("error")
+    m.playTask = invalid
     s.itemId = m.top.item.id
     m.session = s
     ' left while the server was preparing it: stop that conversion and go
@@ -239,8 +283,13 @@ sub applySubtitle(url as string)
     end if
 end sub
 
-sub onPlayError()
-    m.status.text = m.playTask.error + chr(10) + "Press Back to return."
+sub onPlayError(ev as object)
+    t = ev.getRoSGNode()
+    if m.playTask = invalid or not t.isSameNode(m.playTask) or m.closing then return
+    t.unobserveField("stream")
+    t.unobserveField("error")
+    m.playTask = invalid
+    m.status.text = Util.toText(ev.getData()) + chr(10) + "Press Back to return."
     m.status.visible = true
 end sub
 
@@ -275,7 +324,8 @@ end sub
 ' The Roku couldn't play the stream: once, have the server convert the video and continue at the same position
 sub onVideoError()
     m.failed = true
-    print "Cove: video error "; m.video.errorCode; " "; m.video.errorMsg; " | "; formatJson(m.video.errorInfo)
+    ' (the error texts can hold the stream URL with its api_key)
+    print "Cove: video error "; m.video.errorCode; " "; Util.redact(Util.toText(m.video.errorMsg)); " | "; Util.redact(Util.toText(m.video.errorStr)); " | "; Util.redact(formatJson(m.video.errorInfo))
     if m.session <> invalid then print "Cove: was "; m.session.method; " "; m.session.streamFormat
     atSec = m.video.position
     if atSec < 1 then atSec = m.startAt
@@ -283,7 +333,7 @@ sub onVideoError()
         retryConverted(atSec)
         return
     end if
-    m.status.text = "This video can't be played on this Roku." + chr(10) + Util.toText(m.video.errorMsg) + "  (" + Util.toText(m.video.errorCode) + ")" + chr(10) + "Press Back to return."
+    m.status.text = "This video can't be played on this Roku." + chr(10) + Util.redact(Util.toText(m.video.errorMsg)) + "  (" + Util.toText(m.video.errorCode) + ")" + chr(10) + "Press Back to return."
     m.status.visible = true
 end sub
 
@@ -1066,13 +1116,26 @@ sub close()
     m.progressTimer.control = "stop"
     m.countdown.control = "stop"
     m.watchdog.control = "stop"
+    m.hideTimer.control = "stop"
+    m.seekTimer.control = "stop"
     atSec = m.video.position
     m.video.control = "stop"
     if m.started then report("/Sessions/Playing/Stopped", false, atSec)
     markIfWatched(atSec)
     stopEncoding()
+    ' still preparing a stream: drop it, but end the conversion when the server answers
+    if m.playTask <> invalid then orphanPlayTask(m.playTask)
+    m.playTask = invalid
     clearThumbFiles()
     m.closeTimer.control = "start"
+end sub
+
+' The scene removes the player for a deep link: stop like Back, without "done"
+sub onStopNow()
+    if not m.top.stopNow then return
+    closePicker()
+    close()
+    m.closeTimer.control = "stop"
 end sub
 
 sub finish()
@@ -1080,7 +1143,10 @@ sub finish()
 end sub
 
 sub stopEncoding()
-    s = m.session
+    stopEncodingFor(m.session)
+end sub
+
+sub stopEncodingFor(s as dynamic)
     if s = invalid or s.method = "DirectPlay" then return
     path = "/Videos/ActiveEncodings?DeviceId=" + Util.deviceId() + "&PlaySessionId=" + Util.toText(s.playSessionId)
     fire("DELETE", path, "")
@@ -1133,7 +1199,10 @@ sub onResponse(ev as object)
     end for
     r = ev.getData()
     k = r.tag.kind
+    ' (left, or removed for a deep link: late answers would start a new stream)
+    if m.closing then return
     if k = "info"
+        if r.tag.itemId <> m.top.item.id then return
         onInfo(r)
     else if k = "bif"
         onBif(r)
@@ -1161,15 +1230,31 @@ end sub
 ' A request whose answer nobody waits for. The task is parked in the scene's "tasks" group so it keeps running
 ' after this screen is gone (finished ones are cleared each time).
 sub fire(method as string, path as string, body as string, delay = 0 as integer)
-    holder = m.top.getScene().findNode("tasks")
+    holder = tasksHolder()
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: body, delay: delay, tag: { kind: "fire" } }
+    if holder = invalid
+        ' (no scene any more: keep it referenced here instead)
+        m.pending.push(t)
+        t.control = "RUN"
+        return
+    end if
     for i = holder.getChildCount() - 1 to 0 step -1
         if holder.getChild(i).state = "done" or holder.getChild(i).state = "stop" then holder.removeChildIndex(i)
     end for
-    t = createObject("roSGNode", "ApiTask")
-    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: body, delay: delay, tag: { kind: "fire" } }
     holder.appendChild(t)
     t.control = "RUN"
 end sub
+
+' The scene's "tasks" group, saved while the player is on screen: a late answer after Back runs on a node
+' that has left the scene, where getScene() is invalid
+function tasksHolder() as dynamic
+    if m.tasksHolder = invalid
+        sc = m.top.getScene()
+        if sc <> invalid then m.tasksHolder = sc.findNode("tasks")
+    end if
+    return m.tasksHolder
+end function
 
 sub onFocusChanged()
     if not m.top.hasFocus() then return

@@ -16,7 +16,7 @@ sub work()
             f = e.backtrace[e.backtrace.count() - 1]
             where = " at " + Util.toText(f.filename).replace("pkg:/", "") + ":" + Util.toText(f.line_number)
         end if
-        print "Cove: home failed: "; e.message; where
+        print "Cove: home failed: "; Util.redact(Util.toText(e.message)); where
         m.top.error = "Loading failed: " + Util.toText(e.message) + where
     end try
 end sub
@@ -112,7 +112,7 @@ function getList(path as string, fallback as string) as object
     end if
     if r.code <> 200 or r.json = invalid
         m.failures = m.failures + 1
-        print "Cove: home list failed "; path.split("?")[0]; " -> "; r.code; " "; r.error
+        print "Cove: home list failed "; path.split("?")[0]; " -> "; r.code; " "; Util.redact(Util.toText(r.error))
         return []
     end if
     if type(r.json) = "roArray" then return r.json

@@ -13,6 +13,8 @@
         <field id="server" type="assocarray" />
         <field id="item" type="assocarray" onChange="begin" />
         <field id="done" type="boolean" alwaysNotify="true" />
+        <!-- set by the scene before it removes the player (a deep link): stop everything, no "done" -->
+        <field id="stopNow" type="boolean" onChange="onStopNow" />
     </interface>
     <children>
         <Rectangle width="1920" height="1080" color="0x000000FF" />
