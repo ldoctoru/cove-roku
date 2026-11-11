@@ -8,7 +8,7 @@ import "pkg:/source/DeviceCaps.bs"
 namespace Playback
 
     ' Quoted keys keep their case in the JSON sent to the server (unquoted AA keys are lower-cased)
-    function profile(caps as object, maxBitrate as integer) as object
+    function profile(caps as object, maxBitrate as integer, jellyfin = false as boolean) as object
         video = ["h264"]
         if caps.hevc then video.push("hevc")
         audio = ["aac", "mp3", "flac"]
@@ -32,12 +32,12 @@ namespace Playback
                 ]
             }
         ]
-        if caps.hevc and not caps.hevc10
-            codecProfiles.push({
-                "Type": "Video", "Codec": "hevc",
-                "Conditions": [{ "Condition": "LessThanEqual", "Property": "VideoBitDepth", "Value": "8", "IsRequired": false }]
-            })
-        end if
+        hevcConds = []
+        if caps.hevc and not caps.hevc10 then hevcConds.push({ "Condition": "LessThanEqual", "Property": "VideoBitDepth", "Value": "8", "IsRequired": false })
+        ' A TV without Dolby Vision shows a DV-only file (profile 5, no HDR10 / SDR base layer) in wrong colours:
+        ' let Jellyfin (10.9+ range types) convert those. Emby names this property differently, so not sent there.
+        if caps.hevc and jellyfin and not caps.dolbyVision then hevcConds.push({ "Condition": "NotEquals", "Property": "VideoRangeType", "Value": "DOVI", "IsRequired": false })
+        if hevcConds.count() > 0 then codecProfiles.push({ "Type": "Video", "Codec": "hevc", "Conditions": hevcConds })
         maxW = "1920"
         if caps.fourK then maxW = "3840"
 
@@ -89,8 +89,8 @@ namespace Playback
     end function
 
     ' JSON for POST /Items/{id}/PlaybackInfo
-    function infoBody(caps as object, opts as object) as string
-        return formatJson({ "DeviceProfile": profile(caps, bitrateOf(opts)) })
+    function infoBody(caps as object, opts as object, jellyfin = false as boolean) as string
+        return formatJson({ "DeviceProfile": profile(caps, bitrateOf(opts), jellyfin) })
     end function
 
     ' Query for PlaybackInfo. forceTranscode: after a playback error, the server converts the video.
