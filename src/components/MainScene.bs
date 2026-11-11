@@ -558,6 +558,8 @@ sub onResponse(ev as object)
     kind = Util.toText(r.tag.kind)
     if kind = "probe"
         onProbe(r)
+    else if (kind = "users" or kind = "qcEnabled") and (m.server = invalid or Util.toText(r.tag.serverId) <> Util.toText(m.server.id))
+        print "Cove: ignored a sign-in answer from another server"
     else if kind = "users"
         onUsers(r)
     else if kind = "qcEnabled"
@@ -629,8 +631,10 @@ sub openSignIn(server as object, status as string)
         showServers("")
         push(sc)
     end if
-    request("GET", server, "/Users/Public", false, "", { kind: "users" })
-    if Servers.isJellyfin(server) then request("GET", server, "/QuickConnect/Enabled", false, "", { kind: "qcEnabled" })
+    ' (tagged with the server: a slow answer from the server opened before must not fill this list)
+    sid = Util.toText(server.id)
+    request("GET", server, "/Users/Public", false, "", { kind: "users", serverId: sid })
+    if Servers.isJellyfin(server) then request("GET", server, "/QuickConnect/Enabled", false, "", { kind: "qcEnabled", serverId: sid })
 end sub
 
 sub onUsers(r as object)
