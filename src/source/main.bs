@@ -1,23 +1,55 @@
 ' Cove for Roku: entry point. Creates the SceneGraph screen and keeps the app alive until the scene closes.
+' Deep links (Roku Search, voice, home-screen tiles) arrive as launch arguments or, while the app runs, as
+' roInputEvents: { contentId, mediaType }; the scene opens or plays that item (MainScene.openDeepLink).
 sub main(args as dynamic)
     screen = createObject("roSGScreen")
     port = createObject("roMessagePort")
     screen.setMessagePort(port)
-    scene = screen.createScene("MainScene")
-    screen.show()
-    ' Launch arguments (deep links: contentId / mediaType) are handed to the scene for later use
-    scene.launchArgs = args
-
+    ' (registered before the screen shows, so no input event is missed)
     input = createObject("roInput")
     input.setMessagePort(port)
+    ' Memory monitoring (required by Roku): warnings near the app's memory limit (80 / 85 / 90 / 95 %), or the
+    ' device's general low-memory events on models without per-app limits
+    mem = createObject("roAppMemoryMonitor")
+    memOk = false
+    if mem <> invalid
+        mem.setMessagePort(port)
+        memOk = mem.EnableMemoryWarningEvent(true)
+        limit = mem.GetChannelMemoryLimit()
+        if limit <> invalid then print "Cove: memory limit "; formatJson(limit); ", available "; mem.GetChannelAvailableMemory(); " KB"
+    end if
+    if not memOk
+        di = createObject("roDeviceInfo")
+        di.setMessagePort(port)
+        di.EnableLowGeneralMemoryEvent(true)
+    end if
+    scene = screen.createScene("MainScene")
+    screen.show()
+    if args <> invalid and args.contentId <> invalid and args.mediaType <> invalid
+        print "Cove: launched with contentId="; args.contentId; " mediaType="; args.mediaType
+        scene.deepLink = { contentId: args.contentId, mediaType: args.mediaType }
+    end if
 
     while true
         msg = wait(0, port)
         msgType = type(msg)
         if msgType = "roSGScreenEvent"
             if msg.isScreenClosed() then return
+        else if msgType = "roAppMemoryNotificationEvent"
+            pct = msg.getInfo().lookup("MemoryUsagePercent")
+            if mem <> invalid then pct = mem.GetMemoryLimitPercent()
+            print "Cove: memory warning, "; pct; "% of the limit used, "; mem.GetChannelAvailableMemory(); " KB left"
+        else if msgType = "roDeviceInfoEvent"
+            info = msg.getInfo()
+            if info.generalMemoryLevel <> invalid then print "Cove: device memory level "; info.generalMemoryLevel
         else if msgType = "roInputEvent"
-            if msg.isInput() then scene.inputArgs = msg.getInfo()
+            if msg.isInput()
+                info = msg.getInfo()
+                if info.doesExist("contentid") and info.doesExist("mediatype")
+                    print "Cove: input contentid="; info.contentid; " mediatype="; info.mediatype
+                    scene.deepLink = { contentId: info.contentid, mediaType: info.mediatype }
+                end if
+            end if
         end if
     end while
 end sub

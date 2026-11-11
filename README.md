@@ -49,3 +49,8 @@ Feature branches → PR into `Development` → release PR into `main` → tag `v
 ## License
 
 GPL-3.0, the same licence as the original Cove project. See [LICENSE](LICENSE).
+
+## Privacy and terms
+
+- [Privacy Policy](PRIVACY.md)
+- [Terms of Use](TERMS.md)

@@ -4,8 +4,8 @@
 <component name="MainScene" extends="Scene">
     <script type="text/brightscript" uri="MainScene.bs" />
     <interface>
-        <field id="launchArgs" type="assocarray" />
-        <field id="inputArgs" type="assocarray" />
+        <!-- { contentId, mediaType } from a launch or an roInputEvent (main.bs) -->
+        <field id="deepLink" type="assocarray" alwaysNotify="true" onChange="onDeepLink" />
     </interface>
     <children>
         <Rectangle id="background" width="1920" height="1080" color="0x000000FF" />
