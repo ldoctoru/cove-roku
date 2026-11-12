@@ -1,6 +1,7 @@
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/Util.bs"
 import "pkg:/source/DeviceCaps.bs"
+import "pkg:/source/Api.bs"
 
 ' What to ask the server for and how to play what it returns. The device profile is built from what this Roku
 ' reports (DeviceCaps), so the server only converts what the Roku can't play. Streambar 9102: HEVC Main 10 /
@@ -141,8 +142,15 @@ namespace Playback
         end if
         t = Util.toText(src.TranscodingUrl)
         if t = "" then return invalid
-        if not t.startsWith("http") then t = base + t
-        if LCase(t).instr("api_key=") < 0 and LCase(t).instr("apikey=") < 0 then t = t + "&" + key
+        ' (the token only goes along to the server itself: a relative path, or an absolute URL on the server's
+        ' own host and not from https down to http; any other host named here gets no token)
+        safe = Util.tokenSafeTarget(base, t)
+        if not LCase(t).startsWith("http") then t = base + t
+        if not safe
+            print "Cove: the conversion is on another host: no sign-in sent there"
+        else if LCase(t).instr("api_key=") < 0 and LCase(t).instr("apikey=") < 0
+            t = t + "&" + key
+        end if
         print "Cove: stream "; Util.redact(t.mid(base.len()))
         ' An H.264 conversion must stay within 1080p (the Roku's H.264 limit); a copied HEVC video is left alone
         ' (replaced, not appended: a repeated parameter reaches the server as "3840,1920" and it answers 500)
@@ -197,9 +205,18 @@ namespace Playback
         })
     end function
 
-    ' The server's SRT version of a text subtitle (the Roku shows it over the video)
+    ' The server's SRT version of a text subtitle (Cove draws it over the video). No token in the URL (it would
+    ' end up in server and proxy access logs): the download sends it as a header, subtitleHeaders().
     function subtitleUrl(server as object, itemId as string, sourceId as string, index as integer) as string
-        return Util.toText(server.url) + "/Videos/" + itemId + "/" + sourceId + "/Subtitles/" + index.toStr() + "/Stream.srt?api_key=" + Util.toText(server.token)
+        return Util.toText(server.url) + "/Videos/" + itemId + "/" + sourceId + "/Subtitles/" + index.toStr() + "/Stream.srt"
+    end function
+
+    ' The sign-in headers for the subtitle download (ApiTask), without "Accept: application/json": the answer
+    ' is SRT text
+    function subtitleHeaders(server as object) as object
+        h = Api.headers(server, true)
+        h.delete("Accept")
+        return h
     end function
 
     ' "1:02:05" / "34:12"
