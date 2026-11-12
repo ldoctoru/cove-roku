@@ -60,6 +60,13 @@ sub init()
     m.pbTask = invalid
     m.pbServer = invalid
     m.pbTick = 0
+    ' Are you still watching?: episodes started by the countdown since the last key press, and the time
+    ' since that press (both span episodes, so they live outside resetState)
+    m.still = m.top.findNode("still")
+    m.stillKind = ""
+    m.stillBtn = 0
+    m.autoCount = 0
+    m.lastInput = createObject("roTimespan")
     resetState()
 end sub
 
@@ -67,6 +74,13 @@ sub resetState()
     m.loadNote = ""
     m.loadBase = 0
     m.subPos = 0.0
+    ' Subtitle delay (Subtitles menu), for this title only: a new title starts at 0
+    m.subDelayMs = 0
+    m.subLayer.delay = 0.0
+    ' Roku captions set to "Instant replay": a text subtitle loaded hidden, shown for a while after a replay
+    m.replaySub = -1
+    m.replayReady = false
+    m.subLayer.visible = true
     clearSubs()
     m.seekTarget = -1.0
     m.osdShown = false
@@ -82,7 +96,9 @@ sub resetState()
     m.info = invalid
     m.tracks = { sourceId: "", audio: [], subs: [] }
     m.versions = []
-    m.marks = { introStart: -1.0, introEnd: -1.0, credits: -1.0 }
+    m.marks = Tracks.markers({})
+    m.segsDone = {}         ' segments skipped or dismissed (by key), so their button doesn't come back
+    m.actionSeg = invalid
     m.next = invalid
     m.prev = invalid
     m.episodes = []
@@ -155,8 +171,24 @@ sub onInfo(r as object)
                 end if
             end if
         end if
-        ' Jellyfin keeps intro / credits as media segments
-        if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro", { kind: "segments", itemId: m.top.item.id })
+        ' The Roku's captions are On (Settings → Accessibility → Captions) and nothing in Cove chose subtitles:
+        ' the language from Settings, else the Roku's caption language. Off in the player or on the series page,
+        ' or a choice on the details page, wins.
+        if m.opts.sub < 0 and not picked and seriesPref = "" and m.subLang = "" and Subs.rokuMode() = "On"
+            rs = Tracks.subForLanguage(m.tracks, Subs.rokuLanguage())
+            print "Cove: Roku captions on, "; Subs.rokuLanguage(); " -> track "; rs
+            ' (text ones only: burning one in would make the server convert the video)
+            if rs >= 0 and Tracks.findSub(m.tracks, rs).isText
+                m.opts.sub = rs
+                m.opts.burn = false
+            end if
+        else if m.opts.sub < 0 and Subs.rokuMode() = "Instant replay"
+            rs = Tracks.subForLanguage(m.tracks, Subs.rokuLanguage())
+            if rs >= 0 and Tracks.findSub(m.tracks, rs).isText then m.replaySub = rs
+            print "Cove: Roku captions on instant replay -> track "; rs
+        end if
+        ' Jellyfin keeps intro / credits (and recaps, previews, commercials) as media segments
+        if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial", { kind: "segments", itemId: m.top.item.id })
         if Util.toText(r.json.Type) = "Episode" and Util.toText(r.json.SeriesId) <> ""
             get("/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields(), { kind: "episodes", itemId: m.top.item.id })
         end if
@@ -259,8 +291,16 @@ end sub
 ' The chosen text subtitle (if any): download it as SRT and draw it
 sub loadTextSub()
     clearSubs()
+    m.subLayer.visible = true
+    m.replayReady = false
+    if m.session = invalid then return
     sub_ = Tracks.findSub(m.tracks, m.opts.sub)
-    if sub_ = invalid or not sub_.isText or m.opts.burn or m.session = invalid then return
+    if m.opts.sub < 0 and m.replaySub >= 0
+        ' (subtitles off, Roku captions on instant replay: loaded now, shown only after a replay)
+        probeSubtitle(Playback.subtitleUrl(m.top.server, m.top.item.id, Util.toText(m.session.mediaSourceId), m.replaySub), m.replaySub, true)
+        return
+    end if
+    if sub_ = invalid or not sub_.isText or m.opts.burn then return
     url = Playback.subtitleUrl(m.top.server, m.top.item.id, Util.toText(m.session.mediaSourceId), sub_.index)
     probeSubtitle(url, sub_.index)
 end sub
@@ -294,9 +334,9 @@ end sub
 
 ' Download the subtitle (the server extracts embedded ones the first time, so it can take a while). If the
 ' server answers with an error, play the subtitle burned into the picture instead of showing nothing.
-sub probeSubtitle(url as string, index as integer)
+sub probeSubtitle(url as string, index as integer, forReplay = false as boolean)
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: "GET", url: url, headers: invalid, body: "", keepText: true, parse: "srt", tag: { kind: "subProbe", itemId: m.top.item.id, index: index }, timeout: 180000 }
+    t.request = { method: "GET", url: url, headers: Playback.subtitleHeaders(m.top.server), body: "", keepText: true, parse: "srt", tag: { kind: "subProbe", itemId: m.top.item.id, index: index, replay: forReplay }, timeout: 180000 }
     t.observeField("response", "onResponse")
     m.pending.push(t)
     t.control = "RUN"
@@ -304,6 +344,17 @@ end sub
 
 sub onSubProbe(r as object)
     print "Cove: subtitle -> "; r.code
+    if r.tag.replay = true
+        ' (the instant-replay subtitle: kept hidden; nothing to fall back to if it fails)
+        if r.tag.itemId <> m.top.item.id or m.opts.sub >= 0 or m.closing or r.code < 200 or r.code >= 400 or r.cues = invalid or r.cues.count() = 0 then return
+        m.subLayer.visible = false
+        m.subLayer.restyle = true
+        liftSubs(m.osdShown)
+        m.subLayer.cues = r.cues
+        m.subTimer.control = "start"
+        m.replayReady = true
+        return
+    end if
     if r.tag.itemId <> m.top.item.id or m.opts.sub <> r.tag.index or m.opts.burn or m.closing then return
     if r.code >= 200 and r.code < 400
         if r.cues <> invalid then print "Cove: subtitle cues "; r.cues.count()
@@ -383,6 +434,12 @@ end sub
 ' its conversion running (it ends one after about a minute without news)
 sub onProgressTimer()
     st = m.video.state
+    ' (2 hours of playing without a key press: pause and ask, so a sleeping viewer doesn't stream all night)
+    if st = "playing" and Prefs.stillWatchingAfter() > 0 and m.lastInput.TotalSeconds() >= 7200 and not m.still.visible
+        m.video.control = "pause"
+        askStill("idle")
+        return
+    end if
     if st = "playing"
         report("/Sessions/Playing/Progress", false)
     else if st = "paused" and m.session <> invalid
@@ -427,10 +484,13 @@ sub onPosition()
     syncSubClock(m.video.position)
     if m.osdShown and m.seekTarget < 0 then updateBar(m.video.position)
     p = m.video.position
-    if m.video.state <> "playing" or m.upNext.visible then return
+    if m.video.state <> "playing" or m.upNext.visible or m.still.visible then return
     mk = m.marks
     inIntro = mk.introStart >= 0 and mk.introEnd > mk.introStart and p >= mk.introStart and p < mk.introEnd - 2
-    inCredits = m.next <> invalid and mk.credits > 0 and p >= mk.credits
+    inCredits = mk.credits > 0 and p >= mk.credits
+    ' (credits with a known end before the real end: a scene after them, the button goes when it starts)
+    if inCredits and m.next = invalid and mk.creditsEnd > mk.credits and p >= mk.creditsEnd - 2 then inCredits = false
+    seg = segmentAt(p)
     if inIntro and not m.introDismissed and Prefs.autoSkipIntro()
         ' Settings → Skip intros automatically
         m.introDismissed = true
@@ -438,8 +498,19 @@ sub onPosition()
         m.video.seek = mk.introEnd
     else if inIntro and not m.introDismissed
         showAction("intro", "Skip intro")
-    else if inCredits and not m.creditsDismissed
+    else if seg <> invalid and seg.kind = "recap" and Prefs.autoSkipRecap()
+        ' Settings → Skip recaps automatically
+        m.segsDone[seg.key] = true
+        print "Cove: skipping the recap to "; Int(seg.e); " s"
+        skipTo(seg.e)
+    else if seg <> invalid
+        m.actionSeg = seg
+        showAction("seg:" + seg.key, Tracks.segmentLabel(seg.kind))
+    else if inCredits and not m.creditsDismissed and m.next <> invalid
         showAction("next", "Next episode")
+    else if inCredits and not m.creditsDismissed
+        ' a film or the last episode: no Up next, so the credits get their own button
+        showAction("credits", "Skip credits")
     else if m.actionKind <> ""
         hideAction()
     end if
@@ -467,13 +538,61 @@ sub useAction()
         m.video.seek = m.marks.introEnd
     else if k = "next"
         playNext()
+    else if k = "credits"
+        m.creditsDismissed = true
+        skipCredits()
+    else if Left(k, 4) = "seg:" and m.actionSeg <> invalid
+        m.segsDone[m.actionSeg.key] = true
+        print "Cove: skipping the "; m.actionSeg.kind; " to "; Int(m.actionSeg.e); " s"
+        skipTo(m.actionSeg.e)
     end if
 end sub
 
 sub dismissAction()
-    if m.actionKind = "intro" then m.introDismissed = true
-    if m.actionKind = "next" then m.creditsDismissed = true
+    k = m.actionKind
+    if k = "intro" then m.introDismissed = true
+    if k = "next" or k = "credits" then m.creditsDismissed = true
+    if Left(k, 4) = "seg:" and m.actionSeg <> invalid then m.segsDone[m.actionSeg.key] = true
     hideAction()
+end sub
+
+' The recap / preview / commercial segment playing at p that wasn't skipped or dismissed yet
+function segmentAt(p as float) as dynamic
+    if m.marks.segs = invalid then return invalid
+    for each sg in m.marks.segs
+        if p >= sg.s and p < sg.e - 2 and not m.segsDone.doesExist(sg.key) then return sg
+    end for
+    return invalid
+end function
+
+' Jump to t; a jump to the very end (a preview or the credits closing the file) ends the title as if it
+' had played to the end (Up next, or the player closes; close() marks it watched from the credits)
+sub skipTo(t as float)
+    d = m.video.duration
+    if d > 0 and t >= d - 3
+        print "Cove: skipped to the end"
+        if m.next <> invalid and Prefs.autoNext()
+            ' (Up next runs over a stopped video, as after a real end)
+            m.video.control = "stop"
+            onFinished()
+        else
+            close()
+        end if
+        return
+    end if
+    m.video.seek = t
+    syncSubClock(t)
+    m.subLayer.position = t
+end sub
+
+' Skip credits (no next episode): past their end when a scene follows them, else to the end
+sub skipCredits()
+    d = m.video.duration
+    t = d
+    mk = m.marks
+    if mk.creditsEnd > mk.credits and (d <= 0 or mk.creditsEnd < d - 10) then t = mk.creditsEnd
+    print "Cove: skipping the credits to "; Int(t); " s"
+    skipTo(t)
 end sub
 
 sub onFinished()
@@ -504,6 +623,13 @@ sub onCountdown()
     m.count = m.count - 1
     if m.count <= 0
         m.countdown.control = "stop"
+        ' Settings → Playback → Are you still watching?: this many episodes in a row without a key press
+        lim = Prefs.stillWatchingAfter()
+        if lim > 0 and m.autoCount >= lim
+            askStill("next")
+            return
+        end if
+        m.autoCount = m.autoCount + 1
         playNext()
     else
         m.top.findNode("upNextCount").text = "Play now  (" + m.count.toStr() + ")"
@@ -577,7 +703,7 @@ end sub
 
 sub onPickerCancelled()
     ' (Back from a style list: the Subtitles menu again)
-    if m.picker <> invalid and Left(Util.toText(m.picker.purpose), 9) = "substyle:"
+    if m.picker <> invalid and (Left(Util.toText(m.picker.purpose), 9) = "substyle:" or m.picker.purpose = "subdelay")
         openSubsMenu()
         return
     end if
@@ -621,6 +747,22 @@ sub onPicked(ev as object)
         for each ch in Subs.styleChoices()
             if ch.key = key then openPicker("substyle:" + key, ch.label, ch.options, Subs.current(ch))
         end for
+        return
+    end if
+    if c.purpose = "subs" and c.id = "delay"
+        o = []
+        for each ms in [-5000, -4500, -4000, -3500, -3000, -2500, -2000, -1500, -1000, -500, -250, 0, 250, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
+            o.push({ id: ms.toStr(), label: delayLabel(ms) })
+        end for
+        openPicker("subdelay", "Subtitle delay", o, m.subDelayMs.toStr())
+        return
+    end if
+    if c.purpose = "subdelay"
+        ' (at once: the layer shows the cue for position - delay)
+        m.subDelayMs = c.id.toInt()
+        m.subLayer.delay = m.subDelayMs / 1000.0
+        print "Cove: subtitle delay "; delayLabel(m.subDelayMs)
+        openSubsMenu()
         return
     end if
     if Left(c.purpose, 9) = "substyle:"
@@ -715,6 +857,12 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
+    ' (any key: someone is watching)
+    noteInput()
+    if m.still.visible
+        stillKey(key)
+        return true
+    end if
     if m.upNext.visible
         if key = "OK" or key = "play"
             playNext()
@@ -738,7 +886,10 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if key = "options"
         showMenu()
         return true
-    else if key = "rewind" or key = "fastforward" or key = "replay"
+    else if key = "replay"
+        instantReplay()
+        return true
+    else if key = "rewind" or key = "fastforward"
         if key = "fastforward"
             seekBy(30)
         else
@@ -1394,6 +1545,8 @@ sub onFocusChanged()
     if not m.top.hasFocus() then return
     if m.picker <> invalid
         m.picker.setFocus(true)
+    else if m.still.visible
+        m.still.setFocus(true)
     else if m.upNext.visible
         m.upNext.setFocus(true)
     else if m.action.visible
@@ -1706,8 +1859,245 @@ sub openSubsMenu()
     for each s in m.tracks.subs
         o.push({ id: s.index.toStr(), label: s.label })
     end for
+    ' (text subtitles only: burned-in ones are part of the picture)
+    if m.opts.sub >= 0 and not m.opts.burn then o.push({ id: "delay", label: "Subtitle delay:  " + delayLabel(m.subDelayMs) })
     for each ch in Subs.styleChoices()
         o.push({ id: "style:" + ch.key, label: ch.label + ":  " + Subs.currentLabel(ch) })
     end for
     openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
 end sub
+
+' ---------------------------------------------------------------- are you still watching?
+
+sub noteInput()
+    m.autoCount = 0
+    m.lastInput.Mark()
+end sub
+
+' kind "next": the countdown ended (the next episode isn't started yet, so the server converts nothing);
+' "idle": 2 hours without a key press, the video is paused
+sub askStill(kind as string)
+    m.stillKind = kind
+    m.stillBtn = 0
+    hideAction()
+    m.upNext.visible = false
+    m.countdown.control = "stop"
+    m.hideTimer.control = "stop"
+    m.osdShown = false
+    m.osd.opacity = 0
+    liftSubs(false)
+    name = Util.toText(m.top.item.title)
+    if m.info <> invalid and Util.toText(m.info.SeriesName) <> "" then name = Util.toText(m.info.SeriesName)
+    if kind = "next" and m.next <> invalid and Util.toText(m.next.SeriesName) <> "" then name = Util.toText(m.next.SeriesName)
+    m.top.findNode("stillTitle").text = name + "?"
+    print "Cove: are you still watching ("; kind; ")"
+    drawStill()
+    m.still.visible = true
+    m.still.setFocus(true)
+end sub
+
+function stillLabels() as object
+    leave = "Stop watching"
+    if seriesKey() <> "" then leave = "Back to the series"
+    return ["Continue watching", leave]
+end function
+
+' Two buttons: white when focused, glass otherwise (as Up next and the Glass dialogs)
+sub drawStill()
+    g = m.top.findNode("stillBtns")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    labels = stillLabels()
+    for i = 0 to 1
+        b = g.createChild("Group")
+        b.translation = [i * 384, 0]
+        bg = b.createChild("Poster")
+        bg.width = 360
+        bg.height = 68
+        l = b.createChild("Label")
+        l.width = 360
+        l.height = 68
+        l.horizAlign = "center"
+        l.vertAlign = "center"
+        l.text = labels[i]
+        f = createObject("roSGNode", "Font")
+        f.uri = "font:BoldSystemFontFile"
+        f.size = 28
+        l.font = f
+        if i = m.stillBtn
+            bg.uri = "pkg:/images/ui/white_rr12.9.png"
+            l.color = "0x000000FF"
+        else
+            bg.uri = "pkg:/images/ui/glass_pill.9.png"
+            l.color = "0xFFFFFFFF"
+        end if
+    end for
+end sub
+
+sub stillKey(key as string)
+    if key = "left" or key = "right"
+        m.stillBtn = 1 - m.stillBtn
+        drawStill()
+    else if key = "OK" or key = "play"
+        if key = "play" then m.stillBtn = 0
+        useStill()
+    else if key = "back"
+        m.stillBtn = 1
+        useStill()
+    end if
+end sub
+
+sub useStill()
+    kind = m.stillKind
+    m.still.visible = false
+    m.stillKind = ""
+    m.keys.setFocus(true)
+    if m.stillBtn = 0
+        print "Cove: still watching"
+        if kind = "next"
+            playNext()
+        else if m.video.state = "paused"
+            m.video.control = "resume"
+        end if
+        return
+    end if
+    ' Back to the series: its page opens where the player was (MainScene.onPlayerDone)
+    if seriesKey() <> "" then m.top.openSeries = seriesKey()
+    close()
+end sub
+
+' 1500 → "+1.5 s", -250 → "-0.25 s", 0 → "0.0 s"
+function delayLabel(ms as integer) as string
+    if ms = 0 then return "0.0 s"
+    sign = "+"
+    if ms < 0 then sign = "-"
+    a = ms
+    if a < 0 then a = -a
+    frac = Right("00" + (a mod 1000).toStr(), 3)
+    ' (one decimal unless the quarter needs two)
+    if Right(frac, 1) = "0" then frac = Left(frac, 2)
+    if Right(frac, 1) = "0" then frac = Left(frac, 1)
+    return sign + (a \ 1000).toStr() + "." + frac + " s"
+end function
+
+' ---------------------------------------------------------------- instant replay, voice / transport
+
+' Jump to t now (no adding up of presses as with Left / Right)
+sub jumpTo(t as float)
+    d = m.video.duration
+    if t < 0 then t = 0
+    if d > 0 and t > d - 5 then t = d - 5
+    m.seekTimer.control = "stop"
+    m.seekTarget = -1
+    m.video.seek = t
+    syncSubClock(t)
+    m.subLayer.position = t
+    if m.video.state = "paused" then m.video.control = "resume"
+    showOsd(true)
+end sub
+
+' Instant Replay: 10 s back at once; with the Roku's captions on "Instant replay" (and subtitles off), the
+' subtitle shows for the replayed part (Roku's guideline)
+sub instantReplay()
+    if m.session = invalid then return
+    jumpTo(currentPos() - 10)
+    if m.opts.sub < 0 and m.replayReady
+        m.subLayer.visible = true
+        if m.replayTimer = invalid
+            m.replayTimer = createObject("roSGNode", "Timer")
+            m.replayTimer.duration = 12
+            m.replayTimer.observeField("fire", "onReplayTimer")
+            m.top.appendChild(m.replayTimer)
+        end if
+        m.replayTimer.control = "stop"
+        m.replayTimer.control = "start"
+    end if
+end sub
+
+sub onReplayTimer()
+    if m.opts.sub < 0 and m.replayReady then m.subLayer.visible = false
+end sub
+
+' main.bs → MainScene → here (callFunc): one voice / transport command → { status } (roInput eventResponse)
+function handleTransport(evt as object) as object
+    noteInput()
+    cmd = LCase(Util.toText(evt.command))
+    print "Cove: voice / transport "; cmd
+    if m.closing then return { status: "error.no-media" }
+    ok = { status: "success" }
+    if m.still.visible
+        if cmd = "play" or cmd = "resume" or cmd = "stop"
+            m.stillBtn = 0
+            if cmd = "stop" then m.stillBtn = 1
+            useStill()
+            return ok
+        end if
+        return { status: "unhandled" }
+    end if
+    if m.upNext.visible
+        if cmd = "play" or cmd = "resume" or cmd = "next" or cmd = "skip"
+            playNext()
+            return ok
+        else if cmd = "stop"
+            m.countdown.control = "stop"
+            close()
+            return ok
+        end if
+        return { status: "unhandled" }
+    end if
+    if cmd = "stop"
+        close()
+        return ok
+    end if
+    ' (still starting: nothing to control yet)
+    if m.session = invalid then return { status: "error" }
+    st = m.video.state
+    if cmd = "play" or cmd = "resume"
+        if st <> "paused" then return { status: "error.redundant" }
+        m.video.control = "resume"
+    else if cmd = "pause"
+        if st <> "playing" then return { status: "error.redundant" }
+        m.video.control = "pause"
+    else if cmd = "forward"
+        seekBy(30)
+    else if cmd = "rewind"
+        seekBy(-30)
+    else if cmd = "replay"
+        instantReplay()
+    else if cmd = "startover"
+        jumpTo(0)
+    else if cmd = "seek"
+        ' "skip forward 2 minutes": duration in seconds, direction forward / backward
+        secs = Val(Util.toText(evt.duration))
+        if Util.toText(evt.direction) = "backward" then secs = -secs
+        target = m.video.position + secs
+        d = m.video.duration
+        if target < 0
+            ok.status = "success.seek-start"
+        else if d > 0 and target > d - 5
+            ok.status = "success.seek-end"
+        end if
+        jumpTo(target)
+    else if cmd = "next"
+        if m.next = invalid then return { status: "error.generic" }
+        playEpisode(m.next)
+    else if cmd = "skip"
+        ' "skip intro" / "skip recap": the button on screen, else the next episode
+        if m.action.visible and m.actionKind <> ""
+            useAction()
+        else if m.next <> invalid
+            playEpisode(m.next)
+        else
+            return { status: "error.generic" }
+        end if
+    else if cmd = "nowplaying"
+        showOsd(true)
+        kind = "movie"
+        if m.info <> invalid and Util.toText(m.info.Type) = "Episode" then kind = "episode"
+        name = Util.toText(m.top.item.title)
+        if Util.toText(m.top.item.subtitle) <> "" then name = name + " - " + Util.toText(m.top.item.subtitle)
+        ok.nowPlaying = { title: name, contentType: kind }
+    else
+        return { status: "unhandled" }
+    end if
+    return ok
+end function

@@ -19,10 +19,16 @@ sub work()
         list = r.json
         total = 0
         if GetInterface(list, "ifAssociativeArray") <> invalid
-            if r.json.TotalRecordCount <> invalid then total = r.json.TotalRecordCount
+            total = Util.toNumber(r.json.TotalRecordCount)
             list = r.json.Items
         end if
         if type(list) <> "roArray" then list = []
+        ' (only objects: a wrong type in the list would stop at the first field read)
+        kept = []
+        for each it in list
+            if Util.isAA(it) then kept.push(it)
+        end for
+        list = kept
         if total = 0 then total = list.count()
         kind = m.top.kind
         if kind = "names"

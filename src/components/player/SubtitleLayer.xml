@@ -7,6 +7,8 @@
     <interface>
         <field id="cues" type="array" onChange="onCues" />
         <field id="position" type="float" onChange="onPosition" />
+        <!-- subtitle delay in seconds (the player's Subtitles menu): + shows them later, - earlier -->
+        <field id="delay" type="float" value="0.0" onChange="onPosition" />
         <field id="lift" type="integer" value="108" onChange="draw" />
         <field id="restyle" type="boolean" alwaysNotify="true" onChange="onRestyle" />
     </interface>

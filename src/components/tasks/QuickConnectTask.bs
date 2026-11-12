@@ -4,13 +4,23 @@ sub init()
     m.top.functionName = "work"
 end sub
 
+' (an error, e.g. an answer of the wrong shape, must reach the screen instead of leaving "Getting a code...")
 sub work()
+    try
+        poll()
+    catch e
+        print "Cove: Quick Connect failed: "; Util.redact(Util.toText(e.message))
+        m.top.error = "Quick Connect failed: the server's answer couldn't be read."
+    end try
+end sub
+
+sub poll()
     srv = m.top.server
     h = Api.headers(srv, false)
     ' Jellyfin 10.9+ uses POST; older versions GET
     r = Api.execute({ method: "POST", url: srv.url + "/QuickConnect/Initiate", headers: h })
     if r.code = 404 or r.code = 405 then r = Api.execute({ method: "GET", url: srv.url + "/QuickConnect/Initiate", headers: h })
-    if r.code <> 200 or r.json = invalid
+    if r.code <> 200 or not Util.isAA(r.json)
         m.top.error = "Quick Connect isn't available on this server. " + Api.describeFailure(r)
         return
     end if
@@ -26,7 +36,7 @@ sub work()
         if c.code = 200 and Util.flag(c.json, "Authenticated")
             body = "{" + chr(34) + "Secret" + chr(34) + ":" + formatJson(secret) + "}"
             a = Api.execute({ method: "POST", url: srv.url + "/Users/AuthenticateWithQuickConnect", headers: h, body: body })
-            if a.code = 200 and a.json <> invalid
+            if a.code = 200 and Util.isAA(a.json)
                 m.top.result = a.json
             else
                 m.top.error = "Quick Connect was approved, but signing in failed. " + Api.describeFailure(a)

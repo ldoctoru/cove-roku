@@ -23,7 +23,7 @@ end sub
 
 sub load()
     srv = m.top.server
-    print "Cove: home loading from "; srv.url
+    print "Cove: home loading from "; Util.originOf(Util.toText(srv.url))
     m.srv = srv
     m.h = Api.headers(srv, true)
     uid = Util.toText(srv.userId)
@@ -114,9 +114,15 @@ function getList(path as string, fallback as string) as object
         print "Cove: home list failed "; path.split("?")[0]; " -> "; r.code; " "; Util.redact(Util.toText(r.error))
         return []
     end if
-    if type(r.json) = "roArray" then return r.json
-    if r.json.Items <> invalid and type(r.json.Items) = "roArray" then return r.json.Items
-    return []
+    list = Util.field(r.json, "Items")
+    if type(r.json) = "roArray" then list = r.json
+    if type(list) <> "roArray" then return []
+    ' (only objects: a wrong type in the list would stop the whole home at the first field read)
+    kept = []
+    for each it in list
+        if Util.isAA(it) then kept.push(it)
+    end for
+    return kept
 end function
 
 sub addRow(root as object, title as string, list as object, isLandscape as boolean)

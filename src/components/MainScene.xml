@@ -6,6 +6,8 @@
     <interface>
         <!-- { contentId, mediaType } from a launch or an roInputEvent (main.bs) -->
         <field id="deepLink" type="assocarray" alwaysNotify="true" onChange="onDeepLink" />
+        <!-- a voice / transport command from main.bs (roInput) → { status } for roInput.eventResponse -->
+        <function name="handleTransport" />
     </interface>
     <children>
         <Rectangle id="background" width="1920" height="1080" color="0x000000FF" />

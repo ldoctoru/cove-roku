@@ -34,6 +34,19 @@ namespace Prefs
         return flagOn("autoSkipIntro", true)
     end function
 
+    ' Settings → Playback → Skip recaps (off by default: a recap is often wanted after a break)
+    function autoSkipRecap() as boolean
+        return flagOn("autoSkipRecap", false)
+    end function
+
+    ' Settings → Playback → Are you still watching?: after this many episodes started by Up next without a
+    ' key press (0 = off; on, 2 hours without a key press also asks)
+    function stillWatchingAfter() as integer
+        v = text("stillWatching", "3")
+        if v = "off" then return 0
+        return v.toInt()
+    end function
+
     function autoNext() as boolean
         return flagOn("autoNext", true)
     end function

@@ -1,7 +1,7 @@
 title=Cove
 major_version=0
-minor_version=6
-build_version=10000
+minor_version=7
+build_version=0
 mm_icon_focus_hd=pkg:/images/icon_focus_hd.png
 mm_icon_focus_fhd=pkg:/images/icon_focus_fhd.png
 splash_screen_fhd=pkg:/images/splash_fhd.png
@@ -11,3 +11,6 @@ splash_min_time=800
 ui_resolutions=fhd
 supports_input_launch=1
 rsg_version=1.3
+supports_voice_roinput=1
+supports_etc_seek=1
+supports_etc_next=1

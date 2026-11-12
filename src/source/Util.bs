@@ -109,8 +109,9 @@ namespace Util
         return n
     end function
 
-    ' What the user typed → addresses to try, in order. Without a scheme: https first for a name,
-    ' http first for an address with a port (typical LAN servers: 192.168.1.20:8096).
+    ' What the user typed → addresses to try, in order. Without a scheme always https first (also for an
+    ' address with a port), plain http only when https doesn't answer. (A plain http server that isn't on the
+    ' home network gets a warning before the sign-in: MainScene.onProbe.)
     function urlCandidates(typed as string) as object
         t = typed.trim()
         while t.len() > 0 and t.right(1) = "/"
@@ -119,8 +120,165 @@ namespace Util
         if t = "" then return []
         low = LCase(t)
         if low.startsWith("http://") or low.startsWith("https://") then return [t]
-        if t.instr(":") >= 0 then return ["http://" + t, "https://" + t]
+        if t.instr(":") >= 0 then return ["https://" + t, "http://" + t]
         return ["https://" + t, "http://" + t, "http://" + t + ":8096"]
+    end function
+
+    ' ---------------------------------------------------------------- addresses and connection security
+
+    ' "https://User@Emby.Example.com:8920/emby?x" → "emby.example.com" ("" when there is none)
+    function hostOf(url as string) as string
+        rest = url
+        sep = rest.instr("://")
+        if sep >= 0 then rest = rest.mid(sep + 3)
+        for each c in ["/", "?", "#"]
+            at = rest.instr(c)
+            if at >= 0 then rest = rest.left(at)
+        end for
+        ' (user:password@ before the host)
+        at = rest.instr("@")
+        while at >= 0
+            rest = rest.mid(at + 1)
+            at = rest.instr("@")
+        end while
+        if rest.startsWith("[")
+            ' IPv6 literal: [fd00::1]:8096
+            endAt = rest.instr("]")
+            if endAt > 0 then return LCase(rest.mid(1, endAt - 1))
+            return LCase(rest.mid(1))
+        end if
+        at = rest.instr(":")
+        if at >= 0 then rest = rest.left(at)
+        return LCase(rest)
+    end function
+
+    function schemeOf(url as string) as string
+        sep = url.instr("://")
+        if sep < 0 then return ""
+        return LCase(url.left(sep))
+    end function
+
+    ' "https://host:443" for https://Host/emby: scheme, host and port (the default port when none is given),
+    ' to tell whether two addresses reach the same server endpoint
+    function originOf(url as string) as string
+        sch = schemeOf(url)
+        rest = url
+        sep = rest.instr("://")
+        if sep >= 0 then rest = rest.mid(sep + 3)
+        for each c in ["/", "?", "#"]
+            at = rest.instr(c)
+            if at >= 0 then rest = rest.left(at)
+        end for
+        at = rest.instr("@")
+        while at >= 0
+            rest = rest.mid(at + 1)
+            at = rest.instr("@")
+        end while
+        portText = ""
+        hostEnd = rest.instr("]") + 1
+        colon = rest.mid(hostEnd).instr(":")
+        if colon >= 0 then portText = rest.mid(hostEnd + colon + 1)
+        if portText = ""
+            portText = "80"
+            if sch = "https" then portText = "443"
+        end if
+        return sch + "://" + hostOf(url) + ":" + portText
+    end function
+
+    ' A plain dotted quad, no leading zeros or other number forms → its 4 numbers, otherwise invalid
+    function ipv4Parts(h as string) as dynamic
+        parts = h.split(".")
+        if parts.count() <> 4 then return invalid
+        out = []
+        digits = CreateObject("roRegex", "^(0|[1-9][0-9]{0,2})$", "")
+        for each p in parts
+            if not digits.isMatch(p) then return invalid
+            n = p.toInt()
+            if n > 255 then return invalid
+            out.push(n)
+        end for
+        return out
+    end function
+
+    ' Home network (or loopback / link-local / Tailscale) addresses, where plain http stays local. Mirrors Cove
+    ' for macOS ConnectionSecurity.isPrivate: 10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, 100.64/10, IPv6
+    ' ULA / link-local / ::1, localhost, a name without a dot, and .local / .lan / .home / .internal names.
+    function isPrivateHost(rawHost as string) as boolean
+        h = LCase(rawHost.trim())
+        if h.startsWith("[") then h = h.mid(1)
+        if h.right(1) = "]" then h = h.left(h.len() - 1)
+        if h = "" then return false
+        if h = "localhost" then return true
+        ' (a bare number, http://134744072 or 0x7f000001, is an IP address in disguise, not a local name)
+        numeric = CreateObject("roRegex", "^([0-9]+|0x[0-9a-f]*)$", "i").isMatch(h)
+        if h.instr(".") < 0 and h.instr(":") < 0 and not numeric then return true
+        for each suffix in [".local", ".lan", ".home", ".home.arpa", ".internal", ".localdomain", ".ts.net"]
+            if h.len() > suffix.len() and h.right(suffix.len()) = suffix then return true
+        end for
+        p = ipv4Parts(h)
+        if p <> invalid
+            if p[0] = 10 or p[0] = 127 then return true
+            if p[0] = 192 and p[1] = 168 then return true
+            if p[0] = 169 and p[1] = 254 then return true
+            if p[0] = 172 and p[1] >= 16 and p[1] <= 31 then return true
+            if p[0] = 100 and p[1] >= 64 and p[1] <= 127 then return true
+            return false
+        end if
+        if h.instr(":") >= 0
+            if h = "::1" then return true
+            for each pre in ["fc", "fd", "fe8", "fe9", "fea", "feb"]
+                if h.startsWith(pre) then return true
+            end for
+        end if
+        return false
+    end function
+
+    function isPlainHttp(url as string) as boolean
+        return schemeOf(url) = "http"
+    end function
+
+    ' Plain http to a server that isn't on the home network: the password and the token can be read on the way
+    function isPlainRemote(url as string) as boolean
+        return isPlainHttp(url) and not isPrivateHost(hostOf(url))
+    end function
+
+    ' Whether a URL named by the server (a TranscodingUrl) may carry the access token: relative, or the same
+    ' host as the server and not downgraded from https to http
+    function tokenSafeTarget(serverUrl as string, target as string) as boolean
+        if not LCase(target).startsWith("http") then return true
+        if hostOf(target) <> hostOf(serverUrl) then return false
+        if schemeOf(serverUrl) = "https" and schemeOf(target) <> "https" then return false
+        return true
+    end function
+
+    ' ---------------------------------------------------------------- untrusted JSON
+
+    ' (server answers: a wrong type, e.g. an array where an object is expected, must not stop the app)
+    function isAA(v as dynamic) as boolean
+        return v <> invalid and GetInterface(v, "ifAssociativeArray") <> invalid
+    end function
+
+    ' obj[name] when obj is an object, otherwise invalid
+    function field(obj as dynamic, name as string) as dynamic
+        if not isAA(obj) then return invalid
+        return obj[name]
+    end function
+
+    ' A number from a JSON value (number or numeric text); anything else is 0
+    function toNumber(v as dynamic) as dynamic
+        if v = invalid then return 0
+        if GetInterface(v, "ifInt") <> invalid or GetInterface(v, "ifFloat") <> invalid or GetInterface(v, "ifDouble") <> invalid or GetInterface(v, "ifLongInt") <> invalid then return v
+        if GetInterface(v, "ifString") <> invalid then return v.toFloat()
+        return 0
+    end function
+
+    ' Deep link ids and types: letters, digits and "-" only, at most 64 characters (Jellyfin: 32 hex or a
+    ' GUID; Emby: a number). Anything else could change the request path or query.
+    function isSafeId(v as dynamic, allowEmpty as boolean) as boolean
+        if v = invalid then return allowEmpty
+        if GetInterface(v, "ifString") = invalid then return false
+        if v = "" then return allowEmpty
+        return CreateObject("roRegex", "^[A-Za-z0-9-]{1,64}$", "").isMatch(v)
     end function
 
     function readJson(key as string) as dynamic

@@ -8,6 +8,11 @@ sub main(args as dynamic)
     ' (registered before the screen shows, so no input event is missed)
     input = createObject("roInput")
     input.setMessagePort(port)
+    ' Voice and transport commands ("pause", "skip forward 2 minutes", "start over", "next"; manifest
+    ' supports_etc_seek / supports_etc_next): the player handles them, each gets an answer within 5 s
+    input.enableTransportEvents()
+    ' ("what's playing": the title stays set while this object lives)
+    appMgr = createObject("roAppManager")
     ' Memory monitoring (required by Roku): warnings near the app's memory limit (80 / 85 / 90 / 95 %), or the
     ' device's general low-memory events on models without per-app limits
     mem = createObject("roAppMemoryMonitor")
@@ -52,7 +57,18 @@ sub main(args as dynamic)
         else if msgType = "roInputEvent"
             if msg.isInput()
                 info = msg.getInfo()
-                if info.doesExist("contentid") and info.doesExist("mediatype")
+                if Util.toText(info.type) = "transport"
+                    ret = invalid
+                    try
+                        ret = scene.callFunc("handleTransport", info)
+                    catch e
+                        print "Cove: transport failed: "; e.message
+                    end try
+                    if ret = invalid or GetInterface(ret, "ifAssociativeArray") = invalid then ret = { status: "unhandled" }
+                    if ret.nowPlaying <> invalid and appMgr <> invalid then appMgr.SetNowPlayingContentMetaData(ret.nowPlaying)
+                    print "Cove: transport "; Util.toText(info.command); " -> "; Util.toText(ret.status)
+                    input.eventResponse({ id: info.id, status: Util.toText(ret.status) })
+                else if info.doesExist("contentid") and info.doesExist("mediatype")
                     print "Cove: input contentid="; info.contentid; " mediatype="; info.mediatype
                     scene.deepLink = { contentId: info.contentid, mediaType: info.mediatype }
                 end if

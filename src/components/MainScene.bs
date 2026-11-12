@@ -26,6 +26,7 @@ sub init()
     m.dialogTimer = m.top.findNode("dialogTimer")
     m.dialogTimer.observeField("fire", "onDialogTimer")
     m.removeId = ""
+    m.plainServer = invalid     ' a plain http server outside the home network, waiting for "Continue Anyway"
     m.homeStale = false
     m.deviceLine = ""
     try
@@ -158,7 +159,9 @@ sub showServers(status as string)
     for each s in Servers.all()
         who = Util.toText(s.userName)
         if Util.toText(s.token) = "" then who = "not signed in"
-        items.push({ id: "srv:" + Util.toText(s.id), label: Util.toText(s.name) + "   ·   " + who + "   ·   " + Servers.typeName(s) })
+        lbl = Util.toText(s.name) + "   ·   " + who + "   ·   " + Servers.typeName(s)
+        if Util.isPlainHttp(Util.toText(s.url)) then lbl = lbl + "   ·   Not encrypted"
+        items.push({ id: "srv:" + Util.toText(s.id), label: lbl })
     end for
     items.push({ id: "add", label: "Add a server" })
     sub_ = "Choose a server, or add one."
@@ -194,6 +197,12 @@ end sub
 sub onDeepLink()
     link = m.top.deepLink
     if link = invalid or Util.toText(link.contentId) = "" then return
+    ' (from Roku Search / voice, or from any device on the network via ECP: only plain item ids go into the
+    ' request path, anything else is ignored)
+    if not Util.isSafeId(link.contentId, false) or not Util.isSafeId(link.mediaType, true)
+        print "Cove: ignored a deep link with an invalid contentId / mediaType"
+        return
+    end if
     if not m.homeReady or m.server = invalid or Util.toText(m.server.token) = ""
         m.pendingLink = link
         return
@@ -235,7 +244,7 @@ sub onDeepLinkItem(r as object)
         openSignIn(m.server, "Your sign-in has expired. Please sign in again.")
         return
     end if
-    if r.code <> 200 or r.json = invalid
+    if r.code <> 200 or not Util.isAA(r.json)
         showNotice("Not found", "This title isn't on " + Util.toText(m.server.name) + ".")
         return
     end if
@@ -251,8 +260,7 @@ sub onDeepLinkItem(r as object)
             sub_ = "S" + Util.toText(it.ParentIndexNumber) + ":E" + Util.toText(it.IndexNumber) + "  ·  " + Util.toText(it.Name)
         end if
         ' (the saved position, as a bookmark)
-        atSec = 0.0
-        if it.UserData <> invalid and it.UserData.PlaybackPositionTicks <> invalid then atSec = it.UserData.PlaybackPositionTicks / 10000000
+        atSec = Util.toNumber(Util.field(it.UserData, "PlaybackPositionTicks")) / 10000000
         if atSec < 30 then atSec = 0.0
         startPlayer({ id: Util.toText(it.Id), title: title, subtitle: sub_, start: atSec })
     else
@@ -378,12 +386,15 @@ sub startPlayer(item as object)
 end sub
 
 ' Back from the player: refresh the details (new resume point) and, later, the home rows
-sub onPlayerDone()
+sub onPlayerDone(ev as object)
     ' (before pop: a Home or library page right under the player reloads as it is shown)
     markStale()
+    seriesId = Util.toText(ev.getRoSGNode().openSeries)
     pop()
     t = top()
     if t <> invalid and t.screenId = "details" then t.refresh = true
+    ' "Back to the series" (Are you still watching?): its page, unless it is the one under the player
+    if seriesId <> "" and not (t <> invalid and t.screenId = "details" and Util.toText(t.itemId) = seriesId) then openItem({ itemId: seriesId, itemType: "Series", title: "" })
 end sub
 
 sub showNotice(title as string, text as string)
@@ -421,6 +432,7 @@ sub onSelected(ev as object)
             showSignInItems("")
         else if id.startsWith("user:")
             u = m.users[id.mid(5).toInt()]
+            if not Util.isAA(u) then return
             m.pendingUser = Util.toText(u.Name)
             if Util.flag(u, "HasPassword")
                 askText("password", "Password", "Password for " + m.pendingUser, "", true)
@@ -566,7 +578,22 @@ sub onResponse(ev as object)
         end if
     end for
     r = ev.getData()
-    kind = Util.toText(r.tag.kind)
+    ' (an answer of an unexpected shape must give a message, not stop the app)
+    try
+        dispatchResponse(r)
+    catch e
+        where = ""
+        if e.backtrace <> invalid and e.backtrace.count() > 0
+            f = e.backtrace[e.backtrace.count() - 1]
+            where = " at " + Util.toText(f.filename).replace("pkg:/", "") + ":" + Util.toText(f.line_number)
+        end if
+        print "Cove: couldn't handle a server answer: "; Util.redact(Util.toText(e.message)); where
+        showNotice("Unexpected answer", "The server sent an answer Cove couldn't read. Please try again.")
+    end try
+end sub
+
+sub dispatchResponse(r as object)
+    kind = Util.toText(Util.field(r.tag, "kind"))
     if kind = "probe"
         onProbe(r)
     else if (kind = "users" or kind = "qcEnabled") and (m.server = invalid or Util.toText(r.tag.serverId) <> Util.toText(m.server.id))
@@ -574,7 +601,7 @@ sub onResponse(ev as object)
     else if kind = "users"
         onUsers(r)
     else if kind = "qcEnabled"
-        m.quickConnect = r.code = 200 and Util.flag({ v: r.json }, "v")
+        m.quickConnect = r.code = 200 and Util.flag({ v: r.value }, "v")
         showSignInItems("")
     else if kind = "signin"
         onSignIn(r)
@@ -583,7 +610,7 @@ sub onResponse(ev as object)
     else if kind = "deeplink"
         onDeepLinkItem(r)
     else if kind = "seasonOpen"
-        if r.code = 200 and r.json <> invalid and Util.toText(r.json.SeriesId) <> ""
+        if r.code = 200 and Util.isAA(r.json) and Util.toText(r.json.SeriesId) <> ""
             openItem({ itemId: Util.toText(r.json.Id), itemType: "Season", seriesId: Util.toText(r.json.SeriesId), seriesName: Util.toText(r.json.SeriesName), title: Util.toText(r.json.Name) })
         end if
     else if kind = "logout"
@@ -615,11 +642,50 @@ sub onProbe(r as object)
         srv.url = url
         srv.type = kind
         srv.version = Util.toText(j.Version)
-        Servers.upsert(srv)
-        openServer(srv)
+        ' plain http outside the home network: say so before anything (the password) is sent
+        if Util.isPlainRemote(url)
+            m.plainServer = srv
+            d = createObject("roSGNode", "StandardMessageDialog")
+            d.title = "This connection isn't encrypted"
+            d.message = [Util.hostOf(url) + " uses plain http and isn't on your home network, so your password and your sign-in can be read by anyone on the networks in between (for example public Wi-Fi).", "If the server has an https address, use that instead."]
+            d.buttons = ["Cancel", "Continue Anyway"]
+            d.observeField("buttonSelected", "onPlainButton")
+            d.observeField("wasClosed", "onDialogClosed")
+            m.top.dialog = d
+            return
+        end if
+        addProbed(srv)
     else
         probe(r.tag.candidates, r.tag.index + 1, r.tag.typed)
     end if
+end sub
+
+sub onPlainButton()
+    proceed = m.top.dialog.buttonSelected = 1
+    srv = m.plainServer
+    m.plainServer = invalid
+    closeDialog()
+    if not proceed or srv = invalid
+        setStatus("servers", "Not added. Use the server's https address if it has one.")
+        return
+    end if
+    addProbed(srv)
+end sub
+
+' Saves the server that answered and opens it. A saved sign-in stays with the address it was made on: the
+' server id is public (any host can answer /System/Info/Public with it), so a known id at a new address
+' (another host or port, or http instead of https) must not get the saved token. Sign in again there; the
+' old session is ended at the old address, where the token belongs (best effort).
+sub addProbed(srv as object)
+    prev = Servers.find(Util.toText(srv.id))
+    if prev <> invalid and Util.toText(prev.token) <> "" and Util.originOf(Util.toText(prev.url)) <> Util.originOf(Util.toText(srv.url))
+        print "Cove: known server at a new address: the saved sign-in is not reused"
+        request("POST", prev, "/Sessions/Logout", true, "", { kind: "logout" })
+        srv.token = ""
+        srv.userId = ""
+    end if
+    Servers.upsert(srv)
+    openServer(srv)
 end sub
 
 ' ---------------------------------------------------------------- sign in
@@ -637,7 +703,10 @@ sub openSignIn(server as object, status as string)
     m.server = server
     m.users = []
     m.quickConnect = false
-    sc = newMenu("signin", "Sign in to " + Util.toText(server.name), Servers.typeName(server) + " " + Util.toText(server.version) + "   ·   " + Util.toText(server.url), [{ id: "manual", label: "Enter username and password" }])
+    line = Servers.typeName(server) + " " + Util.toText(server.version) + "   ·   " + Util.toText(server.url)
+    if Util.isPlainHttp(Util.toText(server.url)) then line = line + "   ·   Not encrypted"
+    sc = newMenu("signin", "Sign in to " + Util.toText(server.name), line, [{ id: "manual", label: "Enter username and password" }])
+    if status = "" and Util.isPlainRemote(Util.toText(server.url)) then status = "This connection isn't encrypted: your password can be read on the networks in between."
     sc.status = status
     if topIs("servers")
         push(sc)
@@ -662,7 +731,7 @@ sub showSignInItems(status as string)
     if not topIs("signin") then return
     items = []
     for i = 0 to m.users.count() - 1
-        items.push({ id: "user:" + i.toStr(), label: Util.toText(m.users[i].Name) })
+        if Util.isAA(m.users[i]) then items.push({ id: "user:" + i.toStr(), label: Util.toText(m.users[i].Name) })
     end for
     items.push({ id: "manual", label: "Enter username and password" })
     if m.quickConnect then items.push({ id: "quick", label: "Quick Connect (approve from another Jellyfin app)" })
@@ -678,7 +747,7 @@ sub signIn(name as string, password as string)
 end sub
 
 sub onSignIn(r as object)
-    if r.code = 200 and r.json <> invalid and Util.toText(r.json.AccessToken) <> ""
+    if r.code = 200 and Util.isAA(r.json) and Util.toText(r.json.AccessToken) <> ""
         signedIn(r.json)
     else if r.code = 401
         setStatus("signin", "Wrong username or password.")
@@ -690,8 +759,8 @@ end sub
 ' Successful sign-in (password or Quick Connect): save it and go home
 sub signedIn(auth as object)
     s = m.server
-    s.token = Util.toText(auth.AccessToken)
-    if auth.User <> invalid
+    s.token = Util.toText(Util.field(auth, "AccessToken"))
+    if Util.isAA(Util.field(auth, "User"))
         s.userId = Util.toText(auth.User.Id)
         s.userName = Util.toText(auth.User.Name)
     end if
@@ -787,3 +856,10 @@ sub signOut()
     Servers.setActive("")
     showServers("Signed out of " + Util.toText(s.name) + ".")
 end sub
+
+' Voice / transport commands go to the player on top; elsewhere the Roku does its default
+function handleTransport(evt as object) as object
+    t = top()
+    if t <> invalid and t.screenId = "player" then return t.callFunc("handleTransport", evt)
+    return { status: "unhandled" }
+end function
