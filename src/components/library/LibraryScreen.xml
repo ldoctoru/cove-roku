@@ -10,6 +10,8 @@
         <!-- { id, title, itemType, collectionType } -->
         <field id="library" type="assocarray" onChange="onLibrary" />
         <field id="action" type="assocarray" alwaysNotify="true" />
+        <!-- set by MainScene after a change on Details or playback: the page reloads when it is shown again -->
+        <field id="stale" type="boolean" value="false" />
     </interface>
     <children>
         <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="64" translation="[100,48]" />

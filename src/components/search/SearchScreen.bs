@@ -15,6 +15,9 @@ sub init()
     m.top.observeField("focusedChild", "onFocusChanged")
     m.gen = 0
     m.task = invalid
+    m.failed = 0
+    m.lastError = ""
+    m.inGrid = false        ' the results had the focus (Back from a result returns there)
 end sub
 
 ' Search once typing pauses
@@ -33,7 +36,8 @@ sub search()
     end if
     m.status.text = "Searching for " + chr(34) + term + chr(34) + "..."
     m.found = {}
-    m.waiting = 0
+    m.failed = 0
+    m.lastError = ""
     m.waiting = 3
     uid = Util.toText(m.top.server.userId)
     enc = term.encodeUriComponent()
@@ -69,6 +73,8 @@ end sub
 
 sub onError(ev as object)
     if ev.getRoSGNode().gen <> m.gen then return
+    m.failed = m.failed + 1
+    m.lastError = Util.toText(ev.getData())
     m.waiting = m.waiting - 1
     if m.waiting <= 0 then showResults()
 end sub
@@ -97,6 +103,12 @@ sub showResults()
     end for
     if total = 0
         m.grid.content = invalid
+        m.inGrid = false
+        ' (every request failed: say so, "No results" would be wrong)
+        if m.failed >= 3
+            m.status.text = "Couldn't search. " + m.lastError
+            return
+        end if
         m.status.text = "No results for " + chr(34) + m.keyboard.text.trim() + chr(34) + "."
         return
     end if
@@ -120,15 +132,24 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     hasResults = m.grid.content <> invalid and m.grid.content.getChildCount() > 0
     if key = "right" and m.keyboard.isInFocusChain() and hasResults
+        m.inGrid = true
         m.grid.setFocus(true)
         return true
     else if key = "left" and m.grid.isInFocusChain()
+        m.inGrid = false
         m.keyboard.setFocus(true)
         return true
     end if
     return false
 end function
 
+' Back from a result: the focus goes back to the results, on the card that was opened
 sub onFocusChanged()
-    if m.top.hasFocus() then m.keyboard.setFocus(true)
+    if not m.top.hasFocus() then return
+    if m.inGrid and m.grid.content <> invalid and m.grid.content.getChildCount() > 0
+        m.grid.setFocus(true)
+    else
+        m.inGrid = false
+        m.keyboard.setFocus(true)
+    end if
 end sub

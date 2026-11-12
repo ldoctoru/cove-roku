@@ -97,6 +97,9 @@ sub onSettingsAction(ev as object)
     else if a.id = "switch"
         m.themeDirty = false
         showServers("")
+    else if a.id = "renamed"
+        ' the current server was renamed: keep MainScene's copy in step, Home is rebuilt when Settings closes
+        if m.server <> invalid and Util.toText(m.server.id) = Util.toText(a.serverId) then m.server.name = Util.toText(a.name)
     end if
 end sub
 
@@ -215,7 +218,7 @@ sub stopPlayers()
         stopped = true
     end while
     if not stopped then return
-    m.homeStale = true
+    markStale()
     t = top()
     if t = invalid then return
     t.visible = true
@@ -339,7 +342,16 @@ end sub
 
 ' A favourite changed: the home rows reload when we get back there
 sub onDetailsChanged()
+    markStale()
+end sub
+
+' Something was played or changed on Details: Home and the library pages under it (Favorites, Recently Added,
+' a library with its progress bars and watched checks) reload when they are shown again
+sub markStale()
     m.homeStale = true
+    for each s in m.stack
+        if s.screenId = "library" then s.stale = true
+    end for
 end sub
 
 sub onPlay(ev as object)
@@ -356,8 +368,9 @@ end sub
 
 ' Back from the player: refresh the details (new resume point) and, later, the home rows
 sub onPlayerDone()
+    ' (before pop: a Home or library page right under the player reloads as it is shown)
+    markStale()
     pop()
-    m.homeStale = true
     t = top()
     if t <> invalid and t.screenId = "details" then t.refresh = true
 end sub
@@ -545,6 +558,8 @@ sub onResponse(ev as object)
     kind = Util.toText(r.tag.kind)
     if kind = "probe"
         onProbe(r)
+    else if (kind = "users" or kind = "qcEnabled") and (m.server = invalid or Util.toText(r.tag.serverId) <> Util.toText(m.server.id))
+        print "Cove: ignored a sign-in answer from another server"
     else if kind = "users"
         onUsers(r)
     else if kind = "qcEnabled"
@@ -616,8 +631,10 @@ sub openSignIn(server as object, status as string)
         showServers("")
         push(sc)
     end if
-    request("GET", server, "/Users/Public", false, "", { kind: "users" })
-    if Servers.isJellyfin(server) then request("GET", server, "/QuickConnect/Enabled", false, "", { kind: "qcEnabled" })
+    ' (tagged with the server: a slow answer from the server opened before must not fill this list)
+    sid = Util.toText(server.id)
+    request("GET", server, "/Users/Public", false, "", { kind: "users", serverId: sid })
+    if Servers.isJellyfin(server) then request("GET", server, "/QuickConnect/Enabled", false, "", { kind: "qcEnabled", serverId: sid })
 end sub
 
 sub onUsers(r as object)

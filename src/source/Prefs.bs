@@ -110,9 +110,24 @@ namespace Prefs
         Util.writeText("lib:" + id, formatJson(d))
     end sub
 
+    ' The registry key of a server's library order (library ids are per server, so one shared key let one
+    ' server's order replace another's). The old shared key moves to the first server that reads it, the active
+    ' one (Home and Settings only order the active server's libraries).
+    function libOrderKey(serverId as string) as string
+        key = "libOrder:" + serverId
+        old = Util.readText("libOrder")
+        if old <> ""
+            if Util.readText(key) = "" then Util.writeText(key, old)
+            sec = createObject("roRegistrySection", "Cove")
+            sec.delete("libOrder")
+            sec.flush()
+        end if
+        return key
+    end function
+
     ' The server's libraries ([{ id, title, ... }]) in the saved order, with the saved names
-    function orderLibraries(libs as object) as object
-        order = Util.readText("libOrder").split(",")
+    function orderLibraries(libs as object, serverId as string) as object
+        order = Util.readText(libOrderKey(serverId)).split(",")
         out = []
         used = {}
         for each id in order
@@ -134,9 +149,15 @@ namespace Prefs
         return out
     end function
 
-    sub saveOrder(ids as object)
-        Util.writeText("libOrder", Util.join(ids, ","))
+    sub saveOrder(ids as object, serverId as string)
+        Util.writeText(libOrderKey(serverId), Util.join(ids, ","))
     end sub
+
+    ' The library kinds that get a row on Home (HomeTask); the others have no Home setting in Settings
+    function hasHomeRow(collectionType as string) as boolean
+        ct = collectionType
+        return ct = "movies" or ct = "tvshows" or ct = "homevideos" or ct = "musicvideos" or ct = "mixed" or ct = ""
+    end function
 
     ' ---------------------------------------------------------------- subtitle style (Mac PlayerView sizes / colors / ...)
 

@@ -5,5 +5,17 @@ sub init()
 end sub
 
 sub work()
-    m.top.response = Api.execute(m.top.request)
+    req = m.top.request
+    r = Api.execute(req)
+    ' a route that only newer servers have (or only older ones): the same request on the other route
+    if r.code = 404 and Util.toText(req.fallbackUrl) <> ""
+        alt = {}
+        alt.append(req)
+        alt.url = req.fallbackUrl
+        alt.delay = 0
+        r = Api.execute(alt)
+    end if
+    ' a download nobody wants any more (the player closed): don't leave it in tmp:
+    if req.saveTo <> invalid and m.top.discard then DeleteFile(req.saveTo)
+    m.top.response = r
 end sub

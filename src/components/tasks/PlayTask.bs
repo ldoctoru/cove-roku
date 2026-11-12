@@ -12,7 +12,7 @@ sub work()
         opts = m.top.options
         if opts = invalid or opts.audio = invalid then opts = Playback.options()
         url = Util.toText(srv.url) + "/Items/" + m.top.itemId + "/PlaybackInfo?" + Playback.infoQuery(srv, m.top.forceTranscode, opts)
-        r = Api.execute({ method: "POST", url: url, headers: Api.headers(srv, true), body: Playback.infoBody(caps, opts), timeout: 30000 })
+        r = Api.execute({ method: "POST", url: url, headers: Api.headers(srv, true), body: Playback.infoBody(caps, opts, Servers.isJellyfin(srv)), timeout: 30000 })
         print "Cove: PlaybackInfo -> "; r.code
         if r.code <> 200
             m.top.error = "The server couldn't prepare this video. " + Api.describeFailure(r)
