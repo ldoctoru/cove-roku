@@ -153,6 +153,8 @@ function rowsFor(tabId as string) as object
         out.push(choice("castSize", "Cast & Crew", [{ id: "normal", label: "Normal" }, { id: "large", label: "Large" }], Prefs.text("castSize", "normal")))
         out.push(note("Large shows bigger actor photos and names."))
         out.push(toggle("showEpisodeDescription", "Episodes", "Show episode descriptions", Prefs.showEpisodeDescription()))
+        out.push(toggle("hideSpoilers", "", "Hide spoilers for unwatched episodes", Prefs.hideSpoilers()))
+        out.push(note("Episodes you haven't watched show the series' picture instead of their own, and no description, on Home, the series page, the episode's page and Up Next."))
     else if tabId = "subtitles"
         out.push(sectionHead("Language"))
         out.push(toggle("subAlways", "", "Always load my subtitle language", Prefs.subAlways()))
@@ -797,7 +799,7 @@ end sub
 
 ' Saves one setting and redraws; Home is rebuilt when Settings closes if it changed something there
 sub apply(id as string, value as string)
-    homeKeys = { navStyle: 1, topBarLabels: 1, showRecent: 1, showUpNextRow: 1, homeFavorites: 1, showFavorites: 1, showNowPlaying: 1 }
+    homeKeys = { navStyle: 1, topBarLabels: 1, showRecent: 1, showUpNextRow: 1, homeFavorites: 1, showFavorites: 1, showNowPlaying: 1, hideSpoilers: 1 }
     if id = "accent" or id = "background"
         Util.writeText(id, value)
         m.global.theme = Theme.get()
