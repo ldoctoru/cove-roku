@@ -21,6 +21,7 @@ sub init()
     m.gen = 0
     m.task = invalid
     m.picker = invalid
+    m.shuffleTask = invalid
     m.keepIndex = -1        ' refresh: the card to focus again once the first page is back
     ' (the grid gets focus as soon as the screen is shown, before the library is set: never leave it without content)
     m.grid.content = createObject("roSGNode", "ContentNode")
@@ -140,8 +141,15 @@ end sub
 sub drawBar()
     b = m.top.findNode("bar")
     b.removeChildrenIndex(b.getChildCount(), 0)
-    ids = ["sort"]
-    texts = ["Sort: " + sortLabel()]
+    ids = []
+    texts = []
+    ' Shuffle (Mac library controls): random unwatched titles / episodes, back to back
+    if canShuffle()
+        ids.push("shuffle")
+        texts.push("Shuffle")
+    end if
+    ids.push("sort")
+    texts.push("Sort: " + sortLabel())
     if m.genres.count() > 0
         ids.push("genre")
         g = "All"
@@ -173,6 +181,8 @@ sub drawBar()
         lab.vertAlign = "center"
         lab.translation = [24, 0]
         w = lab.boundingRect().width + 84
+        ' (an action, not a choice: no chevron)
+        if ids[i] = "shuffle" then w = lab.boundingRect().width + 48
         bg.width = w
         bg.height = 52
         ch = g.createChild("Poster")
@@ -180,6 +190,7 @@ sub drawBar()
         ch.width = 22
         ch.height = 22
         ch.translation = [w - 44, 15]
+        ch.visible = ids[i] <> "shuffle"
         if isFocus
             bg.uri = "pkg:/images/ui/white_pill.9.png"
             lab.color = "0x000000FF"
@@ -212,7 +223,9 @@ end sub
 
 sub useBar()
     id = m.barIds[m.barIdx]
-    if id = "sort"
+    if id = "shuffle"
+        startShuffle()
+    else if id = "sort"
         openPicker("sort", "Sort by", [{ id: "name", label: "Name" }, { id: "added", label: "Date added" }, { id: "year", label: "Year" }, { id: "rating", label: "Rating" }], m.sort)
     else if id = "genre"
         o = [{ id: "", label: "All genres" }]
@@ -232,6 +245,55 @@ sub useBar()
         if feed() <> "favorites" then o.push({ id: "favourites", label: "Favourites" })
         openPicker("show", "Show", o, m.show)
     end if
+end sub
+
+' ---------------------------------------------------------------- Shuffle
+
+' A real library (not Favorites / Recently Added)
+function canShuffle() as boolean
+    return feed() = "" and Util.toText(m.top.library.id) <> ""
+end function
+
+' Random titles of this library (with its Genre and Show choice) into the player as a queue
+sub startShuffle()
+    if m.shuffleTask <> invalid then return
+    lib = m.top.library
+    t = createObject("roSGNode", "ShuffleTask")
+    t.server = m.top.server
+    t.query = { libraryId: Util.toText(lib.id), collectionType: Util.toText(lib.collectionType), itemType: Util.toText(lib.itemType), genre: m.genre, show: m.show }
+    t.observeField("result", "onShuffle")
+    t.observeField("error", "onShuffleError")
+    m.shuffleTask = t
+    m.top.findNode("info").text = "Shuffling..."
+    t.control = "RUN"
+end sub
+
+sub onShuffle(ev as object)
+    m.shuffleTask = invalid
+    updateInfo()
+    list = ev.getData().queue
+    if type(list) <> "roArray" or list.count() = 0
+        m.top.findNode("info").text = "Nothing to shuffle here."
+        return
+    end if
+    head = list[0]
+    rest = []
+    for i = 1 to list.count() - 1
+        rest.push(list[i])
+    end for
+    title = Util.toText(head.Name)
+    subtitle = ""
+    if Util.toText(head.Type) = "Episode"
+        title = Util.toText(head.SeriesName)
+        subtitle = Items.episodeLabel(head)
+    end if
+    print "Cove: shuffle plays "; list.count(); " titles"
+    m.top.action = { id: "play", itemId: Util.toText(head.Id), title: title, subtitle: subtitle, start: 0.0, queue: rest }
+end sub
+
+sub onShuffleError(ev as object)
+    m.shuffleTask = invalid
+    m.top.findNode("info").text = ev.getData()
 end sub
 
 sub loadPage(startIndex as integer, limit as integer)

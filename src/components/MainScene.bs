@@ -281,7 +281,10 @@ sub onHomeAction(ev as object)
     else if a.id = "open"
         openItem(a)
     else if a.id = "play"
-        startPlayer({ id: a.itemId, title: a.title, subtitle: Util.toText(a.subtitle), start: a.start })
+        playItem = { id: a.itemId, title: a.title, subtitle: Util.toText(a.subtitle), start: a.start }
+        ' (library Shuffle: the titles to play after this one)
+        if type(a.queue) = "roArray" then playItem.queue = a.queue
+        startPlayer(playItem)
     else if a.id = "favorites" or a.id = "recent"
         l = createObject("roSGNode", "LibraryScreen")
         l.server = m.server
