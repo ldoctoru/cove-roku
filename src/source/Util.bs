@@ -85,15 +85,11 @@ namespace Util
         return url.left(q) + "?" + join(kept, "&")
     end function
 
-    ' A URL with its access token hidden, for the debug console
-    function redact(url as string) as string
-        out = []
-        for each p in url.split("&")
-            k = LCase(p.split("=")[0])
-            if k.instr("api_key") >= 0 or k.instr("apikey") >= 0 or k.endsWith("?api_key") then p = p.split("=")[0] + "=***"
-            out.push(p)
-        end for
-        return join(out, "&")
+    ' Text for the debug console with access tokens hidden: api_key=… in URLs (also inside an error sentence),
+    ' Token="…" / X-Emby-Token: … headers and "AccessToken":"…" in JSON
+    function redact(text as string) as string
+        re = CreateObject("roRegex", "(api_key|apikey|token)([""']?\s*[=:]\s*[""']?)[^&\s""',;}]+", "i")
+        return re.replaceAll(text, "\1\2***")
     end function
 
     function appVersion() as string
@@ -133,10 +129,11 @@ namespace Util
         return parseJson(sec.read(key))
     end function
 
+    ' (a full registry makes write / flush fail silently, which can lose a sign-in: say so in the log)
     sub writeText(key as string, value as string)
         sec = createObject("roRegistrySection", "Cove")
-        sec.write(key, value)
-        sec.flush()
+        if not sec.write(key, value) then print "Cove: registry write failed for "; key; " ("; value.len(); " chars)"
+        if not sec.flush() then print "Cove: registry flush failed after writing "; key
     end sub
 
     function readText(key as string) as string

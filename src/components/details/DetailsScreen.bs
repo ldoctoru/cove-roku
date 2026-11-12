@@ -615,7 +615,7 @@ sub onPicked(ev as object)
         enterSeason()
         return
     else if c.purpose = "slang"
-        Util.writeText(subPrefKey(), c.id)
+        Prefs.setSeriesSubLang(subPrefKey(), c.id)
         closePicker()
         enterSeason()
         return
@@ -804,7 +804,7 @@ function seasonName() as string
 end function
 
 function subPrefKey() as string
-    return "slang:" + Util.toText(m.item.Id)
+    return Util.toText(m.item.Id)
 end function
 
 function displayLang(code as string) as string
@@ -815,7 +815,7 @@ function displayLang(code as string) as string
 end function
 
 function subPrefLabel() as string
-    pref = Util.readText(subPrefKey())
+    pref = Prefs.seriesSubLang(subPrefKey())
     ' Automatic follows Settings → Always load my subtitle language
     if pref = "" and Prefs.subAlways() then return displayLang(Prefs.subLang())
     if pref = "" then return "Automatic"
@@ -892,7 +892,7 @@ sub useBar()
         end for
         openPicker("season", "Seasons", o, m.seasonIndex.toStr())
     else
-        pref = Util.readText(subPrefKey())
+        pref = Prefs.seriesSubLang(subPrefKey())
         auto = "Automatic (forced subtitles only)"
         if Prefs.subAlways() then auto = "Automatic (" + displayLang(Prefs.subLang()) + ", from Settings)"
         o = [{ id: "", label: auto }, { id: "off", label: "Off" }]

@@ -73,6 +73,13 @@ sub load()
         m.status.text = "Loading your libraries..."
         m.status.visible = true
     end if
+    ' a reload while one still runs: drop the older task, its late answer must not be read as this one's
+    if m.task <> invalid
+        m.task.unobserveField("content")
+        m.task.unobserveField("error")
+        m.task.unobserveField("authFailed")
+        m.task.control = "stop"
+    end if
     m.task = createObject("roSGNode", "HomeTask")
     m.task.server = s
     m.task.observeField("content", "onContent")
@@ -92,9 +99,11 @@ sub onReload()
     load()
 end sub
 
-sub onContent()
+sub onContent(ev as object)
+    if m.task = invalid or not ev.getRoSGNode().isSameNode(m.task) then return
+    content = ev.getData()
+    if content = invalid then return
     m.watchdog.control = "stop"
-    content = m.task.content
     ' Per row: 16:9 cards for Continue Watching / Next Up / Libraries, 2:3 posters with title and year otherwise
     heights = []
     sizes = []
@@ -135,15 +144,16 @@ sub onContent()
     end if
 end sub
 
-sub onError()
+sub onError(ev as object)
+    if m.task = invalid or not ev.getRoSGNode().isSameNode(m.task) then return
     m.watchdog.control = "stop"
-    m.status.text = m.task.error + "   Press * for options."
+    m.status.text = Util.toText(ev.getData()) + "   Press * for options."
 end sub
 
 ' A 401 on one list: check the sign-in itself before asking to sign in again (a single list can refuse
 ' for other reasons, e.g. a library the user may not see)
-sub onAuthFailed()
-    if not m.task.authFailed then return
+sub onAuthFailed(ev as object)
+    if m.task = invalid or not ev.getRoSGNode().isSameNode(m.task) or not ev.getData() then return
     t = createObject("roSGNode", "ApiTask")
     t.request = { method: "GET", url: Util.toText(m.top.server.url) + "/Users/" + Util.toText(m.top.server.userId), headers: Api.headers(m.top.server, true), body: "", tag: { kind: "authCheck" }, timeout: 15000 }
     t.observeField("response", "onAuthCheck")
