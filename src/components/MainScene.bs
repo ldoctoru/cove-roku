@@ -285,7 +285,16 @@ sub onHomeAction(ev as object)
         ' (library Shuffle: the titles to play after this one)
         if type(a.queue) = "roArray" then playItem.queue = a.queue
         startPlayer(playItem)
-    else if a.id = "favorites" or a.id = "recent"
+    else if a.id = "favorites"
+        ' rows by kind (Movies, Shows, Episodes, Collections, People), as the Mac's Favorites page
+        fs = createObject("roSGNode", "FavoritesScreen")
+        fs.observeField("action", "onHomeAction")
+        push(fs)
+        fs.server = m.server
+    else if a.id = "changed"
+        ' (a favourite person on their page: Home and Favorites reload when shown again)
+        markStale()
+    else if a.id = "recent"
         l = createObject("roSGNode", "LibraryScreen")
         l.server = m.server
         l.observeField("action", "onHomeAction")
@@ -372,7 +381,7 @@ end sub
 sub markStale()
     m.homeStale = true
     for each s in m.stack
-        if s.screenId = "library" then s.stale = true
+        if s.screenId = "library" or s.screenId = "favorites" then s.stale = true
     end for
 end sub
 
