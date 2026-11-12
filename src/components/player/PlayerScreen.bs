@@ -13,6 +13,9 @@ sub init()
     m.keys = m.top.findNode("keys")
     m.status = m.top.findNode("status")
     m.loader = m.top.findNode("loader")
+    m.subLayer = m.top.findNode("subLayer")
+    m.subTimer = m.top.findNode("subTimer")
+    m.subTimer.observeField("fire", "onSubTick")
     m.loaderArc = m.top.findNode("loaderArc")
     m.loaderPct = m.top.findNode("loaderPct")
     m.video.observeField("bufferingStatus", "onBufferingStatus")
@@ -62,6 +65,7 @@ end sub
 sub resetState()
     m.loadNote = ""
     m.loadBase = 0
+    clearSubs()
     m.seekTarget = -1.0
     m.osdShown = false
     m.osd.opacity = 0
@@ -236,19 +240,11 @@ sub onStream(ev as object)
     c.title = Util.toText(m.top.item.title)
     c.secondaryTitle = Util.toText(m.top.item.subtitle)
     if m.startAt > 1 then c.PlayStart = m.startAt
-    ' A text subtitle is shown by the Roku from the server's SRT
-    sub_ = Tracks.findSub(m.tracks, m.opts.sub)
-    subUrl = ""
-    if sub_ <> invalid and sub_.isText
-        subUrl = Playback.subtitleUrl(m.top.server, m.top.item.id, s.mediaSourceId, sub_.index)
-        lang = sub_.language
-        if lang = "" then lang = "und"
-        c.subtitleTracks = [{ Language: lang, TrackName: subUrl, Description: sub_.label }]
-    end if
+    ' A text subtitle: Cove downloads the server's SRT and draws it (SubtitleLayer); Roku's captions stay off
     m.video.content = c
-    applyCaptionStyle()
-    applySubtitle(subUrl)
-    if subUrl <> "" then probeSubtitle(subUrl, sub_.index)
+    m.video.subtitleTrack = ""
+    m.video.globalCaptionMode = "Off"
+    loadTextSub()
     m.video.control = "play"
     ' (the stream is ready: the rest of the ring is the Video node's buffering)
     if m.loader.visible
@@ -258,48 +254,62 @@ sub onStream(ev as object)
     m.keys.setFocus(true)
 end sub
 
-' Check the server can actually make the text subtitle (it extracts embedded ones the first time). If it
-' answers with an error, play the subtitle burned into the picture instead of showing nothing.
+' The chosen text subtitle (if any): download it as SRT and draw it
+sub loadTextSub()
+    clearSubs()
+    sub_ = Tracks.findSub(m.tracks, m.opts.sub)
+    if sub_ = invalid or not sub_.isText or m.opts.burn or m.session = invalid then return
+    url = Playback.subtitleUrl(m.top.server, m.top.item.id, Util.toText(m.session.mediaSourceId), sub_.index)
+    probeSubtitle(url, sub_.index)
+end sub
+
+sub clearSubs()
+    if m.subLayer = invalid then return
+    m.subTimer.control = "stop"
+    m.subLayer.cues = []
+end sub
+
+sub onSubTick()
+    m.subLayer.position = m.video.position
+end sub
+
+' Settings → Subtitles → Distance from bottom; above the controls while they show (as on the Mac)
+sub liftSubs(controlsShown as boolean)
+    base = Int(1080 * Prefs.subBottom() / 100)
+    if controlsShown and base < 236 then base = 236
+    m.subLayer.lift = base
+end sub
+
+' Download the subtitle (the server extracts embedded ones the first time, so it can take a while). If the
+' server answers with an error, play the subtitle burned into the picture instead of showing nothing.
 sub probeSubtitle(url as string, index as integer)
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: "GET", url: url, headers: invalid, body: "", tag: { kind: "subProbe", itemId: m.top.item.id, index: index }, timeout: 180000 }
+    t.request = { method: "GET", url: url, headers: invalid, body: "", keepText: true, parse: "srt", tag: { kind: "subProbe", itemId: m.top.item.id, index: index }, timeout: 180000 }
     t.observeField("response", "onResponse")
     m.pending.push(t)
     t.control = "RUN"
 end sub
 
 sub onSubProbe(r as object)
-    print "Cove: subtitle check -> "; r.code
+    print "Cove: subtitle -> "; r.code
     if r.tag.itemId <> m.top.item.id or m.opts.sub <> r.tag.index or m.opts.burn or m.closing then return
-    ' (no answer in time: leave it, the Roku may still get it)
+    if r.code >= 200 and r.code < 400
+        if r.cues <> invalid then print "Cove: subtitle cues "; r.cues.count()
+        if r.cues <> invalid and r.cues.count() > 0
+            m.subLayer.restyle = true
+            liftSubs(m.osdShown)
+            m.subLayer.cues = r.cues
+            m.subTimer.control = "start"
+        end if
+        return
+    end if
+    ' (no answer in time: nothing to show)
     if r.code < 400 then return
     print "Cove: text subtitle failed, burning it in"
     m.opts.burn = true
     ' (the line stays under the loading ring)
     m.loadNote = "The subtitles couldn't load as text. Adding them to the picture..."
     restartAt(m.video.position)
-end sub
-
-' Settings → Subtitles → Style: size, colour, shadow, background, and the distance from the bottom
-' (Roku's own caption settings win when they aren't Default)
-sub applyCaptionStyle()
-    m.video.captionStyle = Prefs.captionStyle()
-    pct = Prefs.subBottom()
-    if pct <> 10 and m.video.hasField("captionRenderArea")
-        ' a render area that ends pct % above the bottom; Roku centres the captions at its bottom
-        h = 1080 - Int(1080 * pct / 100)
-        m.video.captionRenderArea = { mode: "override", overridePlacement: true, scaleFonts: "off", x: 96, y: 0, width: 1728, height: h }
-    end if
-end sub
-
-sub applySubtitle(url as string)
-    if url <> ""
-        m.video.subtitleTrack = url
-        m.video.globalCaptionMode = "On"
-    else
-        m.video.subtitleTrack = ""
-        m.video.globalCaptionMode = "Off"
-    end if
 end sub
 
 sub onPlayError(ev as object)
@@ -635,13 +645,13 @@ sub onPicked(ev as object)
         if s = invalid then m.subLang = "off"
         ' remembered for the series, like on the Mac
         if seriesKey() <> "" and m.subLang <> "" then Prefs.setSeriesSubLang(seriesKey(), m.subLang)
-        ' Turning a subtitle on restarts the stream at the same position with it attached (as at the start):
-        ' changing the subtitle tracks of the playing video froze playback on the Streambar.
-        ' Turning one off (when it isn't burned in) works on the spot.
-        if s = invalid and not wasBurned
-            applySubtitle("")
-        else
+        ' Text subtitles are Cove's own layer, so switching them is on the spot; a burned-in one (to or from)
+        ' needs the stream again
+        if wasBurned or m.opts.burn
+            clearSubs()
             restart = true
+        else
+            loadTextSub()
         end if
     end if
     m.keys.setFocus(true)
@@ -980,6 +990,7 @@ sub hideOsd()
 end sub
 
 sub fadeOsd(target as float)
+    liftSubs(target > 0)
     a = m.top.findNode("osdAnim")
     a.control = "stop"
     m.top.findNode("osdFade").keyValue = [m.osd.opacity, target]
@@ -1183,6 +1194,7 @@ end sub
 sub close()
     if m.closing then return
     m.closing = true
+    m.subTimer.control = "stop"
     m.progressTimer.control = "stop"
     m.countdown.control = "stop"
     m.watchdog.control = "stop"

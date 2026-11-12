@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Subtitles drawn by Cove over the video (source/Subs.bs): set cues, then position as the video plays.
+     lift: the distance of the text's bottom from the screen's bottom (px; the player raises it above its controls).
+     restyle: draw again with the current Settings → Subtitles style. -->
+<component name="SubtitleLayer" extends="Group">
+    <script type="text/brightscript" uri="SubtitleLayer.bs" />
+    <interface>
+        <field id="cues" type="array" onChange="onCues" />
+        <field id="position" type="float" onChange="onPosition" />
+        <field id="lift" type="integer" value="108" onChange="draw" />
+        <field id="restyle" type="boolean" alwaysNotify="true" onChange="onRestyle" />
+    </interface>
+</component>

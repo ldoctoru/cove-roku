@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- Full-screen player with Cove's Glass controls (Sources/Views.swift player): the Video node draws only the
-     picture and subtitles (enableUI off); this component draws the controls.
+     picture (enableUI off); text subtitles are drawn by SubtitleLayer; this component draws the controls.
      Set server + item ({ id, title, subtitle, start, options }); "done" fires when the user leaves.
      Controls hidden: OK pause / play, Left / Right -10 / +10 s (shows the controls). Controls shown: the progress
      bar has the focus (Left / Right -10 / +10 s with a thumbnail, OK pause / play); Up: back 30, play / pause,
@@ -20,6 +20,9 @@
         <Rectangle width="1920" height="1080" color="0x000000FF" />
         <Video id="video" width="1920" height="1080" enableUI="false" />
         <Group id="keys" focusable="true" />
+        <!-- text subtitles, drawn by Cove (Settings → Subtitles style); above the controls while they show -->
+        <SubtitleLayer id="subLayer" />
+        <Timer id="subTimer" duration="0.1" repeat="true" />
 
         <!-- controls, laid out like Cove for macOS (Sources/Views.swift player) -->
         <Group id="osd" opacity="0">
