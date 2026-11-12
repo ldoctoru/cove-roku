@@ -87,6 +87,7 @@ sub resetState()
     m.osdShown = false
     m.osd.opacity = 0
     m.pauseClock = invalid
+    m.speed = 1.0           ' playback speed (Ends at divides the time left by it)
     m.session = invalid
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = invalid
@@ -449,6 +450,8 @@ end sub
 ' its conversion running (it ends one after about a minute without news)
 sub onProgressTimer()
     st = m.video.state
+    ' (while paused the position doesn't move, but "Ends at" does)
+    if m.osdShown and m.seekTarget < 0 then updateBar(m.video.position)
     ' (2 hours of playing without a key press: pause and ask, so a sleeping viewer doesn't stream all night)
     if st = "playing" and Prefs.stillWatchingAfter() > 0 and m.lastInput.TotalSeconds() >= 7200 and not m.still.visible
         m.video.control = "pause"
@@ -1260,7 +1263,8 @@ sub updateBar(atSec as float)
     if d > 0 then frac = atSec / d
     if frac > 1 then frac = 1
     if frac < 0 then frac = 0
-    w = Int(1600 * frac)
+    ' (the track ends before "Ends at" and the time left)
+    w = Int(1380 * frac)
     m.top.findNode("fill").width = w
     ' focused bar: thicker line and a bigger knob
     barFocus = m.osdShown and m.area = "bar" and m.picker = invalid
@@ -1285,10 +1289,22 @@ sub updateBar(atSec as float)
     if remain < 0 then remain = 0
     if d > 0
         m.top.findNode("remaining").text = "-" + Playback.clock(remain)
+        m.top.findNode("endsAt").text = "Ends at " + endsAtClock(remain)
     else
         m.top.findNode("remaining").text = ""
+        m.top.findNode("endsAt").text = ""
     end if
 end sub
+
+' The Roku's local time (24 h) after remain seconds of video at the current playback speed: "22:41"
+function endsAtClock(remain as float) as string
+    rate = m.speed
+    if rate <= 0 then rate = 1.0
+    dt = createObject("roDateTime")
+    dt.ToLocalTime()
+    dt.FromSeconds(dt.AsSeconds() + Int(remain / rate + 0.5))
+    return Right("0" + dt.GetHours().toStr(), 2) + ":" + Right("0" + dt.GetMinutes().toStr(), 2)
+end function
 
 ' Play / pause symbol follows the state
 sub updateCenter()

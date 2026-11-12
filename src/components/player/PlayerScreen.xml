@@ -58,9 +58,13 @@
                 <Label id="elapsed" width="110" height="66" translation="[24,0]" vertAlign="center" color="0xFFFFFFD9">
                     <Font role="font" uri="font:MediumSystemFontFile" size="24" />
                 </Label>
-                <Rectangle id="track" width="1600" height="6" translation="[130,30]" color="0xFFFFFF59" />
+                <Rectangle id="track" width="1380" height="6" translation="[130,30]" color="0xFFFFFF59" />
                 <Rectangle id="fill" width="0" height="6" translation="[130,30]" color="0xFFFFFFFF" />
                 <Poster id="thumb" uri="pkg:/images/ui/dot_24.png" width="22" height="22" translation="[119,22]" />
+                <!-- the Mac's "Ends at" (scrubber help label): the Roku's local time, 24 h, after the time left at the current speed -->
+                <Label id="endsAt" text="Ends at --:--" width="196" height="66" translation="[1534,0]" vertAlign="center" color="0xFFFFFFA6">
+                    <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+                </Label>
                 <Label id="remaining" width="120" height="66" translation="[1728,0]" horizAlign="right" vertAlign="center" color="0xFFFFFFD9">
                     <Font role="font" uri="font:MediumSystemFontFile" size="24" />
                 </Label>
