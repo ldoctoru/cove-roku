@@ -15,6 +15,10 @@
         <field id="done" type="boolean" alwaysNotify="true" />
         <!-- set by the scene before it removes the player (a deep link): stop everything, no "done" -->
         <field id="stopNow" type="boolean" onChange="onStopNow" />
+        <!-- set before "done" by "Back to the series" (Are you still watching?): the scene opens that series -->
+        <field id="openSeries" type="string" />
+        <!-- voice / transport commands (main.bs → MainScene): { command, direction, duration } → { status } -->
+        <function name="handleTransport" />
     </interface>
     <children>
         <Rectangle width="1920" height="1080" color="0x000000FF" />
@@ -103,6 +107,22 @@
             <Label text="Back: stop" width="350" height="52" translation="[288,166]" vertAlign="center" color="0xFFFFFF8C">
                 <Font role="font" uri="font:MediumSystemFontFile" size="24" />
             </Label>
+        </Group>
+
+        <!-- Are you still watching? (Settings → Playback): after several episodes in a row, or 2 hours,
+             without a key press. Left / Right choose, OK uses the button, Back leaves the player. -->
+        <Group id="still" visible="false">
+            <Rectangle width="1920" height="1080" color="0x000000A6" />
+            <Group translation="[540,370]">
+                <Poster uri="pkg:/images/ui/panel_dark_r18.9.png" width="840" height="340" />
+                <Label text="Are you still watching" width="840" height="40" translation="[0,40]" horizAlign="center" color="0xFFFFFFB3">
+                    <Font role="font" uri="font:MediumSystemFontFile" size="30" />
+                </Label>
+                <Label id="stillTitle" text="this series?" width="780" height="60" translation="[30,90]" horizAlign="center" color="0xFFFFFFFF">
+                    <Font role="font" uri="font:BoldSystemFontFile" size="44" />
+                </Label>
+                <Group id="stillBtns" translation="[48,222]" />
+            </Group>
         </Group>
 
         <Timer id="progressTimer" duration="10" repeat="true" />

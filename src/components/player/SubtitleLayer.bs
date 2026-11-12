@@ -31,7 +31,7 @@ sub onPosition()
         setText("")
         return
     end if
-    p = m.top.position
+    p = m.top.position - m.top.delay
     i = m.ci
     if i >= n then i = n - 1
     if i < 0 then i = 0

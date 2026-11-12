@@ -5,6 +5,8 @@ import "pkg:/source/Prefs.bs"
 ' cues on a Task thread (ApiTask with parse "srt"), and player/SubtitleLayer shows the one for the position,
 ' styled from Settings → Subtitles. Roku's own caption renderer isn't used for text subtitles: it ignores the
 ' app's style whenever the Roku's Accessibility → Captions style isn't Default, and has only three sizes.
+' The Roku's caption settings still count: captions On starts a subtitle when Cove has no choice of its own,
+' and its caption style fills in the style settings left at their defaults (see setting()).
 namespace Subs
 
     ' SRT text → [{ s: start seconds, e: end seconds, t: "line" or "line 1" + chr(10) + "line 2" }], by start
@@ -66,28 +68,34 @@ namespace Subs
     ' The style from Settings → Subtitles, for a 1080 px high screen (the Mac's fractions of the height).
     ' scale: 1 for the player, smaller for the Settings preview.
     function style(scale = 1.0 as float) as object
-        size = Prefs.text("subTextSize", "normal")
+        size = setting("subTextSize", "normal")
         frac = 0.045
         if size = "smaller" then frac = 0.032
         if size = "small" then frac = 0.038
         if size = "large" then frac = 0.055
         if size = "larger" then frac = 0.066
-        col = Prefs.text("subColor", "white")
+        col = setting("subColor", "white")
         tc = "0xFFFFFFFF"
         if col = "yellow" then tc = "0xFFEB3BFF"
         if col = "gray" then tc = "0xCCCCCCFF"
         if col = "black" then tc = "0x000000FF"
+        ' (colours only the Roku's caption settings have)
+        if col = "red" then tc = "0xFF453AFF"
+        if col = "green" then tc = "0x32D74BFF"
+        if col = "blue" then tc = "0x0A84FFFF"
+        if col = "magenta" then tc = "0xFF2DD4FF"
+        if col = "cyan" then tc = "0x64D2FFFF"
         ' the shadow is black, or white behind black text
         shade = "0x000000E6"
         if col = "black" then shade = "0xFFFFFFE6"
-        sh = Prefs.text("subShadow", "drop")
+        sh = setting("subShadow", "drop")
         offsets = []
         d = 2
         if scale < 0.7 then d = 1
         if sh = "drop" then offsets = [[d, d], [d + 1, d + 1]]
         if sh = "raised" then offsets = [[1, d]]
         if sh = "outline" then offsets = [[-d, 0], [d, 0], [0, -d], [0, d], [-d, -d], [d, d], [-d, d], [d, -d]]
-        bg = Prefs.text("subBg", "none")
+        bg = setting("subBg", "none")
         bgColor = ""
         if bg = "semi" then bgColor = "0x00000080"
         if bg = "black" then bgColor = "0x000000FF"
@@ -113,7 +121,73 @@ namespace Subs
     ' The saved value of one style setting (its default when unset)
     function current(ch as object) as string
         if ch.key = "subBottom" then return Prefs.subBottom().toStr()
-        return Prefs.text(ch.key, ch.def)
+        return setting(ch.key, ch.def)
+    end function
+
+    ' ---------------------------------------------------------------- the Roku's caption settings
+    ' Precedence for every style setting: Cove's own choice (Settings → Subtitles, the player's Subtitles menu)
+    ' > the Roku's Settings → Accessibility → Captions style (when not Default) > Cove's default.
+
+    ' One style setting as it applies now
+    function setting(key as string, def as string) as string
+        v = Util.readText(key)
+        if v <> "" then return v
+        r = rokuStyle(key)
+        if r <> "" then return r
+        return def
+    end function
+
+    ' The Roku's caption style for one of Cove's style keys, as a Cove value ("" = Default / no match).
+    ' Font and window settings have no counterpart (Cove draws with the system font, without a window).
+    function rokuStyle(key as string) as string
+        di = createObject("roDeviceInfo")
+        if di = invalid then return ""
+        if key = "subTextSize"
+            v = LCase(Util.toText(di.GetCaptionsOption("Text/Size")))
+            sizes = { "extra small": "smaller", "small": "small", "medium": "normal", "large": "large", "extra large": "larger" }
+            if sizes.doesExist(v) then return sizes[v]
+        else if key = "subColor"
+            v = LCase(Util.toText(di.GetCaptionsOption("Text/Color")))
+            if v = "white" or v = "yellow" or v = "black" or v = "red" or v = "green" or v = "blue" or v = "magenta" or v = "cyan" then return v
+        else if key = "subShadow"
+            v = LCase(Util.toText(di.GetCaptionsOption("Text/Effect")))
+            if v = "none" then return "none"
+            if v = "raised" or v = "depressed" then return "raised"
+            if v = "uniform" then return "outline"
+            if v.startsWith("drop shadow") then return "drop"
+        else if key = "subBg"
+            ' (Cove's backgrounds are black: the Roku's opacity decides which one)
+            v = LCase(Util.toText(di.GetCaptionsOption("Background/Opacity")))
+            if v = "off" then return "none"
+            if v = "25%" or v = "75%" then return "semi"
+            if v = "100%" then return "black"
+        end if
+        return ""
+    end function
+
+    ' The Roku's caption mode: "On", "Off", "Instant replay" (a Roku TV set to "When mute" answers "On"
+    ' while muted). Only read: the app never changes the Roku's setting.
+    function rokuMode() as string
+        di = createObject("roDeviceInfo")
+        if di = invalid then return "Off"
+        return Util.toText(di.GetCaptionsMode())
+    end function
+
+    ' The subtitle language to use when the Roku's captions start them: the language from Settings → Subtitles
+    ' when one was chosen there, else the Roku's caption language ("en" → "english"), else English
+    function rokuLanguage() as string
+        if Util.readText("subLang") <> "" then return Prefs.subLang()
+        di = createObject("roDeviceInfo")
+        code = ""
+        if di <> invalid then code = LCase(Util.toText(di.GetPreferredCaptionLanguage()))
+        if code <> ""
+            for each l in Prefs.languages()
+                for each c in l.codes
+                    if c = code then return LCase(l.name)
+                end for
+            end for
+        end if
+        return Prefs.subLang()
     end function
 
     ' "Normal" for the saved value

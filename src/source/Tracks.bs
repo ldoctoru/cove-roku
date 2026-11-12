@@ -174,9 +174,10 @@ namespace Tracks
     end function
 
     ' Intro and credits from Emby chapter markers (MarkerType IntroStart / IntroEnd / CreditsStart)
-    ' → { introStart, introEnd, credits } in seconds (-1 when unknown)
+    ' → { introStart, introEnd, credits, creditsEnd, segs } in seconds (-1 when unknown); segs: the other
+    ' skippable parts (Jellyfin recap / preview / commercial segments) as [{ key, kind, s, e }]
     function markers(it as object) as object
-        r = { introStart: -1.0, introEnd: -1.0, credits: -1.0 }
+        r = { introStart: -1.0, introEnd: -1.0, credits: -1.0, creditsEnd: -1.0, segs: [] }
         ch = it.Chapters
         if type(ch) <> "roArray" then return r
         for each c in ch
@@ -198,6 +199,7 @@ namespace Tracks
         if json = invalid or GetInterface(json, "ifAssociativeArray") = invalid then return r
         list = json.Items
         if type(list) <> "roArray" then return r
+        if r.segs = invalid then r.segs = []
         for each s in list
             kind = LCase(Util.toText(s.Type))
             st = Playback.seconds(s.StartTicks)
@@ -207,9 +209,20 @@ namespace Tracks
                 r.introEnd = en
             else if kind = "outro" and r.credits < 0
                 r.credits = st
+                r.creditsEnd = en
+            else if (kind = "recap" or kind = "preview" or kind = "commercial") and en > st + 1
+                r.segs.push({ key: r.segs.count().toStr(), kind: kind, s: st, e: en })
             end if
         end for
         return r
+    end function
+
+    ' The button over the video for a segment
+    function segmentLabel(kind as string) as string
+        if kind = "recap" then return "Skip recap"
+        if kind = "preview" then return "Skip preview"
+        if kind = "commercial" then return "Skip ad"
+        return "Skip"
     end function
 
 end namespace

@@ -4,6 +4,7 @@ import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Tracks.bs"
+import "pkg:/source/Subs.bs"
 import "pkg:/source/MediaInfo.bs"
 
 sub init()
@@ -184,6 +185,11 @@ sub showItem(it as object)
         if Prefs.subAlways()
             a = Tracks.subForLanguage(m.tracks, Prefs.subLang())
             if a >= 0 then s = a
+        end if
+        ' (none chosen yet and the Roku's captions On: a text subtitle in the language, as the player does)
+        if s < 0 and Subs.rokuMode() = "On"
+            a = Tracks.subForLanguage(m.tracks, Subs.rokuLanguage())
+            if a >= 0 and Tracks.findSub(m.tracks, a).isText then s = a
         end if
         if s >= 0
             m.opts.sub = s
@@ -891,6 +897,7 @@ function subPrefLabel() as string
     pref = Prefs.seriesSubLang(subPrefKey())
     ' Automatic follows Settings → Always load my subtitle language
     if pref = "" and Prefs.subAlways() then return displayLang(Prefs.subLang())
+    if pref = "" and Subs.rokuMode() = "On" then return displayLang(Subs.rokuLanguage())
     if pref = "" then return "Automatic"
     if pref = "off" then return "Off"
     for each l in m.subLangs
@@ -991,7 +998,11 @@ sub useBar()
     else
         pref = Prefs.seriesSubLang(subPrefKey())
         auto = "Automatic (forced subtitles only)"
-        if Prefs.subAlways() then auto = "Automatic (" + displayLang(Prefs.subLang()) + ", from Settings)"
+        if Prefs.subAlways()
+            auto = "Automatic (" + displayLang(Prefs.subLang()) + ", from Settings)"
+        else if Subs.rokuMode() = "On"
+            auto = "Automatic (" + displayLang(Subs.rokuLanguage()) + ", Roku captions on)"
+        end if
         o = [{ id: "", label: auto }, { id: "off", label: "Off" }]
         for each l in m.subLangs
             o.push({ id: l.code, label: l.label })
@@ -1350,8 +1361,8 @@ sub showAbout(it as object)
             if vids.count() > 0 then right_.push({ k: "Video", v: MediaInfo.videoLine(vids[0]) })
             auds = MediaInfo.streamsOfType(src, "Audio")
             if auds.count() > 0 then right_.push({ k: "Audio", v: trackLines(auds, 4) })
-            subs = MediaInfo.streamsOfType(src, "Subtitle")
-            if subs.count() > 0 then right_.push({ k: "Subtitles", v: trackLines(subs, 4) })
+            subStreams = MediaInfo.streamsOfType(src, "Subtitle")
+            if subStreams.count() > 0 then right_.push({ k: "Subtitles", v: trackLines(subStreams, 4) })
         end if
     end if
     m.hasAbout = left_.count() > 0 or right_.count() > 0
