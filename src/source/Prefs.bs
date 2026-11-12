@@ -102,6 +102,14 @@ namespace Prefs
         return v
     end function
 
+    ' Settings → Playback → Rewind on resume: seconds to go back when a title resumes from its saved position,
+    ' or when playback goes on after a pause of 5 minutes or more (0 = off)
+    function rewindOnResume() as integer
+        v = text("rewindOnResume", "5")
+        if v = "off" then return 0
+        return v.toInt()
+    end function
+
     ' ---------------------------------------------------------------- libraries
 
     ' Per library (Mac LibPref + LibraryDefaults): { nav, home, style, sort, show, name }

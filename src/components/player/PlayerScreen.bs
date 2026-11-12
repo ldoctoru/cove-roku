@@ -67,6 +67,7 @@ sub init()
     m.stillBtn = 0
     m.autoCount = 0
     m.lastInput = createObject("roTimespan")
+    m.pauseClock = invalid  ' since the video paused (Rewind on resume after a long pause)
     resetState()
 end sub
 
@@ -85,6 +86,7 @@ sub resetState()
     m.seekTarget = -1.0
     m.osdShown = false
     m.osd.opacity = 0
+    m.pauseClock = invalid
     m.session = invalid
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = invalid
@@ -123,6 +125,13 @@ sub begin()
     resetState()
     it = m.top.item
     m.startAt = it.start
+    ' Settings → Playback → Rewind on resume: a title resuming from its saved position starts a little earlier
+    rw = Prefs.rewindOnResume()
+    if rw > 0 and m.startAt > 1
+        m.startAt = m.startAt - rw
+        if m.startAt < 0 then m.startAt = 0
+        print "Cove: rewind on resume, starting at "; Int(m.startAt); " s"
+    end if
     tasksHolder()
     m.top.findNode("title").text = Util.toText(it.title)
     m.top.findNode("episode").text = Util.toText(it.subtitle)
@@ -392,6 +401,12 @@ sub onState()
     print "Cove: video "; st
     if st = "buffering" and m.started then showLoading(0, "")
     if st = "playing" or st = "paused" then updateCenter()
+    if st = "paused"
+        if m.pauseClock = invalid then m.pauseClock = createObject("roTimespan")
+        m.pauseClock.Mark()
+    else if st = "playing"
+        m.pauseClock = invalid
+    end if
     if st = "paused" then showOsd(false)
     if st = "playing" and m.osdShown then m.hideTimer.control = "start"
     if st = "playing"
@@ -714,8 +729,23 @@ end sub
 
 ' Play on only if the picker paused the video: one the user had paused stays paused
 sub resumeAfterPicker()
-    if m.pausedByPicker and m.video.state = "paused" then m.video.control = "resume"
+    if m.pausedByPicker and m.video.state = "paused" then resumeVideo()
     m.pausedByPicker = false
+end sub
+
+' Play on after a pause; after 5 minutes or more, Settings → Playback → Rewind on resume goes back a little first
+sub resumeVideo()
+    rw = Prefs.rewindOnResume()
+    if rw > 0 and m.pauseClock <> invalid and m.pauseClock.TotalSeconds() >= 300
+        t = m.video.position - rw
+        if t < 0 then t = 0
+        print "Cove: rewind on resume after "; m.pauseClock.TotalSeconds(); " s paused, to "; Int(t); " s"
+        m.video.seek = t
+        syncSubClock(t)
+        m.subLayer.position = t
+    end if
+    m.pauseClock = invalid
+    m.video.control = "resume"
 end sub
 
 sub onPicked(ev as object)
@@ -998,7 +1028,7 @@ sub togglePause()
     else if m.video.state = "playing"
         m.video.control = "pause"
     else if m.video.state = "paused"
-        m.video.control = "resume"
+        resumeVideo()
     end if
     showOsd(true)
 end sub
@@ -1956,7 +1986,7 @@ sub useStill()
         if kind = "next"
             playNext()
         else if m.video.state = "paused"
-            m.video.control = "resume"
+            resumeVideo()
         end if
         return
     end if
@@ -2053,7 +2083,7 @@ function handleTransport(evt as object) as object
     st = m.video.state
     if cmd = "play" or cmd = "resume"
         if st <> "paused" then return { status: "error.redundant" }
-        m.video.control = "resume"
+        resumeVideo()
     else if cmd = "pause"
         if st <> "playing" then return { status: "error.redundant" }
         m.video.control = "pause"
