@@ -85,7 +85,12 @@ namespace Api
             res.code = msg.getResponseCode()
             text = invalid
             if req.saveTo = invalid then text = msg.getString()
-            if text <> invalid and text <> "" then res.json = parseJson(text)
+            ' (a text answer, e.g. subtitles: req.keepText; otherwise JSON)
+            if Util.flag(req, "keepText")
+                res.text = text
+            else if text <> invalid and text <> ""
+                res.json = parseJson(text)
+            end if
             if res.code < 0 then res.error = Util.toText(msg.getFailureReason())
         else
             xfer.asyncCancel()

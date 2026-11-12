@@ -1,0 +1,128 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Prefs.bs"
+
+' Subtitles drawn by Cove (as on the Mac, Sources/Views.swift subtitleLayer): the server's SRT is parsed into
+' cues on a Task thread (ApiTask with parse "srt"), and player/SubtitleLayer shows the one for the position,
+' styled from Settings → Subtitles. Roku's own caption renderer isn't used for text subtitles: it ignores the
+' app's style whenever the Roku's Accessibility → Captions style isn't Default, and has only three sizes.
+namespace Subs
+
+    ' SRT text → [{ s: start seconds, e: end seconds, t: "line" or "line 1" + chr(10) + "line 2" }], by start
+    function parseSrt(text as dynamic) as object
+        cues = []
+        if text = invalid or text = "" then return cues
+        ' (<i>, <font ...>, {\an8} and other tags are dropped)
+        tags = createObject("roRegex", "<[^>]*>|\{[^}]*\}", "")
+        lines = text.replace(chr(13), "").split(chr(10))
+        n = lines.count()
+        i = 0
+        while i < n
+            arrow = lines[i].instr("-->")
+            if arrow > 0
+                s = srtTime(lines[i].left(arrow))
+                e = srtTime(lines[i].mid(arrow + 3))
+                i++
+                buf = []
+                while i < n
+                    l = lines[i].trim()
+                    ' (a malformed file without a blank line: the next cue's timing line ends this one)
+                    if l = "" or l.instr("-->") > 0 then exit while
+                    l = tags.replaceAll(l, "").trim()
+                    if l <> "" then buf.push(l)
+                    i++
+                end while
+                ' (and its number, just before that timing line)
+                if i < n and lines[i].instr("-->") > 0 and buf.count() > 0
+                    if isNumber(buf.peek()) then buf.pop()
+                end if
+                if buf.count() > 0 and e > s then cues.push({ s: s, e: e, t: Util.join(buf, chr(10)) })
+            else
+                i++
+            end if
+        end while
+        cues.sortBy("s")
+        return cues
+    end function
+
+    function isNumber(x as string) as boolean
+        if x = "" then return false
+        for k = 1 to x.len()
+            ch = Asc(Mid(x, k, 1))
+            if ch < 48 or ch > 57 then return false
+        end for
+        return true
+    end function
+
+    ' "00:01:02,500" (anything after the time, e.g. SRT position hints, is ignored) → 62.5
+    function srtTime(x as string) as float
+        tok = x.trim().split(" ")
+        if tok.count() = 0 then return 0
+        parts = tok[0].replace(",", ".").split(":")
+        if parts.count() = 3 then return parts[0].toInt() * 3600 + parts[1].toInt() * 60 + Val(parts[2])
+        if parts.count() = 2 then return parts[0].toInt() * 60 + Val(parts[1])
+        return Val(parts[0])
+    end function
+
+    ' The style from Settings → Subtitles, for a 1080 px high screen (the Mac's fractions of the height).
+    ' scale: 1 for the player, smaller for the Settings preview.
+    function style(scale = 1.0 as float) as object
+        size = Prefs.text("subTextSize", "normal")
+        frac = 0.045
+        if size = "smaller" then frac = 0.032
+        if size = "small" then frac = 0.038
+        if size = "large" then frac = 0.055
+        if size = "larger" then frac = 0.066
+        col = Prefs.text("subColor", "white")
+        tc = "0xFFFFFFFF"
+        if col = "yellow" then tc = "0xFFEB3BFF"
+        if col = "gray" then tc = "0xCCCCCCFF"
+        if col = "black" then tc = "0x000000FF"
+        ' the shadow is black, or white behind black text
+        shade = "0x000000E6"
+        if col = "black" then shade = "0xFFFFFFE6"
+        sh = Prefs.text("subShadow", "drop")
+        offsets = []
+        d = 2
+        if scale < 0.7 then d = 1
+        if sh = "drop" then offsets = [[d, d], [d + 1, d + 1]]
+        if sh = "raised" then offsets = [[1, d]]
+        if sh = "outline" then offsets = [[-d, 0], [d, 0], [0, -d], [0, d], [-d, -d], [d, d], [-d, d], [d, -d]]
+        bg = Prefs.text("subBg", "none")
+        bgColor = ""
+        if bg = "semi" then bgColor = "0x00000080"
+        if bg = "black" then bgColor = "0x000000FF"
+        return { fontSize: Int(1080 * frac * scale + 0.5), color: tc, shade: shade, offsets: offsets, bgColor: bgColor, bottom: Prefs.subBottom() }
+    end function
+
+    ' The style settings, shared by Settings → Subtitles and the player's Subtitles menu:
+    ' [{ key, label, def, options: [{ id, label }] }]
+    function styleChoices() as object
+        bo = []
+        for each v in [0, 5, 10, 15, 20, 25, 30]
+            bo.push({ id: v.toStr(), label: v.toStr() + "%" })
+        end for
+        return [
+            { key: "subTextSize", label: "Text size", def: "normal", options: [{ id: "smaller", label: "Smaller" }, { id: "small", label: "Small" }, { id: "normal", label: "Normal" }, { id: "large", label: "Large" }, { id: "larger", label: "Larger" }] },
+            { key: "subColor", label: "Text color", def: "white", options: [{ id: "white", label: "White" }, { id: "yellow", label: "Yellow" }, { id: "gray", label: "Light gray" }, { id: "black", label: "Black" }] },
+            { key: "subShadow", label: "Shadow", def: "drop", options: [{ id: "none", label: "None" }, { id: "drop", label: "Drop shadow" }, { id: "outline", label: "Outline" }, { id: "raised", label: "Raised" }] },
+            { key: "subBg", label: "Background", def: "none", options: [{ id: "none", label: "Transparent" }, { id: "semi", label: "Semi-transparent" }, { id: "black", label: "Black" }] },
+            { key: "subBottom", label: "Distance from bottom", def: "10", options: bo }
+        ]
+    end function
+
+    ' The saved value of one style setting (its default when unset)
+    function current(ch as object) as string
+        if ch.key = "subBottom" then return Prefs.subBottom().toStr()
+        return Prefs.text(ch.key, ch.def)
+    end function
+
+    ' "Normal" for the saved value
+    function currentLabel(ch as object) as string
+        v = current(ch)
+        for each o in ch.options
+            if o.id = v then return o.label
+        end for
+        return v
+    end function
+
+end namespace

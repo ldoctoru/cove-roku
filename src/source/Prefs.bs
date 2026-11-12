@@ -161,40 +161,6 @@ namespace Prefs
 
     ' ---------------------------------------------------------------- subtitle style (Mac PlayerView sizes / colors / ...)
 
-    ' For the Video node's captionStyle; Roku's own caption settings win when they aren't "Default"
-    function captionStyle() as object
-        s = {}
-        size = text("subTextSize", "normal")
-        ' (Roku has three sizes: Normal keeps Roku's own)
-        if size = "smaller" or size = "small" then s["Text/Size"] = "Small"
-        if size = "large" or size = "larger" then s["Text/Size"] = "Large"
-        col = text("subColor", "white")
-        if col = "white" then s["Text/Color"] = "White"
-        if col = "yellow" then s["Text/Color"] = "Yellow"
-        if col = "black" then s["Text/Color"] = "Black"
-        ' (Roku has no grey: white at 75 %)
-        if col = "gray"
-            s["Text/Color"] = "White"
-            s["Text/Opacity"] = "75%"
-        end if
-        sh = text("subShadow", "drop")
-        if sh = "none" then s["Text/Effect"] = "None"
-        if sh = "drop" then s["Text/Effect"] = "Drop shadow (right)"
-        if sh = "outline" then s["Text/Effect"] = "Uniform"
-        if sh = "raised" then s["Text/Effect"] = "Raised"
-        bg = text("subBg", "none")
-        if bg = "none" then s["Background/Opacity"] = "Off"
-        if bg = "semi"
-            s["Background/Color"] = "Black"
-            s["Background/Opacity"] = "50%"
-        end if
-        if bg = "black"
-            s["Background/Color"] = "Black"
-            s["Background/Opacity"] = "100%"
-        end if
-        return s
-    end function
-
     function subBottom() as integer
         v = Util.readText("subBottom")
         if v = "" then return 10

@@ -1,3 +1,4 @@
+import "pkg:/source/Subs.bs"
 import "pkg:/source/Util.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Theme.bs"
@@ -165,17 +166,10 @@ function rowsFor(tabId as string) as object
         out.push(note("Movies and episodes start with subtitles in this language when they have them. You can still turn them off in the player."))
         out.push(sectionHead("Style"))
         out.push({ kind: "preview" })
-        out.push(choice("subTextSize", "Text size", [{ id: "small", label: "Small" }, { id: "normal", label: "Normal" }, { id: "large", label: "Large" }], Prefs.text("subTextSize", "normal")))
-        out.push(choice("subColor", "Text color", [{ id: "white", label: "White" }, { id: "yellow", label: "Yellow" }, { id: "gray", label: "Light gray" }, { id: "black", label: "Black" }], Prefs.text("subColor", "white")))
-        out.push(choice("subShadow", "Shadow", [{ id: "none", label: "None" }, { id: "drop", label: "Drop shadow" }, { id: "outline", label: "Outline" }, { id: "raised", label: "Raised" }], Prefs.text("subShadow", "drop")))
-        out.push(choice("subBg", "Background", [{ id: "none", label: "Transparent" }, { id: "semi", label: "Semi-transparent" }, { id: "black", label: "Black" }], Prefs.text("subBg", "none")))
-        bo = []
-        for each v in [0, 5, 10, 15, 20, 25, 30]
-            bo.push({ id: v.toStr(), label: v.toStr() + "%" })
+        for each ch in Subs.styleChoices()
+            out.push(choice(ch.key, ch.label, ch.options, Subs.current(ch)))
         end for
-        out.push(choice("subBottom", "Distance from bottom", bo, Prefs.subBottom().toStr()))
         out.push({ kind: "button", id: "subDefaults", label: "", text: "Restore Defaults" })
-        out.push(note("When a caption style is set in the Roku's own settings (Settings > Accessibility > Captions style), the Roku's choice wins over these."))
     else if tabId = "playback"
         out.push(sectionHead("Start with"))
         out.push(choice("startQuality", "Quality", Tracks.qualities(), Prefs.startQuality().toStr()))
@@ -634,15 +628,10 @@ sub drawPreview(c as object, sectionTop as integer)
     bot.height = ph / 2
     bot.translation = [0, ph / 2]
     bot.color = "0xBFB399FF"
-    size = Prefs.text("subTextSize", "normal")
-    fs = 22
-    if size = "small" or size = "smaller" then fs = 18
-    if size = "large" or size = "larger" then fs = 27
-    col = Prefs.text("subColor", "white")
-    tc = "0xFFFFFFFF"
-    if col = "yellow" then tc = "0xFFEB3BFF"
-    if col = "gray" then tc = "0xCCCCCCFF"
-    if col = "black" then tc = "0x000000FF"
+    ' (the player's style, Subs.style, scaled so Normal is 22 px as before)
+    st = Subs.style(0.45)
+    fs = st.fontSize
+    tc = st.color
     text = "This is how subtitles will look."
     probe = createObject("roSGNode", "Label")
     probe.font = mkFont(false, fs)
@@ -653,24 +642,15 @@ sub drawPreview(c as object, sectionTop as integer)
     ty = ph - th - Int(ph * bottomPct / 100) - 6
     if ty < 4 then ty = 4
     tx = Int((pw - tw) / 2)
-    bgStyle = Prefs.text("subBg", "none")
-    if bgStyle <> "none"
+    if st.bgColor <> ""
         b = g.createChild("Rectangle")
         b.width = tw + 20
         b.height = th
         b.translation = [tx - 10, ty]
-        b.color = "0x000000FF"
-        if bgStyle = "semi" then b.color = "0x00000080"
+        b.color = st.bgColor
     end if
-    sh = Prefs.text("subShadow", "drop")
-    shadowCol = "0x000000CC"
-    if col = "black" then shadowCol = "0xFFFFFFCC"
-    offsets = []
-    if sh = "drop" then offsets = [[2, 2]]
-    if sh = "raised" then offsets = [[-1, -1]]
-    if sh = "outline" then offsets = [[-1, 0], [1, 0], [0, -1], [0, 1]]
-    for each o in offsets
-        s = addLabel(g, text, tx + o[0], ty + o[1], tw + 4, th, fs, false, shadowCol)
+    for each o in st.offsets
+        s = addLabel(g, text, tx + o[0], ty + o[1], tw + 4, th, fs, false, st.shade)
         s.horizAlign = "left"
     end for
     addLabel(g, text, tx, ty, tw + 4, th, fs, false, tc)

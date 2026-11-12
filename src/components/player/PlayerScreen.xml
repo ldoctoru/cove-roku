@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- Full-screen player with Cove's Glass controls (Sources/Views.swift player): the Video node draws only the
-     picture and subtitles (enableUI off); this component draws the controls.
+     picture (enableUI off); text subtitles are drawn by SubtitleLayer; this component draws the controls.
      Set server + item ({ id, title, subtitle, start, options }); "done" fires when the user leaves.
      Controls hidden: OK pause / play, Left / Right -10 / +10 s (shows the controls). Controls shown: the progress
      bar has the focus (Left / Right -10 / +10 s with a thumbnail, OK pause / play); Up: back 30, play / pause,
@@ -20,11 +20,14 @@
         <Rectangle width="1920" height="1080" color="0x000000FF" />
         <Video id="video" width="1920" height="1080" enableUI="false" />
         <Group id="keys" focusable="true" />
+        <!-- text subtitles, drawn by Cove (Settings → Subtitles style); above the controls while they show -->
+        <SubtitleLayer id="subLayer" />
+        <Timer id="subTimer" duration="0.1" repeat="true" />
 
         <!-- controls, laid out like Cove for macOS (Sources/Views.swift player) -->
         <Group id="osd" opacity="0">
             <Poster uri="pkg:/images/ui/scrim_osd.png" width="1920" height="1080" />
-            <!-- centre: back 30, play / pause, forward 30 -->
+            <!-- centre: previous episode, play / pause, next episode (drawControls) -->
             <Group id="center" />
             <!-- bottom-left: episode and title -->
             <Label id="episode" width="1100" height="34" translation="[24,856]" color="0xFFFFFFD9">
@@ -60,7 +63,15 @@
             </Group>
         </Group>
 
-        <Label id="status" width="1920" height="60" translation="[0,510]" horizAlign="center" color="0xFFFFFFD9" text="Starting...">
+        <!-- loading the video: a progress ring with the percentage (and a line under it when there is something to say) -->
+        <Group id="loader" visible="false">
+            <Poster uri="pkg:/images/ui/load_track.png" width="132" height="132" translation="[894,474]" />
+            <Poster id="loaderArc" width="132" height="132" translation="[894,474]" />
+            <Label id="loaderPct" width="132" height="132" translation="[894,474]" horizAlign="center" vertAlign="center" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="30" />
+            </Label>
+        </Group>
+        <Label id="status" width="1920" height="60" translation="[0,510]" horizAlign="center" color="0xFFFFFFD9" visible="false">
             <Font role="font" uri="font:MediumSystemFontFile" size="36" />
         </Label>
 
