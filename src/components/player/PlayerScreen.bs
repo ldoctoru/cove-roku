@@ -167,6 +167,18 @@ sub onInfo(r as object)
                 end if
             end if
         end if
+        ' The Roku's captions are On (Settings → Accessibility → Captions) and nothing in Cove chose subtitles:
+        ' the language from Settings, else the Roku's caption language. Off in the player or on the series page,
+        ' or a choice on the details page, wins.
+        if m.opts.sub < 0 and not picked and seriesPref = "" and m.subLang = "" and Subs.rokuMode() = "On"
+            rs = Tracks.subForLanguage(m.tracks, Subs.rokuLanguage())
+            print "Cove: Roku captions on, "; Subs.rokuLanguage(); " -> track "; rs
+            ' (text ones only: burning one in would make the server convert the video)
+            if rs >= 0 and Tracks.findSub(m.tracks, rs).isText
+                m.opts.sub = rs
+                m.opts.burn = false
+            end if
+        end if
         ' Jellyfin keeps intro / credits (and recaps, previews, commercials) as media segments
         if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial", { kind: "segments", itemId: m.top.item.id })
         if Util.toText(r.json.Type) = "Episode" and Util.toText(r.json.SeriesId) <> ""
