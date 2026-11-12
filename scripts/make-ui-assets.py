@@ -217,6 +217,15 @@ def quality(d, n):
     d.text(((n - (bb[2] - bb[0])) / 2 - bb[0], (n - (bb[3] - bb[1])) / 2 - bb[1]), "HD", font=f, fill=WHITE)
 
 
+def chapters_icon(d, n):
+    # list.bullet.rectangle: a rounded box with three bullet + line rows
+    w = int(n * 0.07)
+    d.rounded_rectangle([n * 0.06, n * 0.14, n * 0.94, n * 0.86], n * 0.12, outline=WHITE, width=w)
+    for y in (0.34, 0.5, 0.66):
+        d.ellipse([n * 0.2, n * (y - 0.045), n * 0.29, n * (y + 0.045)], fill=WHITE)
+        d.line([(n * 0.36, n * y), (n * 0.8, n * y)], fill=WHITE, width=w)
+
+
 def eye(d, n):
     import math
     def lens(scale):
@@ -405,7 +414,8 @@ def main():
                          ("pause", pause), ("restart", restart), ("captions", captions)):
             icon(name, size, fn)
     for name, fn in (("back30", skip30(False)), ("fwd30", skip30(True)), ("prev", prev_track), ("next", next_track),
-                     ("episodes", episodes), ("subtitles", subtitles), ("audio", waveform), ("quality", quality)):
+                     ("episodes", episodes), ("subtitles", subtitles), ("audio", waveform), ("quality", quality),
+                     ("chapters", chapters_icon)):
         icon(name, 36, fn)
     save(circle(105, GLASS_FILL, (255, 255, 255, 31), 2), "glass_circle_105.png")
     save(circle(105, WHITE), "white_circle_105.png")

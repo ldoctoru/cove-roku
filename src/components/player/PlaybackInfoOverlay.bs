@@ -1,0 +1,35 @@
+import "pkg:/source/Util.bs"
+
+sub init()
+    m.rows = m.top.findNode("rows")
+end sub
+
+' One row per line: the name in grey on the left, the value on the right (long values on up to two lines)
+sub onLines()
+    m.rows.removeChildrenIndex(m.rows.getChildCount(), 0)
+    y = 0
+    for each l in m.top.lines
+        addRowLabel(Util.toText(l.k), 0, y, 250, "0xFFFFFF99")
+        parts = Util.wrapLines(Util.toText(l.v), 50, 2)
+        if parts.count() = 0 then parts = [""]
+        for each part in parts
+            addRowLabel(part, 254, y, 630, "0xFFFFFFFF")
+            y = y + 32
+        end for
+        y = y + 2
+    end for
+    m.top.findNode("bg").height = 70 + y + 20
+end sub
+
+sub addRowLabel(text as string, x as integer, y as integer, w as integer, col as string)
+    lab = m.rows.createChild("Label")
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    f.size = 22
+    lab.font = f
+    lab.color = col
+    lab.width = w
+    lab.height = 32
+    lab.translation = [x, y]
+    lab.text = text
+end sub

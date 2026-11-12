@@ -1,0 +1,167 @@
+import "pkg:/source/Util.bs"
+
+' Texts about a file and its streams, for the player's Playback info and the details page's Media info
+' (Cove for macOS: PlayerModel.playbackInfo, DetailView mediaInfo). Only ASCII and "·" (the system font).
+namespace MediaInfo
+
+    ' Bits per second → "12.3 Mbps" / "640 kbps" ("" for nothing)
+    function rateText(bps as dynamic) as string
+        b = toNumber(bps)
+        if b <= 0 then return ""
+        if b >= 1000000 then return formatOne(b / 1000000) + " Mbps"
+        return Int(b / 1000).toStr() + " kbps"
+    end function
+
+    ' Bytes → "4.2 GB" / "700 MB"
+    function sizeText(bytes as dynamic) as string
+        b = toNumber(bytes)
+        if b <= 0 then return ""
+        if b >= 1000000000 then return formatOne(b / 1000000000) + " GB"
+        if b >= 1000000 then return Int(b / 1000000).toStr() + " MB"
+        return Int(b / 1000).toStr() + " KB"
+    end function
+
+    ' A JSON number (integer, longinteger, float, double or text) as a Double
+    function toNumber(v as dynamic) as double
+        if v = invalid then return 0
+        if GetInterface(v, "ifString") <> invalid then return v.toFloat()
+        t = type(v)
+        if t = "roInt" or t = "roInteger" or t = "Integer" or t = "roLongInteger" or t = "LongInteger" or t = "roFloat" or t = "Float" or t = "roDouble" or t = "Double" then return v * 1.0#
+        return 0
+    end function
+
+    function formatOne(x as double) as string
+        tenths = Int(x * 10 + 0.5)
+        return (tenths \ 10).toStr() + "." + (tenths mod 10).toStr()
+    end function
+
+    ' The media source the player uses (by id), else the first one
+    function findSource(info as dynamic, sourceId as string) as dynamic
+        if info = invalid or type(info.MediaSources) <> "roArray" or info.MediaSources.count() = 0 then return invalid
+        for each s in info.MediaSources
+            if sourceId <> "" and Util.toText(s.Id) = sourceId then return s
+        end for
+        return info.MediaSources[0]
+    end function
+
+    ' The streams of one type ("Video", "Audio", "Subtitle") of a media source
+    function streamsOfType(src as dynamic, kind as string) as object
+        out = []
+        if src = invalid or type(src.MediaStreams) <> "roArray" then return out
+        for each s in src.MediaStreams
+            if Util.toText(s.Type) = kind then out.push(s)
+        end for
+        return out
+    end function
+
+    function streamAt(src as dynamic, index as integer) as dynamic
+        if src = invalid or type(src.MediaStreams) <> "roArray" then return invalid
+        for each s in src.MediaStreams
+            if s.Index <> invalid and Int(toNumber(s.Index)) = index then return s
+        end for
+        return invalid
+    end function
+
+    ' HDR10 / HLG / Dolby Vision, "" for SDR (Jellyfin: VideoRangeType; Emby: VideoRange, ExtendedVideoType)
+    function rangeLabel(v as object) as string
+        r = Util.toText(v.VideoRangeType)
+        if r = "" then r = Util.toText(v.VideoRange)
+        ext = LCase(Util.toText(v.ExtendedVideoType))
+        if LCase(r).instr("dovi") >= 0 or ext.instr("dolbyvision") >= 0 then return "Dolby Vision"
+        if r = "" or UCase(r) = "SDR" then return ""
+        if UCase(r) = "HDR" then return "HDR"
+        return r.replace("HDR 10", "HDR10")
+    end function
+
+    ' "HEVC · 3840x2160 · HDR10 · 25.3 Mbps"
+    function videoLine(v as dynamic) as string
+        if v = invalid then return ""
+        parts = [UCase(Util.toText(v.Codec))]
+        if parts[0] = "" then parts[0] = "?"
+        w = Int(toNumber(v.Width))
+        h = Int(toNumber(v.Height))
+        if w > 0 and h > 0 then parts.push(w.toStr() + "x" + h.toStr())
+        hdr = rangeLabel(v)
+        if hdr <> "" then parts.push(hdr)
+        br = rateText(v.BitRate)
+        if br <> "" then parts.push(br)
+        return Util.join(parts, " · ")
+    end function
+
+    ' The server's description of a track ("English - Dolby Digital+ - 5.1 - Default"), else codec and channels
+    function trackLine(a as dynamic) as string
+        if a = invalid then return ""
+        t = Util.toText(a.DisplayTitle)
+        if t <> "" then return t
+        parts = [UCase(Util.toText(a.Codec))]
+        ch = Int(toNumber(a.Channels))
+        if ch > 0 then parts.push(ch.toStr() + " ch")
+        lang = Util.toText(a.Language)
+        if lang <> "" then parts.push(lang)
+        return Util.join(parts, " · ")
+    end function
+
+    function methodLabel(method as string) as string
+        if method = "DirectPlay" then return "Direct play"
+        if method = "DirectStream" then return "Direct stream"
+        if method = "Transcode" then return "Transcode"
+        return method
+    end function
+
+    ' TranscodeReasons (array, or the comma list from the stream URL) → "Video codec not supported, ..."
+    function reasonsLabel(reasons as dynamic) as string
+        list = []
+        if type(reasons) = "roArray"
+            list = reasons
+        else if Util.toText(reasons) <> ""
+            list = Util.toText(reasons).split(",")
+        end if
+        out = []
+        for each r in list
+            s = Util.toText(r)
+            s = s.replace("NotSupported", " not supported").replace("NotAllowed", " not allowed")
+            ' "VideoCodec not supported" → "Video codec not supported"
+            words = ""
+            for i = 0 to s.len() - 1
+                ch = s.mid(i, 1)
+                if i > 0 and ch >= "A" and ch <= "Z" and s.mid(i - 1, 1) <> " " then ch = " " + LCase(ch)
+                words = words + ch
+            end for
+            if words <> "" then out.push(words)
+        end for
+        return Util.join(out, ", ")
+    end function
+
+    ' The value of one query parameter in a URL ("" when missing)
+    function queryValue(url as string, name as string) as string
+        q = url.instr("?")
+        if q < 0 then return ""
+        for each part in url.mid(q + 1).split("&")
+            eq = part.instr("=")
+            if eq > 0 and LCase(part.left(eq)) = LCase(name) then return part.mid(eq + 1).replace("%2C", ",").replace("%2c", ",")
+        end for
+        return ""
+    end function
+
+    ' Server date (ISO 8601, UTC) → "May 4, 2023" or with the local time "May 4, 2023 · 21:05" ("" when missing)
+    function dateText(iso as dynamic, withTime as boolean) as string
+        t = Util.toText(iso)
+        if t.len() < 10 or t.left(4) = "0001" then return ""
+        d = createObject("roDateTime")
+        if t.len() >= 19
+            d.FromISO8601String(t.left(19) + "Z")
+        else
+            d.FromISO8601String(t.left(10) + "T00:00:00Z")
+        end if
+        if withTime then d.ToLocalTime()
+        out = d.asDateString("short-month-no-weekday")
+        if withTime
+            mins = d.GetMinutes()
+            mm = mins.toStr()
+            if mins < 10 then mm = "0" + mm
+            out = out + " · " + d.GetHours().toStr() + ":" + mm
+        end if
+        return out
+    end function
+
+end namespace

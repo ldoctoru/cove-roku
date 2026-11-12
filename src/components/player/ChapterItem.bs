@@ -1,0 +1,31 @@
+sub init()
+    m.name = m.top.findNode("name")
+    m.time = m.top.findNode("time")
+    m.bg = m.top.findNode("bg")
+    m.isCurrent = false
+end sub
+
+sub onContent()
+    c = m.top.itemContent
+    if c = invalid then return
+    m.name.text = c.title
+    m.time.text = c.description
+    m.top.findNode("thumb").uri = c.hdPosterUrl
+    m.isCurrent = c.hasField("isCurrent") and c.isCurrent
+    onFocus()
+end sub
+
+' Focused: white row with black text (as in the other panels); the chapter playing now in the accent colour
+sub onFocus()
+    f = 0.0
+    if m.top.listHasFocus then f = m.top.focusPercent
+    m.bg.opacity = f
+    if f > 0.5
+        m.name.color = "0x000000FF"
+        m.time.color = "0x000000B3"
+    else
+        m.name.color = "0xFFFFFFFF"
+        if m.isCurrent then m.name.color = m.global.theme.accent
+        m.time.color = "0xFFFFFF8C"
+    end if
+end sub

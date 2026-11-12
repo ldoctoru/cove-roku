@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- "Playback info" over the video, top left (Cove for macOS: PlayerView infoOverlay / PlayerModel.playbackInfo):
+     how the video is played, the source and server streams and what the Roku receives. Set lines
+     ([{ k, v }]); the player refreshes them while it is shown. Takes no keys. -->
+<component name="PlaybackInfoOverlay" extends="Group">
+    <script type="text/brightscript" uri="PlaybackInfoOverlay.bs" />
+    <interface>
+        <field id="lines" type="array" onChange="onLines" />
+    </interface>
+    <children>
+        <Poster id="bg" uri="pkg:/images/ui/panel_dark_r18.9.png" width="940" height="120" />
+        <Label text="Playback info" width="880" height="40" translation="[28,20]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="28" />
+        </Label>
+        <Group id="rows" translation="[28,70]" />
+    </children>
+</component>

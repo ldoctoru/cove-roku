@@ -1,0 +1,54 @@
+import "pkg:/source/Util.bs"
+
+sub init()
+    m.leftCol = m.top.findNode("leftCol")
+    m.rightCol = m.top.findNode("rightCol")
+end sub
+
+sub onInfo()
+    inf = m.top.info
+    if inf = invalid then return
+    fillColumn(m.leftCol, inf.left, 820)
+    fillColumn(m.rightCol, inf.right, 824)
+    m.top.findNode("mediaTitle").visible = type(inf.right) = "roArray" and inf.right.count() > 0
+end sub
+
+' Each row: its name in bold, the text under it in grey (as on the Mac), wrapped by hand
+sub fillColumn(col as object, rows as dynamic, w as integer)
+    col.removeChildrenIndex(col.getChildCount(), 0)
+    if type(rows) <> "roArray" then return
+    chars = Int(w / 14)
+    y = 0
+    for each r in rows
+        addText(col, Util.toText(r.k), 0, y, w, "0xFFFFFFFF", true)
+        y = y + 34
+        lines = []
+        if type(r.v) = "roArray"
+            for each one in r.v
+                cut = Util.wrapLines(Util.toText(one), chars, 1)
+                if cut.count() > 0 then lines.push(cut[0])
+            end for
+        else
+            lines = Util.wrapLines(Util.toText(r.v), chars, 2)
+        end if
+        for each line in lines
+            addText(col, line, 0, y, w, "0xFFFFFFB3", false)
+            y = y + 32
+        end for
+        y = y + 18
+    end for
+end sub
+
+sub addText(col as object, text as string, x as integer, y as integer, w as integer, color as string, bold as boolean)
+    lab = col.createChild("Label")
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    if bold then f.uri = "font:BoldSystemFontFile"
+    f.size = 24
+    lab.font = f
+    lab.color = color
+    lab.width = w
+    lab.height = 32
+    lab.translation = [x, y]
+    lab.text = text
+end sub

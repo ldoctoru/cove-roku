@@ -4,6 +4,7 @@ import "pkg:/source/Api.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Tracks.bs"
 import "pkg:/source/Items.bs"
+import "pkg:/source/MediaInfo.bs"
 
 sub init()
     m.video = m.top.findNode("video")
@@ -46,6 +47,11 @@ sub init()
     m.bifTask = invalid
     m.bifPath = ""
     m.subLang = ""          ' subtitle language chosen in this session, kept for the next episode
+    m.pbInfo = invalid      ' Playback info overlay (* menu), m.pbTimer refreshes it
+    m.pbTimer = invalid
+    m.pbTask = invalid
+    m.pbServer = invalid
+    m.pbTick = 0
     resetState()
 end sub
 
@@ -498,6 +504,7 @@ sub showMenu()
         { id: "quality", label: "Quality: " + Tracks.qualityLabel(m.opts.maxBitrate) }
     ]
     if m.versions <> invalid and m.versions.count() > 1 then opts.push({ id: "version", label: "Version: " + Tracks.versionLabel(m.versions, Util.toText(m.opts.sourceId)) })
+    addMenuExtras(opts)
     openPicker("menu", "Playback", opts, "")
 end sub
 
@@ -565,10 +572,16 @@ sub onPicked(ev as object)
             cur = Util.toText(m.opts.sourceId)
             if cur = "" then cur = m.versions[0].id
             openPicker("version", "Version", m.versions, cur)
+        else
+            useMenuExtra(c.id)
         end if
         return
     end if
     closePicker()
+    if c.purpose = "chapter"
+        seekToChapter(c)
+        return
+    end if
     if c.purpose = "version"
         closePicker()
         m.keys.setFocus(true)
@@ -800,6 +813,8 @@ sub useControl()
         openPicker("audio", "Audio", o, effectiveAudio().toStr())
     else if id = "quality"
         openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
+    else if id = "chapters"
+        showChapters()
     end if
 end sub
 
@@ -829,6 +844,7 @@ sub buildTools()
     if m.tracks.subs.count() > 0 then ids.push("subs")
     if m.tracks.audio.count() > 1 then ids.push("audio")
     ids.push("quality")
+    if chapterEntries().count() > 0 then ids.push("chapters")
     m.toolIds = ids
     if m.area = "tools" and m.idx >= ids.count() then m.idx = ids.count() - 1
     drawControls()
@@ -1296,3 +1312,251 @@ sub onFocusChanged()
         m.keys.setFocus(true)
     end if
 end sub
+
+' ---------------------------------------------------------------- chapters (Cove for macOS: chaptersPanel)
+
+' The item's chapters without the intro / credits markers → [{ index, name, start, image }]; index is the
+' position in the server's list (the chapter image is asked for by that number)
+function chapterEntries() as object
+    out = []
+    if m.info = invalid or type(m.info.Chapters) <> "roArray" then return out
+    list = m.info.Chapters
+    for i = 0 to list.count() - 1
+        ch = list[i]
+        mt = Util.toText(ch.MarkerType)
+        if mt = "" or mt = "Chapter"
+            label = Util.toText(ch.Name)
+            if label = "" then label = "Chapter " + (i + 1).toStr()
+            img = Items.imageUrl(m.top.server, m.top.item.id, "Chapter/" + i.toStr(), Util.toText(ch.ImageTag), 320)
+            out.push({ index: i, name: label, start: Playback.seconds(ch.StartPositionTicks), image: img })
+        end if
+    end for
+    return out
+end function
+
+' Side panel with the chapters; OK jumps to one. Handled like the other panels (m.picker), so focus, the
+' paused video and Back work the same.
+sub showChapters()
+    list = chapterEntries()
+    if list.count() = 0 then return
+    closePicker()
+    atSec = m.video.position
+    cur = 0
+    for i = 0 to list.count() - 1
+        if list[i].start <= atSec + 1 then cur = i
+    end for
+    if m.video.state = "playing" then m.video.control = "pause"
+    p = createObject("roSGNode", "ChapterPanel")
+    p.current = cur
+    p.chapters = list
+    p.observeField("chosen", "onPicked")
+    p.observeField("cancelled", "onPickerCancelled")
+    m.top.appendChild(p)
+    m.picker = p
+    p.setFocus(true)
+    print "Cove: chapters panel, "; list.count(); " chapters, at "; cur
+end sub
+
+sub seekToChapter(c as object)
+    m.keys.setFocus(true)
+    print "Cove: chapter "; c.id; " at "; Int(c.start); " s"
+    m.seekTarget = -1
+    m.seekTimer.control = "stop"
+    m.video.seek = c.start
+    if m.video.state = "paused" then m.video.control = "resume"
+    drawControls()
+end sub
+
+' * menu entries added after audio / subtitles / quality / version: Chapters, Playback info
+sub addMenuExtras(opts as object)
+    if chapterEntries().count() > 0 then opts.push({ id: "chapters", label: "Chapters" })
+    if m.pbInfo = invalid
+        opts.push({ id: "pbinfo", label: "Show playback info" })
+    else
+        opts.push({ id: "pbinfo", label: "Hide playback info" })
+    end if
+end sub
+
+sub useMenuExtra(id as string)
+    if id = "chapters"
+        showChapters()
+    else if id = "pbinfo"
+        togglePlaybackInfo()
+        closePicker()
+        m.keys.setFocus(true)
+        if m.video.state = "paused" then m.video.control = "resume"
+    end if
+end sub
+
+' ---------------------------------------------------------------- playback info (Cove for macOS: infoOverlay)
+
+' Top-left panel over the video, refreshed every 1.5 s until hidden (stays on across episodes)
+sub togglePlaybackInfo()
+    if m.pbInfo <> invalid
+        m.pbTimer.control = "stop"
+        m.top.removeChild(m.pbInfo)
+        m.pbInfo = invalid
+        print "Cove: playback info off"
+        return
+    end if
+    m.pbInfo = createObject("roSGNode", "PlaybackInfoOverlay")
+    m.pbInfo.translation = [24, 36]
+    ' above the controls, under the status text, Skip intro, Up next and the side panels
+    at = 0
+    for i = 0 to m.top.getChildCount() - 1
+        if m.top.getChild(i).isSameNode(m.osd) then at = i + 1
+    end for
+    m.top.insertChild(m.pbInfo, at)
+    if m.pbTimer = invalid
+        m.pbTimer = createObject("roSGNode", "Timer")
+        m.pbTimer.duration = 1.5
+        m.pbTimer.repeat = true
+        m.pbTimer.observeField("fire", "refreshPlaybackInfo")
+        m.top.appendChild(m.pbTimer)
+    end if
+    m.pbTick = 0
+    m.pbServer = invalid
+    m.pbTimer.control = "start"
+    print "Cove: playback info on"
+    refreshPlaybackInfo()
+end sub
+
+sub refreshPlaybackInfo()
+    if m.pbInfo = invalid then return
+    if m.closing
+        m.pbTimer.control = "stop"
+        return
+    end if
+    ' the server's view of a conversion (TranscodingInfo) every 3 s
+    if m.pbTick mod 2 = 0 and m.session <> invalid and m.session.method <> "DirectPlay" then askSessionInfo()
+    m.pbTick = m.pbTick + 1
+    m.pbInfo.lines = playbackInfoLines()
+end sub
+
+sub askSessionInfo()
+    if m.pbTask <> invalid and m.pbTask.state = "run" then return
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "GET", url: Util.toText(m.top.server.url) + "/Sessions?DeviceId=" + Util.deviceId(), headers: Api.headers(m.top.server, true), body: "", tag: { kind: "pbSession", itemId: m.top.item.id }, timeout: 8000 }
+    t.observeField("response", "onPbSession")
+    m.pbTask = t
+    t.control = "RUN"
+end sub
+
+sub onPbSession(ev as object)
+    r = ev.getData()
+    if r.tag.itemId <> m.top.item.id or r.code <> 200 or type(r.json) <> "roArray" or r.json.count() = 0 then return
+    ti = r.json[0].TranscodingInfo
+    if ti <> invalid and GetInterface(ti, "ifAssociativeArray") <> invalid
+        m.pbServer = { itemId: r.tag.itemId, info: ti }
+    else
+        m.pbServer = invalid
+    end if
+end sub
+
+' [{ k, v }]: play method, why converting, file, source / server video and audio, subtitles, what the Roku gets
+function playbackInfoLines() as object
+    out = []
+    s = m.session
+    if s = invalid
+        out.push({ k: "Play method", v: "Starting..." })
+        return out
+    end if
+    method = MediaInfo.methodLabel(Util.toText(s.method))
+    if Util.toText(s.streamFormat) <> "" then method = method + " (" + UCase(Util.toText(s.streamFormat)) + ")"
+    out.push({ k: "Play method", v: method })
+    ti = invalid
+    if m.pbServer <> invalid and m.pbServer.itemId = m.top.item.id and s.method <> "DirectPlay" then ti = m.pbServer.info
+    why = ""
+    if ti <> invalid then why = MediaInfo.reasonsLabel(ti.TranscodeReasons)
+    if why = "" and s.method <> "DirectPlay" then why = MediaInfo.reasonsLabel(MediaInfo.queryValue(Util.toText(s.url), "TranscodeReasons"))
+    if why <> "" then out.push({ k: "Why transcoding", v: why })
+    src = MediaInfo.findSource(m.info, Util.toText(s.mediaSourceId))
+    if src <> invalid
+        f = UCase(Util.toText(src.Container))
+        sz = MediaInfo.sizeText(src.Size)
+        if sz <> "" then f = f + " · " + sz
+        br = MediaInfo.rateText(src.Bitrate)
+        if br <> "" then f = f + " · " + br
+        out.push({ k: "Container", v: f })
+        vids = MediaInfo.streamsOfType(src, "Video")
+        if vids.count() > 0 then out.push({ k: "Source video", v: MediaInfo.videoLine(vids[0]) })
+        a = MediaInfo.streamAt(src, effectiveAudio())
+        if a <> invalid then out.push({ k: "Source audio", v: MediaInfo.trackLine(a) })
+    end if
+    subText = Tracks.subLabel(m.tracks, m.opts.sub)
+    if m.opts.sub >= 0
+        if m.opts.burn
+            subText = subText + " (burned in)"
+        else
+            subText = subText + " (text)"
+        end if
+    end if
+    out.push({ k: "Subtitles", v: subText })
+    if ti <> invalid
+        v = "?"
+        if Util.flag(ti, "IsVideoDirect")
+            v = "copied"
+        else if Util.toText(ti.VideoCodec) <> ""
+            v = UCase(Util.toText(ti.VideoCodec))
+        end if
+        w = Int(MediaInfo.toNumber(ti.Width))
+        h = Int(MediaInfo.toNumber(ti.Height))
+        if w > 0 and h > 0 then v = v + " · " + w.toStr() + "x" + h.toStr()
+        out.push({ k: "Server video", v: v })
+        au = "?"
+        if Util.flag(ti, "IsAudioDirect")
+            au = "copied"
+        else if Util.toText(ti.AudioCodec) <> ""
+            au = UCase(Util.toText(ti.AudioCodec))
+        end if
+        ch = Int(MediaInfo.toNumber(ti.AudioChannels))
+        if ch > 0 then au = au + " · " + ch.toStr() + " ch"
+        out.push({ k: "Server audio", v: au })
+        sb = MediaInfo.rateText(ti.Bitrate)
+        if sb <> "" then out.push({ k: "Stream bitrate", v: sb })
+        fps = MediaInfo.toNumber(ti.Framerate)
+        if fps > 0 then out.push({ k: "Encoder speed", v: Int(fps + 0.5).toStr() + " fps" })
+        pc = MediaInfo.toNumber(ti.CompletionPercentage)
+        if pc > 0 then out.push({ k: "Converted", v: Int(pc).toStr() + " %" })
+    end if
+    ' what the Roku's player reports
+    vf = videoNodeText("videoFormat")
+    af = videoNodeText("audioFormat")
+    dec = []
+    if vf <> "" then dec.push(vf)
+    if af <> "" then dec.push(af)
+    if dec.count() > 0 then out.push({ k: "Roku decodes", v: Util.join(dec, " · ") })
+    si = videoNodeObject("streamInfo")
+    if si <> invalid
+        ind = MediaInfo.rateText(si.streamBitrate)
+        if ind <> "" then out.push({ k: "Indicated", v: ind })
+        net = MediaInfo.rateText(si.measuredBitrate)
+        if net <> "" then out.push({ k: "Network", v: net })
+        if Util.flag(si, "isUnderrun") then out.push({ k: "Buffer", v: "underrun" })
+    end if
+    seg = videoNodeObject("streamingSegment")
+    if seg <> invalid
+        sg = MediaInfo.rateText(seg.segBitrateBps)
+        segW = Int(MediaInfo.toNumber(seg.width))
+        segH = Int(MediaInfo.toNumber(seg.height))
+        if segW > 0 and segH > 0
+            if sg <> "" then sg = " · " + sg
+            sg = segW.toStr() + "x" + segH.toStr() + sg
+        end if
+        if sg <> "" then out.push({ k: "Segment", v: sg })
+    end if
+    out.push({ k: "Position", v: Playback.clock(m.video.position) + " / " + Playback.clock(m.video.duration) + "  (" + Util.toText(m.video.state) + ")" })
+    return out
+end function
+
+function videoNodeText(field as string) as string
+    if not m.video.hasField(field) then return ""
+    return Util.toText(m.video.getField(field))
+end function
+
+function videoNodeObject(field as string) as dynamic
+    if not m.video.hasField(field) then return invalid
+    v = m.video.getField(field)
+    if v = invalid or GetInterface(v, "ifAssociativeArray") = invalid or v.count() = 0 then return invalid
+    return v
+end function

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Chapters side panel in the player (Cove for macOS: PlayerView chaptersPanel): each chapter with its image,
+     name and start time; the one playing now in the accent colour. Set chapters ([{ index, name, start, image }])
+     and current (row), give it focus; "chosen" = { id, purpose, start } or "cancelled" (Back / Left / *).
+     Same fields as Picker, so the player handles it like its other panels. -->
+<component name="ChapterPanel" extends="Group">
+    <script type="text/brightscript" uri="ChapterPanel.bs" />
+    <interface>
+        <field id="title" type="string" value="Chapters" />
+        <field id="chapters" type="array" onChange="onChapters" />
+        <field id="current" type="integer" value="0" />
+        <field id="purpose" type="string" value="chapter" />
+        <field id="chosen" type="assocarray" alwaysNotify="true" />
+        <field id="cancelled" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle width="1920" height="1080" color="0x00000066" />
+        <Poster uri="pkg:/images/ui/panel_r21.9.png" width="600" height="972" translation="[1272,54]" />
+        <Label id="heading" text="Chapters" width="540" height="50" translation="[1302,86]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="32" />
+        </Label>
+        <MarkupList id="list" itemComponentName="ChapterItem" translation="[1296,160]" itemSize="[552,106]" numRows="7"
+                    itemSpacing="[0,6]" drawFocusFeedback="false" vertFocusAnimationStyle="floatingFocus" />
+    </children>
+</component>
