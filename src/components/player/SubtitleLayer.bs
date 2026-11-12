@@ -1,0 +1,166 @@
+import "pkg:/source/Subs.bs"
+
+sub init()
+    m.cueList = []
+    m.ci = 0
+    m.text = ""
+    m.style = Subs.style()
+    ' a Label used only to measure text widths
+    m.probe = createObject("roSGNode", "Label")
+end sub
+
+sub onCues()
+    ' (kept in m: reading the field copies the whole array each time)
+    m.cueList = m.top.cues
+    if m.cueList = invalid then m.cueList = []
+    m.ci = 0
+    setText("")
+    onPosition()
+end sub
+
+sub onRestyle()
+    m.style = Subs.style()
+    draw()
+end sub
+
+' The cue(s) on screen at this position; the last index is kept, so playing forward is a step or two
+sub onPosition()
+    cues = m.cueList
+    n = cues.count()
+    if n = 0
+        setText("")
+        return
+    end if
+    p = m.top.position
+    i = m.ci
+    if i >= n then i = n - 1
+    if i < 0 then i = 0
+    if cues[i].s > p
+        ' back (a seek): the last cue starting at or before p
+        lo = 0
+        hi = n - 1
+        i = -1
+        while lo <= hi
+            half = (lo + hi) \ 2
+            if cues[half].s <= p
+                i = half
+                lo = half + 1
+            else
+                hi = half - 1
+            end if
+        end while
+        if i < 0
+            m.ci = 0
+            setText("")
+            return
+        end if
+    else
+        while i + 1 < n and cues[i + 1].s <= p
+            i++
+        end while
+    end if
+    m.ci = i
+    ' (cues can overlap: every one still running, oldest first)
+    txt = ""
+    ' (a long cue can still run while shorter ones start after it: look back up to 60 s of starts)
+    first = i
+    while first > 0 and cues[first - 1].s > p - 60
+        first--
+    end while
+    for j = first to i
+        c = cues[j]
+        if c.s <= p and p < c.e
+            if txt <> "" then txt = txt + chr(10)
+            txt = txt + c.t
+        end if
+    end for
+    setText(txt)
+end sub
+
+sub setText(t as string)
+    if t = m.text then return
+    m.text = t
+    draw()
+end sub
+
+' Lines centred at the bottom, word-wrapped to 84 % of the width, with the shadow (copies of the text, offset)
+' and the background box behind the whole block, as on the Mac
+sub draw()
+    m.top.removeChildrenIndex(m.top.getChildCount(), 0)
+    if m.text = "" then return
+    st = m.style
+    font = createObject("roSGNode", "Font")
+    font.uri = "font:MediumSystemFontFile"
+    font.size = st.fontSize
+    m.probe.font = font
+    maxW = 1612
+    lines = []
+    for each para in m.text.split(chr(10))
+        for each l in wrapLine(para, maxW)
+            lines.push(l)
+        end for
+    end for
+    lineH = Int(st.fontSize * 1.3)
+    widths = []
+    blockW = 0
+    for each l in lines
+        w = textWidth(l)
+        widths.push(w)
+        if w > blockW then blockW = w
+    end for
+    blockH = lines.count() * lineH
+    padX = 16
+    padY = 4
+    bottom = 1080 - m.top.lift
+    top = bottom - blockH
+    if st.bgColor <> ""
+        r = m.top.createChild("Rectangle")
+        r.color = st.bgColor
+        r.width = blockW + padX * 2
+        r.height = blockH + padY * 2
+        r.translation = [Int((1920 - blockW) / 2) - padX, top - padY]
+    end if
+    for k = 0 to lines.count() - 1
+        y = top + k * lineH
+        for each o in st.offsets
+            addLine(lines[k], font, st.shade, o[0], y + o[1], lineH)
+        end for
+        addLine(lines[k], font, st.color, 0, y, lineH)
+    end for
+end sub
+
+sub addLine(text as string, font as object, color as string, dx as integer, y as integer, h as integer)
+    l = m.top.createChild("Label")
+    l.font = font
+    l.color = color
+    l.text = text
+    l.width = 1920
+    l.height = h
+    l.horizAlign = "center"
+    l.vertAlign = "center"
+    l.translation = [dx, y]
+end sub
+
+function textWidth(t as string) as integer
+    m.probe.text = t
+    return m.probe.boundingRect().width
+end function
+
+' Words on as few lines as fit maxW
+function wrapLine(para as string, maxW as integer) as object
+    if textWidth(para) <= maxW then return [para]
+    out = []
+    cur = ""
+    for each word in para.split(" ")
+        tryLine = word
+        if cur <> "" then tryLine = cur + " " + word
+        if cur <> "" and textWidth(tryLine) > maxW
+            out.push(cur)
+            cur = word
+        else
+            cur = tryLine
+        end if
+    end for
+    if cur <> "" then out.push(cur)
+    return out
+end function

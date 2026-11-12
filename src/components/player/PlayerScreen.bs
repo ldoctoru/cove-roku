@@ -3,6 +3,7 @@ import "pkg:/source/Prefs.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Tracks.bs"
+import "pkg:/source/Subs.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/MediaInfo.bs"
 
@@ -12,6 +13,13 @@ sub init()
     ' lets Roku open its system Options panel on *, so our audio / subtitle menu never got the key.
     m.keys = m.top.findNode("keys")
     m.status = m.top.findNode("status")
+    m.loader = m.top.findNode("loader")
+    m.subLayer = m.top.findNode("subLayer")
+    m.subTimer = m.top.findNode("subTimer")
+    m.subTimer.observeField("fire", "onSubTick")
+    m.loaderArc = m.top.findNode("loaderArc")
+    m.loaderPct = m.top.findNode("loaderPct")
+    m.video.observeField("bufferingStatus", "onBufferingStatus")
     m.action = m.top.findNode("action")
     m.actionLabel = m.top.findNode("actionLabel")
     m.upNext = m.top.findNode("upNext")
@@ -56,6 +64,10 @@ sub init()
 end sub
 
 sub resetState()
+    m.loadNote = ""
+    m.loadBase = 0
+    m.subPos = 0.0
+    clearSubs()
     m.seekTarget = -1.0
     m.osdShown = false
     m.osd.opacity = 0
@@ -99,8 +111,7 @@ sub begin()
     m.top.findNode("title").text = Util.toText(it.title)
     m.top.findNode("episode").text = Util.toText(it.subtitle)
     if it.options <> invalid and it.options.audio <> invalid then m.opts = it.options
-    m.status.text = "Starting..."
-    m.status.visible = true
+    showLoading(0, "")
     get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + it.id + "?Fields=MediaSources,MediaStreams,Chapters,Trickplay", { kind: "info", itemId: it.id })
 end sub
 
@@ -161,8 +172,8 @@ end function
 ' Asks the server for a stream; forceTranscode after a playback error
 sub start(startSeconds as float, forceTranscode as boolean)
     m.startAt = startSeconds
-    m.status.text = "Starting..."
-    m.status.visible = true
+    ' (keeps a "Converting..." line from retryConverted)
+    showLoading(5, m.loadNote)
     ' (a change while "Starting...": the earlier request is superseded, only its conversion still needs ending)
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = createObject("roSGNode", "PlayTask")
@@ -231,65 +242,86 @@ sub onStream(ev as object)
     c.title = Util.toText(m.top.item.title)
     c.secondaryTitle = Util.toText(m.top.item.subtitle)
     if m.startAt > 1 then c.PlayStart = m.startAt
-    ' A text subtitle is shown by the Roku from the server's SRT
-    sub_ = Tracks.findSub(m.tracks, m.opts.sub)
-    subUrl = ""
-    if sub_ <> invalid and sub_.isText
-        subUrl = Playback.subtitleUrl(m.top.server, m.top.item.id, s.mediaSourceId, sub_.index)
-        lang = sub_.language
-        if lang = "" then lang = "und"
-        c.subtitleTracks = [{ Language: lang, TrackName: subUrl, Description: sub_.label }]
-    end if
+    ' A text subtitle: Cove downloads the server's SRT and draws it (SubtitleLayer); Roku's captions stay off
     m.video.content = c
-    applyCaptionStyle()
-    applySubtitle(subUrl)
-    if subUrl <> "" then probeSubtitle(subUrl, sub_.index)
+    ' (no subtitleTracks, so Roku's renderer has nothing to show; the Roku's global caption mode is left alone)
+    m.video.subtitleTrack = ""
+    loadTextSub()
     m.video.control = "play"
+    ' (the stream is ready: the rest of the ring is the Video node's buffering)
+    if m.loader.visible
+        m.loadBase = 15
+        setLoadPct(15)
+    end if
     m.keys.setFocus(true)
 end sub
 
-' Check the server can actually make the text subtitle (it extracts embedded ones the first time). If it
-' answers with an error, play the subtitle burned into the picture instead of showing nothing.
+' The chosen text subtitle (if any): download it as SRT and draw it
+sub loadTextSub()
+    clearSubs()
+    sub_ = Tracks.findSub(m.tracks, m.opts.sub)
+    if sub_ = invalid or not sub_.isText or m.opts.burn or m.session = invalid then return
+    url = Playback.subtitleUrl(m.top.server, m.top.item.id, Util.toText(m.session.mediaSourceId), sub_.index)
+    probeSubtitle(url, sub_.index)
+end sub
+
+sub clearSubs()
+    if m.subLayer = invalid then return
+    m.subTimer.control = "stop"
+    m.subLayer.cues = []
+end sub
+
+' The Video node reports its position once a second: in between, add the time since that report
+sub onSubTick()
+    p = m.subPos
+    if m.video.state = "playing" and m.subClock <> invalid then p = p + m.subClock.TotalMilliseconds() / 1000.0
+    m.subLayer.position = p
+end sub
+
+' (called on every position report and after a jump)
+sub syncSubClock(atSec as float)
+    m.subPos = atSec
+    if m.subClock = invalid then m.subClock = createObject("roTimespan")
+    m.subClock.Mark()
+end sub
+
+' Settings → Subtitles → Distance from bottom; above the controls while they show (as on the Mac)
+sub liftSubs(controlsShown as boolean)
+    base = Int(1080 * Prefs.subBottom() / 100)
+    if controlsShown and base < 236 then base = 236
+    m.subLayer.lift = base
+end sub
+
+' Download the subtitle (the server extracts embedded ones the first time, so it can take a while). If the
+' server answers with an error, play the subtitle burned into the picture instead of showing nothing.
 sub probeSubtitle(url as string, index as integer)
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: "GET", url: url, headers: invalid, body: "", tag: { kind: "subProbe", itemId: m.top.item.id, index: index }, timeout: 180000 }
+    t.request = { method: "GET", url: url, headers: invalid, body: "", keepText: true, parse: "srt", tag: { kind: "subProbe", itemId: m.top.item.id, index: index }, timeout: 180000 }
     t.observeField("response", "onResponse")
     m.pending.push(t)
     t.control = "RUN"
 end sub
 
 sub onSubProbe(r as object)
-    print "Cove: subtitle check -> "; r.code
+    print "Cove: subtitle -> "; r.code
     if r.tag.itemId <> m.top.item.id or m.opts.sub <> r.tag.index or m.opts.burn or m.closing then return
-    ' (no answer in time: leave it, the Roku may still get it)
+    if r.code >= 200 and r.code < 400
+        if r.cues <> invalid then print "Cove: subtitle cues "; r.cues.count()
+        if r.cues <> invalid and r.cues.count() > 0
+            m.subLayer.restyle = true
+            liftSubs(m.osdShown)
+            m.subLayer.cues = r.cues
+            m.subTimer.control = "start"
+        end if
+        return
+    end if
+    ' (no answer in time: nothing to show)
     if r.code < 400 then return
     print "Cove: text subtitle failed, burning it in"
     m.opts.burn = true
-    m.status.text = "The subtitles couldn't load as text." + chr(10) + "Adding them to the picture..."
-    m.status.visible = true
+    ' (the line stays under the loading ring)
+    m.loadNote = "The subtitles couldn't load as text. Adding them to the picture..."
     restartAt(m.video.position)
-end sub
-
-' Settings → Subtitles → Style: size, colour, shadow, background, and the distance from the bottom
-' (Roku's own caption settings win when they aren't Default)
-sub applyCaptionStyle()
-    m.video.captionStyle = Prefs.captionStyle()
-    pct = Prefs.subBottom()
-    if pct <> 10 and m.video.hasField("captionRenderArea")
-        ' a render area that ends pct % above the bottom; Roku centres the captions at its bottom
-        h = 1080 - Int(1080 * pct / 100)
-        m.video.captionRenderArea = { mode: "override", overridePlacement: true, scaleFonts: "off", x: 96, y: 0, width: 1728, height: h }
-    end if
-end sub
-
-sub applySubtitle(url as string)
-    if url <> ""
-        m.video.subtitleTrack = url
-        m.video.globalCaptionMode = "On"
-    else
-        m.video.subtitleTrack = ""
-        m.video.globalCaptionMode = "Off"
-    end if
 end sub
 
 sub onPlayError(ev as object)
@@ -298,22 +330,22 @@ sub onPlayError(ev as object)
     t.unobserveField("stream")
     t.unobserveField("error")
     m.playTask = invalid
+    m.watchdog.control = "stop"
     m.status.text = Util.toText(ev.getData()) + chr(10) + "Press Back to return."
     m.status.visible = true
+    hideLoading()
 end sub
 
 sub onState()
     st = m.video.state
     print "Cove: video "; st
-    if st = "buffering" and m.started
-        m.status.text = "Loading..."
-        m.status.visible = true
-    end if
+    if st = "buffering" and m.started then showLoading(0, "")
     if st = "playing" or st = "paused" then updateCenter()
     if st = "paused" then showOsd(false)
     if st = "playing" and m.osdShown then m.hideTimer.control = "start"
     if st = "playing"
         m.status.visible = false
+        hideLoading()
         m.watchdog.control = "stop"
         if not m.started
             m.started = true
@@ -344,6 +376,7 @@ sub onVideoError()
     end if
     m.status.text = "This video can't be played on this Roku." + chr(10) + Util.redact(Util.toText(m.video.errorMsg)) + "  (" + Util.toText(m.video.errorCode) + ")" + chr(10) + "Press Back to return."
     m.status.visible = true
+    hideLoading()
 end sub
 
 ' Every 10 s: progress while playing; while paused a ping plus the paused progress, so the server keeps
@@ -371,10 +404,12 @@ sub onWatchdog()
     stopEncoding()
     m.status.text = "The server didn't start the video." + chr(10) + "Try again, or choose a lower quality with *." + chr(10) + "Press Back to return."
     m.status.visible = true
+    hideLoading()
 end sub
 
 sub retryConverted(atSec as float)
     m.retried = true
+    m.watchdog.control = "stop"
     ' (end the first session on the server too, as restartAt does: the retry starts a new PlaySessionId)
     if m.started then report("/Sessions/Playing/Stopped", false, atSec)
     m.video.control = "stop"
@@ -382,14 +417,14 @@ sub retryConverted(atSec as float)
     m.started = false
     m.failed = false
     m.progressTimer.control = "stop"
-    m.status.text = "Converting the video for this Roku..."
-    m.status.visible = true
+    m.loadNote = "Converting the video for this Roku..."
     start(atSec, true)
 end sub
 
 ' ---------------------------------------------------------------- skip intro / next episode
 
 sub onPosition()
+    syncSubClock(m.video.position)
     if m.osdShown and m.seekTarget < 0 then updateBar(m.video.position)
     p = m.video.position
     if m.video.state <> "playing" or m.upNext.visible then return
@@ -456,6 +491,7 @@ sub onFinished()
         m.top.findNode("upNextStill").uri = Items.landscape(m.top.server, m.next, 240)
         m.osdShown = false
         m.osd.opacity = 0
+        liftSubs(false)
         m.upNext.visible = true
         m.upNext.setFocus(true)
         m.countdown.control = "start"
@@ -540,6 +576,11 @@ sub closePicker()
 end sub
 
 sub onPickerCancelled()
+    ' (Back from a style list: the Subtitles menu again)
+    if m.picker <> invalid and Left(Util.toText(m.picker.purpose), 9) = "substyle:"
+        openSubsMenu()
+        return
+    end if
     closePicker()
     m.keys.setFocus(true)
     resumeAfterPicker()
@@ -561,11 +602,7 @@ sub onPicked(ev as object)
             end for
             openPicker("audio", "Audio", o, effectiveAudio().toStr())
         else if c.id = "subs"
-            o = [{ id: "-1", label: "Off" }]
-            for each s in m.tracks.subs
-                o.push({ id: s.index.toStr(), label: s.label })
-            end for
-            openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
+            openSubsMenu()
         else if c.id = "quality"
             openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
         else if c.id = "version"
@@ -575,6 +612,22 @@ sub onPicked(ev as object)
         else
             useMenuExtra(c.id)
         end if
+        return
+    end if
+    ' the Subtitles menu's style entries: a list of choices, then back to the menu with the new style
+    ' (openPicker replaces the open picker itself, keeping who paused the video)
+    if c.purpose = "subs" and Left(c.id, 6) = "style:"
+        key = Mid(c.id, 7)
+        for each ch in Subs.styleChoices()
+            if ch.key = key then openPicker("substyle:" + key, ch.label, ch.options, Subs.current(ch))
+        end for
+        return
+    end if
+    if Left(c.purpose, 9) = "substyle:"
+        Util.writeText(Mid(c.purpose, 10), c.id)
+        m.subLayer.restyle = true
+        liftSubs(m.osdShown)
+        openSubsMenu()
         return
     end if
     closePicker()
@@ -602,6 +655,7 @@ sub onPicked(ev as object)
     end if
     if c.purpose = "episode"
         m.keys.setFocus(true)
+        if c.id = m.top.item.id then resumeAfterPicker()
         for each e in m.episodes
             if Util.toText(e.Id) = c.id and c.id <> m.top.item.id then playEpisode(e)
         end for
@@ -625,13 +679,13 @@ sub onPicked(ev as object)
         if s = invalid then m.subLang = "off"
         ' remembered for the series, like on the Mac
         if seriesKey() <> "" and m.subLang <> "" then Prefs.setSeriesSubLang(seriesKey(), m.subLang)
-        ' Turning a subtitle on restarts the stream at the same position with it attached (as at the start):
-        ' changing the subtitle tracks of the playing video froze playback on the Streambar.
-        ' Turning one off (when it isn't burned in) works on the spot.
-        if s = invalid and not wasBurned
-            applySubtitle("")
-        else
+        ' Text subtitles are Cove's own layer, so switching them is on the spot; a burned-in one (to or from)
+        ' needs the stream again
+        if wasBurned or m.opts.burn
+            clearSubs()
             restart = true
+        else
+            loadTextSub()
         end if
     end if
     m.keys.setFocus(true)
@@ -744,7 +798,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
     else if key = "up" and m.area = "tools"
         setArea("bar", 0)
     else if key = "up" and m.area = "bar"
-        setArea("center", 1)
+        setArea("center", playIndex())
     else if key = "OK"
         if m.area = "bar"
             togglePause()
@@ -767,7 +821,24 @@ end sub
 function areaSize() as integer
     if m.area = "tools" then return m.toolIds.count()
     if m.area = "bar" then return 1
-    return 3
+    return centerIds().count()
+end function
+
+' Centre buttons: previous episode, play / pause, next episode (episodes); play / pause alone otherwise
+' (an episode found in its series' list: a special outside the list has no previous / next / episodes)
+function hasEpisodes() as boolean
+    return m.episodes.count() > 0 and m.epIndex >= 0
+end function
+
+function centerIds() as object
+    if hasEpisodes() then return ["prev", "play", "next"]
+    return ["play"]
+end function
+
+' the play / pause button's place in the centre row
+function playIndex() as integer
+    if hasEpisodes() then return 1
+    return 0
 end function
 
 sub togglePause()
@@ -783,28 +854,31 @@ end sub
 
 sub useControl()
     if m.area = "center"
-        if m.idx = 0
-            seekBy(-30)
-        else if m.idx = 2
-            seekBy(30)
+        ids = centerIds()
+        if m.idx >= ids.count() then m.idx = playIndex()
+        cid = ids[m.idx]
+        if cid = "prev"
+            playEpisode(m.prev)
+        else if cid = "next"
+            playEpisode(m.next)
         else
             togglePause()
         end if
         return
     end if
     id = m.toolIds[m.idx]
-    if id = "prev"
+    if id = "back30"
+        seekBy(-30)
+    else if id = "fwd30"
+        seekBy(30)
+    else if id = "prev"
         playEpisode(m.prev)
     else if id = "next"
         playEpisode(m.next)
     else if id = "episodes"
         showEpisodes()
     else if id = "subs"
-        o = [{ id: "-1", label: "Off" }]
-        for each s in m.tracks.subs
-            o.push({ id: s.index.toStr(), label: s.label })
-        end for
-        openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
+        openSubsMenu()
     else if id = "audio"
         o = []
         for each a in m.tracks.audio
@@ -833,19 +907,24 @@ sub showEpisodes()
     openPicker("episode", Util.toText(m.episodes[m.epIndex].SeasonName), o, m.top.item.id)
 end sub
 
-' Bottom-right buttons: previous / next episode (episodes only), episodes, subtitles, audio, quality
+' Bottom-right buttons: back / forward 30 s, episodes (episodes only), subtitles, audio, quality, chapters
+' (previous / next episode are in the centre, beside play)
 sub buildTools()
-    ids = []
-    if m.episodes.count() > 0
-        ids.push("prev")
-        ids.push("next")
-        ids.push("episodes")
-    end if
+    ' (the focused tool stays focused when buttons are added, e.g. the episode list arriving late)
+    keep = ""
+    if m.area = "tools" and m.idx < m.toolIds.count() then keep = m.toolIds[m.idx]
+    ids = ["back30", "fwd30"]
+    if hasEpisodes() then ids.push("episodes")
     if m.tracks.subs.count() > 0 then ids.push("subs")
     if m.tracks.audio.count() > 1 then ids.push("audio")
     ids.push("quality")
     if chapterEntries().count() > 0 then ids.push("chapters")
     m.toolIds = ids
+    if keep <> ""
+        for i = 0 to ids.count() - 1
+            if ids[i] = keep then m.idx = i
+        end for
+    end if
     if m.area = "tools" and m.idx >= ids.count() then m.idx = ids.count() - 1
     drawControls()
 end sub
@@ -857,17 +936,21 @@ end function
 
 sub drawControls()
     focused = m.osdShown and m.picker = invalid
-    ' centre: 69 px circles for back / forward 30, 105 px for play / pause
+    ' centre: 69 px circles for previous / next episode, 105 px for play / pause
     c = m.top.findNode("center")
     c.removeChildrenIndex(c.getChildCount(), 0)
     playing = m.video.state = "playing" or m.video.state = "buffering"
-    specs = [
-        { size: 69, icon: "back30_36", isz: 36, x: 798 },
-        { size: 105, icon: "pause_48", isz: 48, x: 908 },
-        { size: 69, icon: "fwd30_36", isz: 36, x: 1053 }
-    ]
-    if not playing then specs[1].icon = "play_48"
-    for i = 0 to 2
+    playIcon = "pause_48"
+    if not playing then playIcon = "play_48"
+    specs = [{ size: 105, icon: playIcon, isz: 48, x: 908, dim: false }]
+    if hasEpisodes()
+        specs = [
+            { size: 69, icon: "prev_36", isz: 36, x: 798, dim: m.prev = invalid },
+            specs[0],
+            { size: 69, icon: "next_36", isz: 36, x: 1053, dim: m.next = invalid }
+        ]
+    end if
+    for i = 0 to specs.count() - 1
         s = specs[i]
         isFocus = focused and m.area = "center" and m.idx = i
         g = c.createChild("Group")
@@ -889,6 +972,8 @@ sub drawControls()
         else
             bg.uri = "pkg:/images/ui/glass_circle_" + s.size.toStr() + ".png"
             ic.blendColor = "0xFFFFFFFF"
+            ' (no previous / next episode)
+            if s.dim then ic.blendColor = "0xFFFFFF59"
         end if
     end for
     ' bottom-right: icons in a glass capsule, right-aligned above the scrubber
@@ -922,7 +1007,6 @@ sub drawControls()
         ic.translation = [x + 10, 17]
         col = "0xFFFFFFFF"
         if id = "subs" and m.opts.sub >= 0 then col = accent
-        if (id = "prev" and m.prev = invalid) or (id = "next" and m.next = invalid) then col = "0xFFFFFF59"
         if isFocus then col = "0x000000FF"
         ic.blendColor = col
     end for
@@ -949,6 +1033,7 @@ sub hideOsd()
 end sub
 
 sub fadeOsd(target as float)
+    liftSubs(target > 0)
     a = m.top.findNode("osdAnim")
     a.control = "stop"
     m.top.findNode("osdFade").keyValue = [m.osd.opacity, target]
@@ -977,6 +1062,8 @@ sub applySeek()
     m.seekTimer.control = "stop"
     if m.seekTarget < 0 then return
     m.video.seek = m.seekTarget
+    syncSubClock(m.seekTarget)
+    m.subLayer.position = m.seekTarget
     m.seekTarget = -1
     if m.video.state = "paused" then m.video.control = "resume"
     m.hideTimer.control = "start"
@@ -1152,6 +1239,7 @@ end sub
 sub close()
     if m.closing then return
     m.closing = true
+    m.subTimer.control = "stop"
     m.progressTimer.control = "stop"
     m.countdown.control = "stop"
     m.watchdog.control = "stop"
@@ -1264,6 +1352,8 @@ sub onResponse(ev as object)
                     if i + 1 < list.count() then m.next = list[i + 1]
                 end if
             end for
+            ' (prev / next join the centre row: keep the focus on play)
+            if m.area = "center" then m.idx = playIndex()
             buildTools()
         end if
     end if
@@ -1339,12 +1429,15 @@ end function
 sub showChapters()
     list = chapterEntries()
     if list.count() = 0 then return
+    fromPicker = m.picker <> invalid
     closePicker()
     atSec = m.video.position
     cur = 0
     for i = 0 to list.count() - 1
         if list[i].start <= atSec + 1 then cur = i
     end for
+    ' (opened from the tools: remember whether this panel paused the video, as openPicker does)
+    if not fromPicker then m.pausedByPicker = m.video.state = "playing"
     if m.video.state = "playing" then m.video.control = "pause"
     p = createObject("roSGNode", "ChapterPanel")
     p.current = cur
@@ -1363,6 +1456,8 @@ sub seekToChapter(c as object)
     m.seekTarget = -1
     m.seekTimer.control = "stop"
     m.video.seek = c.start
+    syncSubClock(c.start)
+    m.subLayer.position = c.start
     if m.video.state = "paused" then m.video.control = "resume"
     drawControls()
 end sub
@@ -1384,7 +1479,7 @@ sub useMenuExtra(id as string)
         togglePlaybackInfo()
         closePicker()
         m.keys.setFocus(true)
-        if m.video.state = "paused" then m.video.control = "resume"
+        resumeAfterPicker()
     end if
 end sub
 
@@ -1560,3 +1655,59 @@ function videoNodeObject(field as string) as dynamic
     if v = invalid or GetInterface(v, "ifAssociativeArray") = invalid or v.count() = 0 then return invalid
     return v
 end function
+
+' ---------------------------------------------------------------- loading ring
+
+' The ring while the video loads: before the stream answers it stays low (pct), then follows the
+' Video node's buffering percentage. note: an optional line under the ring (e.g. "Converting...").
+sub showLoading(pct as integer, note as string)
+    m.loadBase = pct
+    m.loadNote = note
+    m.status.visible = false
+    setLoadPct(pct)
+    m.loader.visible = true
+    if note <> ""
+        m.status.text = note
+        m.status.translation = [0, 640]
+        m.status.visible = true
+    end if
+end sub
+
+sub hideLoading()
+    m.loader.visible = false
+    m.loadNote = ""
+    m.status.translation = [0, 510]
+end sub
+
+sub setLoadPct(pct as integer)
+    if pct < 0 then pct = 0
+    if pct > 100 then pct = 100
+    m.loaderPct.text = pct.toStr() + "%"
+    frame = Int(pct / 4) * 4
+    if frame = 0
+        m.loaderArc.uri = ""
+    else
+        m.loaderArc.uri = "pkg:/images/ui/load_arc_" + Right("00" + frame.toStr(), 3) + ".png"
+    end if
+end sub
+
+' Video node buffering: 0-100 % of what it needs before it plays; mapped onto what is left of the ring
+sub onBufferingStatus()
+    if not m.loader.visible then return
+    bs = m.video.bufferingStatus
+    if bs = invalid or bs.percentage = invalid then return
+    base = m.loadBase
+    setLoadPct(base + Int((100 - base) * bs.percentage / 100))
+end sub
+
+' The Subtitles menu: Off and the tracks, then the style (as in Settings → Subtitles), which applies at once
+sub openSubsMenu()
+    o = [{ id: "-1", label: "Off" }]
+    for each s in m.tracks.subs
+        o.push({ id: s.index.toStr(), label: s.label })
+    end for
+    for each ch in Subs.styleChoices()
+        o.push({ id: "style:" + ch.key, label: ch.label + ":  " + Subs.currentLabel(ch) })
+    end for
+    openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
+end sub

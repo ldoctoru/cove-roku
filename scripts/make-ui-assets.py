@@ -46,6 +46,27 @@ def ring(w, h, radius, width, color):
     return down(big, w, h)
 
 
+def arc(size, width, pct, color=WHITE):
+    """A clockwise arc from 12 o'clock covering pct % of a circle, with round ends."""
+    import math
+    big = Image.new("RGBA", (size * S, size * S), (0, 0, 0, 0))
+    if pct <= 0:
+        return down(big, size, size)
+    d = ImageDraw.Draw(big)
+    w = width * S
+    box = [0, 0, size * S - 1, size * S - 1]  # (PIL draws the width inwards from the box)
+    end = -90 + 360 * pct / 100
+    d.arc(box, -90, end, fill=color, width=w)
+    if pct < 100:
+        r = (size * S - w) / 2
+        c = size * S / 2
+        for a in (-90, end):
+            x = c + r * math.cos(math.radians(a))
+            y = c + r * math.sin(math.radians(a))
+            d.ellipse([x - w / 2, y - w / 2, x + w / 2, y + w / 2], fill=color)
+    return down(big, size, size)
+
+
 def nine(content, stretch_x=None, stretch_y=None):
     """Wraps content in the 1px 9-patch border; stretch_* = (start, end) inside content, default its middle 2px."""
     w, h = content.size
@@ -442,6 +463,10 @@ def main():
     save(circle(24, WHITE), "dot_24.png")
     save(strip(4, 512, ramp([(0, 115), (0.33, 0), (0.66, 0), (1, 179)])), "scrim_osd.png")
     save(nine(shape(40, 40, 18, (0, 0, 0, 204))), "panel_dark_r18.9.png")
+    # player loading: a faint track and the progress arc (white, tinted with the accent) every 4 %
+    for pct in range(0, 101, 4):
+        save(arc(132, 8, pct), "load_arc_%03d.png" % pct)
+    save(arc(132, 8, 100, (255, 255, 255, 46)), "load_track.png")
     print("wrote", len(os.listdir(OUT)), "files to", os.path.normpath(OUT))
 
 
