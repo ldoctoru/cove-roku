@@ -62,8 +62,11 @@ sub onPosition()
     m.ci = i
     ' (cues can overlap: every one still running, oldest first)
     txt = ""
-    first = i - 3
-    if first < 0 then first = 0
+    ' (a long cue can still run while shorter ones start after it: look back up to 60 s of starts)
+    first = i
+    while first > 0 and cues[first - 1].s > p - 60
+        first--
+    end while
     for j = first to i
         c = cues[j]
         if c.s <= p and p < c.e

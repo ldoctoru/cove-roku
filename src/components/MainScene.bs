@@ -256,7 +256,7 @@ sub onDeepLinkItem(r as object)
         if atSec < 30 then atSec = 0.0
         startPlayer({ id: Util.toText(it.Id), title: title, subtitle: sub_, start: atSec })
     else
-        openItem({ itemId: Util.toText(it.Id), itemType: t, collectionType: LCase(Util.toText(it.CollectionType)), title: Util.toText(it.Name) })
+        openItem({ itemId: Util.toText(it.Id), itemType: t, collectionType: LCase(Util.toText(it.CollectionType)), title: Util.toText(it.Name), seriesId: Util.toText(it.SeriesId), seriesName: Util.toText(it.SeriesName) })
     end if
 end sub
 
@@ -316,6 +316,16 @@ sub openItem(a as object)
         push(l)
         l.library = { id: a.itemId, title: a.title, itemType: t, collectionType: Util.toText(a.collectionType) }
         return
+    end if
+    ' a season: its series' page on that season (seriesId from the item, when known)
+    if t = "Season"
+        if Util.toText(a.seriesId) = ""
+            ' (lists don't carry the series: ask the server, then come back here)
+            request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(a.itemId), true, "", { kind: "seasonOpen" })
+            return
+        end if
+        a = { itemId: a.seriesId, itemType: "Series", title: Util.toText(a.seriesName), seasonId: a.itemId }
+        t = "Series"
     end if
     ' an actor / director: their page
     if t = "Person"
@@ -572,6 +582,10 @@ sub onResponse(ev as object)
         onValidate(r)
     else if kind = "deeplink"
         onDeepLinkItem(r)
+    else if kind = "seasonOpen"
+        if r.code = 200 and r.json <> invalid and Util.toText(r.json.SeriesId) <> ""
+            openItem({ itemId: Util.toText(r.json.Id), itemType: "Season", seriesId: Util.toText(r.json.SeriesId), seriesName: Util.toText(r.json.SeriesName), title: Util.toText(r.json.Name) })
+        end if
     else if kind = "logout"
         print "Cove: signed out of the removed server -> "; r.code
     end if

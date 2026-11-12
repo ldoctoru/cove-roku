@@ -7,6 +7,7 @@ import "pkg:/source/Tracks.bs"
 import "pkg:/source/MediaInfo.bs"
 
 sub init()
+    m.focusEpisodes = false
     t = m.global.theme
     m.rows = m.top.findNode("rows")
     m.lower = m.top.findNode("lower")
@@ -726,6 +727,7 @@ sub onSeasons(json as object)
     if m.top.seasonId <> ""
         k = seasonIndexOf(m.top.seasonId)
         if k >= 0
+            m.focusEpisodes = true
             selectSeason(k, true)
             return
         end if
@@ -856,6 +858,13 @@ sub rebuildRows()
         end if
     end for
     if m.jumpToEpisodes and target >= 0 then m.jumpToEpisodes = false
+    ' (Go to Season: the focus goes to that season's episodes once they are there)
+    if m.focusEpisodes = true and target >= 0
+        if root.getChild(target).rowKind = "episodes" and root.getChild(target).getChildCount() > 0
+            m.focusEpisodes = false
+            enterRows()
+        end if
+    end if
     if target >= 0 then m.rows.jumpToRowItem = [target, item]
     if m.state = "rows" then m.rows.setFocus(true)
 end sub

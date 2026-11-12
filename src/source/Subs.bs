@@ -25,11 +25,16 @@ namespace Subs
                 buf = []
                 while i < n
                     l = lines[i].trim()
-                    if l = "" then exit while
+                    ' (a malformed file without a blank line: the next cue's timing line ends this one)
+                    if l = "" or l.instr("-->") > 0 then exit while
                     l = tags.replaceAll(l, "").trim()
                     if l <> "" then buf.push(l)
                     i++
                 end while
+                ' (and its number, just before that timing line)
+                if i < n and lines[i].instr("-->") > 0 and buf.count() > 0
+                    if isNumber(buf.peek()) then buf.pop()
+                end if
                 if buf.count() > 0 and e > s then cues.push({ s: s, e: e, t: Util.join(buf, chr(10)) })
             else
                 i++
@@ -37,6 +42,15 @@ namespace Subs
         end while
         cues.sortBy("s")
         return cues
+    end function
+
+    function isNumber(x as string) as boolean
+        if x = "" then return false
+        for k = 1 to x.len()
+            ch = Asc(Mid(x, k, 1))
+            if ch < 48 or ch > 57 then return false
+        end for
+        return true
     end function
 
     ' "00:01:02,500" (anything after the time, e.g. SRT position hints, is ignored) → 62.5

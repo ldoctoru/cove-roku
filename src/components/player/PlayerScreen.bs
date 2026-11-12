@@ -66,6 +66,7 @@ end sub
 sub resetState()
     m.loadNote = ""
     m.loadBase = 0
+    m.subPos = 0.0
     clearSubs()
     m.seekTarget = -1.0
     m.osdShown = false
@@ -243,8 +244,8 @@ sub onStream(ev as object)
     if m.startAt > 1 then c.PlayStart = m.startAt
     ' A text subtitle: Cove downloads the server's SRT and draws it (SubtitleLayer); Roku's captions stay off
     m.video.content = c
+    ' (no subtitleTracks, so Roku's renderer has nothing to show; the Roku's global caption mode is left alone)
     m.video.subtitleTrack = ""
-    m.video.globalCaptionMode = "Off"
     loadTextSub()
     m.video.control = "play"
     ' (the stream is ready: the rest of the ring is the Video node's buffering)
@@ -270,8 +271,18 @@ sub clearSubs()
     m.subLayer.cues = []
 end sub
 
+' The Video node reports its position once a second: in between, add the time since that report
 sub onSubTick()
-    m.subLayer.position = m.video.position
+    p = m.subPos
+    if m.video.state = "playing" and m.subClock <> invalid then p = p + m.subClock.TotalMilliseconds() / 1000.0
+    m.subLayer.position = p
+end sub
+
+' (called on every position report and after a jump)
+sub syncSubClock(atSec as float)
+    m.subPos = atSec
+    if m.subClock = invalid then m.subClock = createObject("roTimespan")
+    m.subClock.Mark()
 end sub
 
 ' Settings → Subtitles → Distance from bottom; above the controls while they show (as on the Mac)
@@ -319,6 +330,7 @@ sub onPlayError(ev as object)
     t.unobserveField("stream")
     t.unobserveField("error")
     m.playTask = invalid
+    m.watchdog.control = "stop"
     m.status.text = Util.toText(ev.getData()) + chr(10) + "Press Back to return."
     m.status.visible = true
     hideLoading()
@@ -397,6 +409,7 @@ end sub
 
 sub retryConverted(atSec as float)
     m.retried = true
+    m.watchdog.control = "stop"
     ' (end the first session on the server too, as restartAt does: the retry starts a new PlaySessionId)
     if m.started then report("/Sessions/Playing/Stopped", false, atSec)
     m.video.control = "stop"
@@ -411,6 +424,7 @@ end sub
 ' ---------------------------------------------------------------- skip intro / next episode
 
 sub onPosition()
+    syncSubClock(m.video.position)
     if m.osdShown and m.seekTarget < 0 then updateBar(m.video.position)
     p = m.video.position
     if m.video.state <> "playing" or m.upNext.visible then return
@@ -477,6 +491,7 @@ sub onFinished()
         m.top.findNode("upNextStill").uri = Items.landscape(m.top.server, m.next, 240)
         m.osdShown = false
         m.osd.opacity = 0
+        liftSubs(false)
         m.upNext.visible = true
         m.upNext.setFocus(true)
         m.countdown.control = "start"
@@ -599,8 +614,8 @@ sub onPicked(ev as object)
         end if
         return
     end if
-    closePicker()
     ' the Subtitles menu's style entries: a list of choices, then back to the menu with the new style
+    ' (openPicker replaces the open picker itself, keeping who paused the video)
     if c.purpose = "subs" and Left(c.id, 6) = "style:"
         key = Mid(c.id, 7)
         for each ch in Subs.styleChoices()
@@ -615,6 +630,7 @@ sub onPicked(ev as object)
         openSubsMenu()
         return
     end if
+    closePicker()
     if c.purpose = "chapter"
         seekToChapter(c)
         return
@@ -639,6 +655,7 @@ sub onPicked(ev as object)
     end if
     if c.purpose = "episode"
         m.keys.setFocus(true)
+        if c.id = m.top.item.id then resumeAfterPicker()
         for each e in m.episodes
             if Util.toText(e.Id) = c.id and c.id <> m.top.item.id then playEpisode(e)
         end for
@@ -808,14 +825,19 @@ function areaSize() as integer
 end function
 
 ' Centre buttons: previous episode, play / pause, next episode (episodes); play / pause alone otherwise
+' (an episode found in its series' list: a special outside the list has no previous / next / episodes)
+function hasEpisodes() as boolean
+    return m.episodes.count() > 0 and m.epIndex >= 0
+end function
+
 function centerIds() as object
-    if m.episodes.count() > 0 then return ["prev", "play", "next"]
+    if hasEpisodes() then return ["prev", "play", "next"]
     return ["play"]
 end function
 
 ' the play / pause button's place in the centre row
 function playIndex() as integer
-    if m.episodes.count() > 0 then return 1
+    if hasEpisodes() then return 1
     return 0
 end function
 
@@ -888,13 +910,21 @@ end sub
 ' Bottom-right buttons: back / forward 30 s, episodes (episodes only), subtitles, audio, quality, chapters
 ' (previous / next episode are in the centre, beside play)
 sub buildTools()
+    ' (the focused tool stays focused when buttons are added, e.g. the episode list arriving late)
+    keep = ""
+    if m.area = "tools" and m.idx < m.toolIds.count() then keep = m.toolIds[m.idx]
     ids = ["back30", "fwd30"]
-    if m.episodes.count() > 0 then ids.push("episodes")
+    if hasEpisodes() then ids.push("episodes")
     if m.tracks.subs.count() > 0 then ids.push("subs")
     if m.tracks.audio.count() > 1 then ids.push("audio")
     ids.push("quality")
     if chapterEntries().count() > 0 then ids.push("chapters")
     m.toolIds = ids
+    if keep <> ""
+        for i = 0 to ids.count() - 1
+            if ids[i] = keep then m.idx = i
+        end for
+    end if
     if m.area = "tools" and m.idx >= ids.count() then m.idx = ids.count() - 1
     drawControls()
 end sub
@@ -913,7 +943,7 @@ sub drawControls()
     playIcon = "pause_48"
     if not playing then playIcon = "play_48"
     specs = [{ size: 105, icon: playIcon, isz: 48, x: 908, dim: false }]
-    if m.episodes.count() > 0
+    if hasEpisodes()
         specs = [
             { size: 69, icon: "prev_36", isz: 36, x: 798, dim: m.prev = invalid },
             specs[0],
@@ -1032,6 +1062,8 @@ sub applySeek()
     m.seekTimer.control = "stop"
     if m.seekTarget < 0 then return
     m.video.seek = m.seekTarget
+    syncSubClock(m.seekTarget)
+    m.subLayer.position = m.seekTarget
     m.seekTarget = -1
     if m.video.state = "paused" then m.video.control = "resume"
     m.hideTimer.control = "start"
@@ -1397,12 +1429,15 @@ end function
 sub showChapters()
     list = chapterEntries()
     if list.count() = 0 then return
+    fromPicker = m.picker <> invalid
     closePicker()
     atSec = m.video.position
     cur = 0
     for i = 0 to list.count() - 1
         if list[i].start <= atSec + 1 then cur = i
     end for
+    ' (opened from the tools: remember whether this panel paused the video, as openPicker does)
+    if not fromPicker then m.pausedByPicker = m.video.state = "playing"
     if m.video.state = "playing" then m.video.control = "pause"
     p = createObject("roSGNode", "ChapterPanel")
     p.current = cur
@@ -1421,6 +1456,8 @@ sub seekToChapter(c as object)
     m.seekTarget = -1
     m.seekTimer.control = "stop"
     m.video.seek = c.start
+    syncSubClock(c.start)
+    m.subLayer.position = c.start
     if m.video.state = "paused" then m.video.control = "resume"
     drawControls()
 end sub
@@ -1442,7 +1479,7 @@ sub useMenuExtra(id as string)
         togglePlaybackInfo()
         closePicker()
         m.keys.setFocus(true)
-        if m.video.state = "paused" then m.video.control = "resume"
+        resumeAfterPicker()
     end if
 end sub
 

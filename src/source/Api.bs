@@ -86,7 +86,7 @@ namespace Api
             text = invalid
             if req.saveTo = invalid then text = msg.getString()
             ' (a text answer, e.g. subtitles: req.keepText; otherwise JSON)
-            if req.keepText = true
+            if Util.flag(req, "keepText")
                 res.text = text
             else if text <> invalid and text <> ""
                 res.json = parseJson(text)

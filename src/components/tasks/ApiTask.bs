@@ -19,7 +19,7 @@ sub work()
     ' a download nobody wants any more (the player closed): don't leave it in tmp:
     if req.saveTo <> invalid and m.top.discard then DeleteFile(req.saveTo)
     ' subtitles: parsed here, off the render thread
-    if req.parse = "srt"
+    if Util.toText(req.parse) = "srt"
         r.cues = Subs.parseSrt(r.text)
         r.text = invalid
     end if
