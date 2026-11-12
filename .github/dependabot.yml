@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # The SHA-pinned actions in .github/workflows (keeps the "# vN" comments up to date)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: Development
+  # Build tools only (BrighterScript, bslint, roku-deploy): nothing from npm goes into the app zip
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: Development
+    open-pull-requests-limit: 5
