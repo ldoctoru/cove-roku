@@ -378,12 +378,15 @@ sub startPlayer(item as object)
 end sub
 
 ' Back from the player: refresh the details (new resume point) and, later, the home rows
-sub onPlayerDone()
+sub onPlayerDone(ev as object)
     ' (before pop: a Home or library page right under the player reloads as it is shown)
     markStale()
+    seriesId = Util.toText(ev.getRoSGNode().openSeries)
     pop()
     t = top()
     if t <> invalid and t.screenId = "details" then t.refresh = true
+    ' "Back to the series" (Are you still watching?): its page, unless it is the one under the player
+    if seriesId <> "" and not (t <> invalid and t.screenId = "details" and Util.toText(t.itemId) = seriesId) then openItem({ itemId: seriesId, itemType: "Series", title: "" })
 end sub
 
 sub showNotice(title as string, text as string)

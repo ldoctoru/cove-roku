@@ -60,6 +60,13 @@ sub init()
     m.pbTask = invalid
     m.pbServer = invalid
     m.pbTick = 0
+    ' Are you still watching?: episodes started by the countdown since the last key press, and the time
+    ' since that press (both span episodes, so they live outside resetState)
+    m.still = m.top.findNode("still")
+    m.stillKind = ""
+    m.stillBtn = 0
+    m.autoCount = 0
+    m.lastInput = createObject("roTimespan")
     resetState()
 end sub
 
@@ -385,6 +392,12 @@ end sub
 ' its conversion running (it ends one after about a minute without news)
 sub onProgressTimer()
     st = m.video.state
+    ' (2 hours of playing without a key press: pause and ask, so a sleeping viewer doesn't stream all night)
+    if st = "playing" and Prefs.stillWatchingAfter() > 0 and m.lastInput.TotalSeconds() >= 7200 and not m.still.visible
+        m.video.control = "pause"
+        askStill("idle")
+        return
+    end if
     if st = "playing"
         report("/Sessions/Playing/Progress", false)
     else if st = "paused" and m.session <> invalid
@@ -429,7 +442,7 @@ sub onPosition()
     syncSubClock(m.video.position)
     if m.osdShown and m.seekTarget < 0 then updateBar(m.video.position)
     p = m.video.position
-    if m.video.state <> "playing" or m.upNext.visible then return
+    if m.video.state <> "playing" or m.upNext.visible or m.still.visible then return
     mk = m.marks
     inIntro = mk.introStart >= 0 and mk.introEnd > mk.introStart and p >= mk.introStart and p < mk.introEnd - 2
     inCredits = mk.credits > 0 and p >= mk.credits
@@ -568,6 +581,13 @@ sub onCountdown()
     m.count = m.count - 1
     if m.count <= 0
         m.countdown.control = "stop"
+        ' Settings → Playback → Are you still watching?: this many episodes in a row without a key press
+        lim = Prefs.stillWatchingAfter()
+        if lim > 0 and m.autoCount >= lim
+            askStill("next")
+            return
+        end if
+        m.autoCount = m.autoCount + 1
         playNext()
     else
         m.top.findNode("upNextCount").text = "Play now  (" + m.count.toStr() + ")"
@@ -779,6 +799,12 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
+    ' (any key: someone is watching)
+    noteInput()
+    if m.still.visible
+        stillKey(key)
+        return true
+    end if
     if m.upNext.visible
         if key = "OK" or key = "play"
             playNext()
@@ -1458,6 +1484,8 @@ sub onFocusChanged()
     if not m.top.hasFocus() then return
     if m.picker <> invalid
         m.picker.setFocus(true)
+    else if m.still.visible
+        m.still.setFocus(true)
     else if m.upNext.visible
         m.upNext.setFocus(true)
     else if m.action.visible
@@ -1774,4 +1802,102 @@ sub openSubsMenu()
         o.push({ id: "style:" + ch.key, label: ch.label + ":  " + Subs.currentLabel(ch) })
     end for
     openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
+end sub
+
+' ---------------------------------------------------------------- are you still watching?
+
+sub noteInput()
+    m.autoCount = 0
+    m.lastInput.Mark()
+end sub
+
+' kind "next": the countdown ended (the next episode isn't started yet, so the server converts nothing);
+' "idle": 2 hours without a key press, the video is paused
+sub askStill(kind as string)
+    m.stillKind = kind
+    m.stillBtn = 0
+    hideAction()
+    m.upNext.visible = false
+    m.countdown.control = "stop"
+    m.hideTimer.control = "stop"
+    m.osdShown = false
+    m.osd.opacity = 0
+    liftSubs(false)
+    name = Util.toText(m.top.item.title)
+    if m.info <> invalid and Util.toText(m.info.SeriesName) <> "" then name = Util.toText(m.info.SeriesName)
+    if kind = "next" and m.next <> invalid and Util.toText(m.next.SeriesName) <> "" then name = Util.toText(m.next.SeriesName)
+    m.top.findNode("stillTitle").text = name + "?"
+    print "Cove: are you still watching ("; kind; ")"
+    drawStill()
+    m.still.visible = true
+    m.still.setFocus(true)
+end sub
+
+function stillLabels() as object
+    leave = "Stop watching"
+    if seriesKey() <> "" then leave = "Back to the series"
+    return ["Continue watching", leave]
+end function
+
+' Two buttons: white when focused, glass otherwise (as Up next and the Glass dialogs)
+sub drawStill()
+    g = m.top.findNode("stillBtns")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    labels = stillLabels()
+    for i = 0 to 1
+        b = g.createChild("Group")
+        b.translation = [i * 384, 0]
+        bg = b.createChild("Poster")
+        bg.width = 360
+        bg.height = 68
+        l = b.createChild("Label")
+        l.width = 360
+        l.height = 68
+        l.horizAlign = "center"
+        l.vertAlign = "center"
+        l.text = labels[i]
+        f = createObject("roSGNode", "Font")
+        f.uri = "font:BoldSystemFontFile"
+        f.size = 28
+        l.font = f
+        if i = m.stillBtn
+            bg.uri = "pkg:/images/ui/white_rr12.9.png"
+            l.color = "0x000000FF"
+        else
+            bg.uri = "pkg:/images/ui/glass_pill.9.png"
+            l.color = "0xFFFFFFFF"
+        end if
+    end for
+end sub
+
+sub stillKey(key as string)
+    if key = "left" or key = "right"
+        m.stillBtn = 1 - m.stillBtn
+        drawStill()
+    else if key = "OK" or key = "play"
+        if key = "play" then m.stillBtn = 0
+        useStill()
+    else if key = "back"
+        m.stillBtn = 1
+        useStill()
+    end if
+end sub
+
+sub useStill()
+    kind = m.stillKind
+    m.still.visible = false
+    m.stillKind = ""
+    m.keys.setFocus(true)
+    if m.stillBtn = 0
+        print "Cove: still watching"
+        if kind = "next"
+            playNext()
+        else if m.video.state = "paused"
+            m.video.control = "resume"
+        end if
+        return
+    end if
+    ' Back to the series: its page opens where the player was (MainScene.onPlayerDone)
+    if seriesKey() <> "" then m.top.openSeries = seriesKey()
+    close()
 end sub

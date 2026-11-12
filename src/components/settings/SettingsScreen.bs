@@ -184,6 +184,9 @@ function rowsFor(tabId as string) as object
         out.push(toggle("autoSkipIntro", "", "Skip intros", Prefs.autoSkipIntro()))
         out.push(toggle("autoSkipRecap", "", "Skip recaps", Prefs.autoSkipRecap()))
         out.push(note("Recaps, previews and ads show a Skip button when the server knows where they are (Jellyfin media segments)."))
+        out.push(sectionHead("Are you still watching?"))
+        out.push(choice("stillWatching", "Ask after", [{ id: "off", label: "Off" }, { id: "2", label: "2 episodes" }, { id: "3", label: "3 episodes" }, { id: "5", label: "5 episodes" }], Prefs.text("stillWatching", "3")))
+        out.push(note("Cove pauses and asks after this many episodes in a row, or after 2 hours, without a key press."))
     else if tabId = "servers"
         srv = m.top.server
         out.push(sectionHead("Current server"))
