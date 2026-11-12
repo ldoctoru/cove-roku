@@ -920,10 +920,11 @@ function onKeyEvent(key as string, press as boolean) as boolean
         instantReplay()
         return true
     else if key = "rewind" or key = "fastforward"
+        ' Settings → Playback → Jump buttons
         if key = "fastforward"
-            seekBy(30)
+            seekBy(Prefs.jumpSeconds())
         else
-            seekBy(-30)
+            seekBy(-Prefs.jumpSeconds())
         end if
         return true
     else if key = "play"
@@ -1048,10 +1049,10 @@ sub useControl()
         return
     end if
     id = m.toolIds[m.idx]
-    if id = "back30"
-        seekBy(-30)
-    else if id = "fwd30"
-        seekBy(30)
+    if id = "jumpBack"
+        seekBy(-Prefs.jumpSeconds())
+    else if id = "jumpFwd"
+        seekBy(Prefs.jumpSeconds())
     else if id = "prev"
         playEpisode(m.prev)
     else if id = "next"
@@ -1088,13 +1089,13 @@ sub showEpisodes()
     openPicker("episode", Util.toText(m.episodes[m.epIndex].SeasonName), o, m.top.item.id)
 end sub
 
-' Bottom-right buttons: back / forward 30 s, episodes (episodes only), subtitles, audio, quality, chapters
+' Bottom-right buttons: back / forward (Settings → Playback → Jump buttons), episodes (episodes only), subtitles, audio, quality, chapters
 ' (previous / next episode are in the centre, beside play)
 sub buildTools()
     ' (the focused tool stays focused when buttons are added, e.g. the episode list arriving late)
     keep = ""
     if m.area = "tools" and m.idx < m.toolIds.count() then keep = m.toolIds[m.idx]
-    ids = ["back30", "fwd30"]
+    ids = ["jumpBack", "jumpFwd"]
     if hasEpisodes() then ids.push("episodes")
     if m.tracks.subs.count() > 0 then ids.push("subs")
     if m.tracks.audio.count() > 1 then ids.push("audio")
@@ -1112,6 +1113,9 @@ end sub
 
 function toolIcon(id as string) as string
     if id = "subs" then return "subtitles"
+    ' (the icon shows the jump length from Settings → Playback → Jump buttons: back10 ... fwd60)
+    if id = "jumpBack" then return "back" + Prefs.jumpSeconds().toStr()
+    if id = "jumpFwd" then return "fwd" + Prefs.jumpSeconds().toStr()
     return id
 end function
 
@@ -2088,9 +2092,9 @@ function handleTransport(evt as object) as object
         if st <> "playing" then return { status: "error.redundant" }
         m.video.control = "pause"
     else if cmd = "forward"
-        seekBy(30)
+        seekBy(Prefs.jumpSeconds())
     else if cmd = "rewind"
-        seekBy(-30)
+        seekBy(-Prefs.jumpSeconds())
     else if cmd = "replay"
         instantReplay()
     else if cmd = "startover"

@@ -178,7 +178,9 @@ def captions(d, n):
     d.text(((n - (bb[2] - bb[0])) / 2 - bb[0], (n - (bb[3] - bb[1])) / 2 - bb[1]), "CC", font=f, fill=WHITE)
 
 
-def skip30(forward):
+def skip30(forward, secs=30):
+    label = str(secs)
+
     def draw(d, n):
         from PIL import ImageFont
         w = int(n * 0.08)
@@ -190,8 +192,8 @@ def skip30(forward):
             d.arc(box, -70, 240, fill=WHITE, width=w)
             d.polygon([(n * 0.38, n * 0.02), (n * 0.14, n * 0.16), (n * 0.4, n * 0.3)], fill=WHITE)
         f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", int(n * 0.34))
-        bb = d.textbbox((0, 0), "30", font=f)
-        d.text(((n - (bb[2] - bb[0])) / 2 - bb[0], (n - (bb[3] - bb[1])) / 2 - bb[1] + n * 0.03), "30", font=f, fill=WHITE)
+        bb = d.textbbox((0, 0), label, font=f)
+        d.text(((n - (bb[2] - bb[0])) / 2 - bb[0], (n - (bb[3] - bb[1])) / 2 - bb[1] + n * 0.03), label, font=f, fill=WHITE)
     return draw
 
 
@@ -438,6 +440,10 @@ def main():
                      ("episodes", episodes), ("subtitles", subtitles), ("audio", waveform), ("quality", quality),
                      ("chapters", chapters_icon)):
         icon(name, 36, fn)
+    # the other jump lengths (Settings → Playback → Jump buttons); 30 is above
+    for secs in (10, 15, 60):
+        icon("back%d" % secs, 36, skip30(False, secs))
+        icon("fwd%d" % secs, 36, skip30(True, secs))
     save(circle(105, GLASS_FILL, (255, 255, 255, 31), 2), "glass_circle_105.png")
     save(circle(105, WHITE), "white_circle_105.png")
     save(circle(56, WHITE), "white_circle_56.png")
