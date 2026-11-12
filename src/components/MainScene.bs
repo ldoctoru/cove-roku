@@ -332,6 +332,7 @@ sub openItem(a as object)
     d.observeField("changed", "onDetailsChanged")
     d.observeField("openItem", "onDetailsOpen")
     push(d)
+    if a.seasonId <> invalid then d.seasonId = a.seasonId
     d.itemId = a.itemId
 end sub
 

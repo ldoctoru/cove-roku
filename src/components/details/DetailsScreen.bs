@@ -318,6 +318,13 @@ sub buildButtons()
     if Util.flag(it.UserData, "Played") then watchIcon = "eyeslash"
     btns.push({ id: "watched", icon: watchIcon })
     if t <> "Series" and m.tracks <> invalid then btns.push({ id: "tracks", icon: "captions" })
+    ' an episode: its series' page, or the series' page on this season
+    if t = "Episode" and Util.toText(it.SeriesId) <> ""
+        btns.push({ id: "series", text: "Go to Series" })
+        seasonTitle = Util.toText(it.SeasonName)
+        if seasonTitle = "" and it.ParentIndexNumber <> invalid then seasonTitle = "Season " + Util.toText(it.ParentIndexNumber)
+        if Util.toText(it.SeasonId) <> "" and seasonTitle <> "" then btns.push({ id: "season", text: "Go to " + seasonTitle })
+    end if
     m.btns = btns
     if m.btn >= btns.count() then m.btn = 0
     drawButtons()
@@ -373,6 +380,32 @@ sub drawButtons()
             f.size = 28
             l.font = f
             x = x + w + 21
+        else if b.text <> invalid
+            ' a text button: glass pill, white when focused
+            w = b.text.len() * 15 + 64
+            g.scaleRotateCenter = [w / 2, 34]
+            bg = g.createChild("Poster")
+            bg.width = w
+            bg.height = 69
+            l = g.createChild("Label")
+            l.text = b.text
+            l.width = w
+            l.height = 69
+            l.horizAlign = "center"
+            l.vertAlign = "center"
+            f = createObject("roSGNode", "Font")
+            f.uri = "font:MediumSystemFontFile"
+            f.size = 26
+            l.font = f
+            if isFocus
+                bg.uri = "pkg:/images/ui/white_pill.9.png"
+                l.color = "0x000000FF"
+                g.scale = [1.06, 1.06]
+            else
+                bg.uri = "pkg:/images/ui/glass_pill.9.png"
+                l.color = "0xFFFFFFFF"
+            end if
+            x = x + w + 18
         else
             g.scaleRotateCenter = [34, 34]
             bg = g.createChild("Poster")
@@ -417,6 +450,10 @@ sub useButton()
         toggleWatched()
     else if id = "tracks"
         showTracksMenu()
+    else if id = "series" or id = "season"
+        o = { itemId: Util.toText(it.SeriesId), itemType: "Series", title: Util.toText(it.SeriesName) }
+        if id = "season" then o.seasonId = Util.toText(it.SeasonId)
+        m.top.openItem = o
     end if
 end sub
 
@@ -684,6 +721,14 @@ sub onSeasons(json as object)
     if m.nextUp <> invalid
         k = seasonIndexOf(Util.toText(m.nextUp.SeasonId))
         if k >= 0 then i = k
+    end if
+    ' opened with "Go to Season": that season, with the focus on its episodes
+    if m.top.seasonId <> ""
+        k = seasonIndexOf(m.top.seasonId)
+        if k >= 0
+            selectSeason(k, true)
+            return
+        end if
     end if
     selectSeason(i, false)
 end sub

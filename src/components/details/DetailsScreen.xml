@@ -10,6 +10,8 @@
     <interface>
         <field id="screenId" type="string" value="details" />
         <field id="server" type="assocarray" />
+        <!-- (a series opened with "Go to Season": set before itemId) -->
+        <field id="seasonId" type="string" />
         <field id="itemId" type="string" onChange="load" />
         <field id="refresh" type="boolean" alwaysNotify="true" onChange="onRefresh" />
         <field id="play" type="assocarray" alwaysNotify="true" />
