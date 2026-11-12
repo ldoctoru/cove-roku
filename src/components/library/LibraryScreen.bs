@@ -12,6 +12,7 @@ sub init()
     m.show = "all"          ' all / unwatched / watched / favourites
     m.genre = ""
     m.letter = ""
+    m.tab = "main"        ' main / collections (movie libraries)
     m.genres = []
     m.inBar = false
     m.barIdx = 0
@@ -143,6 +144,13 @@ sub drawBar()
     b.removeChildrenIndex(b.getChildCount(), 0)
     ids = []
     texts = []
+    ' Movie libraries: the Mac's tabs <library> | Collections (its box sets)
+    if hasTabs()
+        ids.push("tab:main")
+        texts.push(Util.toText(m.top.library.title))
+        ids.push("tab:collections")
+        texts.push("Collections")
+    end if
     ' Shuffle (Mac library controls): random unwatched titles / episodes, back to back
     if canShuffle()
         ids.push("shuffle")
@@ -180,9 +188,10 @@ sub drawBar()
         lab.height = 52
         lab.vertAlign = "center"
         lab.translation = [24, 0]
+        isTab = ids[i].startsWith("tab:")
         w = lab.boundingRect().width + 84
-        ' (an action, not a choice: no chevron)
-        if ids[i] = "shuffle" then w = lab.boundingRect().width + 48
+        ' (an action or a tab, not a choice: no chevron)
+        if ids[i] = "shuffle" or isTab then w = lab.boundingRect().width + 48
         bg.width = w
         bg.height = 52
         ch = g.createChild("Poster")
@@ -190,20 +199,47 @@ sub drawBar()
         ch.width = 22
         ch.height = 22
         ch.translation = [w - 44, 15]
-        ch.visible = ids[i] <> "shuffle"
+        ch.visible = ids[i] <> "shuffle" and not isTab
         if isFocus
             bg.uri = "pkg:/images/ui/white_pill.9.png"
             lab.color = "0x000000FF"
+        else if isTab
+            ' tabs sit together in one glass capsule (drawn below), the chosen one lit as on the Mac
+            bg.uri = ""
+            lab.color = "0xFFFFFF99"
+            if ids[i] = "tab:" + m.tab
+                bg.uri = "pkg:/images/ui/sel_pill.9.png"
+                lab.color = "0xFFFFFFFF"
+            end if
         else
             bg.uri = "pkg:/images/ui/glass_pill.9.png"
             lab.color = "0xFFFFFFD9"
             if active then lab.color = m.global.theme.accent
         end if
         ch.blendColor = lab.color
+        if isTab and x = 0 then x = 6
         g.translation = [x, 0]
         x = x + w + 16
+        if isTab
+            x = x - 12
+            if i + 1 >= ids.count() or not ids[i + 1].startsWith("tab:")
+                ' the capsule behind the tabs, then the usual gap
+                cap = createObject("roSGNode", "Poster")
+                cap.uri = "pkg:/images/ui/glass_pill.9.png"
+                cap.width = x + 2
+                cap.height = 64
+                cap.translation = [0, -6]
+                b.insertChild(cap, 0)
+                x = x + 2 + 22
+            end if
+        end if
     end for
 end sub
+
+' Movie libraries have the Collections tab (the Mac's LibraryView tabs)
+function hasTabs() as boolean
+    return feed() = "" and LCase(Util.toText(m.top.library.collectionType)) = "movies"
+end function
 
 sub enterBar()
     m.inBar = true
@@ -223,7 +259,14 @@ end sub
 
 sub useBar()
     id = m.barIds[m.barIdx]
-    if id = "shuffle"
+    if id.startsWith("tab:")
+        tabId = id.mid(4)
+        if tabId <> m.tab
+            m.tab = tabId
+            drawBar()
+            reload()
+        end if
+    else if id = "shuffle"
         startShuffle()
     else if id = "sort"
         openPicker("sort", "Sort by", [{ id: "name", label: "Name" }, { id: "added", label: "Date added" }, { id: "year", label: "Year" }, { id: "rating", label: "Rating" }], m.sort)
@@ -251,7 +294,7 @@ end sub
 
 ' A real library (not Favorites / Recently Added)
 function canShuffle() as boolean
-    return feed() = "" and Util.toText(m.top.library.id) <> ""
+    return feed() = "" and Util.toText(m.top.library.id) <> "" and m.tab <> "collections"
 end function
 
 ' Random titles of this library (with its Genre and Show choice) into the player as a queue
@@ -300,6 +343,8 @@ sub loadPage(startIndex as integer, limit as integer)
     lib = m.top.library
     uid = Util.toText(m.top.server.userId)
     types = Items.typesFor(Util.toText(lib.collectionType))
+    ' the Collections tab: the box sets with titles from this library (as the Mac asks for them)
+    if m.tab = "collections" then types = "BoxSet"
     q = sortQuery() + "&StartIndex=" + startIndex.toStr() + "&Limit=" + limit.toStr() + "&" + Items.fields()
     if Util.toText(lib.id) <> "" then q = "ParentId=" + Util.toText(lib.id) + "&" + q
     ' A library: everything of its kind inside it; a folder / collection: just what it contains
@@ -343,6 +388,7 @@ sub onPage(ev as object)
     if count = 0
         m.status.text = "Nothing here."
         if feed() = "favorites" then m.status.text = "No favorites yet. Add titles with the heart on their page, or * on a card on Home."
+        if m.tab = "collections" then m.status.text = "No collections in this library."
         if userFiltered() then m.status.text = "Nothing matches these filters. Press Up to change them."
         m.status.visible = true
     else
@@ -370,6 +416,10 @@ end sub
 sub updateInfo()
     s = m.total.toStr() + " titles"
     if m.total = 1 then s = "1 title"
+    if m.tab = "collections"
+        s = m.total.toStr() + " collections"
+        if m.total = 1 then s = "1 collection"
+    end if
     if filterQuery() <> "" and feed() = "" then s = s + "   ·   filtered"
     m.top.findNode("info").text = s
 end sub
