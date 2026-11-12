@@ -24,7 +24,7 @@
         <!-- controls, laid out like Cove for macOS (Sources/Views.swift player) -->
         <Group id="osd" opacity="0">
             <Poster uri="pkg:/images/ui/scrim_osd.png" width="1920" height="1080" />
-            <!-- centre: back 30, play / pause, forward 30 -->
+            <!-- centre: previous episode, play / pause, next episode (drawControls) -->
             <Group id="center" />
             <!-- bottom-left: episode and title -->
             <Label id="episode" width="1100" height="34" translation="[24,856]" color="0xFFFFFFD9">

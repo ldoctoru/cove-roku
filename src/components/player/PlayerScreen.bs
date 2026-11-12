@@ -744,7 +744,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
     else if key = "up" and m.area = "tools"
         setArea("bar", 0)
     else if key = "up" and m.area = "bar"
-        setArea("center", 1)
+        setArea("center", playIndex())
     else if key = "OK"
         if m.area = "bar"
             togglePause()
@@ -767,7 +767,19 @@ end sub
 function areaSize() as integer
     if m.area = "tools" then return m.toolIds.count()
     if m.area = "bar" then return 1
-    return 3
+    return centerIds().count()
+end function
+
+' Centre buttons: previous episode, play / pause, next episode (episodes); play / pause alone otherwise
+function centerIds() as object
+    if m.episodes.count() > 0 then return ["prev", "play", "next"]
+    return ["play"]
+end function
+
+' the play / pause button's place in the centre row
+function playIndex() as integer
+    if m.episodes.count() > 0 then return 1
+    return 0
 end function
 
 sub togglePause()
@@ -783,17 +795,24 @@ end sub
 
 sub useControl()
     if m.area = "center"
-        if m.idx = 0
-            seekBy(-30)
-        else if m.idx = 2
-            seekBy(30)
+        ids = centerIds()
+        if m.idx >= ids.count() then m.idx = playIndex()
+        cid = ids[m.idx]
+        if cid = "prev"
+            playEpisode(m.prev)
+        else if cid = "next"
+            playEpisode(m.next)
         else
             togglePause()
         end if
         return
     end if
     id = m.toolIds[m.idx]
-    if id = "prev"
+    if id = "back30"
+        seekBy(-30)
+    else if id = "fwd30"
+        seekBy(30)
+    else if id = "prev"
         playEpisode(m.prev)
     else if id = "next"
         playEpisode(m.next)
@@ -833,14 +852,11 @@ sub showEpisodes()
     openPicker("episode", Util.toText(m.episodes[m.epIndex].SeasonName), o, m.top.item.id)
 end sub
 
-' Bottom-right buttons: previous / next episode (episodes only), episodes, subtitles, audio, quality
+' Bottom-right buttons: back / forward 30 s, episodes (episodes only), subtitles, audio, quality, chapters
+' (previous / next episode are in the centre, beside play)
 sub buildTools()
-    ids = []
-    if m.episodes.count() > 0
-        ids.push("prev")
-        ids.push("next")
-        ids.push("episodes")
-    end if
+    ids = ["back30", "fwd30"]
+    if m.episodes.count() > 0 then ids.push("episodes")
     if m.tracks.subs.count() > 0 then ids.push("subs")
     if m.tracks.audio.count() > 1 then ids.push("audio")
     ids.push("quality")
@@ -857,17 +873,21 @@ end function
 
 sub drawControls()
     focused = m.osdShown and m.picker = invalid
-    ' centre: 69 px circles for back / forward 30, 105 px for play / pause
+    ' centre: 69 px circles for previous / next episode, 105 px for play / pause
     c = m.top.findNode("center")
     c.removeChildrenIndex(c.getChildCount(), 0)
     playing = m.video.state = "playing" or m.video.state = "buffering"
-    specs = [
-        { size: 69, icon: "back30_36", isz: 36, x: 798 },
-        { size: 105, icon: "pause_48", isz: 48, x: 908 },
-        { size: 69, icon: "fwd30_36", isz: 36, x: 1053 }
-    ]
-    if not playing then specs[1].icon = "play_48"
-    for i = 0 to 2
+    playIcon = "pause_48"
+    if not playing then playIcon = "play_48"
+    specs = [{ size: 105, icon: playIcon, isz: 48, x: 908, dim: false }]
+    if m.episodes.count() > 0
+        specs = [
+            { size: 69, icon: "prev_36", isz: 36, x: 798, dim: m.prev = invalid },
+            specs[0],
+            { size: 69, icon: "next_36", isz: 36, x: 1053, dim: m.next = invalid }
+        ]
+    end if
+    for i = 0 to specs.count() - 1
         s = specs[i]
         isFocus = focused and m.area = "center" and m.idx = i
         g = c.createChild("Group")
@@ -889,6 +909,8 @@ sub drawControls()
         else
             bg.uri = "pkg:/images/ui/glass_circle_" + s.size.toStr() + ".png"
             ic.blendColor = "0xFFFFFFFF"
+            ' (no previous / next episode)
+            if s.dim then ic.blendColor = "0xFFFFFF59"
         end if
     end for
     ' bottom-right: icons in a glass capsule, right-aligned above the scrubber
@@ -922,7 +944,6 @@ sub drawControls()
         ic.translation = [x + 10, 17]
         col = "0xFFFFFFFF"
         if id = "subs" and m.opts.sub >= 0 then col = accent
-        if (id = "prev" and m.prev = invalid) or (id = "next" and m.next = invalid) then col = "0xFFFFFF59"
         if isFocus then col = "0x000000FF"
         ic.blendColor = col
     end for
@@ -1264,6 +1285,8 @@ sub onResponse(ev as object)
                     if i + 1 < list.count() then m.next = list[i + 1]
                 end if
             end for
+            ' (prev / next join the centre row: keep the focus on play)
+            if m.area = "center" then m.idx = playIndex()
             buildTools()
         end if
     end if
