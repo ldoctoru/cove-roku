@@ -710,9 +710,9 @@ sub toggleFavourite(it as object)
     send(method, "/Users/" + Util.toText(m.top.server.userId) + "/FavoriteItems/" + it.itemId, { kind: "fav", method: method, newRoute: false, itemId: it.itemId })
 end sub
 
-sub send(method as string, path as string, tag as object)
+sub send(method as string, path as string, tag as object, body = "" as string)
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: "", tag: tag, timeout: 15000 }
+    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: body, tag: tag, timeout: 15000 }
     t.observeField("response", "onFavResponse")
     m.pending.push(t)
     t.control = "RUN"
@@ -738,6 +738,8 @@ sub itemMenu(it as object)
         else
             o.push({ id: "watched", label: "Mark as watched" })
         end if
+        ' (only the row's own cards: the same title elsewhere on Home keeps the plain menu)
+        if it.resumeAt > 0 and focusedRowTitle() = "Continue Watching" then o.push({ id: "unresume", label: "Remove from Continue Watching" })
         if it.favorite
             o.push({ id: "fav", label: "Remove from favourites" })
         else
@@ -785,6 +787,8 @@ sub onItemChosen(ev as object)
         send(method, "/Users/" + uid + "/PlayedItems/" + it.itemId, { kind: "watched", method: method, newRoute: false, itemId: it.itemId })
     else if id = "fav"
         toggleFavourite(it)
+    else if id = "unresume"
+        removeFromResume(it)
     else if id = "open"
         m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
     else if id = "more"
@@ -801,6 +805,10 @@ sub onFavResponse(ev as object)
         end if
     end for
     r = ev.getData()
+    if r.tag.kind = "unresume"
+        onUnresume(r)
+        return
+    end if
     if r.tag.kind = "watched"
         if r.code = 404 and not r.tag.newRoute
             send(r.tag.method, "/UserPlayedItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "watched", method: r.tag.method, newRoute: true, itemId: r.tag.itemId })
@@ -823,6 +831,55 @@ sub onFavResponse(ev as object)
         ' the focus and the hero shown
         m.top.reload = true
     end if
+end sub
+
+' ---------------------------------------------------------------- remove from Continue Watching
+
+' The title of the row with the focused card ("" when none)
+function focusedRowTitle() as string
+    f = m.rows.rowItemFocused
+    if f = invalid or f.count() < 2 or m.rows.content = invalid then return ""
+    row = m.rows.content.getChild(f[0])
+    if row = invalid then return ""
+    return Util.toText(row.title)
+end function
+
+' Emby 4.8+ hides a title from Resume without touching its position (HideFromResume). Otherwise the saved
+' position goes back to 0, which takes it off the row on both servers: Jellyfin 10.9+ /UserItems/{id}/UserData,
+' the older /Users/{u}/Items/{id}/UserData route. Played and favourite are sent along, so a server that
+' replaces the whole record keeps them. The next route is tried when one is missing (404 / 405).
+sub removeFromResume(it as object)
+    uid = Util.toText(m.top.server.userId)
+    q = chr(34)
+    body = "{" + q + "PlaybackPositionTicks" + q + ":0," + q + "Played" + q + ":" + Util.toText(it.played = true) + "," + q + "IsFavorite" + q + ":" + Util.toText(it.favorite = true) + "}"
+    steps = []
+    if not Servers.isJellyfin(m.top.server) then steps.push({ method: "POST", path: "/Users/" + uid + "/Items/" + it.itemId + "/HideFromResume?Hide=true", body: "" })
+    if Servers.isJellyfin(m.top.server) then steps.push({ method: "POST", path: "/UserItems/" + it.itemId + "/UserData?userId=" + uid, body: body })
+    steps.push({ method: "POST", path: "/Users/" + uid + "/Items/" + it.itemId + "/UserData", body: body })
+    unresumeStep({ kind: "unresume", itemId: it.itemId, steps: steps, at: 0 })
+end sub
+
+sub unresumeStep(tag as object)
+    st = tag.steps[tag.at]
+    print "Cove: remove from Continue Watching: "; st.method; " "; st.path.split("?")[0]
+    send(st.method, st.path, tag, st.body)
+end sub
+
+sub onUnresume(r as object)
+    print "Cove:   -> "; r.code
+    tag = r.tag
+    if r.code >= 200 and r.code < 300
+        ' the row reloads in place (the focus stays on the same place in it)
+        m.top.reload = true
+        return
+    end if
+    if (r.code = 404 or r.code = 405) and tag.at + 1 < tag.steps.count()
+        tag.at = tag.at + 1
+        unresumeStep(tag)
+        return
+    end if
+    ' (the card stays: the row shows the server's state)
+    print "Cove: remove from Continue Watching failed "; r.code
 end sub
 
 ' ---------------------------------------------------------------- * options
