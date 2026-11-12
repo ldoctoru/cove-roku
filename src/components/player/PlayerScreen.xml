@@ -60,7 +60,15 @@
             </Group>
         </Group>
 
-        <Label id="status" width="1920" height="60" translation="[0,510]" horizAlign="center" color="0xFFFFFFD9" text="Starting...">
+        <!-- loading the video: a progress ring with the percentage (and a line under it when there is something to say) -->
+        <Group id="loader" visible="false">
+            <Poster uri="pkg:/images/ui/load_track.png" width="132" height="132" translation="[894,474]" />
+            <Poster id="loaderArc" width="132" height="132" translation="[894,474]" />
+            <Label id="loaderPct" width="132" height="132" translation="[894,474]" horizAlign="center" vertAlign="center" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="30" />
+            </Label>
+        </Group>
+        <Label id="status" width="1920" height="60" translation="[0,510]" horizAlign="center" color="0xFFFFFFD9" visible="false">
             <Font role="font" uri="font:MediumSystemFontFile" size="36" />
         </Label>
 

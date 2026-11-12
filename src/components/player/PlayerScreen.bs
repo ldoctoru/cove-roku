@@ -12,6 +12,10 @@ sub init()
     ' lets Roku open its system Options panel on *, so our audio / subtitle menu never got the key.
     m.keys = m.top.findNode("keys")
     m.status = m.top.findNode("status")
+    m.loader = m.top.findNode("loader")
+    m.loaderArc = m.top.findNode("loaderArc")
+    m.loaderPct = m.top.findNode("loaderPct")
+    m.video.observeField("bufferingStatus", "onBufferingStatus")
     m.action = m.top.findNode("action")
     m.actionLabel = m.top.findNode("actionLabel")
     m.upNext = m.top.findNode("upNext")
@@ -56,6 +60,8 @@ sub init()
 end sub
 
 sub resetState()
+    m.loadNote = ""
+    m.loadBase = 0
     m.seekTarget = -1.0
     m.osdShown = false
     m.osd.opacity = 0
@@ -99,8 +105,7 @@ sub begin()
     m.top.findNode("title").text = Util.toText(it.title)
     m.top.findNode("episode").text = Util.toText(it.subtitle)
     if it.options <> invalid and it.options.audio <> invalid then m.opts = it.options
-    m.status.text = "Starting..."
-    m.status.visible = true
+    showLoading(0, "")
     get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + it.id + "?Fields=MediaSources,MediaStreams,Chapters,Trickplay", { kind: "info", itemId: it.id })
 end sub
 
@@ -161,8 +166,8 @@ end function
 ' Asks the server for a stream; forceTranscode after a playback error
 sub start(startSeconds as float, forceTranscode as boolean)
     m.startAt = startSeconds
-    m.status.text = "Starting..."
-    m.status.visible = true
+    ' (keeps a "Converting..." line from retryConverted)
+    showLoading(5, m.loadNote)
     ' (a change while "Starting...": the earlier request is superseded, only its conversion still needs ending)
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = createObject("roSGNode", "PlayTask")
@@ -245,6 +250,11 @@ sub onStream(ev as object)
     applySubtitle(subUrl)
     if subUrl <> "" then probeSubtitle(subUrl, sub_.index)
     m.video.control = "play"
+    ' (the stream is ready: the rest of the ring is the Video node's buffering)
+    if m.loader.visible
+        m.loadBase = 15
+        setLoadPct(15)
+    end if
     m.keys.setFocus(true)
 end sub
 
@@ -265,8 +275,8 @@ sub onSubProbe(r as object)
     if r.code < 400 then return
     print "Cove: text subtitle failed, burning it in"
     m.opts.burn = true
-    m.status.text = "The subtitles couldn't load as text." + chr(10) + "Adding them to the picture..."
-    m.status.visible = true
+    ' (the line stays under the loading ring)
+    m.loadNote = "The subtitles couldn't load as text. Adding them to the picture..."
     restartAt(m.video.position)
 end sub
 
@@ -300,20 +310,19 @@ sub onPlayError(ev as object)
     m.playTask = invalid
     m.status.text = Util.toText(ev.getData()) + chr(10) + "Press Back to return."
     m.status.visible = true
+    hideLoading()
 end sub
 
 sub onState()
     st = m.video.state
     print "Cove: video "; st
-    if st = "buffering" and m.started
-        m.status.text = "Loading..."
-        m.status.visible = true
-    end if
+    if st = "buffering" and m.started then showLoading(0, "")
     if st = "playing" or st = "paused" then updateCenter()
     if st = "paused" then showOsd(false)
     if st = "playing" and m.osdShown then m.hideTimer.control = "start"
     if st = "playing"
         m.status.visible = false
+        hideLoading()
         m.watchdog.control = "stop"
         if not m.started
             m.started = true
@@ -344,6 +353,7 @@ sub onVideoError()
     end if
     m.status.text = "This video can't be played on this Roku." + chr(10) + Util.redact(Util.toText(m.video.errorMsg)) + "  (" + Util.toText(m.video.errorCode) + ")" + chr(10) + "Press Back to return."
     m.status.visible = true
+    hideLoading()
 end sub
 
 ' Every 10 s: progress while playing; while paused a ping plus the paused progress, so the server keeps
@@ -371,6 +381,7 @@ sub onWatchdog()
     stopEncoding()
     m.status.text = "The server didn't start the video." + chr(10) + "Try again, or choose a lower quality with *." + chr(10) + "Press Back to return."
     m.status.visible = true
+    hideLoading()
 end sub
 
 sub retryConverted(atSec as float)
@@ -382,8 +393,7 @@ sub retryConverted(atSec as float)
     m.started = false
     m.failed = false
     m.progressTimer.control = "stop"
-    m.status.text = "Converting the video for this Roku..."
-    m.status.visible = true
+    m.loadNote = "Converting the video for this Roku..."
     start(atSec, true)
 end sub
 
@@ -1583,3 +1593,47 @@ function videoNodeObject(field as string) as dynamic
     if v = invalid or GetInterface(v, "ifAssociativeArray") = invalid or v.count() = 0 then return invalid
     return v
 end function
+
+' ---------------------------------------------------------------- loading ring
+
+' The ring while the video loads: before the stream answers it stays low (pct), then follows the
+' Video node's buffering percentage. note: an optional line under the ring (e.g. "Converting...").
+sub showLoading(pct as integer, note as string)
+    m.loadBase = pct
+    m.loadNote = note
+    m.status.visible = false
+    setLoadPct(pct)
+    m.loader.visible = true
+    if note <> ""
+        m.status.text = note
+        m.status.translation = [0, 640]
+        m.status.visible = true
+    end if
+end sub
+
+sub hideLoading()
+    m.loader.visible = false
+    m.loadNote = ""
+    m.status.translation = [0, 510]
+end sub
+
+sub setLoadPct(pct as integer)
+    if pct < 0 then pct = 0
+    if pct > 100 then pct = 100
+    m.loaderPct.text = pct.toStr() + "%"
+    frame = Int(pct / 4) * 4
+    if frame = 0
+        m.loaderArc.uri = ""
+    else
+        m.loaderArc.uri = "pkg:/images/ui/load_arc_" + Right("00" + frame.toStr(), 3) + ".png"
+    end if
+end sub
+
+' Video node buffering: 0-100 % of what it needs before it plays; mapped onto what is left of the ring
+sub onBufferingStatus()
+    if not m.loader.visible then return
+    bs = m.video.bufferingStatus
+    if bs = invalid or bs.percentage = invalid then return
+    base = m.loadBase
+    setLoadPct(base + Int((100 - base) * bs.percentage / 100))
+end sub
