@@ -13,6 +13,8 @@ sub init()
     m.genre = ""
     m.letter = ""
     m.tab = "main"        ' main / collections (movie libraries)
+    m.defSort = "name"     ' the Settings → Libraries defaults (saveFilters keeps only changes from them)
+    m.defShow = "all"
     m.genres = []
     m.inBar = false
     m.barIdx = 0
@@ -38,10 +40,33 @@ sub onLibrary()
         sortMap = { name: "name", latest: "added", release: "year", top: "rating" }
         if sortMap.doesExist(lp.sort) then m.sort = sortMap[lp.sort]
         if lp.show = "unwatched" or lp.show = "watched" then m.show = lp.show
+        ' then what was chosen here last time (Mac LibraryView lf-<id>): sort, show, genre, A–Z
+        m.defSort = m.sort
+        m.defShow = m.show
+        saved = Prefs.libFilters(Util.toText(m.top.library.id))
+        if saved <> invalid
+            sv = Util.toText(saved.s)
+            if sv = "name" or sv = "added" or sv = "year" or sv = "rating" then m.sort = sv
+            sv = Util.toText(saved.w)
+            if sv = "all" or sv = "unwatched" or sv = "watched" or sv = "favourites" then m.show = sv
+            m.genre = Util.toText(saved.g)
+            m.letter = Util.toText(saved.l)
+            print "Cove: library filters kept: "; m.sort; " / "; m.show; " / "; m.genre; " / "; m.letter
+        end if
     end if
     drawBar()
     reload()
     loadGenres()
+end sub
+
+' The page's choices for the next visit (only what differs from the Settings → Libraries defaults)
+sub saveFilters()
+    libId = Util.toText(m.top.library.id)
+    if feed() <> "" or libId = "" then return
+    f = { g: m.genre, l: m.letter }
+    if m.sort <> m.defSort then f.s = m.sort
+    if m.show <> m.defShow then f.w = m.show
+    Prefs.setLibFilters(libId, f)
 end sub
 
 sub reload()
@@ -504,6 +529,7 @@ sub onPicked(ev as object)
     else if purpose = "show"
         m.show = id
     end if
+    saveFilters()
     drawBar()
     reload()
 end sub

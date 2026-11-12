@@ -121,7 +121,55 @@ namespace Prefs
         d = library(id)
         d[key] = value
         Util.writeText("lib:" + id, formatJson(d))
+        ' (a new Settings default replaces the sort / show last chosen on the page, as on the Mac: same lf- dict)
+        if key = "sort" then forgetLibFilter(id, "s")
+        if key = "show" then forgetLibFilter(id, "w")
     end sub
+
+    ' ---------------------------------------------------------------- filters chosen on a library page
+
+    ' The Mac keeps them per library (LibraryView save() → "lf-<id>"). Here all libraries share one key
+    ' ("libFilters", most recent last, at most 40), with short fields s (sort), w (show), g (genre), l (A–Z),
+    ' only the ones that differ from the defaults: the registry also holds the sign-ins.
+    function libFilters(libId as string) as dynamic
+        if libId = "" then return invalid
+        for each e in libFilterList()
+            if Util.isAA(e) and Util.toText(e.id) = libId then return e
+        end for
+        return invalid
+    end function
+
+    ' f = { s, w, g, l } (missing or "" = the default)
+    sub setLibFilters(libId as string, f as object)
+        if libId = "" then return
+        e = { id: libId }
+        for each k in ["s", "w", "g", "l"]
+            v = Util.toText(f[k])
+            if v <> "" then e[k] = v
+        end for
+        kept = []
+        for each o in libFilterList()
+            if Util.isAA(o) and Util.toText(o.id) <> libId then kept.push(o)
+        end for
+        if e.count() > 1 then kept.push(e)
+        while kept.count() > 40
+            kept.shift()
+        end while
+        Util.writeText("libFilters", formatJson(kept))
+    end sub
+
+    sub forgetLibFilter(libId as string, k as string)
+        e = libFilters(libId)
+        if e = invalid or e[k] = invalid then return
+        e.delete(k)
+        setLibFilters(libId, e)
+    end sub
+
+    function libFilterList() as object
+        v = Util.readJson("libFilters")
+        if type(v) <> "roArray" then return []
+        return v
+    end function
 
     ' The registry key of a server's library order (library ids are per server, so one shared key let one
     ' server's order replace another's). The old shared key moves to the first server that reads it, the active
