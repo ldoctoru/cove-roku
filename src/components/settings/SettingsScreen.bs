@@ -182,6 +182,8 @@ function rowsFor(tabId as string) as object
         out.push(sectionHead("Automatically"))
         out.push(toggle("autoNext", "", "Play the next episode", Prefs.autoNext()))
         out.push(toggle("autoSkipIntro", "", "Skip intros", Prefs.autoSkipIntro()))
+        out.push(toggle("autoSkipRecap", "", "Skip recaps", Prefs.autoSkipRecap()))
+        out.push(note("Recaps, previews and ads show a Skip button when the server knows where they are (Jellyfin media segments)."))
     else if tabId = "servers"
         srv = m.top.server
         out.push(sectionHead("Current server"))

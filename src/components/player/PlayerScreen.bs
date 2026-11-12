@@ -82,7 +82,9 @@ sub resetState()
     m.info = invalid
     m.tracks = { sourceId: "", audio: [], subs: [] }
     m.versions = []
-    m.marks = { introStart: -1.0, introEnd: -1.0, credits: -1.0 }
+    m.marks = Tracks.markers({})
+    m.segsDone = {}         ' segments skipped or dismissed (by key), so their button doesn't come back
+    m.actionSeg = invalid
     m.next = invalid
     m.prev = invalid
     m.episodes = []
@@ -155,8 +157,8 @@ sub onInfo(r as object)
                 end if
             end if
         end if
-        ' Jellyfin keeps intro / credits as media segments
-        if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro", { kind: "segments", itemId: m.top.item.id })
+        ' Jellyfin keeps intro / credits (and recaps, previews, commercials) as media segments
+        if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial", { kind: "segments", itemId: m.top.item.id })
         if Util.toText(r.json.Type) = "Episode" and Util.toText(r.json.SeriesId) <> ""
             get("/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields(), { kind: "episodes", itemId: m.top.item.id })
         end if
@@ -430,7 +432,10 @@ sub onPosition()
     if m.video.state <> "playing" or m.upNext.visible then return
     mk = m.marks
     inIntro = mk.introStart >= 0 and mk.introEnd > mk.introStart and p >= mk.introStart and p < mk.introEnd - 2
-    inCredits = m.next <> invalid and mk.credits > 0 and p >= mk.credits
+    inCredits = mk.credits > 0 and p >= mk.credits
+    ' (credits with a known end before the real end: a scene after them, the button goes when it starts)
+    if inCredits and m.next = invalid and mk.creditsEnd > mk.credits and p >= mk.creditsEnd - 2 then inCredits = false
+    seg = segmentAt(p)
     if inIntro and not m.introDismissed and Prefs.autoSkipIntro()
         ' Settings → Skip intros automatically
         m.introDismissed = true
@@ -438,8 +443,19 @@ sub onPosition()
         m.video.seek = mk.introEnd
     else if inIntro and not m.introDismissed
         showAction("intro", "Skip intro")
-    else if inCredits and not m.creditsDismissed
+    else if seg <> invalid and seg.kind = "recap" and Prefs.autoSkipRecap()
+        ' Settings → Skip recaps automatically
+        m.segsDone[seg.key] = true
+        print "Cove: skipping the recap to "; Int(seg.e); " s"
+        skipTo(seg.e)
+    else if seg <> invalid
+        m.actionSeg = seg
+        showAction("seg:" + seg.key, Tracks.segmentLabel(seg.kind))
+    else if inCredits and not m.creditsDismissed and m.next <> invalid
         showAction("next", "Next episode")
+    else if inCredits and not m.creditsDismissed
+        ' a film or the last episode: no Up next, so the credits get their own button
+        showAction("credits", "Skip credits")
     else if m.actionKind <> ""
         hideAction()
     end if
@@ -467,13 +483,61 @@ sub useAction()
         m.video.seek = m.marks.introEnd
     else if k = "next"
         playNext()
+    else if k = "credits"
+        m.creditsDismissed = true
+        skipCredits()
+    else if Left(k, 4) = "seg:" and m.actionSeg <> invalid
+        m.segsDone[m.actionSeg.key] = true
+        print "Cove: skipping the "; m.actionSeg.kind; " to "; Int(m.actionSeg.e); " s"
+        skipTo(m.actionSeg.e)
     end if
 end sub
 
 sub dismissAction()
-    if m.actionKind = "intro" then m.introDismissed = true
-    if m.actionKind = "next" then m.creditsDismissed = true
+    k = m.actionKind
+    if k = "intro" then m.introDismissed = true
+    if k = "next" or k = "credits" then m.creditsDismissed = true
+    if Left(k, 4) = "seg:" and m.actionSeg <> invalid then m.segsDone[m.actionSeg.key] = true
     hideAction()
+end sub
+
+' The recap / preview / commercial segment playing at p that wasn't skipped or dismissed yet
+function segmentAt(p as float) as dynamic
+    if m.marks.segs = invalid then return invalid
+    for each sg in m.marks.segs
+        if p >= sg.s and p < sg.e - 2 and not m.segsDone.doesExist(sg.key) then return sg
+    end for
+    return invalid
+end function
+
+' Jump to t; a jump to the very end (a preview or the credits closing the file) ends the title as if it
+' had played to the end (Up next, or the player closes; close() marks it watched from the credits)
+sub skipTo(t as float)
+    d = m.video.duration
+    if d > 0 and t >= d - 3
+        print "Cove: skipped to the end"
+        if m.next <> invalid and Prefs.autoNext()
+            ' (Up next runs over a stopped video, as after a real end)
+            m.video.control = "stop"
+            onFinished()
+        else
+            close()
+        end if
+        return
+    end if
+    m.video.seek = t
+    syncSubClock(t)
+    m.subLayer.position = t
+end sub
+
+' Skip credits (no next episode): past their end when a scene follows them, else to the end
+sub skipCredits()
+    d = m.video.duration
+    t = d
+    mk = m.marks
+    if mk.creditsEnd > mk.credits and (d <= 0 or mk.creditsEnd < d - 10) then t = mk.creditsEnd
+    print "Cove: skipping the credits to "; Int(t); " s"
+    skipTo(t)
 end sub
 
 sub onFinished()

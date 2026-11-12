@@ -34,6 +34,11 @@ namespace Prefs
         return flagOn("autoSkipIntro", true)
     end function
 
+    ' Settings → Playback → Skip recaps (off by default: a recap is often wanted after a break)
+    function autoSkipRecap() as boolean
+        return flagOn("autoSkipRecap", false)
+    end function
+
     function autoNext() as boolean
         return flagOn("autoNext", true)
     end function
