@@ -77,6 +77,10 @@ sub resetState()
     ' Subtitle delay (Subtitles menu), for this title only: a new title starts at 0
     m.subDelayMs = 0
     m.subLayer.delay = 0.0
+    ' Roku captions set to "Instant replay": a text subtitle loaded hidden, shown for a while after a replay
+    m.replaySub = -1
+    m.replayReady = false
+    m.subLayer.visible = true
     clearSubs()
     m.seekTarget = -1.0
     m.osdShown = false
@@ -178,6 +182,10 @@ sub onInfo(r as object)
                 m.opts.sub = rs
                 m.opts.burn = false
             end if
+        else if m.opts.sub < 0 and Subs.rokuMode() = "Instant replay"
+            rs = Tracks.subForLanguage(m.tracks, Subs.rokuLanguage())
+            if rs >= 0 and Tracks.findSub(m.tracks, rs).isText then m.replaySub = rs
+            print "Cove: Roku captions on instant replay -> track "; rs
         end if
         ' Jellyfin keeps intro / credits (and recaps, previews, commercials) as media segments
         if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial", { kind: "segments", itemId: m.top.item.id })
@@ -283,8 +291,16 @@ end sub
 ' The chosen text subtitle (if any): download it as SRT and draw it
 sub loadTextSub()
     clearSubs()
+    m.subLayer.visible = true
+    m.replayReady = false
+    if m.session = invalid then return
     sub_ = Tracks.findSub(m.tracks, m.opts.sub)
-    if sub_ = invalid or not sub_.isText or m.opts.burn or m.session = invalid then return
+    if m.opts.sub < 0 and m.replaySub >= 0
+        ' (subtitles off, Roku captions on instant replay: loaded now, shown only after a replay)
+        probeSubtitle(Playback.subtitleUrl(m.top.server, m.top.item.id, Util.toText(m.session.mediaSourceId), m.replaySub), m.replaySub, true)
+        return
+    end if
+    if sub_ = invalid or not sub_.isText or m.opts.burn then return
     url = Playback.subtitleUrl(m.top.server, m.top.item.id, Util.toText(m.session.mediaSourceId), sub_.index)
     probeSubtitle(url, sub_.index)
 end sub
@@ -318,9 +334,9 @@ end sub
 
 ' Download the subtitle (the server extracts embedded ones the first time, so it can take a while). If the
 ' server answers with an error, play the subtitle burned into the picture instead of showing nothing.
-sub probeSubtitle(url as string, index as integer)
+sub probeSubtitle(url as string, index as integer, forReplay = false as boolean)
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: "GET", url: url, headers: invalid, body: "", keepText: true, parse: "srt", tag: { kind: "subProbe", itemId: m.top.item.id, index: index }, timeout: 180000 }
+    t.request = { method: "GET", url: url, headers: invalid, body: "", keepText: true, parse: "srt", tag: { kind: "subProbe", itemId: m.top.item.id, index: index, replay: forReplay }, timeout: 180000 }
     t.observeField("response", "onResponse")
     m.pending.push(t)
     t.control = "RUN"
@@ -328,6 +344,17 @@ end sub
 
 sub onSubProbe(r as object)
     print "Cove: subtitle -> "; r.code
+    if r.tag.replay = true
+        ' (the instant-replay subtitle: kept hidden; nothing to fall back to if it fails)
+        if r.tag.itemId <> m.top.item.id or m.opts.sub >= 0 or m.closing or r.code < 200 or r.code >= 400 or r.cues = invalid or r.cues.count() = 0 then return
+        m.subLayer.visible = false
+        m.subLayer.restyle = true
+        liftSubs(m.osdShown)
+        m.subLayer.cues = r.cues
+        m.subTimer.control = "start"
+        m.replayReady = true
+        return
+    end if
     if r.tag.itemId <> m.top.item.id or m.opts.sub <> r.tag.index or m.opts.burn or m.closing then return
     if r.code >= 200 and r.code < 400
         if r.cues <> invalid then print "Cove: subtitle cues "; r.cues.count()
@@ -859,7 +886,10 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if key = "options"
         showMenu()
         return true
-    else if key = "rewind" or key = "fastforward" or key = "replay"
+    else if key = "replay"
+        instantReplay()
+        return true
+    else if key = "rewind" or key = "fastforward"
         if key = "fastforward"
             seekBy(30)
         else
@@ -1947,4 +1977,127 @@ function delayLabel(ms as integer) as string
     if Right(frac, 1) = "0" then frac = Left(frac, 2)
     if Right(frac, 1) = "0" then frac = Left(frac, 1)
     return sign + (a \ 1000).toStr() + "." + frac + " s"
+end function
+
+' ---------------------------------------------------------------- instant replay, voice / transport
+
+' Jump to t now (no adding up of presses as with Left / Right)
+sub jumpTo(t as float)
+    d = m.video.duration
+    if t < 0 then t = 0
+    if d > 0 and t > d - 5 then t = d - 5
+    m.seekTimer.control = "stop"
+    m.seekTarget = -1
+    m.video.seek = t
+    syncSubClock(t)
+    m.subLayer.position = t
+    if m.video.state = "paused" then m.video.control = "resume"
+    showOsd(true)
+end sub
+
+' Instant Replay: 10 s back at once; with the Roku's captions on "Instant replay" (and subtitles off), the
+' subtitle shows for the replayed part (Roku's guideline)
+sub instantReplay()
+    if m.session = invalid then return
+    jumpTo(currentPos() - 10)
+    if m.opts.sub < 0 and m.replayReady
+        m.subLayer.visible = true
+        if m.replayTimer = invalid
+            m.replayTimer = createObject("roSGNode", "Timer")
+            m.replayTimer.duration = 12
+            m.replayTimer.observeField("fire", "onReplayTimer")
+            m.top.appendChild(m.replayTimer)
+        end if
+        m.replayTimer.control = "stop"
+        m.replayTimer.control = "start"
+    end if
+end sub
+
+sub onReplayTimer()
+    if m.opts.sub < 0 and m.replayReady then m.subLayer.visible = false
+end sub
+
+' main.bs → MainScene → here (callFunc): one voice / transport command → { status } (roInput eventResponse)
+function handleTransport(evt as object) as object
+    noteInput()
+    cmd = LCase(Util.toText(evt.command))
+    print "Cove: voice / transport "; cmd
+    if m.closing then return { status: "error.no-media" }
+    ok = { status: "success" }
+    if m.still.visible
+        if cmd = "play" or cmd = "resume" or cmd = "stop"
+            m.stillBtn = 0
+            if cmd = "stop" then m.stillBtn = 1
+            useStill()
+            return ok
+        end if
+        return { status: "unhandled" }
+    end if
+    if m.upNext.visible
+        if cmd = "play" or cmd = "resume" or cmd = "next" or cmd = "skip"
+            playNext()
+            return ok
+        else if cmd = "stop"
+            m.countdown.control = "stop"
+            close()
+            return ok
+        end if
+        return { status: "unhandled" }
+    end if
+    if cmd = "stop"
+        close()
+        return ok
+    end if
+    ' (still starting: nothing to control yet)
+    if m.session = invalid then return { status: "error" }
+    st = m.video.state
+    if cmd = "play" or cmd = "resume"
+        if st <> "paused" then return { status: "error.redundant" }
+        m.video.control = "resume"
+    else if cmd = "pause"
+        if st <> "playing" then return { status: "error.redundant" }
+        m.video.control = "pause"
+    else if cmd = "forward"
+        seekBy(30)
+    else if cmd = "rewind"
+        seekBy(-30)
+    else if cmd = "replay"
+        instantReplay()
+    else if cmd = "startover"
+        jumpTo(0)
+    else if cmd = "seek"
+        ' "skip forward 2 minutes": duration in seconds, direction forward / backward
+        secs = Val(Util.toText(evt.duration))
+        if Util.toText(evt.direction) = "backward" then secs = -secs
+        target = m.video.position + secs
+        d = m.video.duration
+        if target < 0
+            ok.status = "success.seek-start"
+        else if d > 0 and target > d - 5
+            ok.status = "success.seek-end"
+        end if
+        jumpTo(target)
+    else if cmd = "next"
+        if m.next = invalid then return { status: "error.generic" }
+        playEpisode(m.next)
+    else if cmd = "skip"
+        ' "skip intro" / "skip recap": the button on screen, else the next episode
+        if m.action.visible and m.actionKind <> ""
+            useAction()
+        else if m.next <> invalid
+            playEpisode(m.next)
+        else
+            return { status: "error.generic" }
+        end if
+    else if cmd = "nowplaying"
+        showOsd(true)
+        kind = "movie"
+        if m.info <> invalid and Util.toText(m.info.Type) = "Episode" then kind = "episode"
+        name = Util.toText(m.top.item.title)
+        if Util.toText(m.top.item.subtitle) <> "" then name = name + " - " + Util.toText(m.top.item.subtitle)
+        ok.nowPlaying = { title: name, contentType: kind }
+    else
+        return { status: "unhandled" }
+    end if
+    return ok
 end function

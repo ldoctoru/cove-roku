@@ -206,11 +206,11 @@ function rowsFor(tabId as string) as object
         out.push(note("OK on a server: connect to it, rename it or remove it. Add Server opens the sign-in screen."))
     else if tabId = "remote"
         out.push(sectionHead("While a video plays"))
-        for each k in [["OK", "Play or pause; with the controls showing, use the selected button"], ["Left / Right", "Skip back / forward (Settings > Playback); with the controls showing, move along the bar"], ["Up / Down", "Show the controls; move between the bar, the round buttons and the buttons on the right"], ["Rewind / Fast fwd", "Jump 30 s back / forward"], ["*", "Audio, subtitles, quality and version"], ["Back", "Hide the controls, or leave the player"]]
+        for each k in [["OK", "Play or pause; with the controls showing, use the selected button"], ["Left / Right", "Skip back / forward (Settings > Playback); with the controls showing, move along the bar"], ["Up / Down", "Show the controls; move between the bar, the round buttons and the buttons on the right"], ["Rewind / Fast fwd", "Jump 30 s back / forward"], ["Instant replay", "Jump 10 s back (with the Roku's captions on Instant replay, subtitles show for a moment)"], ["*", "Audio, subtitles, quality and version"], ["Back", "Hide the controls, or leave the player"]]
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
         out.push(sectionHead("Home"))
-        for each k in [["Left", "Open the sidebar (from the first button or the first card of a row)"], ["Rewind / Fast fwd", "Previous / next title in the banner"], ["*", "On a card: play, mark as watched, favourites; elsewhere: the app options"]]
+        for each k in [["Left", "Open the sidebar (from the first button or the first card of a row)"], ["Rewind / Fast fwd", "Previous / next title in the banner"], ["*", "On a card: play, mark as watched, favourites, remove from Continue Watching; elsewhere: the app options"]]
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
         out.push(sectionHead("Other pages"))

@@ -17,6 +17,8 @@
         <field id="stopNow" type="boolean" onChange="onStopNow" />
         <!-- set before "done" by "Back to the series" (Are you still watching?): the scene opens that series -->
         <field id="openSeries" type="string" />
+        <!-- voice / transport commands (main.bs → MainScene): { command, direction, duration } → { status } -->
+        <function name="handleTransport" />
     </interface>
     <children>
         <Rectangle width="1920" height="1080" color="0x000000FF" />

@@ -790,3 +790,10 @@ sub signOut()
     Servers.setActive("")
     showServers("Signed out of " + Util.toText(s.name) + ".")
 end sub
+
+' Voice / transport commands go to the player on top; elsewhere the Roku does its default
+function handleTransport(evt as object) as object
+    t = top()
+    if t <> invalid and t.screenId = "player" then return t.callFunc("handleTransport", evt)
+    return { status: "unhandled" }
+end function
