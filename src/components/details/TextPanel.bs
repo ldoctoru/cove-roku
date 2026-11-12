@@ -1,0 +1,95 @@
+import "pkg:/source/Util.bs"
+
+sub init()
+    m.rowsShown = 14
+    m.lineH = 40
+    m.allLines = []
+    m.offset = 0
+    m.body = m.top.findNode("body")
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    f.size = 28
+    for i = 0 to m.rowsShown - 1
+        l = m.body.createChild("Label")
+        l.width = 1200
+        l.height = m.lineH
+        l.translation = [0, i * m.lineH]
+        l.color = "0xFFFFFFE6"
+        l.font = f
+    end for
+end sub
+
+' Paragraphs are kept (a blank line between them), each wrapped to the panel's width
+sub onText()
+    m.top.findNode("heading").text = m.top.heading
+    out = []
+    paras = Util.toText(m.top.text).replace(chr(13), "").split(chr(10))
+    for each p in paras
+        if p.trim() <> ""
+            if out.count() > 0 then out.push("")
+            for each l in Util.wrapLines(p.trim(), 84, 500)
+                out.push(l)
+            end for
+        end if
+    end for
+    m.allLines = out
+    m.offset = 0
+    isLong = out.count() > m.rowsShown
+    if isLong
+        m.top.findNode("hint").text = "Up / Down to scroll  ·  Back to close"
+    else
+        m.top.findNode("hint").text = "Back to close"
+    end if
+    m.top.findNode("track").visible = isLong
+    m.top.findNode("thumb").visible = isLong
+    print "Cove: full description, "; out.count(); " lines"
+    drawLines()
+end sub
+
+sub drawLines()
+    for i = 0 to m.rowsShown - 1
+        k = m.offset + i
+        line = ""
+        if k < m.allLines.count() then line = m.allLines[k]
+        m.body.getChild(i).text = line
+    end for
+    total = m.allLines.count()
+    if total > m.rowsShown
+        th = Int(560 * m.rowsShown / total)
+        if th < 40 then th = 40
+        maxOff = total - m.rowsShown
+        y = 266 + Int((560 - th) * m.offset / maxOff)
+        thumb = m.top.findNode("thumb")
+        thumb.height = th
+        thumb.translation = [1584, y]
+    end if
+end sub
+
+sub scrollBy(delta as integer)
+    maxOff = m.allLines.count() - m.rowsShown
+    if maxOff < 0 then maxOff = 0
+    n = m.offset + delta
+    if n > maxOff then n = maxOff
+    if n < 0 then n = 0
+    if n <> m.offset
+        m.offset = n
+        drawLines()
+    end if
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return true
+    if key = "down"
+        scrollBy(3)
+    else if key = "up"
+        scrollBy(-3)
+    else if key = "fastforward"
+        scrollBy(m.rowsShown - 1)
+    else if key = "rewind"
+        scrollBy(1 - m.rowsShown)
+    else if key = "back" or key = "OK" or key = "left"
+        m.top.closed = true
+    end if
+    ' (every key stays here: Back must not close the page under it)
+    return true
+end function

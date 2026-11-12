@@ -52,7 +52,11 @@
                     <Font role="font" uri="font:MediumSystemFontFile" size="26" />
                 </Label>
             </Group>
+            <!-- Up from the buttons when the description is cut: a glass highlight, OK opens the whole text -->
+            <Poster id="ovFocus" uri="pkg:/images/ui/sel_pill.9.png" visible="false" />
+            <Label id="ovMeasure" height="38" opacity="0"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
             <Group id="ov" translation="[96,0]">
+                <Label id="ovMore" text="MORE" height="38" color="0xFFFFFF99" visible="false"><Font role="font" uri="font:BoldSystemFontFile" size="24" /></Label>
                 <Label id="ov0" width="980" height="38" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
                 <Label id="ov1" width="980" height="38" translation="[0,38]" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
                 <Label id="ov2" width="980" height="38" translation="[0,76]" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
