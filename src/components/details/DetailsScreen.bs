@@ -58,6 +58,8 @@ sub init()
     m.ovWidth = 0
     m.textPanel = invalid   ' the whole description, while open
     m.trailers = []         ' trailers stored on the server with this title (LocalTrailers)
+    m.boxList = []          ' a collection's titles, in release order
+    m.includedList = []     ' the collections this title is in ("Included In")
 end sub
 
 ' ---------------------------------------------------------------- loading
@@ -80,6 +82,7 @@ sub onRefresh()
         if m.seasonIndex >= 0 then loadEpisodes(m.seasonIndex)
         reloadSeasonCounts()
     end if
+    if Util.toText(m.item.Type) = "BoxSet" then loadBoxItems()
 end sub
 
 sub get(path as string, tag as object)
@@ -133,6 +136,17 @@ sub onResponse(ev as object)
         rebuildRows()
     else if k = "seasonCounts"
         onSeasonCounts(r.json)
+    else if k = "boxItems"
+        m.boxList = listOf(r.json)
+        print "Cove: collection titles -> "; m.boxList.count()
+        buildButtons()
+        rebuildRows()
+    else if k = "includedIn"
+        list = listOf(r.json)
+        ' (a long answer means the server ignored the filter and sent every collection: show none, as the Mac)
+        if list.count() > 10 then list = []
+        m.includedList = list
+        rebuildRows()
     end if
 end sub
 
@@ -186,7 +200,7 @@ sub showItem(it as object)
     showPeople(it)
     showAbout(it)
     ' audio / subtitles / quality for this playback (chosen once, kept on refresh)
-    if t <> "Series" and (first or m.tracks = invalid)
+    if t <> "Series" and t <> "BoxSet" and (first or m.tracks = invalid)
         m.versions = Tracks.versions(it)
         m.tracks = Tracks.fromItem(it, m.opts.sourceId)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
@@ -220,6 +234,8 @@ sub showItem(it as object)
         end if
         get("/Items/" + Util.toText(it.Id) + "/Similar?UserId=" + Util.toText(srv.userId) + "&Limit=12&" + Items.fields(), { kind: "similar" })
         loadTrailers(it)
+        if t = "BoxSet" then loadBoxItems()
+        if t <> "BoxSet" and t <> "Episode" then loadIncludedIn(it)
     end if
     buildButtons()
     layoutHeader()
@@ -382,8 +398,8 @@ sub buildButtons()
     it = m.item
     t = Util.toText(it.Type)
     btns = []
-    target = it
-    if t = "Series" then target = seriesTarget()
+    target = playTarget()
+    isGroup = t = "Series" or t = "BoxSet"
     resumeAt = 0.0
     if target <> invalid then resumeAt = Items.resumeAt(target)
     label = "Play"
@@ -391,10 +407,15 @@ sub buildButtons()
     if t = "Series" and target <> invalid
         chip = "S" + Util.toText(target.ParentIndexNumber) + ":E" + Util.toText(target.IndexNumber)
         label = label + " " + chip
+    else if t = "BoxSet" and target <> invalid
+        ' a collection: which of its titles ("Play Alien", "Resume Aliens")
+        n = Util.toText(target.Name)
+        if n.len() > 28 then n = n.left(26) + "..."
+        label = label + " " + n
     else if resumeAt > 30
         label = "Resume from " + Playback.clock(resumeAt)
     end if
-    if t <> "Series" or target <> invalid then btns.push({ id: "play", pill: true, label: label })
+    if not isGroup or target <> invalid then btns.push({ id: "play", pill: true, label: label })
     if resumeAt > 30 then btns.push({ id: "restart", icon: "restart" })
     favIcon = "plus"
     if m.isFav then favIcon = "check"
@@ -417,6 +438,28 @@ sub buildButtons()
     if m.btn >= btns.count() then m.btn = 0
     drawButtons()
 end sub
+
+' What Play acts on: the title itself, a series' next episode, a collection's first title not watched yet
+function playTarget() as dynamic
+    t = Util.toText(m.item.Type)
+    if t = "Series" then return seriesTarget()
+    if t = "BoxSet" then return boxTarget()
+    return m.item
+end function
+
+' A collection: the first title (in release order) not watched yet, else the first; only playable ones
+' (a series or a nested collection in it opens from the row instead)
+function boxTarget() as dynamic
+    firstPlayable = invalid
+    for each c in m.boxList
+        k = Util.toText(c.Type)
+        if k = "Movie" or k = "Episode" or k = "Video" or k = "MusicVideo"
+            if firstPlayable = invalid then firstPlayable = c
+            if not Util.flag(c.UserData, "Played") then return c
+        end if
+    end for
+    return firstPlayable
+end function
 
 ' The series' episode to play: the next one to watch, else the first of the loaded season
 function seriesTarget() as dynamic
@@ -523,15 +566,13 @@ sub useButton()
     id = m.btns[m.btn].id
     it = m.item
     if id = "play"
-        target = it
-        if Util.toText(it.Type) = "Series" then target = seriesTarget()
+        target = playTarget()
         if target = invalid then return
         start = Items.resumeAt(target)
         if start <= 30 then start = 0
         requestPlay(target, start)
     else if id = "restart"
-        target = it
-        if Util.toText(it.Type) = "Series" then target = seriesTarget()
+        target = playTarget()
         if target <> invalid then requestPlay(target, 0)
     else if id = "fav"
         toggleFavourite()
@@ -565,6 +606,26 @@ sub requestPlay(it as object, start as float)
     ' Choices from this page apply to this movie / episode (other episodes use the defaults)
     if m.item <> invalid and Util.toText(it.Id) = Util.toText(m.item.Id) and Util.toText(m.item.Type) <> "Series" then p.options = m.opts
     m.top.play = p
+end sub
+
+' ---------------------------------------------------------------- collections (Mac boxGrid, includedInSection)
+
+' A collection's titles in release order, oldest first (a film series reads in the order it came out)
+sub loadBoxItems()
+    srv = m.top.server
+    get("/Users/" + Util.toText(srv.userId) + "/Items?ParentId=" + Util.toText(m.item.Id) + "&SortBy=PremiereDate,ProductionYear,SortName&SortOrder=Ascending&" + Items.fields(), { kind: "boxItems" })
+end sub
+
+' The collections a movie or show is in. Jellyfin has its own call (newer servers; older ones answer with an
+' error, so the row stays away); Emby filters BoxSets with ListItemIds.
+sub loadIncludedIn(it as object)
+    srv = m.top.server
+    id = Util.toText(it.Id)
+    if Util.toText(srv.type) = "jellyfin"
+        get("/Items/" + id + "/Collections?userId=" + Util.toText(srv.userId) + "&" + Items.fields(), { kind: "includedIn" })
+    else
+        get("/Users/" + Util.toText(srv.userId) + "/Items?Recursive=true&IncludeItemTypes=BoxSet&ListItemIds=" + id + "&" + Items.fields(), { kind: "includedIn" })
+    end if
 end sub
 
 ' ---------------------------------------------------------------- trailers (stored on the server)
@@ -948,6 +1009,16 @@ sub rebuildRows()
         heights.push(426)
         labels.push(false)
     end if
+    ' a collection: its titles, in release order
+    if m.boxList.count() > 0
+        row = newRow(root, "In This Collection", "box")
+        for each b in m.boxList
+            row.appendChild(Items.node(srv, b, false))
+        end for
+        sizes.push([276, 466])
+        heights.push(466)
+        labels.push(true)
+    end if
     if m.castList.count() > 0
         row = newRow(root, "Cast & Crew", "cast")
         for each p in m.castList
@@ -961,6 +1032,15 @@ sub rebuildRows()
             sizes.push([180, 296])
             heights.push(296)
         end if
+        labels.push(true)
+    end if
+    if m.includedList.count() > 0
+        row = newRow(root, "Included In", "included")
+        for each b in m.includedList
+            row.appendChild(Items.node(srv, b, false))
+        end for
+        sizes.push([276, 466])
+        heights.push(466)
         labels.push(true)
     end if
     if m.similarList.count() > 0
@@ -1326,6 +1406,13 @@ sub onRowSelected()
     else if k = "cast" and i < m.castList.count()
         pp = m.castList[i]
         m.top.openItem = { id: "open", itemId: Util.toText(pp.Id), itemType: "Person", collectionType: "", title: Util.toText(pp.Name) }
+    else if (k = "box" and i < m.boxList.count()) or (k = "included" and i < m.includedList.count())
+        if k = "box"
+            b = m.boxList[i]
+        else
+            b = m.includedList[i]
+        end if
+        m.top.openItem = { id: "open", itemId: Util.toText(b.Id), itemType: Util.toText(b.Type), collectionType: "", title: Util.toText(b.Name), seriesId: Util.toText(b.SeriesId), seriesName: Util.toText(b.SeriesName) }
     else if k = "similar" and i < m.similarList.count()
         it = m.similarList[i]
         m.top.openItem = { id: "open", itemId: Util.toText(it.Id), itemType: Util.toText(it.Type), collectionType: "", title: Util.toText(it.Name) }

@@ -107,6 +107,7 @@ namespace Items
         t = Util.toText(it.Type)
         if t = "Movie" then parts.push("Movie")
         if t = "Series" then parts.push("TV Show")
+        if t = "BoxSet" then parts.push("Collection")
         if t = "Episode" then parts.push(episodeLabel(it))
         if type(it.Genres) = "roArray"
             for i = 0 to it.Genres.count() - 1
@@ -187,7 +188,7 @@ namespace Items
             end if
         end if
         e = endsAt(it)
-        if e <> "" and Util.toText(it.Type) <> "Series" then parts.push("Ends at " + e)
+        if e <> "" and Util.toText(it.Type) <> "Series" and Util.toText(it.Type) <> "BoxSet" then parts.push("Ends at " + e)
         streams = it.MediaStreams
         if type(it.MediaSources) = "roArray" and it.MediaSources.count() > 0 and type(it.MediaSources[0].MediaStreams) = "roArray" then streams = it.MediaSources[0].MediaStreams
         if type(streams) = "roArray"

@@ -2,7 +2,8 @@
 <!-- A movie, episode or series in Cove's Glass style (Sources/Views.swift detail page).
      Full-screen backdrop; bottom-left: eyebrow, logo or title, details, overview, facts and the button row
      (Play / Resume, Start over, + / check favourite, CC audio and subtitles); right: Starring / Director.
-     Below (Down): rows of seasons and episodes (series), cast and More Like This; below the last row About
+     Below (Down): rows of seasons and episodes (series) or the collection's titles (BoxSet), cast, Included In
+     and More Like This; below the last row About
      (tagline, genres, studios, dates, media info).
      "play" asks MainScene to start the player, "openItem" to open another title. -->
 <component name="DetailsScreen" extends="Group">
