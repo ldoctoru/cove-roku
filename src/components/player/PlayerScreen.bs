@@ -87,7 +87,9 @@ sub resetState()
     m.osdShown = false
     m.osd.opacity = 0
     m.pauseClock = invalid
-    m.speed = 1.0           ' playback speed (Ends at divides the time left by it)
+    ' playback speed (* menu → Speed), back to 1× for every new title; Ends at divides the time left by it
+    m.speed = 1.0
+    m.speedId = "1"
     m.session = invalid
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = invalid
@@ -289,6 +291,8 @@ sub onStream(ev as object)
     ' (no subtitleTracks, so Roku's renderer has nothing to show; the Roku's global caption mode is left alone)
     m.video.subtitleTrack = ""
     loadTextSub()
+    ' (a new title starts at 1×; a restart for other settings keeps the chosen speed)
+    if speedSupported() then m.video.setField("playbackSpeed", m.speed)
     m.video.control = "play"
     ' (the stream is ready: the rest of the ring is the Video node's buffering)
     if m.loader.visible
@@ -324,7 +328,7 @@ end sub
 ' The Video node reports its position once a second: in between, add the time since that report
 sub onSubTick()
     p = m.subPos
-    if m.video.state = "playing" and m.subClock <> invalid then p = p + m.subClock.TotalMilliseconds() / 1000.0
+    if m.video.state = "playing" and m.subClock <> invalid then p = p + m.speed * m.subClock.TotalMilliseconds() / 1000.0
     m.subLayer.position = p
 end sub
 
@@ -684,6 +688,8 @@ sub showMenu()
         { id: "quality", label: "Quality: " + Tracks.qualityLabel(m.opts.maxBitrate) }
     ]
     if m.versions <> invalid and m.versions.count() > 1 then opts.push({ id: "version", label: "Version: " + Tracks.versionLabel(m.versions, Util.toText(m.opts.sourceId)) })
+    ' (only on Rokus whose Video node has the playbackSpeed field)
+    if speedSupported() then opts.push({ id: "speed", label: "Speed: " + m.speedId + "×" })
     addMenuExtras(opts)
     openPicker("menu", "Playback", opts, "")
 end sub
@@ -768,6 +774,12 @@ sub onPicked(ev as object)
             cur = Util.toText(m.opts.sourceId)
             if cur = "" then cur = m.versions[0].id
             openPicker("version", "Version", m.versions, cur)
+        else if c.id = "speed"
+            o = []
+            for each r in speedChoices()
+                o.push({ id: r, label: r + "×" })
+            end for
+            openPicker("speed", "Speed", o, m.speedId)
         else
             useMenuExtra(c.id)
         end if
@@ -808,6 +820,14 @@ sub onPicked(ev as object)
     closePicker()
     if c.purpose = "chapter"
         seekToChapter(c)
+        return
+    end if
+    if c.purpose = "speed"
+        m.keys.setFocus(true)
+        setSpeed(c.id)
+        drawControls()
+        ' (resuming after the picker's pause also applies the new speed)
+        resumeAfterPicker()
         return
     end if
     if c.purpose = "version"
@@ -1665,6 +1685,37 @@ sub seekToChapter(c as object)
     drawControls()
 end sub
 
+' ---------------------------------------------------------------- playback speed (Cove for macOS: Speed)
+
+' The Video node's playbackSpeed field isn't in Roku's documentation and not every model has it: the
+' Speed entry shows only where it exists
+function speedSupported() as boolean
+    return m.video.hasField("playbackSpeed")
+end function
+
+function speedChoices() as object
+    return ["0.5", "0.75", "1", "1.25", "1.5", "2"]
+end function
+
+' The new speed takes effect on the next resume (the Video node applies it after a pause / resume): the
+' Speed picker paused the video, so closing it applies it; a video playing without the picker gets both now
+sub setSpeed(id as string)
+    if not speedSupported() then return
+    m.speedId = id
+    m.speed = Val(id)
+    if m.speed <= 0
+        m.speed = 1.0
+        m.speedId = "1"
+    end if
+    m.video.setField("playbackSpeed", m.speed)
+    print "Cove: speed "; m.speedId; "x"
+    if m.video.state = "playing"
+        m.video.control = "pause"
+        m.video.control = "resume"
+    end if
+    if m.osdShown then updateBar(currentPos())
+end sub
+
 ' * menu entries added after audio / subtitles / quality / version: Chapters, Playback info
 sub addMenuExtras(opts as object)
     if chapterEntries().count() > 0 then opts.push({ id: "chapters", label: "Chapters" })
@@ -1844,6 +1895,7 @@ function playbackInfoLines() as object
         if sg <> "" then out.push({ k: "Segment", v: sg })
     end if
     out.push({ k: "Position", v: Playback.clock(m.video.position) + " / " + Playback.clock(m.video.duration) + "  (" + Util.toText(m.video.state) + ")" })
+    if m.speed <> 1 then out.push({ k: "Speed", v: m.speedId + "×" })
     return out
 end function
 

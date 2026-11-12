@@ -221,7 +221,7 @@ function rowsFor(tabId as string) as object
         out.push(note("OK on a server: connect to it, rename it or remove it. Add Server opens the sign-in screen."))
     else if tabId = "remote"
         out.push(sectionHead("While a video plays"))
-        for each k in [["OK", "Play or pause; with the controls showing, use the selected button"], ["Left / Right", "Skip back / forward (Settings > Playback); with the controls showing, move along the bar"], ["Up / Down", "Show the controls; move between the bar, the round buttons and the buttons on the right"], ["Rewind / Fast fwd", "Jump back / forward (Settings > Playback > Jump buttons)"], ["Instant replay", "Jump 10 s back (with the Roku's captions on Instant replay, subtitles show for a moment)"], ["*", "Audio, subtitles, quality and version"], ["Back", "Hide the controls, or leave the player"]]
+        for each k in [["OK", "Play or pause; with the controls showing, use the selected button"], ["Left / Right", "Skip back / forward (Settings > Playback); with the controls showing, move along the bar"], ["Up / Down", "Show the controls; move between the bar, the round buttons and the buttons on the right"], ["Rewind / Fast fwd", "Jump back / forward (Settings > Playback > Jump buttons)"], ["Instant replay", "Jump 10 s back (with the Roku's captions on Instant replay, subtitles show for a moment)"], ["*", "Audio, subtitles, quality, version and speed"], ["Back", "Hide the controls, or leave the player"]]
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
         out.push(sectionHead("Home"))
