@@ -166,15 +166,9 @@ function rowsFor(tabId as string) as object
         out.push(note("Movies and episodes start with subtitles in this language when they have them. You can still turn them off in the player."))
         out.push(sectionHead("Style"))
         out.push({ kind: "preview" })
-        out.push(choice("subTextSize", "Text size", [{ id: "smaller", label: "Smaller" }, { id: "small", label: "Small" }, { id: "normal", label: "Normal" }, { id: "large", label: "Large" }, { id: "larger", label: "Larger" }], Prefs.text("subTextSize", "normal")))
-        out.push(choice("subColor", "Text color", [{ id: "white", label: "White" }, { id: "yellow", label: "Yellow" }, { id: "gray", label: "Light gray" }, { id: "black", label: "Black" }], Prefs.text("subColor", "white")))
-        out.push(choice("subShadow", "Shadow", [{ id: "none", label: "None" }, { id: "drop", label: "Drop shadow" }, { id: "outline", label: "Outline" }, { id: "raised", label: "Raised" }], Prefs.text("subShadow", "drop")))
-        out.push(choice("subBg", "Background", [{ id: "none", label: "Transparent" }, { id: "semi", label: "Semi-transparent" }, { id: "black", label: "Black" }], Prefs.text("subBg", "none")))
-        bo = []
-        for each v in [0, 5, 10, 15, 20, 25, 30]
-            bo.push({ id: v.toStr(), label: v.toStr() + "%" })
+        for each ch in Subs.styleChoices()
+            out.push(choice(ch.key, ch.label, ch.options, Subs.current(ch)))
         end for
-        out.push(choice("subBottom", "Distance from bottom", bo, Prefs.subBottom().toStr()))
         out.push({ kind: "button", id: "subDefaults", label: "", text: "Restore Defaults" })
     else if tabId = "playback"
         out.push(sectionHead("Start with"))

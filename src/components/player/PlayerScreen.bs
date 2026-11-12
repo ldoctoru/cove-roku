@@ -3,6 +3,7 @@ import "pkg:/source/Prefs.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Tracks.bs"
+import "pkg:/source/Subs.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/MediaInfo.bs"
 
@@ -560,6 +561,11 @@ sub closePicker()
 end sub
 
 sub onPickerCancelled()
+    ' (Back from a style list: the Subtitles menu again)
+    if m.picker <> invalid and Left(Util.toText(m.picker.purpose), 9) = "substyle:"
+        openSubsMenu()
+        return
+    end if
     closePicker()
     m.keys.setFocus(true)
     resumeAfterPicker()
@@ -581,11 +587,7 @@ sub onPicked(ev as object)
             end for
             openPicker("audio", "Audio", o, effectiveAudio().toStr())
         else if c.id = "subs"
-            o = [{ id: "-1", label: "Off" }]
-            for each s in m.tracks.subs
-                o.push({ id: s.index.toStr(), label: s.label })
-            end for
-            openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
+            openSubsMenu()
         else if c.id = "quality"
             openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
         else if c.id = "version"
@@ -598,6 +600,21 @@ sub onPicked(ev as object)
         return
     end if
     closePicker()
+    ' the Subtitles menu's style entries: a list of choices, then back to the menu with the new style
+    if c.purpose = "subs" and Left(c.id, 6) = "style:"
+        key = Mid(c.id, 7)
+        for each ch in Subs.styleChoices()
+            if ch.key = key then openPicker("substyle:" + key, ch.label, ch.options, Subs.current(ch))
+        end for
+        return
+    end if
+    if Left(c.purpose, 9) = "substyle:"
+        Util.writeText(Mid(c.purpose, 10), c.id)
+        m.subLayer.restyle = true
+        liftSubs(m.osdShown)
+        openSubsMenu()
+        return
+    end if
     if c.purpose = "chapter"
         seekToChapter(c)
         return
@@ -839,11 +856,7 @@ sub useControl()
     else if id = "episodes"
         showEpisodes()
     else if id = "subs"
-        o = [{ id: "-1", label: "Off" }]
-        for each s in m.tracks.subs
-            o.push({ id: s.index.toStr(), label: s.label })
-        end for
-        openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
+        openSubsMenu()
     else if id = "audio"
         o = []
         for each a in m.tracks.audio
@@ -1648,4 +1661,16 @@ sub onBufferingStatus()
     if bs = invalid or bs.percentage = invalid then return
     base = m.loadBase
     setLoadPct(base + Int((100 - base) * bs.percentage / 100))
+end sub
+
+' The Subtitles menu: Off and the tracks, then the style (as in Settings → Subtitles), which applies at once
+sub openSubsMenu()
+    o = [{ id: "-1", label: "Off" }]
+    for each s in m.tracks.subs
+        o.push({ id: s.index.toStr(), label: s.label })
+    end for
+    for each ch in Subs.styleChoices()
+        o.push({ id: "style:" + ch.key, label: ch.label + ":  " + Subs.currentLabel(ch) })
+    end for
+    openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
 end sub

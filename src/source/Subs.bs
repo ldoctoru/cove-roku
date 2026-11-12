@@ -80,4 +80,35 @@ namespace Subs
         return { fontSize: Int(1080 * frac * scale + 0.5), color: tc, shade: shade, offsets: offsets, bgColor: bgColor, bottom: Prefs.subBottom() }
     end function
 
+    ' The style settings, shared by Settings → Subtitles and the player's Subtitles menu:
+    ' [{ key, label, def, options: [{ id, label }] }]
+    function styleChoices() as object
+        bo = []
+        for each v in [0, 5, 10, 15, 20, 25, 30]
+            bo.push({ id: v.toStr(), label: v.toStr() + "%" })
+        end for
+        return [
+            { key: "subTextSize", label: "Text size", def: "normal", options: [{ id: "smaller", label: "Smaller" }, { id: "small", label: "Small" }, { id: "normal", label: "Normal" }, { id: "large", label: "Large" }, { id: "larger", label: "Larger" }] },
+            { key: "subColor", label: "Text color", def: "white", options: [{ id: "white", label: "White" }, { id: "yellow", label: "Yellow" }, { id: "gray", label: "Light gray" }, { id: "black", label: "Black" }] },
+            { key: "subShadow", label: "Shadow", def: "drop", options: [{ id: "none", label: "None" }, { id: "drop", label: "Drop shadow" }, { id: "outline", label: "Outline" }, { id: "raised", label: "Raised" }] },
+            { key: "subBg", label: "Background", def: "none", options: [{ id: "none", label: "Transparent" }, { id: "semi", label: "Semi-transparent" }, { id: "black", label: "Black" }] },
+            { key: "subBottom", label: "Distance from bottom", def: "10", options: bo }
+        ]
+    end function
+
+    ' The saved value of one style setting (its default when unset)
+    function current(ch as object) as string
+        if ch.key = "subBottom" then return Prefs.subBottom().toStr()
+        return Prefs.text(ch.key, ch.def)
+    end function
+
+    ' "Normal" for the saved value
+    function currentLabel(ch as object) as string
+        v = current(ch)
+        for each o in ch.options
+            if o.id = v then return o.label
+        end for
+        return v
+    end function
+
 end namespace
