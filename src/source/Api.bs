@@ -41,9 +41,10 @@ namespace Api
     end function
 
     ' Runs one request: { method, url, headers, body (JSON text or ""), timeout (ms), tag }
-    ' → { code (HTTP status, or < 0 for a network error), json, error, tag }
+    ' → { code (HTTP status, or < 0 for a network error), json (an object / list or invalid), value (a bare JSON
+    ' value), error, tag }
     function execute(req as object) as object
-        res = { code: -1, json: invalid, error: "", tag: req.tag }
+        res = { code: -1, json: invalid, value: invalid, error: "", tag: req.tag }
         xfer = createObject("roUrlTransfer")
         port = createObject("roMessagePort")
         xfer.setPort(port)
@@ -90,6 +91,13 @@ namespace Api
                 res.text = text
             else if text <> invalid and text <> ""
                 res.json = parseJson(text)
+                ' (json is only ever an object or a list: a bare string / number from a captive portal or a broken
+                ' proxy would otherwise reach code that reads fields from it. A bare value, e.g. Jellyfin's
+                ' /QuickConnect/Enabled "true", is kept in res.value.)
+                if res.json <> invalid and GetInterface(res.json, "ifAssociativeArray") = invalid and type(res.json) <> "roArray"
+                    res.value = res.json
+                    res.json = invalid
+                end if
             end if
             if res.code < 0 then res.error = Util.toText(msg.getFailureReason())
         else
