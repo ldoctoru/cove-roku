@@ -74,6 +74,9 @@ sub resetState()
     m.loadNote = ""
     m.loadBase = 0
     m.subPos = 0.0
+    ' Subtitle delay (Subtitles menu), for this title only: a new title starts at 0
+    m.subDelayMs = 0
+    m.subLayer.delay = 0.0
     clearSubs()
     m.seekTarget = -1.0
     m.osdShown = false
@@ -661,7 +664,7 @@ end sub
 
 sub onPickerCancelled()
     ' (Back from a style list: the Subtitles menu again)
-    if m.picker <> invalid and Left(Util.toText(m.picker.purpose), 9) = "substyle:"
+    if m.picker <> invalid and (Left(Util.toText(m.picker.purpose), 9) = "substyle:" or m.picker.purpose = "subdelay")
         openSubsMenu()
         return
     end if
@@ -705,6 +708,22 @@ sub onPicked(ev as object)
         for each ch in Subs.styleChoices()
             if ch.key = key then openPicker("substyle:" + key, ch.label, ch.options, Subs.current(ch))
         end for
+        return
+    end if
+    if c.purpose = "subs" and c.id = "delay"
+        o = []
+        for each ms in [-5000, -4500, -4000, -3500, -3000, -2500, -2000, -1500, -1000, -500, -250, 0, 250, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
+            o.push({ id: ms.toStr(), label: delayLabel(ms) })
+        end for
+        openPicker("subdelay", "Subtitle delay", o, m.subDelayMs.toStr())
+        return
+    end if
+    if c.purpose = "subdelay"
+        ' (at once: the layer shows the cue for position - delay)
+        m.subDelayMs = c.id.toInt()
+        m.subLayer.delay = m.subDelayMs / 1000.0
+        print "Cove: subtitle delay "; delayLabel(m.subDelayMs)
+        openSubsMenu()
         return
     end if
     if Left(c.purpose, 9) = "substyle:"
@@ -1798,6 +1817,8 @@ sub openSubsMenu()
     for each s in m.tracks.subs
         o.push({ id: s.index.toStr(), label: s.label })
     end for
+    ' (text subtitles only: burned-in ones are part of the picture)
+    if m.opts.sub >= 0 and not m.opts.burn then o.push({ id: "delay", label: "Subtitle delay:  " + delayLabel(m.subDelayMs) })
     for each ch in Subs.styleChoices()
         o.push({ id: "style:" + ch.key, label: ch.label + ":  " + Subs.currentLabel(ch) })
     end for
@@ -1901,3 +1922,17 @@ sub useStill()
     if seriesKey() <> "" then m.top.openSeries = seriesKey()
     close()
 end sub
+
+' 1500 → "+1.5 s", -250 → "-0.25 s", 0 → "0.0 s"
+function delayLabel(ms as integer) as string
+    if ms = 0 then return "0.0 s"
+    sign = "+"
+    if ms < 0 then sign = "-"
+    a = ms
+    if a < 0 then a = -a
+    frac = Right("00" + (a mod 1000).toStr(), 3)
+    ' (one decimal unless the quarter needs two)
+    if Right(frac, 1) = "0" then frac = Left(frac, 2)
+    if Right(frac, 1) = "0" then frac = Left(frac, 1)
+    return sign + (a \ 1000).toStr() + "." + frac + " s"
+end function
