@@ -443,6 +443,7 @@ def main():
     save(circle(56, WHITE), "white_circle_56.png")
     for name, fn in (("eye", eye), ("eyeslash", eye_slash), ("star", star), ("chevron", chevron_down)):
         icon(name, 28, fn)
+    icon("film", 28, film_icon)   # details page: Trailer
     save(nine(ring(24, 24, 5, 2, (255, 255, 255, 191))), "outline_box_r4.9.png")
     for name, fn in (("home", home_icon), ("search", search_icon), ("nowplaying", radiowaves), ("clock", clock_icon),
                      ("film", film_icon), ("tv", tv_icon), ("folder", folder_icon), ("gear", gear_icon), ("heart", heart)):

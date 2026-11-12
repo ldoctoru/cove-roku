@@ -57,6 +57,7 @@ sub init()
     m.ovMore = false        ' the description is cut: Up from the buttons reaches "MORE"
     m.ovWidth = 0
     m.textPanel = invalid   ' the whole description, while open
+    m.trailers = []         ' trailers stored on the server with this title (LocalTrailers)
 end sub
 
 ' ---------------------------------------------------------------- loading
@@ -108,6 +109,9 @@ sub onResponse(ev as object)
         return
     else if k = "watched"
         onWatched(r)
+        return
+    else if k = "trailers"
+        onTrailers(r)
         return
     end if
     if r.code <> 200 or r.json = invalid
@@ -215,6 +219,7 @@ sub showItem(it as object)
             loadNextUp()
         end if
         get("/Items/" + Util.toText(it.Id) + "/Similar?UserId=" + Util.toText(srv.userId) + "&Limit=12&" + Items.fields(), { kind: "similar" })
+        loadTrailers(it)
     end if
     buildButtons()
     layoutHeader()
@@ -398,6 +403,8 @@ sub buildButtons()
     watchIcon = "eye"
     if Util.flag(it.UserData, "Played") then watchIcon = "eyeslash"
     btns.push({ id: "watched", icon: watchIcon })
+    ' trailers stored on the server (the Mac's film button; YouTube links aren't played on the TV)
+    if m.trailers.count() > 0 then btns.push({ id: "trailer", icon: "film" })
     if t <> "Series" and m.tracks <> invalid then btns.push({ id: "tracks", icon: "captions" })
     ' an episode: its series' page, or the series' page on this season
     if t = "Episode" and Util.toText(it.SeriesId) <> ""
@@ -532,6 +539,16 @@ sub useButton()
         toggleWatched()
     else if id = "tracks"
         showTracksMenu()
+    else if id = "trailer"
+        if m.trailers.count() = 1
+            playTrailer(0)
+        else
+            o = []
+            for i = 0 to m.trailers.count() - 1
+                o.push({ id: i.toStr(), label: trailerName(i) })
+            end for
+            openPicker("trailer", "Trailers", o, "")
+        end if
     else if id = "series" or id = "season"
         o = { itemId: Util.toText(it.SeriesId), itemType: "Series", title: Util.toText(it.SeriesName) }
         if id = "season" then o.seasonId = Util.toText(it.SeasonId)
@@ -548,6 +565,49 @@ sub requestPlay(it as object, start as float)
     ' Choices from this page apply to this movie / episode (other episodes use the defaults)
     if m.item <> invalid and Util.toText(it.Id) = Util.toText(m.item.Id) and Util.toText(m.item.Type) <> "Series" then p.options = m.opts
     m.top.play = p
+end sub
+
+' ---------------------------------------------------------------- trailers (stored on the server)
+
+' GET /Users/{id}/Items/{item}/LocalTrailers (Jellyfin 10.9+: /Items/{item}/LocalTrailers?userId=). Asked when
+' the server says the title has some, or doesn't say (LocalTrailerCount isn't sent by every server version).
+sub loadTrailers(it as object)
+    m.trailers = []
+    t = Util.toText(it.Type)
+    if t = "BoxSet" or t = "Person" then return
+    if it.LocalTrailerCount <> invalid and Util.toNumber(it.LocalTrailerCount) <= 0 then return
+    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + Util.toText(it.Id) + "/LocalTrailers", { kind: "trailers", itemId: Util.toText(it.Id), newRoute: false })
+end sub
+
+sub onTrailers(r as object)
+    if m.item = invalid or r.tag.itemId <> Util.toText(m.item.Id) then return
+    if (r.code = 404 or r.code = 405) and not r.tag.newRoute
+        get("/Items/" + r.tag.itemId + "/LocalTrailers?userId=" + Util.toText(m.top.server.userId), { kind: "trailers", itemId: r.tag.itemId, newRoute: true })
+        return
+    end if
+    if r.code <> 200 then return
+    list = []
+    for each tr in listOf(r.json)
+        if Util.isAA(tr) and Util.toText(tr.Id) <> "" then list.push(tr)
+    end for
+    print "Cove: local trailers -> "; list.count()
+    m.trailers = list
+    buildButtons()
+end sub
+
+function trailerName(i as integer) as string
+    n = Util.toText(m.trailers[i].Name)
+    if n = "" or n = Util.toText(m.item.Name) then n = "Trailer " + (i + 1).toStr()
+    return n
+end function
+
+' In the Cove player like any video; the title itself isn't touched (no resume point, not marked watched, no Up next)
+sub playTrailer(i as integer)
+    if i < 0 or i >= m.trailers.count() then return
+    tr = m.trailers[i]
+    sub_ = "Trailer"
+    if m.trailers.count() > 1 then sub_ = trailerName(i)
+    m.top.play = { id: Util.toText(tr.Id), title: Util.toText(m.item.Name), subtitle: sub_, start: 0, trailer: true }
 end sub
 
 ' ---------------------------------------------------------------- favourite
@@ -735,6 +795,12 @@ sub onPicked(ev as object)
         else if c.id = "page"
             m.top.openItem = { id: "open", itemId: Util.toText(e.Id), itemType: "Episode", collectionType: "", title: Util.toText(e.Name) }
         end if
+        return
+    end if
+    if c.purpose = "trailer"
+        closePicker()
+        enterButtons(false)
+        playTrailer(c.id.toInt())
         return
     end if
     if c.purpose = "seasonmenu"
