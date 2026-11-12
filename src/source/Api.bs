@@ -9,7 +9,7 @@ namespace Api
     ' "X-Emby-Authorization" (+ "X-Emby-Token" once signed in).
     function headers(server as object, withToken as boolean) as object
         q = chr(34)
-        value = "MediaBrowser Client=" + q + "Cove" + q + ", Device=" + q + Util.deviceName() + q + ", DeviceId=" + q + Util.deviceId() + q + ", Version=" + q + Util.appVersion() + q
+        value = "MediaBrowser Client=" + q + "Cove" + q + ", Device=" + q + headerName(Util.deviceName(), Servers.isJellyfin(server)) + q + ", DeviceId=" + q + Util.deviceId() + q + ", Version=" + q + Util.appVersion() + q
         token = ""
         if withToken then token = Util.toText(server.token)
         if token <> "" then value = value + ", Token=" + q + token + q
@@ -23,6 +23,23 @@ namespace Api
         return h
     end function
 
+    ' The Roku's name as a header value: a quote or comma broke the header, and a non-ASCII name ("Sufragerie
+    ' Română") is not a valid header value. Jellyfin URL-decodes the value (its own apps encode it); for Emby
+    ' only plain ASCII is kept.
+    function headerName(name as string, jellyfin as boolean) as string
+        out = ""
+        for i = 0 to name.len() - 1
+            c = Asc(name.mid(i, 1))
+            if c >= 32 and c < 127 and c <> 34 and c <> 44 then out = out + Chr(c)
+        end for
+        ' (a plain name is sent as it is, as before)
+        if out = name then return name
+        if jellyfin then return name.encodeUriComponent()
+        out = out.trim()
+        if out = "" then out = "Roku"
+        return out
+    end function
+
     ' Runs one request: { method, url, headers, body (JSON text or ""), timeout (ms), tag }
     ' → { code (HTTP status, or < 0 for a network error), json, error, tag }
     function execute(req as object) as object
@@ -31,10 +48,9 @@ namespace Api
         port = createObject("roMessagePort")
         xfer.setPort(port)
         xfer.setUrl(req.url)
-        if LCase(req.url).startsWith("https:")
-            ' (checks the server's certificate; no client certificate is needed, so no InitClientCertificates)
-            xfer.setCertificatesFile("common:/certs/ca-bundle.crt")
-        end if
+        ' Always, also for http: a server that redirects http to https needs it for the redirected request.
+        ' (checks the server's certificate; no client certificate is needed, so no InitClientCertificates)
+        xfer.setCertificatesFile("common:/certs/ca-bundle.crt")
         xfer.enableEncodings(true)
         xfer.retainBodyOnError(true)
         if req.headers <> invalid

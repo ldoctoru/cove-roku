@@ -22,6 +22,7 @@ sub init()
     m.libs = []
     m.libTask = invalid
     m.renameFor = ""
+    m.libError = ""
     info = createObject("roAppInfo")
     m.version = info.getVersion()
     m.device = ""
@@ -47,6 +48,7 @@ end function
 sub onServer()
     srv = m.top.server
     if srv = invalid then return
+    m.libError = ""
     t = createObject("roSGNode", "ApiTask")
     t.request = { method: "GET", url: Util.toText(srv.url) + "/Users/" + Util.toText(srv.userId) + "/Views", headers: Api.headers(srv, true), body: "", tag: { kind: "views" }, timeout: 15000 }
     t.observeField("response", "onViews")
@@ -56,7 +58,13 @@ end sub
 
 sub onViews(ev as object)
     r = ev.getData()
-    if r.code <> 200 or r.json = invalid then return
+    if r.code <> 200 or r.json = invalid
+        ' (instead of "Loading your libraries..." for ever)
+        m.libError = "Couldn't load your libraries. " + Api.describeFailure(r)
+        print "Cove: settings views -> "; r.code
+        draw()
+        return
+    end if
     list = []
     if type(r.json.Items) = "roArray"
         for each v in r.json.Items
@@ -123,7 +131,7 @@ function rowsFor(tabId as string) as object
         out.push(sectionHead("Your libraries"))
         out.push({ kind: "section", id: "showFavorites", label: "Favorites", icon: "heart", on: Prefs.showFavorites() })
         out.push({ kind: "section", id: "showNowPlaying", label: "Now Playing", icon: "nowplaying", on: Prefs.showNowPlaying() })
-        ordered = Prefs.orderLibraries(m.libs)
+        ordered = Prefs.orderLibraries(m.libs, serverKey())
         for each l in ordered
             lp = Prefs.library(l.id)
             ic = "folder"
@@ -131,7 +139,14 @@ function rowsFor(tabId as string) as object
             if l.kind = "tvshows" then ic = "tv"
             out.push({ kind: "library", id: l.id, label: l.title, icon: ic, nav: lp.nav, home: lp.home, libKind: l.kind })
         end for
-        if m.libs.count() = 0 then out.push(note("Loading your libraries..."))
+        if m.libs.count() = 0
+            if m.libError <> ""
+                out.push(note(m.libError))
+                out.push({ kind: "button", id: "retryLibs", label: "", text: "Try Again" })
+            else
+                out.push(note("Loading your libraries..."))
+            end if
+        end if
         out.push(note("OK on a library: show it in the sidebar or on Home, what its Home row shows, how it opens, its name and its place in the list."))
         out.push(sectionHead("Movie and show pages"))
         out.push(choice("castSize", "Cast & Crew", [{ id: "normal", label: "Normal" }, { id: "large", label: "Large" }], Prefs.text("castSize", "normal")))
@@ -594,7 +609,9 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
             if r.nav then a = "Sidebar"
             b = "Not on Home"
             if r.nav and r.home then b = "Home"
-            s1 = addLabel(c, a + "   ·   " + b, x + w - 470, y, 440, h, 22, false, second)
+            ab = a + "   ·   " + b
+            if not Prefs.hasHomeRow(Util.toText(r.libKind)) then ab = a
+            s1 = addLabel(c, ab, x + w - 470, y, 440, h, 22, false, second)
             s1.horizAlign = "right"
         end if
     end if
@@ -772,6 +789,9 @@ sub useRow(r as object)
                 Util.writeText(key, "")
             end for
             draw()
+        else if r.id = "retryLibs"
+            onServer()
+            draw()
         else if r.id = "signout"
             m.top.action = { id: "signout" }
         else if r.id = "addServer"
@@ -808,8 +828,14 @@ function libKindName(id as string) as string
     return ""
 end function
 
+' The current server's id, for its own library order
+function serverKey() as string
+    if m.top.server = invalid then return ""
+    return Util.toText(m.top.server.id)
+end function
+
 function libTitle(id as string) as string
-    for each l in Prefs.orderLibraries(m.libs)
+    for each l in Prefs.orderLibraries(m.libs, serverKey())
         if l.id = id then return l.title
     end for
     return ""
@@ -838,8 +864,10 @@ sub libraryMenu(id as string)
     lp = Prefs.library(id)
     o = []
     o.push({ id: "nav", label: "Show in the sidebar: " + yesNo(lp.nav) })
-    if lp.nav then o.push({ id: "home", label: "Row on Home: " + yesNo(lp.home) })
-    if lp.nav and lp.home then o.push({ id: "style", label: "Home row shows: " + labelOf(styleOptions(), lp.style) })
+    ' (music, books, playlists... never get a Home row)
+    homeRow = Prefs.hasHomeRow(libKindName(id))
+    if lp.nav and homeRow then o.push({ id: "home", label: "Row on Home: " + yesNo(lp.home) })
+    if lp.nav and lp.home and homeRow then o.push({ id: "style", label: "Home row shows: " + labelOf(styleOptions(), lp.style) })
     o.push({ id: "sort", label: "Sort by: " + labelOf(sortOptions(), lp.sort) })
     o.push({ id: "show", label: "Show: " + labelOf(showOptions(), lp.show) })
     o.push({ id: "rename", label: "Rename..." })
@@ -856,7 +884,7 @@ end function
 
 sub moveLibrary(id as string, delta as integer)
     ids = []
-    for each l in Prefs.orderLibraries(m.libs)
+    for each l in Prefs.orderLibraries(m.libs, serverKey())
         ids.push(l.id)
     end for
     for i = 0 to ids.count() - 1
@@ -866,7 +894,7 @@ sub moveLibrary(id as string, delta as integer)
                 tmp = ids[j]
                 ids[j] = id
                 ids[i] = tmp
-                Prefs.saveOrder(ids)
+                Prefs.saveOrder(ids, serverKey())
                 m.top.themeChanged = true
                 ' keep the focus on the moved library
                 m.row = m.row + delta
@@ -1035,6 +1063,9 @@ sub onNameButton()
                     cur = m.top.server
                     cur.name = text
                     m.top.server = cur
+                    ' MainScene's copy too (it writes it back on an expired sign-in), and Home shows the name
+                    m.top.action = { id: "renamed", serverId: m.menuServer, name: text }
+                    m.top.themeChanged = true
                 end if
             end if
         end if

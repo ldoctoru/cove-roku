@@ -43,7 +43,7 @@ sub work()
         end for
         m.top.result = { nodes: holder, total: total, startIndex: m.top.startIndex, gen: m.top.gen, kind: kind }
     catch e
-        print "Cove: ItemsTask failed: "; e.message
+        print "Cove: ItemsTask failed: "; Util.redact(Util.toText(e.message))
         m.top.error = "Loading failed: " + Util.toText(e.message)
     end try
 end sub

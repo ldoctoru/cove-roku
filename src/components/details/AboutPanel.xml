@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- "About" below the rows of the details page (Cove for macOS: DetailView aboutSection / mediaInfo).
+     Left: tagline, genres, studios, dates; right: Media Info (file, video, audio, subtitles).
+     Set info = { left: [{ k, v }], right: [{ k, v }] } (v: text, wrapped, or an array: one line each). Takes no keys. -->
+<component name="AboutPanel" extends="Group">
+    <script type="text/brightscript" uri="AboutPanel.bs" />
+    <interface>
+        <field id="info" type="assocarray" onChange="onInfo" />
+    </interface>
+    <children>
+        <Label text="About" width="800" height="50" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="36" />
+        </Label>
+        <Group id="leftCol" translation="[0,74]" />
+        <Label id="mediaTitle" text="Media Info" width="800" height="40" translation="[900,74]" color="0xFFFFFFFF" visible="false">
+            <Font role="font" uri="font:BoldSystemFontFile" size="28" />
+        </Label>
+        <Group id="rightCol" translation="[900,124]" />
+    </children>
+</component>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- One row of the Chapters panel: 16:9 chapter image, name (up to two lines) and start time -->
+<component name="ChapterItem" extends="Group">
+    <script type="text/brightscript" uri="ChapterItem.bs" />
+    <interface>
+        <field id="itemContent" type="node" onChange="onContent" />
+        <field id="focusPercent" type="float" onChange="onFocus" />
+        <field id="itemHasFocus" type="boolean" onChange="onFocus" />
+        <field id="listHasFocus" type="boolean" onChange="onFocus" />
+    </interface>
+    <children>
+        <Poster id="bg" uri="pkg:/images/ui/white_rr12.9.png" width="552" height="106" opacity="0" />
+        <Rectangle width="160" height="90" translation="[10,8]" color="0xFFFFFF14" />
+        <Poster id="thumb" width="160" height="90" translation="[10,8]" loadWidth="160" loadHeight="90" loadDisplayMode="scaleToZoom" />
+        <Label id="name" text="Chapter" width="356" height="34" translation="[190,14]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="26" />
+        </Label>
+        <Label id="time" text="0:00" width="356" height="30" translation="[190,56]" color="0xFFFFFF8C">
+            <Font role="font" uri="font:MediumSystemFontFile" size="22" />
+        </Label>
+    </children>
+</component>

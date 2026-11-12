@@ -1,0 +1,43 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Playback.bs"
+
+sub init()
+    m.list = m.top.findNode("list")
+    m.list.content = createObject("roSGNode", "ContentNode")
+    m.list.observeField("itemSelected", "onSelected")
+    m.top.observeField("focusedChild", "onFocusChanged")
+end sub
+
+sub onChapters()
+    c = createObject("roSGNode", "ContentNode")
+    list = m.top.chapters
+    for i = 0 to list.count() - 1
+        ch = list[i]
+        n = c.createChild("ContentNode")
+        n.title = ch.name
+        n.description = Playback.clock(ch.start)
+        n.hdPosterUrl = ch.image
+        n.addFields({ isCurrent: i = m.top.current })
+    end for
+    m.list.content = c
+    cur = m.top.current
+    if cur >= 0 and cur < list.count() then m.list.jumpToItem = cur
+end sub
+
+sub onSelected()
+    i = m.list.itemSelected
+    list = m.top.chapters
+    if i >= 0 and i < list.count() then m.top.chosen = { id: list[i].index.toStr(), purpose: m.top.purpose, start: list[i].start }
+end sub
+
+sub onFocusChanged()
+    if m.top.hasFocus() then m.list.setFocus(true)
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if key = "back" or key = "left" or key = "options"
+        m.top.cancelled = true
+    end if
+    return true
+end function

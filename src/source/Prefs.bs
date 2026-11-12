@@ -110,9 +110,24 @@ namespace Prefs
         Util.writeText("lib:" + id, formatJson(d))
     end sub
 
+    ' The registry key of a server's library order (library ids are per server, so one shared key let one
+    ' server's order replace another's). The old shared key moves to the first server that reads it, the active
+    ' one (Home and Settings only order the active server's libraries).
+    function libOrderKey(serverId as string) as string
+        key = "libOrder:" + serverId
+        old = Util.readText("libOrder")
+        if old <> ""
+            if Util.readText(key) = "" then Util.writeText(key, old)
+            sec = createObject("roRegistrySection", "Cove")
+            sec.delete("libOrder")
+            sec.flush()
+        end if
+        return key
+    end function
+
     ' The server's libraries ([{ id, title, ... }]) in the saved order, with the saved names
-    function orderLibraries(libs as object) as object
-        order = Util.readText("libOrder").split(",")
+    function orderLibraries(libs as object, serverId as string) as object
+        order = Util.readText(libOrderKey(serverId)).split(",")
         out = []
         used = {}
         for each id in order
@@ -134,9 +149,15 @@ namespace Prefs
         return out
     end function
 
-    sub saveOrder(ids as object)
-        Util.writeText("libOrder", Util.join(ids, ","))
+    sub saveOrder(ids as object, serverId as string)
+        Util.writeText(libOrderKey(serverId), Util.join(ids, ","))
     end sub
+
+    ' The library kinds that get a row on Home (HomeTask); the others have no Home setting in Settings
+    function hasHomeRow(collectionType as string) as boolean
+        ct = collectionType
+        return ct = "movies" or ct = "tvshows" or ct = "homevideos" or ct = "musicvideos" or ct = "mixed" or ct = ""
+    end function
 
     ' ---------------------------------------------------------------- subtitle style (Mac PlayerView sizes / colors / ...)
 
@@ -179,6 +200,64 @@ namespace Prefs
         if v = "" then return 10
         return v.toInt()
     end function
+
+    ' ---------------------------------------------------------------- subtitle language per series
+
+    ' "" = automatic, "off", or a language code. All series share one key ("seriesLangs", most recent last,
+    ' at most 100): one key per series grew the registry without limit, and it also holds the sign-ins.
+    function seriesSubLang(seriesId as string) as string
+        if seriesId = "" then return ""
+        for each e in seriesLangList()
+            if Util.toText(e.id) = seriesId then return Util.toText(e.lang)
+        end for
+        return ""
+    end function
+
+    sub setSeriesSubLang(seriesId as string, lang as string)
+        if seriesId = "" then return
+        kept = []
+        for each e in seriesLangList()
+            if Util.toText(e.id) <> seriesId then kept.push(e)
+        end for
+        if lang <> "" then kept.push({ id: seriesId, lang: lang })
+        while kept.count() > 100
+            kept.shift()
+        end while
+        Util.writeText("seriesLangs", formatJson(kept))
+    end sub
+
+    function seriesLangList() as object
+        v = Util.readJson("seriesLangs")
+        if type(v) <> "roArray" then return []
+        return v
+    end function
+
+    ' Once: the old "slang:<id>" keys move into the list (deleted first, so a full registry has room for it)
+    sub migrateSeriesLangs()
+        sec = createObject("roRegistrySection", "Cove")
+        old = []
+        for each k in sec.getKeyList()
+            if k.startsWith("slang:") then old.push(k)
+        end for
+        if old.count() = 0 then return
+        kept = seriesLangList()
+        for each k in old
+            v = sec.read(k)
+            sid = k.mid(6)
+            known = false
+            for each e in kept
+                if Util.toText(e.id) = sid then known = true
+            end for
+            if v <> "" and not known then kept.push({ id: sid, lang: v })
+            sec.delete(k)
+        end for
+        sec.flush()
+        while kept.count() > 100
+            kept.shift()
+        end while
+        Util.writeText("seriesLangs", formatJson(kept))
+        print "Cove: moved "; old.count(); " series subtitle languages into one registry key"
+    end sub
 
     ' ---------------------------------------------------------------- reset
 
