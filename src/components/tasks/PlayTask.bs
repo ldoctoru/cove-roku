@@ -27,6 +27,6 @@ sub work()
         m.top.stream = s
     catch e
         print "Cove: PlayTask failed: "; Util.redact(Util.toText(e.message))
-        m.top.error = "Couldn't start playback: " + Util.toText(e.message)
+        m.top.error = "Couldn't start playback: " + Util.redact(Util.toText(e.message))
     end try
 end sub

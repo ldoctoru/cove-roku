@@ -336,7 +336,7 @@ end sub
 ' server answers with an error, play the subtitle burned into the picture instead of showing nothing.
 sub probeSubtitle(url as string, index as integer, forReplay = false as boolean)
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: "GET", url: url, headers: invalid, body: "", keepText: true, parse: "srt", tag: { kind: "subProbe", itemId: m.top.item.id, index: index, replay: forReplay }, timeout: 180000 }
+    t.request = { method: "GET", url: url, headers: Playback.subtitleHeaders(m.top.server), body: "", keepText: true, parse: "srt", tag: { kind: "subProbe", itemId: m.top.item.id, index: index, replay: forReplay }, timeout: 180000 }
     t.observeField("response", "onResponse")
     m.pending.push(t)
     t.control = "RUN"

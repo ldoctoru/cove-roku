@@ -200,7 +200,14 @@ function rowsFor(tabId as string) as object
             kind = "Emby"
             if Servers.isJellyfin(s) then kind = "Jellyfin"
             cur = srv <> invalid and Util.toText(s.id) = Util.toText(srv.id)
-            out.push({ kind: "server", id: Util.toText(s.id), label: Util.toText(s.name), sub: Util.toText(s.userName) + "  ·  " + Util.toText(s.url) + "  ·  " + kind, current: cur })
+            ' (as the Mac's ConnectionBadge: plain http is flagged, more strongly when it leaves the home network)
+            srvSub = Util.toText(s.userName) + "  ·  " + Util.toText(s.url) + "  ·  " + kind
+            if Util.isPlainRemote(Util.toText(s.url))
+                srvSub = srvSub + "  ·  Not encrypted (internet)"
+            else if Util.isPlainHttp(Util.toText(s.url))
+                srvSub = srvSub + "  ·  Not encrypted"
+            end if
+            out.push({ kind: "server", id: Util.toText(s.id), label: Util.toText(s.name), sub: srvSub, current: cur })
         end for
         out.push({ kind: "button", id: "addServer", label: "", text: "Add Server..." })
         out.push(note("OK on a server: connect to it, rename it or remove it. Add Server opens the sign-in screen."))
