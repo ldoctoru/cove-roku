@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Favorites, as Cove for macOS's FavoritesView: a row per kind, only the ones with something in them -
+     Favorite Movies, Shows, Episodes, Collections and People. OK on a card opens it (a person: their page).
+     Set server; "action" = { id: "open", ... } like the home. Reloads when shown again after a change ("stale"). -->
+<component name="FavoritesScreen" extends="Group">
+    <script type="text/brightscript" uri="FavoritesScreen.bs" />
+    <interface>
+        <field id="screenId" type="string" value="favorites" />
+        <field id="server" type="assocarray" onChange="loadFavorites" />
+        <field id="action" type="assocarray" alwaysNotify="true" />
+        <field id="stale" type="boolean" value="false" />
+    </interface>
+    <children>
+        <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="64" translation="[100,48]" />
+        <Label id="title" width="1200" height="60" translation="[180,40]" color="0xFFFFFFFF" text="Favorites">
+            <Font role="font" uri="font:BoldSystemFontFile" size="44" />
+        </Label>
+        <Label id="info" width="1200" height="40" translation="[180,96]" color="0xFFFFFF8C">
+            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+        </Label>
+        <RowList id="rows" translation="[78,160]" itemComponentName="PosterItem" numRows="2"
+                 itemSize="[1842,520]" rowHeights="[520]" rowItemSize="[[276,466]]" rowItemSpacing="[[0,0]]"
+                 itemSpacing="[0,20]" showRowLabel="[true]" rowLabelOffset="[[18,8]]" rowLabelColor="0xFFFFFFFF"
+                 focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
+                 drawFocusFeedback="false" visible="false">
+            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />
+        </RowList>
+        <Label id="status" width="1720" height="44" translation="[100,420]" color="0xFFFFFFB3" text="Loading...">
+            <Font role="font" uri="font:MediumSystemFontFile" size="32" />
+        </Label>
+        <Label id="hint" width="1720" height="40" translation="[100,472]" color="0xFFFFFF8C" visible="false"
+               text="Add a movie, show, episode, collection or person with the heart on its page.">
+            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+        </Label>
+    </children>
+</component>

@@ -127,6 +127,9 @@ end sub
 sub begin()
     resetState()
     it = m.top.item
+    ' library Shuffle: the titles still to play (Up next takes them before the series' next episode)
+    m.queue = []
+    if type(it.queue) = "roArray" then m.queue = it.queue
     m.startAt = it.start
     ' Settings → Playback → Rewind on resume: a title resuming from its saved position starts a little earlier
     rw = Prefs.rewindOnResume()
@@ -205,7 +208,13 @@ sub onInfo(r as object)
             get("/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields(), { kind: "episodes", itemId: m.top.item.id })
         end if
     end if
+    useQueue()
     start(m.startAt, false)
+end sub
+
+' Shuffle queue hook: the next title is the queue's first
+sub useQueue()
+    if m.queue <> invalid and m.queue.count() > 0 then m.next = m.queue[0]
 end sub
 
 function seriesKey() as string
@@ -627,6 +636,11 @@ sub onFinished()
         hideAction()
         m.top.findNode("upNextTitle").text = Util.toText(m.next.SeriesName)
         m.top.findNode("upNextEpisode").text = Items.episodeLabel(m.next)
+        ' (a film from the Shuffle queue: its name)
+        if Util.toText(m.next.Type) <> "Episode" and Util.toText(m.next.Type) <> ""
+            m.top.findNode("upNextTitle").text = Util.toText(m.next.Name)
+            m.top.findNode("upNextEpisode").text = ""
+        end if
         m.count = 10
         m.top.findNode("upNextCount").text = "Play now  (10)"
         m.top.findNode("upNextStill").uri = Items.landscape(m.top.server, m.next, 240)
@@ -676,7 +690,20 @@ sub playEpisode(n as dynamic)
     if keep <> invalid then m.subLang = keep.language
     if keep = invalid then m.subLang = ""
     m.video.control = "stop"
-    m.top.item = { id: Util.toText(n.Id), title: Util.toText(n.SeriesName), subtitle: Items.episodeLabel(n), start: 0.0 }
+    ni = { id: Util.toText(n.Id), title: Util.toText(n.SeriesName), subtitle: Items.episodeLabel(n), start: 0.0 }
+    ' Shuffle queue: this one leaves the queue (an episode picked by hand keeps it), films show their name
+    if m.queue <> invalid and m.queue.count() > 0
+        rest = []
+        for i = 0 to m.queue.count() - 1
+            if not (i = 0 and Util.toText(m.queue[0].Id) = ni.id) then rest.push(m.queue[i])
+        end for
+        ni.queue = rest
+        if Util.toText(n.Type) <> "Episode" and Util.toText(n.Type) <> ""
+            ni.title = Util.toText(n.Name)
+            ni.subtitle = ""
+        end if
+    end if
+    m.top.item = ni
 end sub
 
 ' ---------------------------------------------------------------- * menu: audio, subtitles, quality
@@ -1573,6 +1600,7 @@ sub onResponse(ev as object)
                     if i + 1 < list.count() then m.next = list[i + 1]
                 end if
             end for
+            useQueue()
             ' (prev / next join the centre row: keep the focus on play)
             if m.area = "center" then m.idx = playIndex()
             buildTools()

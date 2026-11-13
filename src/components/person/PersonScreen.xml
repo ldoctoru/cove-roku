@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- A person (from Cast & Crew or search), like Cove for macOS's person page: round photo, name, born,
      biography, then rows of their Movies and Shows on this server. OK on a title opens it.
-     Set server + person ({ id, name }); "action" = { id: "open", ... } like the home. -->
+     Up from the rows: the heart (Add to Favorites / Remove from Favorites, POST / DELETE FavoriteItems).
+     Set server + person ({ id, name }); "action" = { id: "open", ... } like the home, { id: "changed" } after the heart. -->
 <component name="PersonScreen" extends="Group">
     <script type="text/brightscript" uri="PersonScreen.bs" />
     <interface>
@@ -16,7 +17,7 @@
             <Rectangle id="photoPh" width="240" height="240" color="0x262626FF" />
             <Poster id="photo" width="240" height="240" loadWidth="240" loadHeight="240" loadDisplayMode="scaleToZoom" />
             <Poster id="photoMask" width="240" height="240" />
-            <Label id="name" width="1340" height="76" translation="[290,10]" color="0xFFFFFFFF">
+            <Label id="name" width="1020" height="76" translation="[290,10]" color="0xFFFFFFFF">
                 <Font role="font" uri="font:BoldSystemFontFile" size="60" />
             </Label>
             <Label id="born" width="1340" height="40" translation="[290,90]" color="0xFFFFFF8C">
@@ -26,7 +27,11 @@
             <Label id="bio1" width="1400" height="34" translation="[290,174]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
             <Label id="bio2" width="1400" height="34" translation="[290,208]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
             <Label id="bio3" width="1400" height="34" translation="[290,242]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            <!-- Add to Favorites / Remove from Favorites (Mac cast tile heart); Up from the rows -->
+            <Group id="favBtn" translation="[1420,14]" visible="false" />
         </Group>
+        <!-- holds the focus while the heart button is active -->
+        <Group id="headKeys" focusable="true" />
         <RowList id="rows" translation="[78,360]" itemComponentName="PosterItem" numRows="2"
                  itemSize="[1842,520]" rowHeights="[520]" rowItemSize="[[276,466]]" rowItemSpacing="[[0,0]]"
                  itemSpacing="[0,20]" showRowLabel="[true]" rowLabelOffset="[[18,8]]" rowLabelColor="0xFFFFFFFF"

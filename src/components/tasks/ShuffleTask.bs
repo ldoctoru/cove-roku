@@ -1,0 +1,83 @@
+import "pkg:/source/Api.bs"
+import "pkg:/source/Util.bs"
+
+sub init()
+    m.top.functionName = "work"
+end sub
+
+sub work()
+    try
+        q = m.top.query
+        ct = LCase(Util.toText(q.collectionType))
+        show = Util.toText(q.show)
+        genre = Util.toText(q.genre)
+        ' the Show pill picks the pool; "All" / "Unwatched": unwatched first, everything when none is left
+        flag = "IsUnplayed"
+        if show = "watched" then flag = "IsPlayed"
+        if show = "favourites" then flag = "IsFavorite"
+        found = pick(q, ct, genre, flag)
+        if found.count() = 0 and flag = "IsUnplayed" and show <> "unwatched" then found = pick(q, ct, genre, "")
+        print "Cove: shuffle -> "; found.count(); " titles"
+        m.top.result = { queue: found }
+    catch e
+        print "Cove: ShuffleTask failed: "; Util.redact(Util.toText(e.message))
+        m.top.error = "Shuffle failed: " + Util.toText(e.message)
+    end try
+end sub
+
+function pick(q as object, ct as string, genre as string, flag as string) as object
+    libId = Util.toText(q.libraryId)
+    if ct = "tvshows" and genre <> ""
+        ' episodes rarely carry their show's genres: random shows of the genre, a few random episodes of each
+        shows = fetchItems("ParentId=" + libId + "&Recursive=true&IncludeItemTypes=Series&SortBy=Random&Limit=10&Genres=" + genre.encodeUriComponent())
+        out = []
+        for each s in shows
+            out.append(fetchItems("ParentId=" + Util.toText(s.Id) + "&Recursive=true&IncludeItemTypes=Episode&SortBy=Random&Limit=5" + filterPart(flag)))
+        end for
+        return mix(out)
+    end if
+    types = "Movie"
+    if ct = "tvshows" then types = "Episode"
+    if ct = "homevideos" or ct = "musicvideos" then types = "Video,MusicVideo"
+    if ct <> "movies" and ct <> "tvshows" and ct <> "homevideos" and ct <> "musicvideos" then types = "Movie,Episode,Video"
+    p = "ParentId=" + libId + "&Recursive=true&IncludeItemTypes=" + types + "&SortBy=Random&Limit=50" + filterPart(flag)
+    if genre <> "" then p = p + "&Genres=" + genre.encodeUriComponent()
+    return fetchItems(p)
+end function
+
+function filterPart(flag as string) as string
+    if flag = "" then return ""
+    return "&Filters=" + flag
+end function
+
+' The items of one request, trimmed to what the player and Up next use (the queue rides in a node field)
+function fetchItems(params as string) as object
+    srv = m.top.server
+    uid = Util.toText(srv.userId)
+    r = Api.execute({ method: "GET", url: Util.toText(srv.url) + "/Users/" + uid + "/Items?" + params + "&Fields=PrimaryImageAspectRatio&EnableUserData=false&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb", headers: Api.headers(srv, true), timeout: 20000 })
+    print "Cove: shuffle items -> "; r.code
+    out = []
+    if r.code <> 200 or not Util.isAA(r.json) or type(r.json.Items) <> "roArray" then return out
+    keep = ["Id", "Name", "Type", "SeriesName", "SeriesId", "ParentIndexNumber", "IndexNumber", "ImageTags", "BackdropImageTags", "ParentBackdropItemId", "ParentBackdropImageTags", "ParentThumbItemId", "ParentThumbImageTag", "SeriesPrimaryImageTag"]
+    for each it in r.json.Items
+        if Util.isAA(it) and Util.toText(it.Id) <> ""
+            o = {}
+            for each k in keep
+                if it[k] <> invalid then o[k] = it[k]
+            end for
+            out.push(o)
+        end if
+    end for
+    return out
+end function
+
+' Fisher-Yates, so the episodes of one show don't play in a block
+function mix(list as object) as object
+    for i = list.count() - 1 to 1 step -1
+        j = Rnd(i + 1) - 1
+        t = list[i]
+        list[i] = list[j]
+        list[j] = t
+    end for
+    return list
+end function

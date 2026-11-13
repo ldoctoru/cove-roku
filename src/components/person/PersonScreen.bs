@@ -13,6 +13,10 @@ sub init()
     m.pending = []
     m.lists = {}
     m.waiting = 0
+    m.isFav = false
+    m.favKnown = false
+    m.inHead = false
+    m.favBusy = false
 end sub
 
 sub load()
@@ -50,8 +54,18 @@ end sub
 
 sub onResponse(ev as object)
     r = ev.getData()
+    if r.tag <> invalid and r.tag.kind = "fav"
+        onFavourite(r)
+        return
+    end if
     if r.code <> 200 or r.json = invalid then return
     it = r.json
+    ' (the heart shows once the person's record says whether they are a favourite)
+    m.isFav = Util.flag(it.UserData, "IsFavorite")
+    m.favKnown = true
+    drawFav()
+    ' (nothing else to focus on this page yet: the heart)
+    if m.top.hasFocus() then enterHead()
     srv = m.top.server
     imgTag = ""
     if it.ImageTags <> invalid then imgTag = Util.toText(it.ImageTags.Primary)
@@ -110,12 +124,13 @@ sub buildRows()
     if root.getChildCount() = 0
         m.status.text = "No movies or shows with " + Util.toText(m.top.person.name) + " on this server."
         m.status.translation = [100, 420]
+        if m.favKnown and m.top.isInFocusChain() then enterHead()
         return
     end if
     m.status.visible = false
     m.rows.content = root
     m.rows.visible = true
-    if m.top.isInFocusChain() then m.rows.setFocus(true)
+    if m.top.isInFocusChain() and not m.inHead then m.rows.setFocus(true)
 end sub
 
 sub onSelected()
@@ -128,5 +143,109 @@ sub onSelected()
 end sub
 
 sub onFocusChanged()
-    if m.top.hasFocus() and m.rows.content <> invalid then m.rows.setFocus(true)
+    if not m.top.hasFocus() then return
+    if m.inHead or m.rows.content = invalid or m.rows.content.getChildCount() = 0
+        if m.favKnown then enterHead()
+    else
+        m.rows.setFocus(true)
+    end if
 end sub
+
+' ---------------------------------------------------------------- favourite (heart)
+
+sub drawFav()
+    g = m.top.findNode("favBtn")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    g.visible = m.favKnown
+    if not m.favKnown then return
+    bg = g.createChild("Poster")
+    ic = g.createChild("Poster")
+    lab = g.createChild("Label")
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    f.size = 26
+    lab.font = f
+    lab.text = "Add to Favorites"
+    if m.isFav then lab.text = "Remove from Favorites"
+    lab.height = 64
+    lab.vertAlign = "center"
+    lab.translation = [68, 0]
+    w = lab.boundingRect().width + 96
+    bg.width = w
+    bg.height = 64
+    ic.uri = "pkg:/images/ui/icon_heart_28.png"
+    ic.width = 28
+    ic.height = 28
+    ic.translation = [28, 18]
+    if m.inHead
+        bg.uri = "pkg:/images/ui/white_pill.9.png"
+        lab.color = "0x000000FF"
+        ic.blendColor = "0x000000FF"
+    else
+        bg.uri = "pkg:/images/ui/glass_pill.9.png"
+        lab.color = "0xFFFFFFFF"
+        ic.blendColor = "0xFFFFFFFF"
+    end if
+    ' a favourite: the heart in the accent colour, as on the Mac
+    if m.isFav and not m.inHead then ic.blendColor = m.global.theme.accent
+    ' (right-aligned at the header's edge)
+    g.translation = [1724 - w, 14]
+end sub
+
+sub enterHead()
+    m.inHead = true
+    m.top.findNode("headKeys").setFocus(true)
+    drawFav()
+end sub
+
+sub leaveHead()
+    if m.rows.content = invalid or m.rows.content.getChildCount() = 0 then return
+    m.inHead = false
+    drawFav()
+    m.rows.setFocus(true)
+end sub
+
+' POST / DELETE /Users/{id}/FavoriteItems/{person} (Jellyfin 10.9+: /UserFavoriteItems/{person})
+sub toggleFavourite()
+    if m.favBusy then return
+    m.favBusy = true
+    method = "POST"
+    if m.isFav then method = "DELETE"
+    sendRequest(method, "/Users/" + Util.toText(m.top.server.userId) + "/FavoriteItems/" + Util.toText(m.top.person.id), { kind: "fav", method: method, newRoute: false })
+end sub
+
+sub onFavourite(r as object)
+    if r.code = 404 and not r.tag.newRoute
+        sendRequest(r.tag.method, "/UserFavoriteItems/" + Util.toText(m.top.person.id) + "?userId=" + Util.toText(m.top.server.userId), { kind: "fav", method: r.tag.method, newRoute: true })
+        return
+    end if
+    m.favBusy = false
+    print "Cove: person favourite "; r.tag.method; " -> "; r.code
+    if r.code >= 200 and r.code < 300
+        m.isFav = r.tag.method = "POST"
+        m.top.action = { id: "changed" }
+    else
+        m.top.findNode("born").text = "Couldn't change the favourite. " + Api.describeFailure(r)
+    end if
+    drawFav()
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if m.inHead
+        if key = "OK"
+            toggleFavourite()
+            return true
+        else if key = "down"
+            leaveHead()
+            return true
+        end if
+        return key = "left" or key = "right" or key = "up"
+    end if
+    ' Up from the first row: the heart
+    if key = "up" and m.favKnown
+        enterHead()
+        return true
+    end if
+    return false
+end function
