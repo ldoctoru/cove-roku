@@ -102,6 +102,22 @@ namespace Prefs
         return v
     end function
 
+    ' Settings → Playback → Jump buttons: the player's back / forward buttons and the Rewind / Fast forward
+    ' keys (10, 15, 30 or 60 s; default 30)
+    function jumpSeconds() as integer
+        v = Util.readText("jumpSeconds").toInt()
+        if v <> 10 and v <> 15 and v <> 60 then v = 30
+        return v
+    end function
+
+    ' Settings → Playback → Rewind on resume: seconds to go back when a title resumes from its saved position,
+    ' or when playback goes on after a pause of 5 minutes or more (0 = off)
+    function rewindOnResume() as integer
+        v = text("rewindOnResume", "5")
+        if v = "off" then return 0
+        return v.toInt()
+    end function
+
     ' ---------------------------------------------------------------- libraries
 
     ' Per library (Mac LibPref + LibraryDefaults): { nav, home, style, sort, show, name }

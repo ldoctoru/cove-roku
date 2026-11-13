@@ -67,6 +67,7 @@ sub init()
     m.stillBtn = 0
     m.autoCount = 0
     m.lastInput = createObject("roTimespan")
+    m.pauseClock = invalid  ' since the video paused (Rewind on resume after a long pause)
     resetState()
 end sub
 
@@ -85,6 +86,10 @@ sub resetState()
     m.seekTarget = -1.0
     m.osdShown = false
     m.osd.opacity = 0
+    m.pauseClock = invalid
+    ' playback speed (* menu → Speed), back to 1× for every new title; Ends at divides the time left by it
+    m.speed = 1.0
+    m.speedId = "1"
     m.session = invalid
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = invalid
@@ -123,6 +128,13 @@ sub begin()
     resetState()
     it = m.top.item
     m.startAt = it.start
+    ' Settings → Playback → Rewind on resume: a title resuming from its saved position starts a little earlier
+    rw = Prefs.rewindOnResume()
+    if rw > 0 and m.startAt > 1
+        m.startAt = m.startAt - rw
+        if m.startAt < 0 then m.startAt = 0
+        print "Cove: rewind on resume, starting at "; Int(m.startAt); " s"
+    end if
     tasksHolder()
     m.top.findNode("title").text = Util.toText(it.title)
     m.top.findNode("episode").text = Util.toText(it.subtitle)
@@ -279,6 +291,8 @@ sub onStream(ev as object)
     ' (no subtitleTracks, so Roku's renderer has nothing to show; the Roku's global caption mode is left alone)
     m.video.subtitleTrack = ""
     loadTextSub()
+    ' (a new title starts at 1×; a restart for other settings keeps the chosen speed)
+    if speedSupported() then m.video.setField("playbackSpeed", m.speed)
     m.video.control = "play"
     ' (the stream is ready: the rest of the ring is the Video node's buffering)
     if m.loader.visible
@@ -314,7 +328,7 @@ end sub
 ' The Video node reports its position once a second: in between, add the time since that report
 sub onSubTick()
     p = m.subPos
-    if m.video.state = "playing" and m.subClock <> invalid then p = p + m.subClock.TotalMilliseconds() / 1000.0
+    if m.video.state = "playing" and m.subClock <> invalid then p = p + m.speed * m.subClock.TotalMilliseconds() / 1000.0
     m.subLayer.position = p
 end sub
 
@@ -392,6 +406,12 @@ sub onState()
     print "Cove: video "; st
     if st = "buffering" and m.started then showLoading(0, "")
     if st = "playing" or st = "paused" then updateCenter()
+    if st = "paused"
+        if m.pauseClock = invalid then m.pauseClock = createObject("roTimespan")
+        m.pauseClock.Mark()
+    else if st = "playing"
+        m.pauseClock = invalid
+    end if
     if st = "paused" then showOsd(false)
     if st = "playing" and m.osdShown then m.hideTimer.control = "start"
     if st = "playing"
@@ -434,6 +454,8 @@ end sub
 ' its conversion running (it ends one after about a minute without news)
 sub onProgressTimer()
     st = m.video.state
+    ' (while paused the position doesn't move, but "Ends at" does)
+    if m.osdShown and m.seekTarget < 0 then updateBar(m.video.position)
     ' (2 hours of playing without a key press: pause and ask, so a sleeping viewer doesn't stream all night)
     if st = "playing" and Prefs.stillWatchingAfter() > 0 and m.lastInput.TotalSeconds() >= 7200 and not m.still.visible
         m.video.control = "pause"
@@ -666,6 +688,8 @@ sub showMenu()
         { id: "quality", label: "Quality: " + Tracks.qualityLabel(m.opts.maxBitrate) }
     ]
     if m.versions <> invalid and m.versions.count() > 1 then opts.push({ id: "version", label: "Version: " + Tracks.versionLabel(m.versions, Util.toText(m.opts.sourceId)) })
+    ' (only on Rokus whose Video node has the playbackSpeed field)
+    if speedSupported() then opts.push({ id: "speed", label: "Speed: " + m.speedId + "×" })
     addMenuExtras(opts)
     openPicker("menu", "Playback", opts, "")
 end sub
@@ -714,8 +738,23 @@ end sub
 
 ' Play on only if the picker paused the video: one the user had paused stays paused
 sub resumeAfterPicker()
-    if m.pausedByPicker and m.video.state = "paused" then m.video.control = "resume"
+    if m.pausedByPicker and m.video.state = "paused" then resumeVideo()
     m.pausedByPicker = false
+end sub
+
+' Play on after a pause; after 5 minutes or more, Settings → Playback → Rewind on resume goes back a little first
+sub resumeVideo()
+    rw = Prefs.rewindOnResume()
+    if rw > 0 and m.pauseClock <> invalid and m.pauseClock.TotalSeconds() >= 300
+        t = m.video.position - rw
+        if t < 0 then t = 0
+        print "Cove: rewind on resume after "; m.pauseClock.TotalSeconds(); " s paused, to "; Int(t); " s"
+        m.video.seek = t
+        syncSubClock(t)
+        m.subLayer.position = t
+    end if
+    m.pauseClock = invalid
+    m.video.control = "resume"
 end sub
 
 sub onPicked(ev as object)
@@ -735,6 +774,12 @@ sub onPicked(ev as object)
             cur = Util.toText(m.opts.sourceId)
             if cur = "" then cur = m.versions[0].id
             openPicker("version", "Version", m.versions, cur)
+        else if c.id = "speed"
+            o = []
+            for each r in speedChoices()
+                o.push({ id: r, label: r + "×" })
+            end for
+            openPicker("speed", "Speed", o, m.speedId)
         else
             useMenuExtra(c.id)
         end if
@@ -775,6 +820,14 @@ sub onPicked(ev as object)
     closePicker()
     if c.purpose = "chapter"
         seekToChapter(c)
+        return
+    end if
+    if c.purpose = "speed"
+        m.keys.setFocus(true)
+        setSpeed(c.id)
+        drawControls()
+        ' (resuming after the picker's pause also applies the new speed)
+        resumeAfterPicker()
         return
     end if
     if c.purpose = "version"
@@ -890,10 +943,11 @@ function onKeyEvent(key as string, press as boolean) as boolean
         instantReplay()
         return true
     else if key = "rewind" or key = "fastforward"
+        ' Settings → Playback → Jump buttons
         if key = "fastforward"
-            seekBy(30)
+            seekBy(Prefs.jumpSeconds())
         else
-            seekBy(-30)
+            seekBy(-Prefs.jumpSeconds())
         end if
         return true
     else if key = "play"
@@ -998,7 +1052,7 @@ sub togglePause()
     else if m.video.state = "playing"
         m.video.control = "pause"
     else if m.video.state = "paused"
-        m.video.control = "resume"
+        resumeVideo()
     end if
     showOsd(true)
 end sub
@@ -1018,10 +1072,10 @@ sub useControl()
         return
     end if
     id = m.toolIds[m.idx]
-    if id = "back30"
-        seekBy(-30)
-    else if id = "fwd30"
-        seekBy(30)
+    if id = "jumpBack"
+        seekBy(-Prefs.jumpSeconds())
+    else if id = "jumpFwd"
+        seekBy(Prefs.jumpSeconds())
     else if id = "prev"
         playEpisode(m.prev)
     else if id = "next"
@@ -1058,13 +1112,13 @@ sub showEpisodes()
     openPicker("episode", Util.toText(m.episodes[m.epIndex].SeasonName), o, m.top.item.id)
 end sub
 
-' Bottom-right buttons: back / forward 30 s, episodes (episodes only), subtitles, audio, quality, chapters
+' Bottom-right buttons: back / forward (Settings → Playback → Jump buttons), episodes (episodes only), subtitles, audio, quality, chapters
 ' (previous / next episode are in the centre, beside play)
 sub buildTools()
     ' (the focused tool stays focused when buttons are added, e.g. the episode list arriving late)
     keep = ""
     if m.area = "tools" and m.idx < m.toolIds.count() then keep = m.toolIds[m.idx]
-    ids = ["back30", "fwd30"]
+    ids = ["jumpBack", "jumpFwd"]
     if hasEpisodes() then ids.push("episodes")
     if m.tracks.subs.count() > 0 then ids.push("subs")
     if m.tracks.audio.count() > 1 then ids.push("audio")
@@ -1082,6 +1136,9 @@ end sub
 
 function toolIcon(id as string) as string
     if id = "subs" then return "subtitles"
+    ' (the icon shows the jump length from Settings → Playback → Jump buttons: back10 ... fwd60)
+    if id = "jumpBack" then return "back" + Prefs.jumpSeconds().toStr()
+    if id = "jumpFwd" then return "fwd" + Prefs.jumpSeconds().toStr()
     return id
 end function
 
@@ -1226,7 +1283,8 @@ sub updateBar(atSec as float)
     if d > 0 then frac = atSec / d
     if frac > 1 then frac = 1
     if frac < 0 then frac = 0
-    w = Int(1600 * frac)
+    ' (the track ends before "Ends at" and the time left)
+    w = Int(1380 * frac)
     m.top.findNode("fill").width = w
     ' focused bar: thicker line and a bigger knob
     barFocus = m.osdShown and m.area = "bar" and m.picker = invalid
@@ -1251,10 +1309,22 @@ sub updateBar(atSec as float)
     if remain < 0 then remain = 0
     if d > 0
         m.top.findNode("remaining").text = "-" + Playback.clock(remain)
+        m.top.findNode("endsAt").text = "Ends at " + endsAtClock(remain)
     else
         m.top.findNode("remaining").text = ""
+        m.top.findNode("endsAt").text = ""
     end if
 end sub
+
+' The Roku's local time (24 h) after remain seconds of video at the current playback speed: "22:41"
+function endsAtClock(remain as float) as string
+    rate = m.speed
+    if rate <= 0 then rate = 1.0
+    dt = createObject("roDateTime")
+    dt.ToLocalTime()
+    dt.FromSeconds(dt.AsSeconds() + Int(remain / rate + 0.5))
+    return Right("0" + dt.GetHours().toStr(), 2) + ":" + Right("0" + dt.GetMinutes().toStr(), 2)
+end function
 
 ' Play / pause symbol follows the state
 sub updateCenter()
@@ -1615,6 +1685,37 @@ sub seekToChapter(c as object)
     drawControls()
 end sub
 
+' ---------------------------------------------------------------- playback speed (Cove for macOS: Speed)
+
+' The Video node's playbackSpeed field isn't in Roku's documentation and not every model has it: the
+' Speed entry shows only where it exists
+function speedSupported() as boolean
+    return m.video.hasField("playbackSpeed")
+end function
+
+function speedChoices() as object
+    return ["0.5", "0.75", "1", "1.25", "1.5", "2"]
+end function
+
+' The new speed takes effect on the next resume (the Video node applies it after a pause / resume): the
+' Speed picker paused the video, so closing it applies it; a video playing without the picker gets both now
+sub setSpeed(id as string)
+    if not speedSupported() then return
+    m.speedId = id
+    m.speed = Val(id)
+    if m.speed <= 0
+        m.speed = 1.0
+        m.speedId = "1"
+    end if
+    m.video.setField("playbackSpeed", m.speed)
+    print "Cove: speed "; m.speedId; "x"
+    if m.video.state = "playing"
+        m.video.control = "pause"
+        m.video.control = "resume"
+    end if
+    if m.osdShown then updateBar(currentPos())
+end sub
+
 ' * menu entries added after audio / subtitles / quality / version: Chapters, Playback info
 sub addMenuExtras(opts as object)
     if chapterEntries().count() > 0 then opts.push({ id: "chapters", label: "Chapters" })
@@ -1794,6 +1895,7 @@ function playbackInfoLines() as object
         if sg <> "" then out.push({ k: "Segment", v: sg })
     end if
     out.push({ k: "Position", v: Playback.clock(m.video.position) + " / " + Playback.clock(m.video.duration) + "  (" + Util.toText(m.video.state) + ")" })
+    if m.speed <> 1 then out.push({ k: "Speed", v: m.speedId + "×" })
     return out
 end function
 
@@ -1956,7 +2058,7 @@ sub useStill()
         if kind = "next"
             playNext()
         else if m.video.state = "paused"
-            m.video.control = "resume"
+            resumeVideo()
         end if
         return
     end if
@@ -2053,14 +2155,14 @@ function handleTransport(evt as object) as object
     st = m.video.state
     if cmd = "play" or cmd = "resume"
         if st <> "paused" then return { status: "error.redundant" }
-        m.video.control = "resume"
+        resumeVideo()
     else if cmd = "pause"
         if st <> "playing" then return { status: "error.redundant" }
         m.video.control = "pause"
     else if cmd = "forward"
-        seekBy(30)
+        seekBy(Prefs.jumpSeconds())
     else if cmd = "rewind"
-        seekBy(-30)
+        seekBy(-Prefs.jumpSeconds())
     else if cmd = "replay"
         instantReplay()
     else if cmd = "startover"
