@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Library "Shuffle" (Mac LibraryView shuffle, SortBy=Random): picks random titles to play back to back.
+     Movies (and other video libraries): random unwatched titles; TV: random unwatched episodes (with a genre:
+     episodes of random shows of that genre). Falls back to watched ones when nothing is unwatched.
+     Set server + query ({ libraryId, collectionType, itemType, genre, show }); "result" = { queue: [items] } or "error". -->
+<component name="ShuffleTask" extends="Task">
+    <script type="text/brightscript" uri="ShuffleTask.bs" />
+    <interface>
+        <field id="server" type="assocarray" />
+        <field id="query" type="assocarray" />
+        <field id="result" type="assocarray" />
+        <field id="error" type="string" />
+    </interface>
+</component>

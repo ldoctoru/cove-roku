@@ -1,0 +1,182 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Items.bs"
+import "pkg:/source/Prefs.bs"
+
+sub init()
+    m.rows = m.top.findNode("rows")
+    m.status = m.top.findNode("status")
+    m.rows.observeField("rowItemSelected", "onSelected")
+    m.top.observeField("focusedChild", "onFocusChanged")
+    ' (the list may get focus before anything loaded: never leave it without content)
+    m.rows.content = createObject("roSGNode", "ContentNode")
+    m.gen = 0
+    m.lists = {}
+    m.waiting = 0
+    m.pending = []
+    m.keep = invalid        ' [row key, column] to focus again after a reload
+    m.rowKeys = []
+    m.loadError = invalid
+end sub
+
+' Everything marked favourite (Mac Emby.favorites) and the favourite people (Emby.favoritePeople)
+sub loadFavorites()
+    srv = m.top.server
+    if srv = invalid then return
+    m.gen = m.gen + 1
+    m.lists = {}
+    m.pending = []
+    uid = Util.toText(srv.userId)
+    q = "Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,BoxSet,Video,MusicVideo&SortBy=SortName&SortOrder=Ascending&Limit=300&" + Items.fields()
+    startList("items", "/Users/" + uid + "/Items?" + q, "/Items?userId=" + uid + "&" + q, "")
+    ' /Persons takes IsFavorite on Emby and Jellyfin (Filters too, for servers that only read that)
+    startList("people", "/Persons?UserId=" + uid + "&IsFavorite=true&Filters=IsFavorite&Recursive=true&SortBy=SortName&SortOrder=Ascending&Limit=100&EnableUserData=true", "", "person")
+    m.waiting = 2
+end sub
+
+sub startList(key as string, path as string, fallback as string, kind as string)
+    t = createObject("roSGNode", "ItemsTask")
+    t.server = m.top.server
+    t.path = path
+    t.fallback = fallback
+    t.kind = kind
+    t.gen = m.gen
+    t.addFields({ listKey: key })
+    t.observeField("result", "onList")
+    t.observeField("error", "onListError")
+    m.pending.push(t)
+    t.control = "RUN"
+end sub
+
+sub onList(ev as object)
+    t = ev.getRoSGNode()
+    if t.gen <> m.gen then return
+    m.lists[t.listKey] = ev.getData().nodes
+    listDone()
+end sub
+
+sub onListError(ev as object)
+    t = ev.getRoSGNode()
+    if t.gen <> m.gen then return
+    print "Cove: favorites "; t.listKey; ": "; ev.getData()
+    if t.listKey = "items" then m.loadError = ev.getData()
+    listDone()
+end sub
+
+sub listDone()
+    m.waiting = m.waiting - 1
+    if m.waiting <= 0 then buildRows()
+end sub
+
+sub buildRows()
+    ' the titles by kind, in the Mac's order
+    groups = { movies: [], shows: [], episodes: [], collections: [], people: [] }
+    holder = m.lists.items
+    if holder <> invalid
+        for i = 0 to holder.getChildCount() - 1
+            c = holder.getChild(i)
+            t = c.itemType
+            if t = "Series"
+                groups.shows.push(c)
+            else if t = "Episode"
+                groups.episodes.push(c)
+            else if t = "BoxSet"
+                groups.collections.push(c)
+            else
+                groups.movies.push(c)
+            end if
+        end for
+    end if
+    ppl = m.lists.people
+    if ppl <> invalid
+        for i = 0 to ppl.getChildCount() - 1
+            groups.people.push(ppl.getChild(i))
+        end for
+    end if
+    titleCount = groups.movies.count() + groups.shows.count() + groups.episodes.count() + groups.collections.count()
+    ' (before the new content: replacing it moves the focus to the first card)
+    f = m.rows.rowItemFocused
+    if m.keep = invalid and m.rowKeys <> invalid and f <> invalid and f.count() >= 2 and f[0] < m.rowKeys.count() then m.keep = [m.rowKeys[f[0]], f[1]]
+    root = createObject("roSGNode", "ContentNode")
+    sizes = []
+    heights = []
+    keys = []
+    for each row in [{ key: "movies", title: "Favorite Movies" }, { key: "shows", title: "Favorite Shows" }, { key: "episodes", title: "Favorite Episodes" }, { key: "collections", title: "Favorite Collections" }, { key: "people", title: "Favorite People" }]
+        list = groups[row.key]
+        if list.count() > 0
+            r = root.createChild("ContentNode")
+            r.title = row.title
+            r.appendChildren(list)
+            keys.push(row.key)
+            if row.key = "people"
+                ' round photos, sized as Cast & Crew (Settings → Libraries → Cast & Crew)
+                if Prefs.castLarge()
+                    sizes.push([236, 356])
+                    heights.push(356)
+                else
+                    sizes.push([180, 296])
+                    heights.push(296)
+                end if
+            else
+                sizes.push([276, 466])
+                heights.push(466)
+            end if
+        end if
+    end for
+    m.rowKeys = keys
+    info = ""
+    if titleCount = 1 then info = "1 Item"
+    if titleCount > 1 then info = titleCount.toStr() + " Items"
+    m.top.findNode("info").text = info
+    print "Cove: favorites "; titleCount; " titles, "; groups.people.count(); " people"
+    if root.getChildCount() = 0
+        m.rows.visible = false
+        m.rows.content = createObject("roSGNode", "ContentNode")
+        m.status.text = "No favorites yet"
+        if m.loadError <> invalid then m.status.text = m.loadError
+        m.status.visible = true
+        m.top.findNode("hint").visible = m.loadError = invalid
+        m.loadError = invalid
+        m.keep = invalid
+        return
+    end if
+    m.loadError = invalid
+    m.status.visible = false
+    m.top.findNode("hint").visible = false
+    m.rows.rowItemSize = sizes
+    m.rows.rowHeights = heights
+    m.rows.content = root
+    m.rows.visible = true
+    if m.keep <> invalid
+        for i = 0 to keys.count() - 1
+            if keys[i] = m.keep[0]
+                col = m.keep[1]
+                n = root.getChild(i).getChildCount()
+                if col > n - 1 then col = n - 1
+                m.rows.jumpToRowItem = [i, col]
+            end if
+        end for
+        m.keep = invalid
+    end if
+    if m.top.isInFocusChain() then m.rows.setFocus(true)
+end sub
+
+sub onSelected()
+    s = m.rows.rowItemSelected
+    if s = invalid or s.count() < 2 or m.rows.content = invalid then return
+    row = m.rows.content.getChild(s[0])
+    if row = invalid then return
+    it = row.getChild(s[1])
+    if it = invalid then return
+    ct = ""
+    if it.hasField("collectionType") then ct = it.collectionType
+    m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: ct, title: it.title }
+end sub
+
+sub onFocusChanged()
+    ' back from a page where a favourite changed (MainScene sets "stale"): load again, keeping the card
+    if m.top.stale and m.top.isInFocusChain()
+        m.top.stale = false
+        loadFavorites()
+    end if
+    if m.top.hasFocus() and m.rows.content <> invalid and m.rows.content.getChildCount() > 0 then m.rows.setFocus(true)
+end sub

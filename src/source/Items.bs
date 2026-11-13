@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Prefs.bs"
 
 ' Turns Emby / Jellyfin items into what the home rows show: title, a line under it, poster / landscape / backdrop
 ' image URLs sized for the screen (the Streambar has 1 GB of RAM, so never full-size artwork), resume progress.
@@ -35,10 +36,26 @@ namespace Items
         return imageUrl(server, Util.toText(it.Id), "Primary", tagOf(it.ImageTags, "Primary"), w)
     end function
 
+    ' Settings → Hide spoilers: an episode not watched yet shows its series' picture instead of its still, and
+    ' no description (every card, the home banner, the episode's page and the player's Up Next card)
+    function hidesSpoilers(it as object) as boolean
+        if Util.toText(it.Type) <> "Episode" or Util.flag(it.UserData, "Played") then return false
+        return Prefs.hideSpoilers()
+    end function
+
+    ' A hidden episode's picture: the series' thumb, then its backdrop, then its poster
+    function seriesArt(server as object, it as object, w as integer) as string
+        if Util.toText(it.ParentThumbImageTag) <> "" then return imageUrl(server, Util.toText(it.ParentThumbItemId), "Thumb", Util.toText(it.ParentThumbImageTag), w)
+        b = first(it.ParentBackdropImageTags)
+        if b <> "" then return imageUrl(server, Util.toText(it.ParentBackdropItemId), "Backdrop", b, w)
+        return poster(server, it, w)
+    end function
+
     ' Landscape (16:9): an episode's own still, otherwise Thumb, then backdrop, then the poster
     function landscape(server as object, it as object, w as integer) as string
         id = Util.toText(it.Id)
         t = Util.toText(it.Type)
+        if t = "Episode" and hidesSpoilers(it) then return seriesArt(server, it, w)
         if t = "Episode" and tagOf(it.ImageTags, "Primary") <> "" then return imageUrl(server, id, "Primary", tagOf(it.ImageTags, "Primary"), w)
         if tagOf(it.ImageTags, "Thumb") <> "" then return imageUrl(server, id, "Thumb", tagOf(it.ImageTags, "Thumb"), w)
         if Util.toText(it.ParentThumbImageTag) <> "" then return imageUrl(server, Util.toText(it.ParentThumbItemId), "Thumb", Util.toText(it.ParentThumbImageTag), w)
@@ -90,6 +107,7 @@ namespace Items
         t = Util.toText(it.Type)
         if t = "Movie" then parts.push("Movie")
         if t = "Series" then parts.push("TV Show")
+        if t = "BoxSet" then parts.push("Collection")
         if t = "Episode" then parts.push(episodeLabel(it))
         if type(it.Genres) = "roArray"
             for i = 0 to it.Genres.count() - 1
@@ -170,7 +188,7 @@ namespace Items
             end if
         end if
         e = endsAt(it)
-        if e <> "" and Util.toText(it.Type) <> "Series" then parts.push("Ends at " + e)
+        if e <> "" and Util.toText(it.Type) <> "Series" and Util.toText(it.Type) <> "BoxSet" then parts.push("Ends at " + e)
         streams = it.MediaStreams
         if type(it.MediaSources) = "roArray" and it.MediaSources.count() > 0 and type(it.MediaSources[0].MediaStreams) = "roArray" then streams = it.MediaSources[0].MediaStreams
         if type(streams) = "roArray"
@@ -296,6 +314,7 @@ namespace Items
         c.collectionType = LCase(Util.toText(it.CollectionType))
         c.meta = meta(it)
         c.overview = Util.toText(it.Overview)
+        if hidesSpoilers(it) then c.overview = ""
         c.landscape = isLandscape
         if isLandscape
             c.hdPosterUrl = landscape(server, it, 480)

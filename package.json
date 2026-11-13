@@ -1,6 +1,6 @@
 {
   "name": "cove-roku",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "Cove for Roku: Emby and Jellyfin client",
   "license": "GPL-3.0",
@@ -11,7 +11,7 @@
   },
   "devDependencies": {
     "@rokucommunity/bslint": "^0.8.0",
-    "brighterscript": "^0.69.0",
+    "brighterscript": "^0.73.8",
     "roku-deploy": "^3.12.0"
   }
 }

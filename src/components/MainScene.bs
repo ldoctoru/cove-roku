@@ -281,8 +281,20 @@ sub onHomeAction(ev as object)
     else if a.id = "open"
         openItem(a)
     else if a.id = "play"
-        startPlayer({ id: a.itemId, title: a.title, subtitle: Util.toText(a.subtitle), start: a.start })
-    else if a.id = "favorites" or a.id = "recent"
+        playItem = { id: a.itemId, title: a.title, subtitle: Util.toText(a.subtitle), start: a.start }
+        ' (library Shuffle: the titles to play after this one)
+        if type(a.queue) = "roArray" then playItem.queue = a.queue
+        startPlayer(playItem)
+    else if a.id = "favorites"
+        ' rows by kind (Movies, Shows, Episodes, Collections, People), as the Mac's Favorites page
+        fs = createObject("roSGNode", "FavoritesScreen")
+        fs.observeField("action", "onHomeAction")
+        push(fs)
+        fs.server = m.server
+    else if a.id = "changed"
+        ' (a favourite person on their page: Home and Favorites reload when shown again)
+        markStale()
+    else if a.id = "recent"
         l = createObject("roSGNode", "LibraryScreen")
         l.server = m.server
         l.observeField("action", "onHomeAction")
@@ -316,8 +328,8 @@ sub openItem(a as object)
         showNotice(a.title, "Playlists come in a later update.")
         return
     end if
-    ' A library, folder or collection: its titles as a grid
-    if t = "CollectionFolder" or t = "UserView" or t = "Folder" or t = "BoxSet"
+    ' A library or folder: its titles as a grid (a collection / BoxSet has its own details page, as on the Mac)
+    if t = "CollectionFolder" or t = "UserView" or t = "Folder"
         l = createObject("roSGNode", "LibraryScreen")
         l.server = m.server
         l.observeField("action", "onHomeAction")
@@ -369,7 +381,7 @@ end sub
 sub markStale()
     m.homeStale = true
     for each s in m.stack
-        if s.screenId = "library" then s.stale = true
+        if s.screenId = "library" or s.screenId = "favorites" then s.stale = true
     end for
 end sub
 

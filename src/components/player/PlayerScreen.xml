@@ -3,9 +3,9 @@
      picture (enableUI off); text subtitles are drawn by SubtitleLayer; this component draws the controls.
      Set server + item ({ id, title, subtitle, start, options }); "done" fires when the user leaves.
      Controls hidden: OK pause / play, Left / Right -10 / +10 s (shows the controls). Controls shown: the progress
-     bar has the focus (Left / Right -10 / +10 s with a thumbnail, OK pause / play); Up: back 30, play / pause,
-     forward 30; Down: previous, next, episodes, subtitles, audio, quality. Back hides the controls.
-     Rewind / Fast forward: -30 / +30 s. * : audio, subtitles, quality. Skip intro and Up next appear over the video. -->
+     bar has the focus (Left / Right -10 / +10 s with a thumbnail, OK pause / play); Up: previous, play / pause,
+     next; Down: back / forward (Jump buttons), episodes, subtitles, audio, quality. Back hides the controls.
+     Rewind / Fast forward: Settings → Playback → Jump buttons (default 30 s). * : audio, subtitles, quality. Skip intro and Up next appear over the video. -->
 <component name="PlayerScreen" extends="Group">
     <script type="text/brightscript" uri="PlayerScreen.bs" />
     <interface>
@@ -58,9 +58,13 @@
                 <Label id="elapsed" width="110" height="66" translation="[24,0]" vertAlign="center" color="0xFFFFFFD9">
                     <Font role="font" uri="font:MediumSystemFontFile" size="24" />
                 </Label>
-                <Rectangle id="track" width="1600" height="6" translation="[130,30]" color="0xFFFFFF59" />
+                <Rectangle id="track" width="1380" height="6" translation="[130,30]" color="0xFFFFFF59" />
                 <Rectangle id="fill" width="0" height="6" translation="[130,30]" color="0xFFFFFFFF" />
                 <Poster id="thumb" uri="pkg:/images/ui/dot_24.png" width="22" height="22" translation="[119,22]" />
+                <!-- the Mac's "Ends at" (scrubber help label): the Roku's local time, 24 h, after the time left at the current speed -->
+                <Label id="endsAt" text="Ends at --:--" width="196" height="66" translation="[1534,0]" vertAlign="center" color="0xFFFFFFA6">
+                    <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+                </Label>
                 <Label id="remaining" width="120" height="66" translation="[1728,0]" horizAlign="right" vertAlign="center" color="0xFFFFFFD9">
                     <Font role="font" uri="font:MediumSystemFontFile" size="24" />
                 </Label>

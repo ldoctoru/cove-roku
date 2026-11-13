@@ -54,6 +54,12 @@ sub init()
     m.jumpToEpisodes = false
     m.about = m.top.findNode("about")
     m.hasAbout = false
+    m.ovMore = false        ' the description is cut: Up from the buttons reaches "MORE"
+    m.ovWidth = 0
+    m.textPanel = invalid   ' the whole description, while open
+    m.trailers = []         ' trailers stored on the server with this title (LocalTrailers)
+    m.boxList = []          ' a collection's titles, in release order
+    m.includedList = []     ' the collections this title is in ("Included In")
 end sub
 
 ' ---------------------------------------------------------------- loading
@@ -76,6 +82,7 @@ sub onRefresh()
         if m.seasonIndex >= 0 then loadEpisodes(m.seasonIndex)
         reloadSeasonCounts()
     end if
+    if Util.toText(m.item.Type) = "BoxSet" then loadBoxItems()
 end sub
 
 sub get(path as string, tag as object)
@@ -106,6 +113,9 @@ sub onResponse(ev as object)
     else if k = "watched"
         onWatched(r)
         return
+    else if k = "trailers"
+        onTrailers(r)
+        return
     end if
     if r.code <> 200 or r.json = invalid
         if k = "item" then m.status.text = "Couldn't load this title. " + Api.describeFailure(r)
@@ -126,6 +136,17 @@ sub onResponse(ev as object)
         rebuildRows()
     else if k = "seasonCounts"
         onSeasonCounts(r.json)
+    else if k = "boxItems"
+        m.boxList = listOf(r.json)
+        print "Cove: collection titles -> "; m.boxList.count()
+        buildButtons()
+        rebuildRows()
+    else if k = "includedIn"
+        list = listOf(r.json)
+        ' (a long answer means the server ignored the filter and sent every collection: show none, as the Mac)
+        if list.count() > 10 then list = []
+        m.includedList = list
+        rebuildRows()
     end if
 end sub
 
@@ -166,17 +187,20 @@ sub showItem(it as object)
     end if
     buildKind(it)
     lines = Util.wrapLines(Util.toText(it.Overview), 72, 3)
+    ' Settings → Hide spoilers: no description until the episode is watched
+    if Items.hidesSpoilers(it) and Util.toText(it.Overview) <> "" then lines = ["Description hidden until you watch this episode."]
     m.lines = lines.count()
     for i = 0 to 2
         line = ""
         if i < lines.count() then line = lines[i]
         m.top.findNode("ov" + i.toStr()).text = line
     end for
+    placeMore(it, lines)
     m.top.findNode("facts").text = Items.facts(it)
     showPeople(it)
     showAbout(it)
     ' audio / subtitles / quality for this playback (chosen once, kept on refresh)
-    if t <> "Series" and (first or m.tracks = invalid)
+    if t <> "Series" and t <> "BoxSet" and (first or m.tracks = invalid)
         m.versions = Tracks.versions(it)
         m.tracks = Tracks.fromItem(it, m.opts.sourceId)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
@@ -209,6 +233,9 @@ sub showItem(it as object)
             loadNextUp()
         end if
         get("/Items/" + Util.toText(it.Id) + "/Similar?UserId=" + Util.toText(srv.userId) + "&Limit=12&" + Items.fields(), { kind: "similar" })
+        loadTrailers(it)
+        if t = "BoxSet" then loadBoxItems()
+        if t <> "BoxSet" and t <> "Episode" then loadIncludedIn(it)
     end if
     buildButtons()
     layoutHeader()
@@ -279,6 +306,74 @@ sub layoutHeader()
     end if
     m.top.findNode("eyebrow").translation = [96, topY - 44]
     m.top.findNode("people").translation = [1380, ovY]
+    hl = m.top.findNode("ovFocus")
+    hl.translation = [72, ovY - 12]
+    hl.width = m.ovWidth + 48
+    hl.height = m.lines * 38 + 22
+end sub
+
+' ---------------------------------------------------------------- the whole description
+
+' A description longer than the three lines ends in "... MORE"; Up from the buttons highlights it and OK opens
+' the whole text in a panel (Cove for macOS shows it all in the header, which a TV page has no room for)
+sub placeMore(it as object, lines as object)
+    full = Util.toText(it.Overview).trim()
+    m.ovMore = false
+    if full <> "" and not Items.hidesSpoilers(it) and lines.count() = 3 then m.ovMore = Util.wrapLines(full, 72, 4).count() > 3
+    more = m.top.findNode("ovMore")
+    more.visible = m.ovMore
+    m.ovWidth = 0
+    meas = m.top.findNode("ovMeasure")
+    for i = 0 to lines.count() - 1
+        meas.text = lines[i]
+        w = meas.boundingRect().width
+        if w > m.ovWidth then m.ovWidth = w
+    end for
+    if m.ovMore
+        x = Int(meas.boundingRect().width) + 14
+        if x > 1180 then x = 1180
+        more.translation = [x, 76 + 2]
+        if x + 76 > m.ovWidth then m.ovWidth = x + 76
+    end if
+    if not m.ovMore and m.state = "overview" then m.state = "buttons"
+end sub
+
+sub drawOverviewFocus()
+    on = m.state = "overview" and m.textPanel = invalid
+    m.top.findNode("ovFocus").visible = on
+    more = m.top.findNode("ovMore")
+    if on
+        more.color = "0xFFFFFFFF"
+    else
+        more.color = "0xFFFFFF99"
+    end if
+end sub
+
+sub enterOverview()
+    m.state = "overview"
+    m.btnKeys.setFocus(true)
+    drawButtons()
+end sub
+
+sub openFullText()
+    if m.item = invalid or m.textPanel <> invalid then return
+    p = createObject("roSGNode", "TextPanel")
+    p.heading = Util.toText(m.item.Name)
+    p.text = Util.toText(m.item.Overview)
+    p.observeField("closed", "onTextClosed")
+    m.top.appendChild(p)
+    m.textPanel = p
+    drawOverviewFocus()
+    p.setFocus(true)
+end sub
+
+sub onTextClosed()
+    if m.textPanel <> invalid
+        m.textPanel.unobserveField("closed")
+        m.top.removeChild(m.textPanel)
+        m.textPanel = invalid
+    end if
+    enterOverview()
 end sub
 
 sub onLogoLoaded()
@@ -303,8 +398,8 @@ sub buildButtons()
     it = m.item
     t = Util.toText(it.Type)
     btns = []
-    target = it
-    if t = "Series" then target = seriesTarget()
+    target = playTarget()
+    isGroup = t = "Series" or t = "BoxSet"
     resumeAt = 0.0
     if target <> invalid then resumeAt = Items.resumeAt(target)
     label = "Play"
@@ -312,10 +407,15 @@ sub buildButtons()
     if t = "Series" and target <> invalid
         chip = "S" + Util.toText(target.ParentIndexNumber) + ":E" + Util.toText(target.IndexNumber)
         label = label + " " + chip
+    else if t = "BoxSet" and target <> invalid
+        ' a collection: which of its titles ("Play Alien", "Resume Aliens")
+        n = Util.toText(target.Name)
+        if n.len() > 28 then n = n.left(26) + "..."
+        label = label + " " + n
     else if resumeAt > 30
         label = "Resume from " + Playback.clock(resumeAt)
     end if
-    if t <> "Series" or target <> invalid then btns.push({ id: "play", pill: true, label: label })
+    if not isGroup or target <> invalid then btns.push({ id: "play", pill: true, label: label })
     if resumeAt > 30 then btns.push({ id: "restart", icon: "restart" })
     favIcon = "plus"
     if m.isFav then favIcon = "check"
@@ -324,6 +424,8 @@ sub buildButtons()
     watchIcon = "eye"
     if Util.flag(it.UserData, "Played") then watchIcon = "eyeslash"
     btns.push({ id: "watched", icon: watchIcon })
+    ' trailers stored on the server (the Mac's film button; YouTube links aren't played on the TV)
+    if m.trailers.count() > 0 then btns.push({ id: "trailer", icon: "film" })
     if t <> "Series" and m.tracks <> invalid then btns.push({ id: "tracks", icon: "captions" })
     ' an episode: its series' page, or the series' page on this season
     if t = "Episode" and Util.toText(it.SeriesId) <> ""
@@ -336,6 +438,28 @@ sub buildButtons()
     if m.btn >= btns.count() then m.btn = 0
     drawButtons()
 end sub
+
+' What Play acts on: the title itself, a series' next episode, a collection's first title not watched yet
+function playTarget() as dynamic
+    t = Util.toText(m.item.Type)
+    if t = "Series" then return seriesTarget()
+    if t = "BoxSet" then return boxTarget()
+    return m.item
+end function
+
+' A collection: the first title (in release order) not watched yet, else the first; only playable ones
+' (a series or a nested collection in it opens from the row instead)
+function boxTarget() as dynamic
+    firstPlayable = invalid
+    for each c in m.boxList
+        k = Util.toText(c.Type)
+        if k = "Movie" or k = "Episode" or k = "Video" or k = "MusicVideo"
+            if firstPlayable = invalid then firstPlayable = c
+            if not Util.flag(c.UserData, "Played") then return c
+        end if
+    end for
+    return firstPlayable
+end function
 
 ' The series' episode to play: the next one to watch, else the first of the loaded season
 function seriesTarget() as dynamic
@@ -434,6 +558,7 @@ sub drawButtons()
             x = x + 69 + 18
         end if
     end for
+    drawOverviewFocus()
 end sub
 
 sub useButton()
@@ -441,15 +566,13 @@ sub useButton()
     id = m.btns[m.btn].id
     it = m.item
     if id = "play"
-        target = it
-        if Util.toText(it.Type) = "Series" then target = seriesTarget()
+        target = playTarget()
         if target = invalid then return
         start = Items.resumeAt(target)
         if start <= 30 then start = 0
         requestPlay(target, start)
     else if id = "restart"
-        target = it
-        if Util.toText(it.Type) = "Series" then target = seriesTarget()
+        target = playTarget()
         if target <> invalid then requestPlay(target, 0)
     else if id = "fav"
         toggleFavourite()
@@ -457,6 +580,16 @@ sub useButton()
         toggleWatched()
     else if id = "tracks"
         showTracksMenu()
+    else if id = "trailer"
+        if m.trailers.count() = 1
+            playTrailer(0)
+        else
+            o = []
+            for i = 0 to m.trailers.count() - 1
+                o.push({ id: i.toStr(), label: trailerName(i) })
+            end for
+            openPicker("trailer", "Trailers", o, "")
+        end if
     else if id = "series" or id = "season"
         o = { itemId: Util.toText(it.SeriesId), itemType: "Series", title: Util.toText(it.SeriesName) }
         if id = "season" then o.seasonId = Util.toText(it.SeasonId)
@@ -473,6 +606,69 @@ sub requestPlay(it as object, start as float)
     ' Choices from this page apply to this movie / episode (other episodes use the defaults)
     if m.item <> invalid and Util.toText(it.Id) = Util.toText(m.item.Id) and Util.toText(m.item.Type) <> "Series" then p.options = m.opts
     m.top.play = p
+end sub
+
+' ---------------------------------------------------------------- collections (Mac boxGrid, includedInSection)
+
+' A collection's titles in release order, oldest first (a film series reads in the order it came out)
+sub loadBoxItems()
+    srv = m.top.server
+    get("/Users/" + Util.toText(srv.userId) + "/Items?ParentId=" + Util.toText(m.item.Id) + "&SortBy=PremiereDate,ProductionYear,SortName&SortOrder=Ascending&" + Items.fields(), { kind: "boxItems" })
+end sub
+
+' The collections a movie or show is in. Jellyfin has its own call (newer servers; older ones answer with an
+' error, so the row stays away); Emby filters BoxSets with ListItemIds.
+sub loadIncludedIn(it as object)
+    srv = m.top.server
+    id = Util.toText(it.Id)
+    if Util.toText(srv.type) = "jellyfin"
+        get("/Items/" + id + "/Collections?userId=" + Util.toText(srv.userId) + "&" + Items.fields(), { kind: "includedIn" })
+    else
+        get("/Users/" + Util.toText(srv.userId) + "/Items?Recursive=true&IncludeItemTypes=BoxSet&ListItemIds=" + id + "&" + Items.fields(), { kind: "includedIn" })
+    end if
+end sub
+
+' ---------------------------------------------------------------- trailers (stored on the server)
+
+' GET /Users/{id}/Items/{item}/LocalTrailers (Jellyfin 10.9+: /Items/{item}/LocalTrailers?userId=). Asked when
+' the server says the title has some, or doesn't say (LocalTrailerCount isn't sent by every server version).
+sub loadTrailers(it as object)
+    m.trailers = []
+    t = Util.toText(it.Type)
+    if t = "BoxSet" or t = "Person" then return
+    if it.LocalTrailerCount <> invalid and Util.toNumber(it.LocalTrailerCount) <= 0 then return
+    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + Util.toText(it.Id) + "/LocalTrailers", { kind: "trailers", itemId: Util.toText(it.Id), newRoute: false })
+end sub
+
+sub onTrailers(r as object)
+    if m.item = invalid or r.tag.itemId <> Util.toText(m.item.Id) then return
+    if (r.code = 404 or r.code = 405) and not r.tag.newRoute
+        get("/Items/" + r.tag.itemId + "/LocalTrailers?userId=" + Util.toText(m.top.server.userId), { kind: "trailers", itemId: r.tag.itemId, newRoute: true })
+        return
+    end if
+    if r.code <> 200 then return
+    list = []
+    for each tr in listOf(r.json)
+        if Util.isAA(tr) and Util.toText(tr.Id) <> "" then list.push(tr)
+    end for
+    print "Cove: local trailers -> "; list.count()
+    m.trailers = list
+    buildButtons()
+end sub
+
+function trailerName(i as integer) as string
+    n = Util.toText(m.trailers[i].Name)
+    if n = "" or n = Util.toText(m.item.Name) then n = "Trailer " + (i + 1).toStr()
+    return n
+end function
+
+' In the Cove player like any video; the title itself isn't touched (no resume point, not marked watched, no Up next)
+sub playTrailer(i as integer)
+    if i < 0 or i >= m.trailers.count() then return
+    tr = m.trailers[i]
+    sub_ = "Trailer"
+    if m.trailers.count() > 1 then sub_ = trailerName(i)
+    m.top.play = { id: Util.toText(tr.Id), title: Util.toText(m.item.Name), subtitle: sub_, start: 0, trailer: true }
 end sub
 
 ' ---------------------------------------------------------------- favourite
@@ -662,6 +858,12 @@ sub onPicked(ev as object)
         end if
         return
     end if
+    if c.purpose = "trailer"
+        closePicker()
+        enterButtons(false)
+        playTrailer(c.id.toInt())
+        return
+    end if
     if c.purpose = "seasonmenu"
         closePicker()
         enterSeason()
@@ -807,6 +1009,16 @@ sub rebuildRows()
         heights.push(426)
         labels.push(false)
     end if
+    ' a collection: its titles, in release order
+    if m.boxList.count() > 0
+        row = newRow(root, "In This Collection", "box")
+        for each b in m.boxList
+            row.appendChild(Items.node(srv, b, false))
+        end for
+        sizes.push([276, 466])
+        heights.push(466)
+        labels.push(true)
+    end if
     if m.castList.count() > 0
         row = newRow(root, "Cast & Crew", "cast")
         for each p in m.castList
@@ -820,6 +1032,15 @@ sub rebuildRows()
             sizes.push([180, 296])
             heights.push(296)
         end if
+        labels.push(true)
+    end if
+    if m.includedList.count() > 0
+        row = newRow(root, "Included In", "included")
+        for each b in m.includedList
+            row.appendChild(Items.node(srv, b, false))
+        end for
+        sizes.push([276, 466])
+        heights.push(466)
         labels.push(true)
     end if
     if m.similarList.count() > 0
@@ -1185,6 +1406,13 @@ sub onRowSelected()
     else if k = "cast" and i < m.castList.count()
         pp = m.castList[i]
         m.top.openItem = { id: "open", itemId: Util.toText(pp.Id), itemType: "Person", collectionType: "", title: Util.toText(pp.Name) }
+    else if (k = "box" and i < m.boxList.count()) or (k = "included" and i < m.includedList.count())
+        if k = "box"
+            b = m.boxList[i]
+        else
+            b = m.includedList[i]
+        end if
+        m.top.openItem = { id: "open", itemId: Util.toText(b.Id), itemType: Util.toText(b.Type), collectionType: "", title: Util.toText(b.Name), seriesId: Util.toText(b.SeriesId), seriesName: Util.toText(b.SeriesName) }
     else if k = "similar" and i < m.similarList.count()
         it = m.similarList[i]
         m.top.openItem = { id: "open", itemId: Util.toText(it.Id), itemType: Util.toText(it.Type), collectionType: "", title: Util.toText(it.Name) }
@@ -1231,8 +1459,20 @@ sub enterRows()
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
-    if not press or m.picker <> invalid then return false
+    if not press or m.picker <> invalid or m.textPanel <> invalid then return false
+    if m.state = "overview"
+        if key = "OK"
+            openFullText()
+        else if key = "down" or key = "back"
+            enterButtons(false)
+        end if
+        return true
+    end if
     if m.state = "buttons"
+        if key = "up" and m.ovMore
+            enterOverview()
+            return true
+        end if
         if key = "left" and m.btn > 0
             m.btn = m.btn - 1
             drawButtons()
@@ -1308,6 +1548,10 @@ sub onFocusChanged()
     if not m.top.hasFocus() then return
     if m.picker <> invalid
         m.picker.setFocus(true)
+    else if m.textPanel <> invalid
+        m.textPanel.setFocus(true)
+    else if m.state = "overview"
+        m.btnKeys.setFocus(true)
     else if m.state = "rows" and m.rows.visible
         m.rows.setFocus(true)
     else if m.state = "about"
