@@ -96,6 +96,11 @@ namespace Prefs
         return flagOn("showEpisodeDescription", true)
     end function
 
+    ' Settings → Libraries → Hide spoilers for unwatched episodes (off by default, as in Infuse)
+    function hideSpoilers() as boolean
+        return flagOn("hideSpoilers", false)
+    end function
+
     function skipSeconds() as integer
         v = Util.readText("skipSeconds").toInt()
         if v <= 0 then v = 10

@@ -316,8 +316,8 @@ sub openItem(a as object)
         showNotice(a.title, "Playlists come in a later update.")
         return
     end if
-    ' A library, folder or collection: its titles as a grid
-    if t = "CollectionFolder" or t = "UserView" or t = "Folder" or t = "BoxSet"
+    ' A library or folder: its titles as a grid (a collection / BoxSet has its own details page, as on the Mac)
+    if t = "CollectionFolder" or t = "UserView" or t = "Folder"
         l = createObject("roSGNode", "LibraryScreen")
         l.server = m.server
         l.observeField("action", "onHomeAction")

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- The whole description of a title (details page: Up to the overview, OK). A Glass panel in the middle of a
+     dimmed screen: the title, then the text wrapped by hand; Up / Down scroll when it is longer than the panel,
+     Back / OK / Left close it ("closed" fires; the page removes the panel). Set heading, then text. -->
+<component name="TextPanel" extends="Group">
+    <script type="text/brightscript" uri="TextPanel.bs" />
+    <interface>
+        <field id="heading" type="string" />
+        <field id="text" type="string" onChange="onText" />
+        <field id="closed" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle width="1920" height="1080" color="0x000000B3" />
+        <Poster uri="pkg:/images/ui/panel_r21.9.png" width="1320" height="820" translation="[300,130]" />
+        <Label id="heading" width="1200" height="60" translation="[360,176]" color="0xFFFFFFFF" text="Description">
+            <Font role="font" uri="font:BoldSystemFontFile" size="40" />
+        </Label>
+        <Group id="body" translation="[360,262]" />
+        <!-- a thin bar on the right shows where the visible part is in a long text -->
+        <Rectangle id="track" width="4" height="560" translation="[1584,266]" color="0xFFFFFF26" visible="false" />
+        <Rectangle id="thumb" width="4" height="100" translation="[1584,266]" color="0xFFFFFFB3" visible="false" />
+        <Label id="hint" width="1200" height="36" translation="[360,866]" color="0xFFFFFF8C" text="Back to close">
+            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+        </Label>
+    </children>
+</component>

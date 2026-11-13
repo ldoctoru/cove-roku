@@ -2,7 +2,8 @@
 <!-- A movie, episode or series in Cove's Glass style (Sources/Views.swift detail page).
      Full-screen backdrop; bottom-left: eyebrow, logo or title, details, overview, facts and the button row
      (Play / Resume, Start over, + / check favourite, CC audio and subtitles); right: Starring / Director.
-     Below (Down): rows of seasons and episodes (series), cast and More Like This; below the last row About
+     Below (Down): rows of seasons and episodes (series) or the collection's titles (BoxSet), cast, Included In
+     and More Like This; below the last row About
      (tagline, genres, studios, dates, media info).
      "play" asks MainScene to start the player, "openItem" to open another title. -->
 <component name="DetailsScreen" extends="Group">
@@ -52,7 +53,11 @@
                     <Font role="font" uri="font:MediumSystemFontFile" size="26" />
                 </Label>
             </Group>
+            <!-- Up from the buttons when the description is cut: a glass highlight, OK opens the whole text -->
+            <Poster id="ovFocus" uri="pkg:/images/ui/sel_pill.9.png" visible="false" />
+            <Label id="ovMeasure" height="38" opacity="0"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
             <Group id="ov" translation="[96,0]">
+                <Label id="ovMore" text="MORE" height="38" color="0xFFFFFF99" visible="false"><Font role="font" uri="font:BoldSystemFontFile" size="24" /></Label>
                 <Label id="ov0" width="980" height="38" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
                 <Label id="ov1" width="980" height="38" translation="[0,38]" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
                 <Label id="ov2" width="980" height="38" translation="[0,76]" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
