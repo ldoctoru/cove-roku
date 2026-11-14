@@ -3,6 +3,7 @@ import "pkg:/source/Servers.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/DeviceCaps.bs"
 import "pkg:/source/Theme.bs"
+import "pkg:/source/Pins.bs"
 
 sub init()
     ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
@@ -23,6 +24,8 @@ sub init()
     m.pendingUser = ""
     m.keyboardFor = ""
     m.nextAsk = invalid
+    m.nextNotice = invalid      ' a PIN message shown once the PIN pad has closed
+    m.pinFor = invalid          ' { serverId, userId } whose PIN is being asked
     m.dialogTimer = m.top.findNode("dialogTimer")
     m.dialogTimer.observeField("fire", "onDialogTimer")
     m.removeId = ""
@@ -556,6 +559,11 @@ sub onDialogTimer()
     a = m.nextAsk
     m.nextAsk = invalid
     if a <> invalid then askText(a.purpose, a.title, a.message, a.text, a.secure)
+    if m.nextNotice <> invalid
+        n = m.nextNotice
+        m.nextNotice = invalid
+        showNotice("Profile PIN", n)
+    end if
 end sub
 
 sub onKeyboardButton()
@@ -917,7 +925,9 @@ end sub
 ' ---------------------------------------------------------------- profiles (Who's watching?)
 
 ' At start: the server has 2 or more profiles and Settings → Servers → "Ask who's watching at start" is on
+' (also, whatever that setting, when the last profile used has a PIN: it's asked before its Home opens)
 function wantsWho(s as object) as boolean
+    if Servers.pinOf(s, Util.toText(s.userId)) <> "" then return true
     return Servers.profiles(s).count() >= 2 and Servers.asksWho(s)
 end function
 
@@ -984,7 +994,67 @@ end sub
 
 ' A profile was picked (Who's watching?, Settings): its PIN first when it has one, then switch
 sub chooseProfile(srv as object, userId as string)
-    switchProfile(srv, userId)
+    sid = Util.toText(srv.id)
+    stored = Servers.pinOf(srv, userId)
+    onHome = m.server <> invalid and m.homeReady and Util.toText(m.server.id) = sid and Util.toText(m.server.userId) = userId
+    if stored = "" or onHome
+        switchProfile(srv, userId)
+        return
+    end if
+    wait_ = Pins.waitLeft(sid, userId)
+    if wait_ > 0
+        pinMessage(Pins.waitText(wait_))
+        return
+    end if
+    u = Servers.userOf(srv, userId)
+    m.pinFor = { serverId: sid, userId: userId }
+    askPin("Enter the PIN for " + Util.toText(Util.field(u, "n")), "This profile is locked with a PIN.")
+end sub
+
+' The Roku's PIN pad (4 digits, hidden as they are typed)
+sub askPin(title as string, message as string)
+    d = createObject("roSGNode", "StandardPinPadDialog")
+    d.title = title
+    d.message = [message]
+    d.buttons = ["OK", "Cancel"]
+    if d.hasField("textEditBox") and d.textEditBox <> invalid
+        d.textEditBox.secureMode = true
+        d.textEditBox.maxTextLength = 4
+    end if
+    d.observeField("buttonSelected", "onPinButton")
+    d.observeField("wasClosed", "onDialogClosed")
+    m.top.dialog = d
+    d.setFocus(true)
+end sub
+
+sub onPinButton()
+    d = m.top.dialog
+    ok = d.buttonSelected = 0
+    pin = Util.toText(d.pin)
+    closeDialog()
+    f = m.pinFor
+    m.pinFor = invalid
+    if not ok or f = invalid then return
+    srv = Servers.find(f.serverId)
+    if srv = invalid then return
+    if Pins.matches(Servers.pinOf(srv, f.userId), f.serverId, f.userId, pin)
+        Pins.clearWrong(f.serverId, f.userId)
+        switchProfile(srv, f.userId)
+    else
+        print "Cove: wrong profile PIN"
+        pinMessage(Pins.wrongText(Pins.noteWrong(f.serverId, f.userId)))
+    end if
+end sub
+
+' On Who's watching? as its status line, elsewhere (Settings) as a notice
+sub pinMessage(text as string)
+    if topIs("profiles")
+        top().status = text
+    else
+        ' (after the PIN pad has closed, so the notice gets the focus)
+        m.nextNotice = text
+        m.dialogTimer.control = "start"
+    end if
 end sub
 
 ' Makes the profile the active one and rebuilds Home for it (sign in again when its sign-in has gone)

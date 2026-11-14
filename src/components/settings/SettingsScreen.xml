@@ -26,5 +26,7 @@
         </Group>
         <Group id="keys" focusable="true" />
         <Timer id="kbTimer" duration="0.4" repeat="false" />
+        <!-- (v0.9.0) opens the next PIN pad / notice once the previous dialog has closed -->
+        <Timer id="pinTimer" duration="0.4" repeat="false" />
     </children>
 </component>

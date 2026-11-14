@@ -6,6 +6,7 @@ import "pkg:/source/Prefs.bs"
 import "pkg:/source/Tracks.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/DeviceCaps.bs"
+import "pkg:/source/Pins.bs"
 
 ' Layout (1920 x 1080): cards from x 200, 1520 wide; the label column ends at x 610, controls start at x 650
 ' (the Mac's PrefRow: label right-aligned in a fixed column, the control beside it)
@@ -15,6 +16,10 @@ sub init()
     m.keys = m.top.findNode("keys")
     m.kbTimer = m.top.findNode("kbTimer")
     m.kbTimer.observeField("fire", "focusKeyboard")
+    m.pinTimer = m.top.findNode("pinTimer")
+    m.pinTimer.observeField("fire", "onPinTimer")
+    m.pinFlow = invalid         ' (v0.9.0) the profile PIN steps in progress
+    m.nextDialog = invalid
     m.tab = 0
     m.area = "tabs"
     m.row = 0
@@ -977,9 +982,174 @@ sub profileMenu(userId as string)
     o = []
     cur = userId = Util.toText(srv.userId)
     if not cur then o.push({ id: "use", label: "Switch to " + Util.toText(u.n) })
+    if Util.toText(u.p) = ""
+        o.push({ id: "pinSet", label: "Profile PIN: Off  ·  Set PIN..." })
+    else
+        o.push({ id: "pinChange", label: "Profile PIN: On  ·  Change PIN..." })
+        o.push({ id: "pinRemove", label: "Remove PIN" })
+    end if
     o.push({ id: "signout", label: "Sign Out" })
     m.menuProfile = userId
     openPicker("prof", Util.toText(u.n), o, "")
+end sub
+
+' ---------------------------------------------------------------- profile PIN
+
+' goal: "set" (new, confirm), "change" (current, new, confirm), "remove" (current), "signout" (current, when it
+' has one), and whatever else needs the PIN first ("rating"). A profile without a PIN skips the current step.
+sub startPinFlow(userId as string, goal as string)
+    srv = currentServer()
+    if srv = invalid then return
+    sid = Util.toText(srv.id)
+    m.pinFlow = { userId: userId, goal: goal, newPin: "" }
+    if goal = "set"
+        nextPin("new")
+    else if Servers.pinOf(srv, userId) = ""
+        pinVerified()
+    else
+        wait_ = Pins.waitLeft(sid, userId)
+        if wait_ > 0
+            m.pinFlow = invalid
+            later({ kind: "notice", text: Pins.waitText(wait_) })
+            return
+        end if
+        nextPin("verify")
+    end if
+end sub
+
+sub nextPin(stepName as string)
+    m.pinFlow.stepName = stepName
+    u = Servers.userOf(currentServer(), m.pinFlow.userId)
+    who = Util.toText(Util.field(u, "n"))
+    if stepName = "verify"
+        openPinPad("PIN for " + who, "Enter the current PIN of this profile.")
+    else if stepName = "new"
+        openPinPad("New PIN for " + who, "4 digits. Cove asks for it when someone picks this profile, and before its rating limit changes.")
+    else
+        openPinPad("Confirm the PIN", "Enter the same 4 digits again.")
+    end if
+end sub
+
+sub openPinPad(title as string, message as string)
+    d = createObject("roSGNode", "StandardPinPadDialog")
+    d.title = title
+    d.message = [message]
+    d.buttons = ["OK", "Cancel"]
+    if d.hasField("textEditBox") and d.textEditBox <> invalid
+        d.textEditBox.secureMode = true
+        d.textEditBox.maxTextLength = 4
+    end if
+    d.observeField("buttonSelected", "onPinPadButton")
+    d.observeField("wasClosed", "onPinPadClosed")
+    m.top.getScene().dialog = d
+    m.kbTimer.control = "start"
+end sub
+
+' The next dialog once this one has gone (a dialog opened while the last one closes gets no focus)
+sub later(next_ as object)
+    m.nextDialog = next_
+    m.pinTimer.control = "start"
+end sub
+
+sub onPinTimer()
+    n = m.nextDialog
+    m.nextDialog = invalid
+    if n = invalid then return
+    if n.kind = "pin"
+        nextPin(n.stepName)
+    else
+        d = createObject("roSGNode", "StandardMessageDialog")
+        d.title = "Profile PIN"
+        d.message = [n.text]
+        d.buttons = ["OK"]
+        d.observeField("buttonSelected", "onPinPadClosed")
+        d.observeField("wasClosed", "onPinPadClosed")
+        m.top.getScene().dialog = d
+        m.kbTimer.control = "start"
+    end if
+end sub
+
+sub onPinPadClosed(ev as object)
+    d = ev.getRoSGNode()
+    d.unobserveField("buttonSelected")
+    d.unobserveField("wasClosed")
+    d.close = true
+    m.keys.setFocus(true)
+    draw()
+end sub
+
+sub onPinPadButton(ev as object)
+    d = ev.getRoSGNode()
+    ok = d.buttonSelected = 0
+    pin = Util.toText(d.pin)
+    d.unobserveField("buttonSelected")
+    d.unobserveField("wasClosed")
+    d.close = true
+    m.keys.setFocus(true)
+    f = m.pinFlow
+    srv = currentServer()
+    if not ok or f = invalid or srv = invalid
+        m.pinFlow = invalid
+        draw()
+        return
+    end if
+    sid = Util.toText(srv.id)
+    if f.stepName = "verify"
+        if Pins.matches(Servers.pinOf(srv, f.userId), sid, f.userId, pin)
+            Pins.clearWrong(sid, f.userId)
+            pinVerified()
+        else
+            print "Cove: wrong profile PIN"
+            m.pinFlow = invalid
+            later({ kind: "notice", text: Pins.wrongText(Pins.noteWrong(sid, f.userId)) })
+        end if
+    else if f.stepName = "new"
+        if not Pins.isValid(pin)
+            later({ kind: "pin", stepName: "new" })
+            return
+        end if
+        f.newPin = pin
+        later({ kind: "pin", stepName: "confirm" })
+    else if f.stepName = "confirm"
+        if pin <> f.newPin
+            f.newPin = ""
+            m.pinFlow = invalid
+            later({ kind: "notice", text: "The PINs didn't match. The PIN wasn't changed." })
+            return
+        end if
+        Servers.setUserField(sid, f.userId, "p", Pins.make(sid, f.userId, pin))
+        Pins.clearWrong(sid, f.userId)
+        m.pinFlow = invalid
+        later({ kind: "notice", text: "PIN saved. Cove asks for it when someone picks this profile." })
+    end if
+    draw()
+end sub
+
+' The current PIN was right (or the profile has none): carry on with what it was asked for
+sub pinVerified()
+    f = m.pinFlow
+    srv = currentServer()
+    if f = invalid or srv = invalid then return
+    sid = Util.toText(srv.id)
+    if f.goal = "change"
+        later({ kind: "pin", stepName: "new" })
+        return
+    end if
+    m.pinFlow = invalid
+    if f.goal = "remove"
+        Servers.setUserField(sid, f.userId, "p", "")
+        later({ kind: "notice", text: "PIN removed. Anyone can pick this profile now." })
+    else if f.goal = "signout"
+        signOutProfile(f.userId)
+    else
+        pinGoal(f.goal, f.userId)
+    end if
+    draw()
+end sub
+
+' (other things a PIN guards; see the rating limit)
+sub pinGoal(goal as string, userId as string)
+    print "Cove: PIN checked for "; goal; " ("; userId.len(); ")"
 end sub
 
 ' Signs one profile out: its session on the server, then it's forgotten here
@@ -1075,7 +1245,18 @@ sub onPicked(ev as object)
         if c.id = "use"
             m.top.action = { id: "useProfile", userId: m.menuProfile }
         else if c.id = "signout"
-            signOutProfile(m.menuProfile)
+            ' (another profile's PIN guards it from being signed out here)
+            if m.menuProfile = Util.toText(currentServer().userId)
+                signOutProfile(m.menuProfile)
+            else
+                startPinFlow(m.menuProfile, "signout")
+            end if
+        else if c.id = "pinSet"
+            startPinFlow(m.menuProfile, "set")
+        else if c.id = "pinChange"
+            startPinFlow(m.menuProfile, "change")
+        else if c.id = "pinRemove"
+            startPinFlow(m.menuProfile, "remove")
         end if
     else if purpose = "srv"
         id = m.menuServer
