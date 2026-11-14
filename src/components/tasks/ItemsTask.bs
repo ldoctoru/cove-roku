@@ -1,5 +1,6 @@
 import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
+import "pkg:/source/Ratings.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -9,8 +10,9 @@ sub work()
     try
         srv = m.top.server
         h = Api.headers(srv, true)
-        r = Api.execute({ method: "GET", url: Util.toText(srv.url) + m.top.path, headers: h, timeout: 20000 })
-        if r.code = 404 and m.top.fallback <> "" then r = Api.execute({ method: "GET", url: Util.toText(srv.url) + m.top.fallback, headers: h, timeout: 20000 })
+        ' (the profile's rating limit, v0.9.0: asked of the server, and checked again below)
+        r = Api.execute({ method: "GET", url: Util.toText(srv.url) + Ratings.withLimit(srv, m.top.path), headers: h, timeout: 20000 })
+        if r.code = 404 and m.top.fallback <> "" then r = Api.execute({ method: "GET", url: Util.toText(srv.url) + Ratings.withLimit(srv, m.top.fallback), headers: h, timeout: 20000 })
         print "Cove: items "; m.top.path.split("?")[0]; " -> "; r.code
         if r.code <> 200 or r.json = invalid
             m.top.error = "Couldn't load the list. " + Api.describeFailure(r)
@@ -26,7 +28,7 @@ sub work()
         ' (only objects: a wrong type in the list would stop at the first field read)
         kept = []
         for each it in list
-            if Util.isAA(it) then kept.push(it)
+            if Util.isAA(it) and (m.top.kind = "person" or Ratings.allowed(srv, it)) then kept.push(it)
         end for
         list = kept
         if total = 0 then total = list.count()

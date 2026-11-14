@@ -12,6 +12,8 @@
         <field id="action" type="assocarray" alwaysNotify="true" />
         <field id="screenId" type="string" value="home" />
         <field id="reload" type="boolean" alwaysNotify="true" onChange="onReload" />
+        <!-- Instant Resume: true while the app is in the background (no hero rotation, no session polling) -->
+        <field id="suspended" type="boolean" onChange="onSuspended" />
     </interface>
     <children>
         <!-- backdrop: two layers that crossfade -->

@@ -1,0 +1,233 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Prefs.bs"
+
+' Settings → Home → Rows: which Home rows show and in what order, per server.
+' Row ids: "resume" (Continue Watching), "nextup", "favorites", "recent" (Recently Added, all libraries),
+' "L<libraryId>" (a library's row) and "libraries" (the library tiles).
+' One registry key per server, "homeRows:<serverId>": an optional "@" (use the server's Home layout), then the
+' ids in order, comma separated; "+" / "-" before resume / recent / libraries = switched on / off (no sign: the
+' default, on for resume and libraries, off for the new Recently Added row). The other switches keep their
+' existing keys, so Settings → Libraries and Home → Rows can't disagree: Next Up = "showUpNextRow",
+' Favorites = "homeFavorites", a library's row = its "Row on Home" (lib:<id>.home, with the library shown).
+namespace HomeLayout
+
+    function regKey(serverId as string) as string
+        return "homeRows:" + serverId
+    end function
+
+    ' { server: boolean, order: [ids], flags: { id: boolean } } as saved (order may be empty: the default)
+    function readState(serverId as string) as object
+        st = { server: false, order: [], flags: {} }
+        v = Util.readText(regKey(serverId))
+        if v.left(1) = "@"
+            st.server = true
+            v = v.mid(1)
+        end if
+        for each tok in v.split(",")
+            sign = tok.left(1)
+            if sign = "-" or sign = "+"
+                tok = tok.mid(1)
+                st.flags[tok] = sign = "+"
+            end if
+            if tok <> "" then st.order.push(tok)
+        end for
+        return st
+    end function
+
+    sub writeState(serverId as string, st as object)
+        parts = []
+        for each id in st.order
+            if st.flags.doesExist(id) and st.flags[id] = true
+                parts.push("+" + id)
+            else if st.flags.doesExist(id)
+                parts.push("-" + id)
+            else
+                parts.push(id)
+            end if
+        end for
+        out = Util.join(parts, ",")
+        if st.server then out = "@" + out
+        Util.writeText(regKey(serverId), out)
+    end sub
+
+    ' (when a server is removed)
+    sub forget(serverId as string)
+        sec = createObject("roRegistrySection", "Cove")
+        if sec.exists(regKey(serverId))
+            sec.delete(regKey(serverId))
+            sec.flush()
+        end if
+    end sub
+
+    function useServerLayout(serverId as string) as boolean
+        return readState(serverId).server
+    end function
+
+    sub setServerLayout(serverId as string, on as boolean)
+        st = readState(serverId)
+        st.server = on
+        writeState(serverId, st)
+    end sub
+
+    function libRowId(libId as string) as string
+        return "L" + libId
+    end function
+
+    ' The rows Cove can show, in the default order. libs: the server's libraries in the Libraries order
+    ' ([{ id, title, collectionType }]); only the kinds that have a Home row get one.
+    function defaultIds(libs as object) as object
+        ids = ["resume", "nextup", "favorites", "recent"]
+        for each l in libs
+            if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType))) then ids.push(libRowId(Util.toText(l.id)))
+        end for
+        ids.push("libraries")
+        return ids
+    end function
+
+    ' The saved order with the rows the server no longer has dropped, and new ones (a new library) placed after
+    ' the row that comes before them in the default order
+    function orderedIds(serverId as string, libs as object) as object
+        defs = defaultIds(libs)
+        known = {}
+        for each id in defs
+            known[id] = true
+        end for
+        out = []
+        used = {}
+        for each id in readState(serverId).order
+            if known.doesExist(id) and not used.doesExist(id)
+                out.push(id)
+                used[id] = true
+            end if
+        end for
+        for i = 0 to defs.count() - 1
+            id = defs[i]
+            if not used.doesExist(id)
+                at = 0
+                for j = i - 1 to 0 step -1
+                    k = indexIn(out, defs[j])
+                    if k >= 0
+                        at = k + 1
+                        exit for
+                    end if
+                end for
+                insertAt(out, at, id)
+                used[id] = true
+            end if
+        end for
+        return out
+    end function
+
+    function indexIn(list as object, id as string) as integer
+        for i = 0 to list.count() - 1
+            if list[i] = id then return i
+        end for
+        return -1
+    end function
+
+    sub insertAt(list as object, at as integer, id as string)
+        list.push(id)
+        i = list.count() - 1
+        while i > at
+            list[i] = list[i - 1]
+            i = i - 1
+        end while
+        list[at] = id
+    end sub
+
+    ' Is the row switched on? (a library's row also needs the library in the sidebar, as before)
+    function isOn(serverId as string, id as string) as boolean
+        if id = "nextup" then return Prefs.showUpNextRow()
+        if id = "favorites" then return Prefs.flagOn("homeFavorites", true)
+        if id.left(1) = "L"
+            lp = Prefs.library(id.mid(1))
+            return lp.nav and lp.home
+        end if
+        st = readState(serverId)
+        if st.flags.doesExist(id) then return st.flags[id] = true
+        ' (Recently Added is new: off until switched on, so Home looks as before)
+        return id <> "recent"
+    end function
+
+    sub setOn(serverId as string, libs as object, id as string, on as boolean)
+        if id = "nextup"
+            Prefs.setFlag("showUpNextRow", on)
+        else if id = "favorites"
+            Prefs.setFlag("homeFavorites", on)
+        else if id.left(1) = "L"
+            Prefs.setLibrary(id.mid(1), "home", on)
+            if on then Prefs.setLibrary(id.mid(1), "nav", true)
+        else
+            st = readState(serverId)
+            st.order = orderedIds(serverId, libs)
+            st.flags[id] = on
+            writeState(serverId, st)
+        end if
+    end sub
+
+    ' Moves a row one place up (-1) or down (1); returns false at either end
+    function move(serverId as string, libs as object, id as string, delta as integer) as boolean
+        ids = orderedIds(serverId, libs)
+        i = indexIn(ids, id)
+        j = i + delta
+        if i < 0 or j < 0 or j >= ids.count() then return false
+        ids[i] = ids[j]
+        ids[j] = id
+        st = readState(serverId)
+        st.order = ids
+        writeState(serverId, st)
+        return true
+    end function
+
+    ' Back to the default order (the switches stay; they ride on the ids, so the order keeps just those)
+    sub resetOrder(serverId as string)
+        st = readState(serverId)
+        kept = []
+        for each id in ["resume", "recent", "libraries"]
+            if st.flags.doesExist(id) then kept.push(id)
+        end for
+        st.order = kept
+        writeState(serverId, st)
+    end sub
+
+    ' ---------------------------------------------------------------- the server's Home layout
+
+    ' The web app's Home sections (DisplayPreferences "usersettings", client "emby": CustomPrefs homesection0..n)
+    ' → Cove row ids in that order. latestmedia = every library's row; sections Cove doesn't have (Live TV,
+    ' audio / book resume, recordings) are skipped. dp = the DisplayPreferences JSON, or invalid when the
+    ' request failed (→ invalid: use Cove's own order).
+    function fromServer(dp as dynamic, libs as object) as dynamic
+        if not Util.isAA(dp) then return invalid
+        cp = Util.field(dp, "CustomPrefs")
+        sections = []
+        found = false
+        for i = 0 to 9
+            v = ""
+            if Util.isAA(cp) then v = LCase(Util.toText(cp["homesection" + i.toStr()]))
+            if v <> "" then found = true
+            sections.push(v)
+        end for
+        ' (no sections saved: the web app's defaults)
+        if not found then sections = ["smalllibrarytiles", "resume", "resumeaudio", "resumebook", "livetv", "nextup", "latestmedia", "none"]
+        out = []
+        for each s in sections
+            if s = "smalllibrarytiles" or s = "librarybuttons"
+                addOnce(out, "libraries")
+            else if s = "resume"
+                addOnce(out, "resume")
+            else if s = "nextup"
+                addOnce(out, "nextup")
+            else if s = "latestmedia"
+                for each l in libs
+                    if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType))) then addOnce(out, libRowId(Util.toText(l.id)))
+                end for
+            end if
+        end for
+        return out
+    end function
+
+    sub addOnce(list as object, id as string)
+        if indexIn(list, id) < 0 then list.push(id)
+    end sub
+
+end namespace

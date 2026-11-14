@@ -6,6 +6,8 @@ import "pkg:/source/Playback.bs"
 import "pkg:/source/Tracks.bs"
 import "pkg:/source/Subs.bs"
 import "pkg:/source/MediaInfo.bs"
+import "pkg:/source/Ratings.bs"
+import "pkg:/source/Speak.bs"
 
 sub init()
     m.focusEpisodes = false
@@ -60,6 +62,12 @@ sub init()
     m.trailers = []         ' trailers stored on the server with this title (LocalTrailers)
     m.boxList = []          ' a collection's titles, in release order
     m.includedList = []     ' the collections this title is in ("Included In")
+    ' Audio Guide: what was said last (a redraw that doesn't move the focus says nothing), the title it was for
+    m.spokenKey = ""
+    m.spokenItem = ""
+    m.spokenRow = -1
+    m.rows.observeField("rowItemFocused", "onRowFocusedSpeak")
+    Speak.mute([m.rows, m.btnKeys])
 end sub
 
 ' ---------------------------------------------------------------- loading
@@ -121,7 +129,10 @@ sub onResponse(ev as object)
         if k = "item" then m.status.text = "Couldn't load this title. " + Api.describeFailure(r)
         return
     end if
-    if k = "item"
+    if k = "item" and not Ratings.allowed(m.top.server, r.json)
+        ' (v0.9.0: above the profile's rating limit, e.g. reached from a link or a collection)
+        m.status.text = "This title is above this profile's rating limit (" + Util.toText(m.top.server.maxRating) + ")."
+    else if k = "item"
         showItem(r.json)
     else if k = "seasons"
         onSeasons(r.json)
@@ -132,12 +143,12 @@ sub onResponse(ev as object)
     else if k = "epStreams"
         onEpisodeStreams(r.json)
     else if k = "similar"
-        m.similarList = listOf(r.json)
+        m.similarList = Ratings.keep(m.top.server, listOf(r.json))
         rebuildRows()
     else if k = "seasonCounts"
         onSeasonCounts(r.json)
     else if k = "boxItems"
-        m.boxList = listOf(r.json)
+        m.boxList = Ratings.keep(m.top.server, listOf(r.json))
         print "Cove: collection titles -> "; m.boxList.count()
         buildButtons()
         rebuildRows()
@@ -341,6 +352,10 @@ end sub
 sub drawOverviewFocus()
     on = m.state = "overview" and m.textPanel = invalid
     m.top.findNode("ovFocus").visible = on
+    if on and m.spokenKey <> "overview"
+        m.spokenKey = "overview"
+        Speak.say(Speak.button("Read the full description"))
+    end if
     more = m.top.findNode("ovMore")
     if on
         more.color = "0xFFFFFFFF"
@@ -559,6 +574,58 @@ sub drawButtons()
         end if
     end for
     drawOverviewFocus()
+    if focused then speakButton()
+end sub
+
+' Audio Guide: the spoken name of a header button
+function buttonSpeech(b as object) as string
+    id = b.id
+    if b.label <> invalid then return b.label
+    if b.text <> invalid then return b.text
+    if id = "restart" then return "Play from the beginning"
+    if id = "fav" and m.isFav then return "Remove from favourites"
+    if id = "fav" then return "Add to favourites"
+    if id = "watched" and Util.flag(m.item.UserData, "Played") then return "Mark as unwatched"
+    if id = "watched" then return "Mark as watched"
+    if id = "trailer" then return "Trailer"
+    if id = "tracks" then return "Audio and subtitles"
+    return id
+end function
+
+' The focused header button; the title first when the page was just opened
+sub speakButton()
+    if not Speak.isOn() or m.item = invalid or m.btn >= m.btns.count() then return
+    label = buttonSpeech(m.btns[m.btn])
+    key = "b" + m.btn.toStr() + label
+    if key = m.spokenKey then return
+    m.spokenKey = key
+    text = Speak.button(label) + Speak.position(m.btn, m.btns.count())
+    id = Util.toText(m.item.Id)
+    if id <> m.spokenItem
+        m.spokenItem = id
+        name = Util.toText(m.item.Name)
+        if Util.toText(m.item.Type) = "Episode" then name = Util.toText(m.item.SeriesName) + ", season " + Util.toText(m.item.ParentIndexNumber) + " episode " + Util.toText(m.item.IndexNumber) + ", " + name
+        text = Speak.clean(name) + ". " + text
+    end if
+    Speak.say(text)
+end sub
+
+' A card in the rows below (episodes, cast, more like this); the row's name when the row changes
+sub onRowFocusedSpeak()
+    if m.state <> "rows" or not Speak.isOn() then return
+    f = m.rows.rowItemFocused
+    if f = invalid or f.count() < 2 or m.rows.content = invalid then return
+    row = m.rows.content.getChild(f[0])
+    if row = invalid then return
+    c = row.getChild(f[1])
+    if c = invalid then return
+    m.spokenKey = "rows"
+    text = Speak.card(c)
+    if f[0] <> m.spokenRow
+        m.spokenRow = f[0]
+        text = Util.toText(row.title) + ". " + text
+    end if
+    Speak.say(text + Speak.position(f[1], row.getChildCount()))
 end sub
 
 sub useButton()
@@ -784,6 +851,8 @@ sub closePicker()
         m.picker.unobserveField("cancelled")
         m.top.removeChild(m.picker)
         m.picker = invalid
+        ' (Audio Guide: the focus is said again where it lands)
+        m.spokenKey = ""
     end if
 end sub
 
@@ -1200,6 +1269,19 @@ sub drawSeasonBar()
             leftX = leftX + w + 18
         end if
     end for
+    if focused and Speak.isOn()
+        text = texts[m.barIdx]
+        if ids[m.barIdx] = "season"
+            text = Speak.clean(text + unwatchedSuffix(m.seasonIndex)) + ", choose a season"
+        else if ids[m.barIdx] = "slang"
+            text = "Subtitles for this series: " + subPrefLabel() + ", menu"
+        end if
+        key = "s" + m.barIdx.toStr() + text
+        if key <> m.spokenKey
+            m.spokenKey = key
+            Speak.say(Speak.button(text) + Speak.position(m.barIdx, ids.count()))
+        end if
+    end if
 end sub
 
 sub useBar()
@@ -1456,6 +1538,8 @@ sub enterRows()
     animate(150, 0.0, 1.0, 1.0)
     drawButtons()
     if m.seasonBar.visible then drawSeasonBar()
+    m.spokenRow = -1
+    onRowFocusedSpeak()
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
@@ -1546,6 +1630,8 @@ end function
 
 sub onFocusChanged()
     if not m.top.hasFocus() then return
+    ' (back on this page: say again where the focus is)
+    m.spokenKey = ""
     if m.picker <> invalid
         m.picker.setFocus(true)
     else if m.textPanel <> invalid
@@ -1554,6 +1640,8 @@ sub onFocusChanged()
         m.btnKeys.setFocus(true)
     else if m.state = "rows" and m.rows.visible
         m.rows.setFocus(true)
+        m.spokenRow = -1
+        onRowFocusedSpeak()
     else if m.state = "about"
         m.btnKeys.setFocus(true)
     else
@@ -1635,6 +1723,10 @@ sub enterAbout()
     fadeAbout(1.0)
     drawButtons()
     if m.seasonBar.visible then drawSeasonBar()
+    if Speak.isOn()
+        m.spokenKey = "about"
+        Speak.say("About. " + Speak.labelsOf(m.about))
+    end if
 end sub
 
 sub leaveAbout()

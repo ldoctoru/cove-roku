@@ -1,18 +1,99 @@
 import "pkg:/source/Util.bs"
 
-' Saved servers, kept in the Roku's registry for this app:
-' { id, name, url, type ("emby" | "jellyfin"), version, userId, userName, token }
+' Saved servers, kept in the Roku's registry for this app (one JSON key, "servers"). Each server keeps its
+' signed-in users (profiles), compactly:
+'   { id, name, url, type ("emby" | "jellyfin"), version, cur (the active user's id), ask ("off" = don't ask
+'     who's watching at start), users: [{ i: userId, n: name, t: token, a: avatar image tag, p: PIN salt+hash,
+'     r: maximum rating }] }
+' Records read back get the active user's fields on top, as before (userId, userName, token) plus avatar and
+' maxRating, so every screen keeps reading server.userId / server.token. A record from v0.8.0 or earlier (one
+' user: userId, userName, token) is moved into users by migrate() at start (and read that way until then).
+' A token belongs to the address it was issued on (SEC-1): when a server's address changes, every saved
+' token of that server is cleared (the users stay, to sign in again).
 namespace Servers
 
     function all() as object
         v = Util.readJson("servers")
         if type(v) <> "roArray" then return []
-        return v
+        out = []
+        for each s in v
+            if Util.isAA(s) then out.push(withActive(normalized(s)))
+        end for
+        return out
     end function
 
     sub saveAll(list as object)
-        Util.writeText("servers", formatJson(list))
+        clean = []
+        for each s in list
+            clean.push(stripped(s))
+        end for
+        Util.writeText("servers", formatJson(clean))
     end sub
+
+    ' A record in the current shape: users (from the old single-user fields when needed) and cur
+    function normalized(s as object) as object
+        if type(s.users) <> "roArray"
+            s.users = []
+            s.cur = ""
+            if Util.toText(s.userId) <> ""
+                s.users.push({ i: Util.toText(s.userId), n: Util.toText(s.userName), t: Util.toText(s.token), a: "" })
+                s.cur = Util.toText(s.userId)
+            end if
+        end if
+        kept = []
+        for each u in s.users
+            if Util.isAA(u) and Util.toText(u.i) <> "" then kept.push(u)
+        end for
+        s.users = kept
+        if s.cur = invalid then s.cur = ""
+        return s
+    end function
+
+    ' The active user's fields on top of the record (what screens and requests read)
+    function withActive(s as object) as object
+        s.userId = Util.toText(s.cur)
+        s.userName = ""
+        s.token = ""
+        s.avatar = ""
+        s.maxRating = ""
+        u = userOf(s, Util.toText(s.cur))
+        if u <> invalid
+            s.userName = Util.toText(u.n)
+            s.token = Util.toText(u.t)
+            s.avatar = Util.toText(u.a)
+            s.maxRating = Util.toText(u.r)
+        end if
+        return s
+    end function
+
+    ' Only what is stored (the active user's fields come from users)
+    function stripped(s as object) as object
+        rec = { id: Util.toText(s.id), name: Util.toText(s.name), url: Util.toText(s.url), type: Util.toText(s.type), version: Util.toText(s.version), cur: Util.toText(s.cur), users: s.users }
+        if type(rec.users) <> "roArray" then rec.users = []
+        if Util.toText(s.ask) <> "" then rec.ask = Util.toText(s.ask)
+        return rec
+    end function
+
+    ' Moves records from v0.8.0 and earlier into the profiles shape (once: later reads find users)
+    sub migrate()
+        v = Util.readJson("servers")
+        if type(v) <> "roArray" then return
+        old = 0
+        for each s in v
+            if Util.isAA(s) and type(s.users) <> "roArray" then old = old + 1
+        end for
+        if old = 0 then return
+        saveAll(all())
+        print "Cove: moved "; old; " saved sign-ins into profiles"
+    end sub
+
+    function userOf(s as object, userId as string) as dynamic
+        if userId = "" or type(s.users) <> "roArray" then return invalid
+        for each u in s.users
+            if Util.toText(u.i) = userId then return u
+        end for
+        return invalid
+    end function
 
     function find(id as string) as dynamic
         for each s in all()
@@ -21,18 +102,156 @@ namespace Servers
         return invalid
     end function
 
-    ' Adds the server or updates the saved one with the same id
+    ' Adds the server or updates the saved one with the same id. The users list is the stored one (profile
+    ' settings change only through the functions below, so an older copy of the server can't undo them); the
+    ' passed userId / userName / token / avatar update that user and make them the active one.
     sub upsert(server as object)
         list = all()
+        idx = -1
         for i = 0 to list.count() - 1
-            if Util.toText(list[i].id) = Util.toText(server.id)
-                list[i] = server
+            if Util.toText(list[i].id) = Util.toText(server.id) then idx = i
+        end for
+        if idx >= 0
+            rec = list[idx]
+            users = rec.users
+            ' (a new address: the saved tokens were issued for the old one)
+            if Util.originOf(Util.toText(rec.url)) <> Util.originOf(Util.toText(server.url))
+                for each u in users
+                    u.t = ""
+                end for
+            end if
+        else
+            rec = {}
+            users = []
+        end if
+        rec.id = Util.toText(server.id)
+        rec.name = Util.toText(server.name)
+        rec.url = Util.toText(server.url)
+        rec.type = Util.toText(server.type)
+        rec.version = Util.toText(server.version)
+        uid = Util.toText(server.userId)
+        if uid <> ""
+            u = invalid
+            for each x in users
+                if Util.toText(x.i) = uid then u = x
+            end for
+            if u = invalid
+                u = { i: uid, n: "", t: "", a: "" }
+                users.push(u)
+            end if
+            u.t = Util.toText(server.token)
+            if Util.toText(server.userName) <> "" then u.n = Util.toText(server.userName)
+            if server.avatar <> invalid then u.a = Util.toText(server.avatar)
+        end if
+        rec.users = users
+        rec.cur = uid
+        if idx >= 0
+            list[idx] = rec
+        else
+            list.push(rec)
+        end if
+        saveAll(list)
+    end sub
+
+    ' Changes one stored field of a user (n, t, a, p, r); "" removes p / r
+    sub setUserField(serverId as string, userId as string, key as string, value as string)
+        list = all()
+        for each s in list
+            if Util.toText(s.id) = serverId
+                u = userOf(s, userId)
+                if u <> invalid
+                    if value = "" and (key = "p" or key = "r")
+                        u.delete(key)
+                    else
+                        u[key] = value
+                    end if
+                    saveAll(list)
+                end if
+                return
+            end if
+        end for
+    end sub
+
+    ' Makes a saved user the active one on that server (the server's record with them on top, or invalid)
+    function useUser(serverId as string, userId as string) as dynamic
+        list = all()
+        for each s in list
+            if Util.toText(s.id) = serverId and userOf(s, userId) <> invalid
+                s.cur = userId
+                saveAll(list)
+                return withActive(s)
+            end if
+        end for
+        return invalid
+    end function
+
+    ' Forgets one user of a server (sign out): their token, PIN and rating limit go with them
+    sub removeUser(serverId as string, userId as string)
+        list = all()
+        for each s in list
+            if Util.toText(s.id) = serverId
+                kept = []
+                for each u in s.users
+                    if Util.toText(u.i) <> userId then kept.push(u)
+                end for
+                s.users = kept
+                if Util.toText(s.cur) = userId then s.cur = ""
                 saveAll(list)
                 return
             end if
         end for
-        list.push(server)
-        saveAll(list)
+    end sub
+
+    ' The server as each signed-in user (to end every session when the server is removed or moved)
+    function sessions(s as object) as object
+        out = []
+        if s = invalid or type(s.users) <> "roArray" then return out
+        for each u in s.users
+            if Util.toText(u.t) <> "" then out.push(asUser(s, Util.toText(u.i)))
+        end for
+        return out
+    end function
+
+    ' A copy of the server record with this user on top (invalid if not saved)
+    function asUser(s as object, userId as string) as dynamic
+        if userOf(s, userId) = invalid then return invalid
+        c = {}
+        c.append(s)
+        c.cur = userId
+        return withActive(c)
+    end function
+
+    ' The profiles of a server: [{ id, name, avatar, signedIn, hasPin, maxRating }]
+    function profiles(s as object) as object
+        out = []
+        if s = invalid or type(s.users) <> "roArray" then return out
+        for each u in s.users
+            out.push({ id: Util.toText(u.i), name: Util.toText(u.n), avatar: Util.toText(u.a), signedIn: Util.toText(u.t) <> "", hasPin: Util.toText(u.p) <> "", maxRating: Util.toText(u.r) })
+        end for
+        return out
+    end function
+
+    function pinOf(s as object, userId as string) as string
+        u = userOf(s, userId)
+        if u = invalid then return ""
+        return Util.toText(u.p)
+    end function
+
+    ' Settings → Servers: "Ask who's watching at start" (on by default; only asked with 2 or more profiles)
+    function asksWho(s as object) as boolean
+        return Util.toText(s.ask) <> "off"
+    end function
+
+    sub setAsk(serverId as string, isOn as boolean)
+        list = all()
+        for each s in list
+            if Util.toText(s.id) = serverId
+                s.ask = "off"
+                if isOn then s.ask = ""
+                saveAll(list)
+                return
+            end if
+        end for
     end sub
 
     sub remove(id as string)

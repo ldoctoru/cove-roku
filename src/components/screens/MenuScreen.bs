@@ -1,3 +1,6 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Speak.bs"
+
 sub init()
     m.list = m.top.findNode("list")
     m.list.observeField("itemSelected", "onSelect")
@@ -14,6 +17,8 @@ end sub
 
 sub onStatus()
     m.top.findNode("status").text = m.top.status
+    ' (Audio Guide: "Signing in...", "Wrong username or password." after what Roku says for the list)
+    if m.top.isInFocusChain() then Speak.say(Speak.clean(m.top.status), false)
 end sub
 
 ' A large code (Quick Connect) pushes the menu down below it
@@ -21,6 +26,15 @@ sub onCode()
     c = m.top.findNode("code")
     c.text = m.top.code
     c.visible = m.top.code <> ""
+    if m.top.code <> ""
+        ' (letter by letter)
+        spelled = []
+        code = Util.toText(m.top.code)
+        for i = 1 to code.len()
+            spelled.push(mid(code, i, 1))
+        end for
+        Speak.say("Quick Connect code: " + Util.join(spelled, " "))
+    end if
     if m.top.code <> ""
         m.list.translation = [290, 470]
     else
@@ -45,7 +59,11 @@ end sub
 
 ' The page itself never keeps focus: hand it to the menu
 sub onFocusChanged()
-    if m.top.hasFocus() then m.list.setFocus(true)
+    if m.top.hasFocus()
+        ' (Audio Guide: the page's title; Roku then says the focused entry of the list)
+        Speak.say(Speak.clean(m.top.title + ". " + m.top.subtitle))
+        m.list.setFocus(true)
+    end if
 end sub
 
 ' * (Options) on a menu item, e.g. to remove a saved server

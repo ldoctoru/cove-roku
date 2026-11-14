@@ -3,6 +3,7 @@ import "pkg:/source/Servers.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/Playback.bs"
+import "pkg:/source/Speak.bs"
 
 sub init()
     t = m.global.theme
@@ -64,6 +65,9 @@ sub init()
     m.picker = invalid
     m.menuItem = invalid
     m.timersPaused = false
+    m.spokenRow = -1
+    ' (Cove speaks the cards and the hero itself, see speakHero / onItemFocused)
+    Speak.mute([m.rows, m.top.findNode("heroKeys")])
 end sub
 
 ' ---------------------------------------------------------------- loading
@@ -198,6 +202,11 @@ sub buildNav()
         end for
     end if
     if m.side then items.push({ header: true, label: "" })
+    ' (v0.9.0) the signed-in profile: OK opens Who's watching? to switch or add one
+    who = ""
+    if m.top.server <> invalid then who = Util.toText(m.top.server.userName)
+    if who = "" then who = "Profiles"
+    items.push({ id: "profile", label: who, icon: "profile" })
     items.push({ id: "settings", label: "Settings", icon: "gear" })
     m.nav.items = items
 end sub
@@ -459,6 +468,19 @@ sub enterHero(animate = true as boolean)
     showBackdrop(m.heroes[m.heroIndex].backdrop)
     m.heroTimer.control = "start"
     paintButtons()
+    speakHero(true)
+end sub
+
+' Audio Guide: the hero's focused button, with the title first when the hero (or its title) was just reached
+sub speakHero(withTitle as boolean)
+    if not Speak.isOn() or m.heroes.count() = 0 then return
+    it = m.heroes[m.heroIndex]
+    names = ["Play", "Add to favourites", "More information"]
+    if it.itemType = "Series" then names[0] = "Open"
+    if it.favorite then names[1] = "Remove from favourites"
+    text = Speak.button(names[m.btn]) + Speak.position(m.btn, 3)
+    if withTitle then text = Speak.clean(it.title + ", " + it.heroMeta) + ". " + text
+    Speak.say(text)
 end sub
 
 ' The sidebar stays while the rows are up (as on the Mac); the top bar makes room for them
@@ -493,6 +515,7 @@ sub leaveNav()
         m.state = "hero"
         m.top.findNode("heroKeys").setFocus(true)
         m.heroTimer.control = "start"
+        speakHero(true)
     end if
     paintButtons()
 end sub
@@ -517,6 +540,7 @@ end sub
 ' Rows: they slide up, the hero fades, the backdrop dims and follows the focused card
 sub enterRows(animate = true as boolean)
     m.state = "rows"
+    m.spokenRow = -1
     m.heroTimer.control = "stop"
     m.rows.setFocus(true)
     if animate
@@ -547,7 +571,7 @@ sub onNavChosen(ev as object)
     end if
     if id = "search"
         m.top.action = { id: "search" }
-    else if id = "settings" or id = "favorites" or id = "recent" or id = "nowplaying"
+    else if id = "settings" or id = "favorites" or id = "recent" or id = "nowplaying" or id = "profile"
         m.top.action = { id: id }
     else if id.startsWith("lib:")
         l = m.libraries[id.mid(4).toInt()]
@@ -570,6 +594,16 @@ sub onItemFocused()
     it = focusedItem()
     if it = invalid then return
     m.top.findNode("title").text = it.title
+    if Speak.isOn()
+        ' (the row's name when the focus moves to another row)
+        text = Speak.card(it)
+        f = m.rows.rowItemFocused
+        if f[0] <> m.spokenRow
+            m.spokenRow = f[0]
+            text = focusedRowTitle() + ". " + text
+        end if
+        Speak.say(text)
+    end if
     meta = it.heroMeta
     if it.episode <> "" then meta = it.episode
     m.top.findNode("meta").text = meta
@@ -621,11 +655,29 @@ sub onFocusChanged()
         m.picker.setFocus(true)
     else if m.state = "rows" and m.rows.visible
         m.rows.setFocus(true)
+        ' (back on Home: say again where the focus is)
+        m.spokenRow = -1
+        onItemFocused()
     else if m.state = "nav"
         m.nav.setFocus(true)
     else if m.state = "hero"
         m.top.findNode("heroKeys").setFocus(true)
         paintButtons()
+        speakHero(true)
+    end if
+end sub
+
+' Instant Resume: the app went to the background / came back. Back in front, the timers start again as
+' when Home gets the focus back (only if Home is the page on top).
+sub onSuspended()
+    if m.top.suspended
+        m.timersPaused = true
+        m.heroTimer.control = "stop"
+        m.sessionsTimer.control = "stop"
+        m.backdropTimer.control = "stop"
+        m.watchdog.control = "stop"
+    else if m.top.isInFocusChain()
+        onFocusChanged()
     end if
 end sub
 
@@ -647,25 +699,32 @@ function onKeyEvent(key as string, press as boolean) as boolean
             if m.btn > 0
                 m.btn = m.btn - 1
                 paintButtons()
+                speakHero(false)
             else if m.side
                 enterNav()
             else
                 showHero(m.heroIndex - 1)
+                speakHero(true)
             end if
             return true
         else if key = "rewind" or key = "replay"
             showHero(m.heroIndex - 1)
+            speakHero(true)
             return true
         else if key = "fastforward"
             showHero(m.heroIndex + 1)
+            speakHero(true)
             return true
         else if key = "right"
             if m.btn < 2
                 m.btn = m.btn + 1
                 paintButtons()
+                speakHero(false)
             else
                 m.btn = 0
                 showHero(m.heroIndex + 1)
+                paintButtons()
+                speakHero(true)
             end if
             return true
         else if key = "up"

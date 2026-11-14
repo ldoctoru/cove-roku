@@ -1,0 +1,101 @@
+import "pkg:/source/Util.bs"
+
+' Profile PINs (4 digits). Only a salted SHA-256 is kept, in the profile's "p" field (Servers.bs): 16 hex
+' characters of random salt, then the 64 hex characters of SHA-256(salt:serverId:userId:pin). The PIN itself
+' is never stored or printed. 3 wrong tries in a row lock that profile for 30 s; the count is kept in the
+' registry ("pinWait"), so restarting the app doesn't reset it.
+namespace Pins
+
+    function isValid(pin as string) as boolean
+        return CreateObject("roRegex", "^[0-9]{4}$", "").isMatch(pin)
+    end function
+
+    function digest(salt as string, serverId as string, userId as string, pin as string) as string
+        ba = CreateObject("roByteArray")
+        ba.fromAsciiString(salt + ":" + serverId + ":" + userId + ":" + pin)
+        d = CreateObject("roEVPDigest")
+        d.setup("sha256")
+        return LCase(d.process(ba))
+    end function
+
+    ' A new salt + hash for the profile's "p" field
+    function make(serverId as string, userId as string, pin as string) as string
+        salt = LCase(CreateObject("roDeviceInfo").getRandomUUID().replace("-", "")).left(16)
+        if salt.len() < 16
+            ' (fallback: random hex digits)
+            salt = ""
+            for i = 1 to 16
+                salt = salt + StrI(Rnd(16) - 1, 16)
+            end for
+        end if
+        return salt + digest(salt, serverId, userId, pin)
+    end function
+
+    function matches(stored as string, serverId as string, userId as string, pin as string) as boolean
+        if stored.len() <> 80 or not isValid(pin) then return false
+        salt = stored.left(16)
+        return digest(salt, serverId, userId, pin) = stored.mid(16)
+    end function
+
+    ' ---------------------------------------------------------------- 3 wrong tries → 30 s wait
+
+    function lockKey(serverId as string, userId as string) as string
+        return serverId.left(12) + ":" + userId.left(12)
+    end function
+
+    function now() as integer
+        return CreateObject("roDateTime").asSeconds()
+    end function
+
+    function waits() as object
+        v = Util.readJson("pinWait")
+        if not Util.isAA(v) then return {}
+        return v
+    end function
+
+    ' Seconds left before the profile's PIN can be tried again (0 = now)
+    function waitLeft(serverId as string, userId as string) as integer
+        e = waits()[lockKey(serverId, userId)]
+        if not Util.isAA(e) then return 0
+        left_ = Int(Util.toNumber(e.u)) - now()
+        if left_ < 0 or left_ > 30 then return 0
+        return left_
+    end function
+
+    ' A wrong PIN: the seconds to wait now (30 after the 3rd wrong try in a row, else 0)
+    function noteWrong(serverId as string, userId as string) as integer
+        all_ = waits()
+        k = lockKey(serverId, userId)
+        e = all_[k]
+        if not Util.isAA(e) then e = { f: 0, u: 0 }
+        e.f = Int(Util.toNumber(e.f)) + 1
+        wait_ = 0
+        if e.f >= 3
+            e.f = 0
+            e.u = now() + 30
+            wait_ = 30
+        end if
+        all_[k] = e
+        Util.writeText("pinWait", formatJson(all_))
+        return wait_
+    end function
+
+    sub clearWrong(serverId as string, userId as string)
+        all_ = waits()
+        k = lockKey(serverId, userId)
+        if not all_.doesExist(k) then return
+        all_.delete(k)
+        Util.writeText("pinWait", formatJson(all_))
+    end sub
+
+    ' "Wrong PIN." / "Wrong PIN. Try again in 30 s."
+    function wrongText(wait_ as integer) as string
+        if wait_ > 0 then return "Wrong PIN. Too many tries: try again in " + wait_.toStr() + " s."
+        return "Wrong PIN. Please try again."
+    end function
+
+    function waitText(wait_ as integer) as string
+        return "Too many wrong PINs. Try again in " + wait_.toStr() + " s."
+    end function
+
+end namespace

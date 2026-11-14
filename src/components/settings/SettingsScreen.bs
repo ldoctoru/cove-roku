@@ -6,6 +6,10 @@ import "pkg:/source/Prefs.bs"
 import "pkg:/source/Tracks.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/DeviceCaps.bs"
+import "pkg:/source/Pins.bs"
+import "pkg:/source/Ratings.bs"
+import "pkg:/source/Speak.bs"
+import "pkg:/source/HomeLayout.bs"
 
 ' Layout (1920 x 1080): cards from x 200, 1520 wide; the label column ends at x 610, controls start at x 650
 ' (the Mac's PrefRow: label right-aligned in a fixed column, the control beside it)
@@ -15,6 +19,10 @@ sub init()
     m.keys = m.top.findNode("keys")
     m.kbTimer = m.top.findNode("kbTimer")
     m.kbTimer.observeField("fire", "focusKeyboard")
+    m.pinTimer = m.top.findNode("pinTimer")
+    m.pinTimer.observeField("fire", "onPinTimer")
+    m.pinFlow = invalid         ' (v0.9.0) the profile PIN steps in progress
+    m.nextDialog = invalid
     m.tab = 0
     m.area = "tabs"
     m.row = 0
@@ -27,13 +35,19 @@ sub init()
     info = createObject("roAppInfo")
     m.version = info.getVersion()
     m.device = ""
+    m.caps = {}
     try
-        m.device = DeviceCaps.deviceLine(DeviceCaps.get())
+        m.caps = DeviceCaps.get()
+        m.device = DeviceCaps.deviceLine(m.caps)
     catch e
         m.device = ""
     end try
     m.top.observeField("focusedChild", "onFocusChanged")
     m.top.observeField("server", "onServer")
+    ' Audio Guide: what was said last (a redraw that doesn't move the focus says nothing) and its section
+    m.spokenKey = ""
+    m.spokenHead = ""
+    Speak.mute([m.keys])
     draw()
 end sub
 
@@ -69,7 +83,7 @@ sub onViews(ev as object)
     list = []
     if type(r.json.Items) = "roArray"
         for each v in r.json.Items
-            list.push({ id: Util.toText(v.Id), title: Util.toText(v.Name), kind: LCase(Util.toText(v.CollectionType)) })
+            list.push({ id: Util.toText(v.Id), title: Util.toText(v.Name), kind: LCase(Util.toText(v.CollectionType)), collectionType: LCase(Util.toText(v.CollectionType)) })
         end for
     end if
     m.libs = list
@@ -123,11 +137,28 @@ function rowsFor(tabId as string) as object
         out.push(toggle("showRecent", "Also show", "Recently Added", Prefs.showRecent()))
         out.push(note("Home is always there. Libraries, Favorites and Now Playing are chosen in Libraries."))
     else if tabId = "home"
+        ' Settings → Home → Rows (HomeLayout): every Home row with its switch and place, per server
+        sid = serverKey()
+        srvOn = HomeLayout.useServerLayout(sid)
+        out.push(sectionHead("Layout"))
+        out.push(toggle("homeServerLayout", "", "Use the server's Home layout", srvOn))
+        out.push(note("Home follows the Home sections set in the server's web app (Settings > Home): Continue Watching, Next Up, Latest per library and My Media. Sections Cove doesn't have are left out; a library's row still follows its switch below."))
         out.push(sectionHead("Rows"))
-        out.push(toggle("showUpNextRow", "Watching", "Up Next", Prefs.showUpNextRow()))
-        out.push(note("The next episode of each show you're watching, under Continue Watching."))
-        out.push(toggle("homeFavorites", "Also show", "Favorites", Prefs.flagOn("homeFavorites", true)))
-        out.push(note("Which libraries get a row on Home, and what each row shows, is set per library in Libraries."))
+        libs = homeLibs()
+        for each id in HomeLayout.orderedIds(sid, libs)
+            out.push(homeRowEntry(id, libs, srvOn))
+        end for
+        if m.libs.count() = 0
+            if m.libError <> ""
+                out.push(note(m.libError))
+            else
+                out.push(note("Loading your libraries..."))
+            end if
+        end if
+        out.push(note("OK on a row: show or hide it, or move it up or down (Left / Right switch it off / on). What a library's row shows (Latest, Top Rated, ...) is set in Libraries. Saved for this server."))
+        b = { kind: "button", id: "homeDefaultOrder", label: "", text: "Default Order" }
+        b.dim = srvOn
+        out.push(b)
     else if tabId = "libraries"
         out.push(sectionHead("Your libraries"))
         out.push({ kind: "section", id: "showFavorites", label: "Favorites", icon: "heart", on: Prefs.showFavorites() })
@@ -148,7 +179,7 @@ function rowsFor(tabId as string) as object
                 out.push(note("Loading your libraries..."))
             end if
         end if
-        out.push(note("OK on a library: show it in the sidebar or on Home, what its Home row shows, how it opens, its name and its place in the list."))
+        out.push(note("OK on a library: show it in the sidebar or on Home, what its Home row shows, how it opens, its name and its place in the sidebar. The order of the Home rows is in Home > Rows."))
         out.push(sectionHead("Movie and show pages"))
         out.push(choice("castSize", "Cast & Crew", [{ id: "normal", label: "Normal" }, { id: "large", label: "Large" }], Prefs.text("castSize", "normal")))
         out.push(note("Large shows bigger actor photos and names."))
@@ -175,7 +206,9 @@ function rowsFor(tabId as string) as object
         out.push(note("A style left at its default follows the Roku's caption style (Roku Settings > Accessibility > Captions). With the Roku's captions On, titles start with subtitles in this language unless you chose others for them."))
     else if tabId = "playback"
         out.push(sectionHead("Start with"))
-        out.push(choice("startQuality", "Quality", Tracks.qualities(), Prefs.startQuality().toStr()))
+        out.push(choice("startQualityHome", "Home network", Tracks.qualities(), Prefs.startQualityOf("startQualityHome").toStr()))
+        out.push(choice("startQualityNet", "Internet", Tracks.qualities(), Prefs.startQualityOf("startQualityNet").toStr()))
+        out.push(note(networkNote()))
         sk = []
         for each v in [5, 10, 15, 30]
             sk.push({ id: v.toStr(), label: v.toStr() + " s" })
@@ -190,6 +223,18 @@ function rowsFor(tabId as string) as object
         out.push(note("The back / forward buttons in the player and the Rewind / Fast forward keys."))
         out.push(choice("rewindOnResume", "Rewind on resume", [{ id: "off", label: "Off" }, { id: "5", label: "5 s" }, { id: "10", label: "10 s" }, { id: "30", label: "30 s" }], Prefs.text("rewindOnResume", "5")))
         out.push(note("Goes back a little when a title resumes where you left it, or after a pause of 5 minutes or more."))
+        out.push(sectionHead("Audio"))
+        out.push(choice("audioChannels", "Maximum channels", [{ id: "auto", label: "Automatic" }, { id: "2", label: "Stereo (2.0)" }, { id: "6", label: "5.1" }, { id: "8", label: "7.1" }], Prefs.text("audioChannels", "auto")))
+        ac = [{ id: "auto", label: "Automatic" }, { id: "aac", label: "AAC" }]
+        if Util.flag(m.caps, "ac3") then ac.push({ id: "ac3", label: "Dolby Digital (AC3)" })
+        if Util.flag(m.caps, "eac3") then ac.push({ id: "eac3", label: "Dolby Digital Plus (E-AC3)" })
+        out.push(choice("audioCodec", "Preferred audio", ac, Prefs.audioCodec()))
+        dts = toggle("dtsPassthrough", "", "DTS passthrough", Prefs.dtsPassthrough() and Util.flag(m.caps, "dts"))
+        dts.dim = not Util.flag(m.caps, "dts")
+        out.push(dts)
+        dtsNote = "DTS passthrough sends DTS unchanged to your receiver."
+        if not Util.flag(m.caps, "dts") then dtsNote = "This Roku reports no DTS decoder (a receiver or TV that takes DTS) on its HDMI, so the server converts DTS."
+        out.push(note("Stereo makes the server mix surround tracks down to 2 channels. Preferred audio is what the server converts to when the Roku can't play a track as it is (e.g. TrueHD, DTS). " + dtsNote))
         out.push(sectionHead("Automatically"))
         out.push(toggle("autoNext", "", "Play the next episode", Prefs.autoNext()))
         out.push(toggle("autoSkipIntro", "", "Skip intros", Prefs.autoSkipIntro()))
@@ -205,13 +250,15 @@ function rowsFor(tabId as string) as object
             out.push({ kind: "info", label: "Connected to", text: Util.toText(srv.name), sub: Util.toText(srv.userName) + "  ·  " + Util.toText(srv.url) })
         end if
         out.push({ kind: "button", id: "signout", label: "", text: "Sign Out" })
+        profileRows(out)
         out.push(sectionHead("Saved servers"))
         for each s in Servers.all()
             kind = "Emby"
             if Servers.isJellyfin(s) then kind = "Jellyfin"
             cur = srv <> invalid and Util.toText(s.id) = Util.toText(srv.id)
             ' (as the Mac's ConnectionBadge: plain http is flagged, more strongly when it leaves the home network)
-            srvSub = Util.toText(s.userName) + "  ·  " + Util.toText(s.url) + "  ·  " + kind
+            srvSub = Util.toText(s.url) + "  ·  " + kind
+            if Util.toText(s.userName) <> "" then srvSub = Util.toText(s.userName) + "  ·  " + srvSub
             if Util.isPlainRemote(Util.toText(s.url))
                 srvSub = srvSub + "  ·  Not encrypted (internet)"
             else if Util.isPlainHttp(Util.toText(s.url))
@@ -250,6 +297,87 @@ function rowsFor(tabId as string) as object
     return out
 end function
 
+'' (v0.9.0) Servers → Profiles: the current server's saved profiles, Who's watching? at start, add / switch
+sub profileRows(out as object)
+    srv = currentServer()
+    if srv = invalid then return
+    out.push(sectionHead("Profiles on " + Util.toText(srv.name)))
+    for each p in Servers.profiles(srv)
+        out.push({ kind: "profile", id: p.id, label: p.name, sub: profileSub(srv, p), current: p.id = Util.toText(srv.userId) })
+    end for
+    out.push(toggle("askWho", "At start", "Ask who's watching", Servers.asksWho(srv)))
+    out.push(note("With 2 or more profiles on this server, Cove starts with Who's watching?. The profile entry at the bottom of the sidebar switches at any time."))
+    out.push({ kind: "button", id: "switchProfile", label: "", text: "Switch Profile..." })
+    out.push({ kind: "button", id: "addProfile", label: "", text: "Add Profile..." })
+    out.push(note("Add Profile signs in another user of this server; each profile keeps its own sign-in, Continue Watching and favourites. OK on a profile: its PIN and Maximum rating (titles rated above it are hidden for that profile; with a PIN, only someone who knows it can change the limit). The server's own parental controls still apply."))
+end sub
+
+function profileSub(srv as object, p as object) as string
+    parts = []
+    if p.id = Util.toText(srv.userId) then parts.push("Watching now")
+    if not p.signedIn then parts.push("Signed out")
+    if parts.count() = 0 then parts.push("Signed in")
+    if p.hasPin then parts.push("PIN")
+    if p.maxRating <> "" then parts.push("Up to " + p.maxRating)
+    return Util.join(parts, "  ·  ")
+end function
+
+' The current server as saved now (profiles change while Settings is open)
+function currentServer() as dynamic
+    if m.top.server = invalid then return invalid
+    s = Servers.find(Util.toText(m.top.server.id))
+    if s = invalid then s = m.top.server
+    return s
+end function
+
+' The current server's libraries in the Libraries order (with the saved names), for Home → Rows
+function homeLibs() as object
+    return Prefs.orderLibraries(m.libs, serverKey())
+end function
+
+function homeRowEntry(id as string, libs as object, srvOn as boolean) as object
+    sid = serverKey()
+    e = { kind: "homerow", id: id, label: id, icon: "folder", on: HomeLayout.isOn(sid, id), state: "" }
+    if id = "resume"
+        e.label = "Continue Watching"
+        e.icon = "clock"
+    else if id = "nextup"
+        e.label = "Next Up"
+        e.icon = "next"
+    else if id = "favorites"
+        e.label = "Favorites"
+        e.icon = "heart"
+    else if id = "recent"
+        e.label = "Recently Added"
+        e.icon = "clock"
+    else if id = "libraries"
+        e.label = "My Libraries (tiles)"
+        e.icon = "folder"
+    else
+        for each l in libs
+            if HomeLayout.libRowId(Util.toText(l.id)) = id
+                e.label = Util.toText(l.title)
+                if l.kind = "movies" then e.icon = "film"
+                if l.kind = "tvshows" then e.icon = "tv"
+                lp = Prefs.library(Util.toText(l.id))
+                e.state = labelOf(styleOptions(), lp.style)
+                if not lp.nav then e.state = "Hidden in Libraries"
+            end if
+        end for
+    end if
+    e.dim = srvOn
+    return e
+end function
+
+' Settings → Playback → Start with: which of the two the current server uses
+function networkNote() as string
+    t = "The player's Quality button changes it for one video. "
+    srv = m.top.server
+    if srv = invalid then return t + "Home network: a server address on your network (192.168..., 10..., .local)."
+    if Util.isPrivateHost(Util.hostOf(Util.toText(srv.url))) then return t + Util.toText(srv.name) + " is on your home network."
+    return t + Util.toText(srv.name) + " is reached over the internet."
+end function
+
 function capital(s as string) as string
     if s = "" then return s
     return UCase(s.left(1)) + s.mid(1)
@@ -269,7 +397,86 @@ sub draw()
     m.top.findNode("bg").color = t.bg
     drawTabs()
     drawContent()
+    speakFocus()
 end sub
+
+' ---------------------------------------------------------------- Audio Guide
+
+' The focused tab or row, said once per focus move: "Subtitles tab, 4 of 8"; "Accent color: Blue, use Left
+' and Right"; "Show Next Up, switch, on", with the section's name when the focus enters a new section and
+' the help text under the row
+sub speakFocus()
+    if not Speak.isOn() or m.picker <> invalid then return
+    tabs = tabList()
+    text = ""
+    if m.area = "tabs"
+        text = tabs[m.tab].label + " tab" + Speak.position(m.tab, tabs.count())
+        if m.spokenKey = "" then text = "Settings. " + text
+        m.spokenHead = ""
+    else if m.area = "rows" and m.row < m.focusables.count()
+        idx = m.focusables[m.row]
+        text = rowSpeech(m.rows[idx])
+        head = ""
+        for i = idx to 0 step -1
+            if m.rows[i].kind = "head"
+                head = Util.toText(m.rows[i].text)
+                exit for
+            end if
+        end for
+        if head <> m.spokenHead
+            m.spokenHead = head
+            if head <> "" then text = head + ". " + text
+        end if
+        if idx + 1 < m.rows.count() and m.rows[idx + 1].kind = "note" then text = text + ". " + Util.toText(m.rows[idx + 1].text)
+    else
+        return
+    end if
+    text = Speak.clean(text)
+    key = m.area + m.tab.toStr() + "/" + m.row.toStr() + text
+    if key = m.spokenKey then return
+    m.spokenKey = key
+    Speak.say(text)
+end sub
+
+function rowSpeech(r as object) as string
+    k = r.kind
+    label = Util.toText(r.label)
+    if k = "choice" then return label + ": " + Util.toText(r.value) + ", menu button"
+    if k = "button" then return Speak.button(Util.toText(r.text))
+    if k = "toggle"
+        text = label
+        if Util.toText(r.text) <> "" then text = text + ", " + Util.toText(r.text)
+        if r.on = true then return text + ", switch, on"
+        return text + ", switch, off"
+    end if
+    if k = "swatches" or k = "tiles"
+        cur = Util.toText(r.cur)
+        for each o in r.options
+            if Util.toText(o.id) = cur and o.label <> invalid then cur = Util.toText(o.label)
+        end for
+        return label + ": " + cur + ", press Left or Right to change"
+    end if
+    if k = "server"
+        text = label + ", " + Util.toText(r.sub)
+        if r.current = true then return text + ", connected"
+        return text + ", button"
+    end if
+    if k = "section"
+        if r.on = true then return label + ", in the sidebar"
+        return label + ", hidden"
+    end if
+    if k = "library"
+        text = label
+        if r.nav = true
+            text = text + ", in the sidebar"
+        else
+            text = text + ", not in the sidebar"
+        end if
+        if r.nav = true and r.home = true then text = text + ", on Home"
+        return text + ", menu button"
+    end if
+    return label
+end function
 
 sub drawTabs()
     t = m.global.theme
@@ -409,8 +616,8 @@ function rowHeight(r as object) as integer
     if k = "note" then return 28 * noteLines(r.text) + 6
     if k = "swatches" then return 72
     if k = "tiles" then return 124
-    if k = "server" or k = "info" then return 80
-    if k = "library" or k = "section" then return 60
+    if k = "server" or k = "info" or k = "profile" then return 80
+    if k = "library" or k = "section" or k = "homerow" then return 60
     if k = "keys" then return 50
     if k = "preview" then return 0
     return 58
@@ -506,7 +713,7 @@ sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionT
         cap.width = kw
         cap.height = 38
         addLabel(c, r.text, x, y, 1040, 50, 24, false, "0xFFFFFFB3")
-    else if k = "server" or k = "library" or k = "section"
+    else if k = "server" or k = "library" or k = "section" or k = "profile" or k = "homerow"
         drawListRow(c, r, x, y, isFocus)
     else if k = "preview"
         drawPreview(c, sectionTop)
@@ -589,6 +796,7 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
     end if
     icName = Util.toText(r.icon)
     if r.kind = "server" then icName = "server"
+    if r.kind = "profile" then icName = "profile"
     ic = c.createChild("Poster")
     ic.uri = "pkg:/images/ui/icon_" + icName + "_36.png"
     ic.width = 32
@@ -596,7 +804,7 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
     ic.translation = [x + 10, y + Int((h - 32) / 2) + 2]
     ic.blendColor = t.accent
     if isFocus then ic.blendColor = main
-    if r.kind = "server"
+    if r.kind = "server" or r.kind = "profile"
         addLabel(c, r.label, x + 60, y + 6, 640, 36, 26, true, main)
         addLabel(c, r.sub, x + 60, y + 40, 760, 30, 20, false, second)
         if r.current = true
@@ -608,15 +816,25 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
             ck.blendColor = t.accent
             if isFocus then ck.blendColor = main
         else
-            st = addLabel(c, "Connect", x + w - 230, y, 200, h, 24, true, second)
+            stText = "Connect"
+            if r.kind = "profile" then stText = "Switch"
+            st = addLabel(c, stText, x + w - 230, y, 200, h, 24, true, second)
             st.horizAlign = "right"
         end if
     else
         nameCol = main
         if r.kind = "section" and not r.on then nameCol = second
         if r.kind = "library" and not r.nav then nameCol = second
+        if r.kind = "homerow" and (not r.on or r.dim = true) then nameCol = second
         addLabel(c, r.label, x + 60, y, 520, h, 26, false, nameCol)
-        if r.kind = "section"
+        if r.kind = "homerow"
+            stateText = "Hidden"
+            if r.on then stateText = "On Home"
+            if r.dim = true then stateText = "Set by the server"
+            if r.state <> "" and r.dim <> true then stateText = r.state + "   ·   " + stateText
+            s1 = addLabel(c, stateText, x + w - 470, y, 440, h, 22, false, second)
+            s1.horizAlign = "right"
+        else if r.kind = "section"
             stateText = "Hidden"
             if r.on then stateText = "In the sidebar"
             s1 = addLabel(c, stateText, x + w - 430, y, 400, h, 22, false, second)
@@ -701,6 +919,8 @@ function onKeyEvent(key as string, press as boolean) as boolean
             ' a page with nothing to change (Remote): Down / Up scroll it
             m.area = "scroll"
             scrollBy(240)
+            ' (Audio Guide: a page to read, not to change)
+            Speak.say(Speak.labelsOf(m.content, 60))
         else if key = "back"
             return false
         end if
@@ -750,6 +970,10 @@ function onKeyEvent(key as string, press as boolean) as boolean
             if idx >= 0 and idx < r.options.count() then apply(r.id, r.options[idx].id)
         else if r.kind = "toggle"
             apply(r.id, onOff(key = "right"))
+        else if r.kind = "homerow"
+            HomeLayout.setOn(serverKey(), homeLibs(), r.id, key = "right")
+            m.top.themeChanged = true
+            draw()
         end if
     else if key = "OK"
         useRow(r)
@@ -784,13 +1008,22 @@ sub useRow(r as object)
         ' (Left / Right change them)
     else if k = "library"
         libraryMenu(r.id)
+    else if k = "homerow"
+        homeRowMenu(r.id)
     else if k = "server"
         serverMenu(r.id)
+    else if k = "profile"
+        profileMenu(r.id)
     else if k = "button"
         if r.id = "subDefaults"
             for each key in ["subTextSize", "subColor", "subShadow", "subBg", "subBottom"]
                 Util.writeText(key, "")
             end for
+            draw()
+        else if r.id = "homeDefaultOrder"
+            HomeLayout.resetOrder(serverKey())
+            m.top.themeChanged = true
+            m.row = 1
             draw()
         else if r.id = "retryLibs"
             onServer()
@@ -799,6 +1032,10 @@ sub useRow(r as object)
             m.top.action = { id: "signout" }
         else if r.id = "addServer"
             m.top.action = { id: "switch" }
+        else if r.id = "switchProfile"
+            m.top.action = { id: "profiles" }
+        else if r.id = "addProfile"
+            m.top.action = { id: "addProfile" }
         else if r.id = "reset"
             openPicker("reset", "Reset all settings?", [{ id: "yes", label: "Reset" }, { id: "no", label: "Cancel" }], "no")
         end if
@@ -808,9 +1045,17 @@ end sub
 ' Saves one setting and redraws; Home is rebuilt when Settings closes if it changed something there
 sub apply(id as string, value as string)
     homeKeys = { navStyle: 1, topBarLabels: 1, showRecent: 1, showUpNextRow: 1, homeFavorites: 1, showFavorites: 1, showNowPlaying: 1, hideSpoilers: 1 }
-    if id = "accent" or id = "background"
+    if id = "askWho"
+        ' (kept with the server's profiles, not with the settings that Reset clears)
+        Servers.setAsk(serverKey(), value = "on")
+    else if id = "accent" or id = "background"
         Util.writeText(id, value)
         m.global.theme = Theme.get()
+        m.top.themeChanged = true
+    else if id = "startQualityHome" or id = "startQualityNet"
+        Prefs.setStartQuality(id, value)
+    else if id = "homeServerLayout"
+        HomeLayout.setServerLayout(serverKey(), value = "on")
         m.top.themeChanged = true
     else if id = "subLang"
         Util.writeText(id, value)
@@ -907,6 +1152,26 @@ sub moveLibrary(id as string, delta as integer)
     end for
 end sub
 
+' Home → Rows: OK on a row
+sub homeRowMenu(id as string)
+    sid = serverKey()
+    libs = homeLibs()
+    o = []
+    label = "Show on Home: " + yesNo(HomeLayout.isOn(sid, id))
+    if id.left(1) = "L" and not Prefs.library(id.mid(1)).nav then label = label + " (On also shows it in the sidebar)"
+    o.push({ id: "toggle", label: label })
+    ids = HomeLayout.orderedIds(sid, libs)
+    at = HomeLayout.indexIn(ids, id)
+    if at > 0 then o.push({ id: "up", label: "Move up" })
+    if at >= 0 and at < ids.count() - 1 then o.push({ id: "down", label: "Move down" })
+    m.menuHomeRow = id
+    title = id
+    for each r in m.rows
+        if r.kind = "homerow" and r.id = id then title = r.label
+    end for
+    openPicker("homerow", title, o, "")
+end sub
+
 sub serverMenu(id as string)
     s = Servers.find(id)
     if s = invalid then return
@@ -921,6 +1186,235 @@ sub serverMenu(id as string)
     end if
     m.menuServer = id
     openPicker("srv", Util.toText(s.name), o, "")
+end sub
+
+'' OK on a profile: switch to it, or sign it out (the current one signs out with Sign Out above)
+sub profileMenu(userId as string)
+    srv = currentServer()
+    if srv = invalid then return
+    u = Servers.userOf(srv, userId)
+    if u = invalid then return
+    o = []
+    cur = userId = Util.toText(srv.userId)
+    if not cur then o.push({ id: "use", label: "Switch to " + Util.toText(u.n) })
+    if Util.toText(u.p) = ""
+        o.push({ id: "pinSet", label: "Profile PIN: Off  ·  Set PIN..." })
+    else
+        o.push({ id: "pinChange", label: "Profile PIN: On  ·  Change PIN..." })
+        o.push({ id: "pinRemove", label: "Remove PIN" })
+    end if
+    o.push({ id: "rating", label: "Maximum rating: " + Ratings.labelFor(Util.toText(u.r)) + "..." })
+    o.push({ id: "signout", label: "Sign Out" })
+    m.menuProfile = userId
+    openPicker("prof", Util.toText(u.n), o, "")
+end sub
+
+' ---------------------------------------------------------------- profile PIN
+
+' goal: "set" (new, confirm), "change" (current, new, confirm), "remove" (current), "signout" (current, when it
+' has one), and whatever else needs the PIN first ("rating"). A profile without a PIN skips the current step.
+sub startPinFlow(userId as string, goal as string)
+    srv = currentServer()
+    if srv = invalid then return
+    sid = Util.toText(srv.id)
+    m.pinFlow = { userId: userId, goal: goal, newPin: "" }
+    if goal = "set"
+        nextPin("new")
+    else if Servers.pinOf(srv, userId) = ""
+        pinVerified()
+    else
+        wait_ = Pins.waitLeft(sid, userId)
+        if wait_ > 0
+            m.pinFlow = invalid
+            later({ kind: "notice", text: Pins.waitText(wait_) })
+            return
+        end if
+        nextPin("verify")
+    end if
+end sub
+
+sub nextPin(stepName as string)
+    m.pinFlow.stepName = stepName
+    u = Servers.userOf(currentServer(), m.pinFlow.userId)
+    who = Util.toText(Util.field(u, "n"))
+    if stepName = "verify"
+        openPinPad("PIN for " + who, "Enter the current PIN of this profile.")
+    else if stepName = "new"
+        openPinPad("New PIN for " + who, "4 digits. Cove asks for it when someone picks this profile, and before its rating limit changes.")
+    else
+        openPinPad("Confirm the PIN", "Enter the same 4 digits again.")
+    end if
+end sub
+
+sub openPinPad(title as string, message as string)
+    d = createObject("roSGNode", "StandardPinPadDialog")
+    d.title = title
+    d.message = [message]
+    d.buttons = ["OK", "Cancel"]
+    if d.hasField("textEditBox") and d.textEditBox <> invalid
+        d.textEditBox.secureMode = true
+        d.textEditBox.maxTextLength = 4
+    end if
+    d.observeField("buttonSelected", "onPinPadButton")
+    d.observeField("wasClosed", "onPinPadClosed")
+    m.top.getScene().dialog = d
+    m.kbTimer.control = "start"
+end sub
+
+' The next dialog once this one has gone (a dialog opened while the last one closes gets no focus)
+sub later(next_ as object)
+    m.nextDialog = next_
+    m.pinTimer.control = "start"
+end sub
+
+sub onPinTimer()
+    n = m.nextDialog
+    m.nextDialog = invalid
+    if n = invalid then return
+    if n.kind = "pin"
+        nextPin(n.stepName)
+    else if n.kind = "rating"
+        openRatingPicker()
+    else
+        d = createObject("roSGNode", "StandardMessageDialog")
+        d.title = "Profile PIN"
+        d.message = [n.text]
+        d.buttons = ["OK"]
+        d.observeField("buttonSelected", "onPinPadClosed")
+        d.observeField("wasClosed", "onPinPadClosed")
+        m.top.getScene().dialog = d
+        m.kbTimer.control = "start"
+    end if
+end sub
+
+sub onPinPadClosed(ev as object)
+    d = ev.getRoSGNode()
+    d.unobserveField("buttonSelected")
+    d.unobserveField("wasClosed")
+    d.close = true
+    m.keys.setFocus(true)
+    draw()
+end sub
+
+sub onPinPadButton(ev as object)
+    d = ev.getRoSGNode()
+    ok = d.buttonSelected = 0
+    pin = Util.toText(d.pin)
+    d.unobserveField("buttonSelected")
+    d.unobserveField("wasClosed")
+    d.close = true
+    m.keys.setFocus(true)
+    f = m.pinFlow
+    srv = currentServer()
+    if not ok or f = invalid or srv = invalid
+        m.pinFlow = invalid
+        draw()
+        return
+    end if
+    sid = Util.toText(srv.id)
+    if f.stepName = "verify"
+        if Pins.matches(Servers.pinOf(srv, f.userId), sid, f.userId, pin)
+            Pins.clearWrong(sid, f.userId)
+            pinVerified()
+        else
+            print "Cove: wrong profile PIN"
+            m.pinFlow = invalid
+            later({ kind: "notice", text: Pins.wrongText(Pins.noteWrong(sid, f.userId)) })
+        end if
+    else if f.stepName = "new"
+        if not Pins.isValid(pin)
+            later({ kind: "pin", stepName: "new" })
+            return
+        end if
+        f.newPin = pin
+        later({ kind: "pin", stepName: "confirm" })
+    else if f.stepName = "confirm"
+        if pin <> f.newPin
+            f.newPin = ""
+            m.pinFlow = invalid
+            later({ kind: "notice", text: "The PINs didn't match. The PIN wasn't changed." })
+            return
+        end if
+        Servers.setUserField(sid, f.userId, "p", Pins.make(sid, f.userId, pin))
+        Pins.clearWrong(sid, f.userId)
+        m.pinFlow = invalid
+        later({ kind: "notice", text: "PIN saved. Cove asks for it when someone picks this profile." })
+    end if
+    draw()
+end sub
+
+' The current PIN was right (or the profile has none): carry on with what it was asked for
+sub pinVerified()
+    f = m.pinFlow
+    srv = currentServer()
+    if f = invalid or srv = invalid then return
+    sid = Util.toText(srv.id)
+    if f.goal = "change"
+        later({ kind: "pin", stepName: "new" })
+        return
+    end if
+    m.pinFlow = invalid
+    if f.goal = "remove"
+        Servers.setUserField(sid, f.userId, "p", "")
+        later({ kind: "notice", text: "PIN removed. Anyone can pick this profile now." })
+    else if f.goal = "signout"
+        signOutProfile(f.userId)
+    else
+        pinGoal(f.goal, f.userId)
+    end if
+    draw()
+end sub
+
+' (other things a PIN guards; see the rating limit)
+sub pinGoal(goal as string, userId as string)
+    if goal = "rating"
+        m.menuProfile = userId
+        later({ kind: "rating" })
+    end if
+end sub
+
+' Maximum rating (kids limit) for a profile
+sub openRatingPicker()
+    srv = currentServer()
+    if srv = invalid then return
+    u = Servers.userOf(srv, m.menuProfile)
+    if u = invalid then return
+    openPicker("rating", "Maximum rating for " + Util.toText(u.n), Ratings.choices(), Util.toText(u.r))
+end sub
+
+sub setRating(userId as string, value as string)
+    srv = currentServer()
+    if srv = invalid then return
+    Servers.setUserField(Util.toText(srv.id), userId, "r", value)
+    if userId = Util.toText(srv.userId)
+        ' the profile on Home: its lists are asked again with the new limit when Settings closes
+        cur = Servers.find(Util.toText(srv.id))
+        if cur <> invalid then m.top.server = cur
+        m.top.action = { id: "profileChanged" }
+        m.top.themeChanged = true
+    end if
+    draw()
+end sub
+
+' Signs one profile out: its session on the server, then it's forgotten here
+sub signOutProfile(userId as string)
+    srv = currentServer()
+    if srv = invalid then return
+    if userId = Util.toText(srv.userId)
+        m.top.action = { id: "signout" }
+        return
+    end if
+    us = Servers.asUser(srv, userId)
+    if us = invalid then return
+    if Util.toText(us.token) <> ""
+        if m.logoutTasks = invalid then m.logoutTasks = []
+        t = createObject("roSGNode", "ApiTask")
+        t.request = { method: "POST", url: Util.toText(us.url) + "/Sessions/Logout", headers: Api.headers(us, true), body: "", tag: { kind: "logout" }, timeout: 10000 }
+        m.logoutTasks.push(t)
+        t.control = "RUN"
+    end if
+    Servers.removeUser(Util.toText(srv.id), userId)
+    draw()
 end sub
 
 sub openPicker(purpose as string, title as string, options as object, selectedId as string)
@@ -945,6 +1439,7 @@ sub closePicker()
         m.picker = invalid
     end if
     m.keys.setFocus(true)
+    m.spokenKey = "picker"
 end sub
 
 sub onPickerCancelled()
@@ -986,11 +1481,47 @@ sub onPicked(ev as object)
             draw()
             libraryMenu(id)
         end if
+    else if purpose = "homerow"
+        id = m.menuHomeRow
+        sid = serverKey()
+        if c.id = "toggle"
+            HomeLayout.setOn(sid, homeLibs(), id, not HomeLayout.isOn(sid, id))
+        else if c.id = "up" or c.id = "down"
+            delta = 1
+            if c.id = "up" then delta = -1
+            ' (keep the focus on the moved row)
+            if HomeLayout.move(sid, homeLibs(), id, delta) then m.row = m.row + delta
+        end if
+        m.top.themeChanged = true
+        draw()
+        homeRowMenu(id)
     else if purpose.startsWith("libset:")
         Prefs.setLibrary(m.menuLib, purpose.mid(7), c.id)
         m.top.themeChanged = true
         draw()
         libraryMenu(m.menuLib)
+    else if purpose = "prof"
+        if c.id = "use"
+            m.top.action = { id: "useProfile", userId: m.menuProfile }
+        else if c.id = "signout"
+            ' (another profile's PIN guards it from being signed out here)
+            if m.menuProfile = Util.toText(currentServer().userId)
+                signOutProfile(m.menuProfile)
+            else
+                startPinFlow(m.menuProfile, "signout")
+            end if
+        else if c.id = "pinSet"
+            startPinFlow(m.menuProfile, "set")
+        else if c.id = "pinChange"
+            startPinFlow(m.menuProfile, "change")
+        else if c.id = "pinRemove"
+            startPinFlow(m.menuProfile, "remove")
+        else if c.id = "rating"
+            ' (a profile with a PIN: its PIN first)
+            startPinFlow(m.menuProfile, "rating")
+        end if
+    else if purpose = "rating"
+        setRating(m.menuProfile, c.id)
     else if purpose = "srv"
         id = m.menuServer
         if c.id = "connect"
@@ -1012,13 +1543,16 @@ end sub
 sub removeServer(id as string)
     s = Servers.find(id)
     if s = invalid then return
-    if Util.toText(s.token) <> ""
+    ' (every profile's session; the tasks are kept until they finish)
+    if m.logoutTasks = invalid then m.logoutTasks = []
+    for each us in Servers.sessions(s)
         t = createObject("roSGNode", "ApiTask")
-        t.request = { method: "POST", url: Util.toText(s.url) + "/Sessions/Logout", headers: Api.headers(s, true), body: "", tag: { kind: "logout" }, timeout: 10000 }
-        m.logoutTask = t
+        t.request = { method: "POST", url: Util.toText(us.url) + "/Sessions/Logout", headers: Api.headers(us, true), body: "", tag: { kind: "logout" }, timeout: 10000 }
+        m.logoutTasks.push(t)
         t.control = "RUN"
-    end if
+    end for
     Servers.remove(id)
+    HomeLayout.forget(id)
     draw()
 end sub
 

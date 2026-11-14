@@ -2,6 +2,10 @@
 <!-- Root scene: a stack of screens (MenuScreen pages) and the flows between them: choose / add a server,
      sign in (username + password, a user from the server's list, or Jellyfin Quick Connect), stay signed in. -->
 <component name="MainScene" extends="Scene">
+    <!-- Instant Resume (manifest sdk_instant_resume / run_as_process): called when the app is sent to the
+         background (Home, Back out of the app, screensaver) and when it is launched again -->
+    <customization suspendhandler="customSuspend" />
+    <customization resumehandler="customResume" />
     <script type="text/brightscript" uri="MainScene.bs" />
     <interface>
         <!-- { contentId, mediaType } from a launch or an roInputEvent (main.bs) -->
