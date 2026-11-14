@@ -198,6 +198,11 @@ sub buildNav()
         end for
     end if
     if m.side then items.push({ header: true, label: "" })
+    ' (v0.9.0) the signed-in profile: OK opens Who's watching? to switch or add one
+    who = ""
+    if m.top.server <> invalid then who = Util.toText(m.top.server.userName)
+    if who = "" then who = "Profiles"
+    items.push({ id: "profile", label: who, icon: "profile" })
     items.push({ id: "settings", label: "Settings", icon: "gear" })
     m.nav.items = items
 end sub
@@ -547,7 +552,7 @@ sub onNavChosen(ev as object)
     end if
     if id = "search"
         m.top.action = { id: "search" }
-    else if id = "settings" or id = "favorites" or id = "recent" or id = "nowplaying"
+    else if id = "settings" or id = "favorites" or id = "recent" or id = "nowplaying" or id = "profile"
         m.top.action = { id: id }
     else if id.startsWith("lib:")
         l = m.libraries[id.mid(4).toInt()]

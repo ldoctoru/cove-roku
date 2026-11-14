@@ -44,7 +44,10 @@ end sub
 ' Signed in before: check the saved sign-in still works, otherwise show the server list
 sub start()
     s = Servers.active()
-    if s <> invalid and Util.toText(s.token) <> ""
+    if s <> invalid and wantsWho(s)
+        ' Who's watching? (2 or more profiles on the server, Settings → Servers)
+        showWho(s, "", false)
+    else if s <> invalid and Util.toText(s.token) <> ""
         validate(s)
     else
         showServers("")
@@ -71,7 +74,7 @@ sub push(s as object)
     s.setFocus(true)
     ' the server list / sign-in shown before Home is a dialog for Roku's launch timing
     sid = Util.toText(s.screenId)
-    if not m.beaconSent and not m.inDialog and (sid = "servers" or sid = "signin" or sid = "address")
+    if not m.beaconSent and not m.inDialog and (sid = "servers" or sid = "signin" or sid = "address" or sid = "profiles")
         m.inDialog = true
         m.top.signalBeacon("AppDialogInitiate")
     end if
@@ -100,6 +103,13 @@ sub onSettingsAction(ev as object)
     else if a.id = "switch"
         m.themeDirty = false
         showServers("")
+    else if a.id = "profiles"
+        showWho(m.server, "", true)
+    else if a.id = "addProfile"
+        if m.server <> invalid then openSignIn(m.server, "")
+    else if a.id = "useProfile"
+        m.themeDirty = false
+        if m.server <> invalid then chooseProfile(m.server, Util.toText(a.userId))
     else if a.id = "renamed"
         ' the current server was renamed: keep MainScene's copy in step, Home is rebuilt when Settings closes
         if m.server <> invalid and Util.toText(m.server.id) = Util.toText(a.serverId) then m.server.name = Util.toText(a.name)
@@ -314,6 +324,9 @@ sub onHomeAction(ev as object)
         title = "Favorites"
         if a.id = "recent" then title = "Recently Added"
         l.library = { id: "", title: title, itemType: "", collectionType: "", feed: a.id }
+    else if a.id = "profile"
+        ' the sidebar's profile entry: Who's watching? over Home (Back returns)
+        showWho(m.server, "", true)
     else if a.id = "nowplaying"
         s = createObject("roSGNode", "NowPlayingScreen")
         s.server = m.server
@@ -717,7 +730,9 @@ end sub
 
 sub openServer(server as dynamic)
     if server = invalid then return
-    if Util.toText(server.token) <> ""
+    if Servers.profiles(server).count() >= 2
+        showWho(server, "", topIs("servers"))
+    else if Util.toText(server.token) <> ""
         validate(server)
     else
         openSignIn(server, "")
@@ -733,7 +748,8 @@ sub openSignIn(server as object, status as string)
     sc = newMenu("signin", "Sign in to " + Util.toText(server.name), line, [{ id: "manual", label: "Enter username and password" }])
     if status = "" and Util.isPlainRemote(Util.toText(server.url)) then status = "This connection isn't encrypted: your password can be read on the networks in between."
     sc.status = status
-    if topIs("servers")
+    if topIs("servers") or topIs("profiles") or topIs("settings")
+        ' (Back returns to the list / Who's watching? / Settings it came from)
         push(sc)
     else
         ' (from "connecting" or home: start from the server list so Back goes there)
@@ -895,8 +911,99 @@ end sub
 
 ' Another profile is still signed in on that server: its list (Who's watching?), or the server list
 sub afterSignOut(server as object, msg as string)
-    print "Cove: other profiles stay signed in on "; Util.toText(server.name)
-    showServers(msg)
+    showWho(server, msg, false)
+end sub
+
+' ---------------------------------------------------------------- profiles (Who's watching?)
+
+' At start: the server has 2 or more profiles and Settings → Servers → "Ask who's watching at start" is on
+function wantsWho(s as object) as boolean
+    return Servers.profiles(s).count() >= 2 and Servers.asksWho(s)
+end function
+
+' The profile picker for a server; asPush keeps the screen below (Back returns there)
+sub showWho(server as object, status as string, asPush as boolean)
+    if server = invalid
+        showServers("")
+        return
+    end if
+    srv = Servers.find(Util.toText(server.id))
+    if srv = invalid then srv = server
+    w = createObject("roSGNode", "ProfileScreen")
+    w.observeField("chosen", "onWhoChosen")
+    w.server = srv
+    w.currentId = Util.toText(srv.userId)
+    w.profiles = whoList(srv)
+    if asPush
+        push(w)
+    else
+        reset(w)
+    end if
+    w.status = status
+end sub
+
+function whoList(srv as object) as object
+    out = []
+    for each p in Servers.profiles(srv)
+        note = ""
+        if not p.signedIn then note = "Signed out"
+        out.push({ id: p.id, name: p.name, avatar: avatarUrl(srv, p.id, p.avatar), hasPin: p.hasPin, signedIn: p.signedIn, note: note })
+    end for
+    return out
+end function
+
+' The user's picture on the server (public, no token in the address); "" without one
+function avatarUrl(srv as object, userId as string, imageTag as string) as string
+    if imageTag = "" or userId = "" then return ""
+    base = Util.toText(srv.url)
+    q = "?maxWidth=220&quality=90&tag=" + imageTag
+    ' (Jellyfin 10.9 moved user pictures to /UserImage)
+    v = Util.toText(srv.version).split(".")
+    if Servers.isJellyfin(srv) and v.count() >= 2 and (v[0].toInt() > 10 or (v[0].toInt() = 10 and v[1].toInt() >= 9))
+        return base + "/UserImage" + q + "&userId=" + userId
+    end if
+    return base + "/Users/" + userId + "/Images/Primary" + q
+end function
+
+sub onWhoChosen(ev as object)
+    w = ev.getRoSGNode()
+    id = Util.toText(ev.getData().id)
+    srv = Servers.find(Util.toText(w.server.id))
+    if srv = invalid
+        showServers("")
+        return
+    end if
+    if id = "add"
+        openSignIn(srv, "")
+    else if id = "servers"
+        showServers("")
+    else
+        chooseProfile(srv, id)
+    end if
+end sub
+
+' A profile was picked (Who's watching?, Settings): its PIN first when it has one, then switch
+sub chooseProfile(srv as object, userId as string)
+    switchProfile(srv, userId)
+end sub
+
+' Makes the profile the active one and rebuilds Home for it (sign in again when its sign-in has gone)
+sub switchProfile(srv as object, userId as string)
+    ' (the profile already on Home, picked from the sidebar: just go back)
+    if m.server <> invalid and m.homeReady and Util.toText(m.server.id) = Util.toText(srv.id) and Util.toText(m.server.userId) = userId and Util.toText(m.server.token) <> ""
+        while m.stack.count() > 1 and not topIs("home")
+            pop()
+        end while
+        return
+    end if
+    s = Servers.useUser(Util.toText(srv.id), userId)
+    if s = invalid then return
+    print "Cove: switching profile on "; Util.toText(s.name)
+    if Util.toText(s.token) <> ""
+        validate(s)
+    else
+        openSignIn(s, "Sign in again as " + Util.toText(s.userName) + ".")
+    end if
 end sub
 
 ' Voice / transport commands go to the player on top; elsewhere the Roku does its default

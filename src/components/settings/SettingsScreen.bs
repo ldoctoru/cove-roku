@@ -205,13 +205,15 @@ function rowsFor(tabId as string) as object
             out.push({ kind: "info", label: "Connected to", text: Util.toText(srv.name), sub: Util.toText(srv.userName) + "  ·  " + Util.toText(srv.url) })
         end if
         out.push({ kind: "button", id: "signout", label: "", text: "Sign Out" })
+        profileRows(out)
         out.push(sectionHead("Saved servers"))
         for each s in Servers.all()
             kind = "Emby"
             if Servers.isJellyfin(s) then kind = "Jellyfin"
             cur = srv <> invalid and Util.toText(s.id) = Util.toText(srv.id)
             ' (as the Mac's ConnectionBadge: plain http is flagged, more strongly when it leaves the home network)
-            srvSub = Util.toText(s.userName) + "  ·  " + Util.toText(s.url) + "  ·  " + kind
+            srvSub = Util.toText(s.url) + "  ·  " + kind
+            if Util.toText(s.userName) <> "" then srvSub = Util.toText(s.userName) + "  ·  " + srvSub
             if Util.isPlainRemote(Util.toText(s.url))
                 srvSub = srvSub + "  ·  Not encrypted (internet)"
             else if Util.isPlainHttp(Util.toText(s.url))
@@ -248,6 +250,37 @@ function rowsFor(tabId as string) as object
         out.push(note("Puts every setting back to its default. Your servers and sign-in are kept."))
     end if
     return out
+end function
+
+'' (v0.9.0) Servers → Profiles: the current server's saved profiles, Who's watching? at start, add / switch
+sub profileRows(out as object)
+    srv = currentServer()
+    if srv = invalid then return
+    out.push(sectionHead("Profiles on " + Util.toText(srv.name)))
+    for each p in Servers.profiles(srv)
+        out.push({ kind: "profile", id: p.id, label: p.name, sub: profileSub(srv, p), current: p.id = Util.toText(srv.userId) })
+    end for
+    out.push(toggle("askWho", "At start", "Ask who's watching", Servers.asksWho(srv)))
+    out.push(note("With 2 or more profiles on this server, Cove starts with Who's watching?. The profile entry at the bottom of the sidebar switches at any time."))
+    out.push({ kind: "button", id: "switchProfile", label: "", text: "Switch Profile..." })
+    out.push({ kind: "button", id: "addProfile", label: "", text: "Add Profile..." })
+    out.push(note("Add Profile signs in another user of this server; each profile keeps its own sign-in, Continue Watching and favourites."))
+end sub
+
+function profileSub(srv as object, p as object) as string
+    parts = []
+    if p.id = Util.toText(srv.userId) then parts.push("Watching now")
+    if not p.signedIn then parts.push("Signed out")
+    if parts.count() = 0 then parts.push("Signed in")
+    return Util.join(parts, "  ·  ")
+end function
+
+' The current server as saved now (profiles change while Settings is open)
+function currentServer() as dynamic
+    if m.top.server = invalid then return invalid
+    s = Servers.find(Util.toText(m.top.server.id))
+    if s = invalid then s = m.top.server
+    return s
 end function
 
 function capital(s as string) as string
@@ -409,7 +442,7 @@ function rowHeight(r as object) as integer
     if k = "note" then return 28 * noteLines(r.text) + 6
     if k = "swatches" then return 72
     if k = "tiles" then return 124
-    if k = "server" or k = "info" then return 80
+    if k = "server" or k = "info" or k = "profile" then return 80
     if k = "library" or k = "section" then return 60
     if k = "keys" then return 50
     if k = "preview" then return 0
@@ -506,7 +539,7 @@ sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionT
         cap.width = kw
         cap.height = 38
         addLabel(c, r.text, x, y, 1040, 50, 24, false, "0xFFFFFFB3")
-    else if k = "server" or k = "library" or k = "section"
+    else if k = "server" or k = "library" or k = "section" or k = "profile"
         drawListRow(c, r, x, y, isFocus)
     else if k = "preview"
         drawPreview(c, sectionTop)
@@ -589,6 +622,7 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
     end if
     icName = Util.toText(r.icon)
     if r.kind = "server" then icName = "server"
+    if r.kind = "profile" then icName = "profile"
     ic = c.createChild("Poster")
     ic.uri = "pkg:/images/ui/icon_" + icName + "_36.png"
     ic.width = 32
@@ -596,7 +630,7 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
     ic.translation = [x + 10, y + Int((h - 32) / 2) + 2]
     ic.blendColor = t.accent
     if isFocus then ic.blendColor = main
-    if r.kind = "server"
+    if r.kind = "server" or r.kind = "profile"
         addLabel(c, r.label, x + 60, y + 6, 640, 36, 26, true, main)
         addLabel(c, r.sub, x + 60, y + 40, 760, 30, 20, false, second)
         if r.current = true
@@ -608,7 +642,9 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
             ck.blendColor = t.accent
             if isFocus then ck.blendColor = main
         else
-            st = addLabel(c, "Connect", x + w - 230, y, 200, h, 24, true, second)
+            stText = "Connect"
+            if r.kind = "profile" then stText = "Switch"
+            st = addLabel(c, stText, x + w - 230, y, 200, h, 24, true, second)
             st.horizAlign = "right"
         end if
     else
@@ -786,6 +822,8 @@ sub useRow(r as object)
         libraryMenu(r.id)
     else if k = "server"
         serverMenu(r.id)
+    else if k = "profile"
+        profileMenu(r.id)
     else if k = "button"
         if r.id = "subDefaults"
             for each key in ["subTextSize", "subColor", "subShadow", "subBg", "subBottom"]
@@ -799,6 +837,10 @@ sub useRow(r as object)
             m.top.action = { id: "signout" }
         else if r.id = "addServer"
             m.top.action = { id: "switch" }
+        else if r.id = "switchProfile"
+            m.top.action = { id: "profiles" }
+        else if r.id = "addProfile"
+            m.top.action = { id: "addProfile" }
         else if r.id = "reset"
             openPicker("reset", "Reset all settings?", [{ id: "yes", label: "Reset" }, { id: "no", label: "Cancel" }], "no")
         end if
@@ -808,7 +850,10 @@ end sub
 ' Saves one setting and redraws; Home is rebuilt when Settings closes if it changed something there
 sub apply(id as string, value as string)
     homeKeys = { navStyle: 1, topBarLabels: 1, showRecent: 1, showUpNextRow: 1, homeFavorites: 1, showFavorites: 1, showNowPlaying: 1, hideSpoilers: 1 }
-    if id = "accent" or id = "background"
+    if id = "askWho"
+        ' (kept with the server's profiles, not with the settings that Reset clears)
+        Servers.setAsk(serverKey(), value = "on")
+    else if id = "accent" or id = "background"
         Util.writeText(id, value)
         m.global.theme = Theme.get()
         m.top.themeChanged = true
@@ -923,6 +968,41 @@ sub serverMenu(id as string)
     openPicker("srv", Util.toText(s.name), o, "")
 end sub
 
+'' OK on a profile: switch to it, or sign it out (the current one signs out with Sign Out above)
+sub profileMenu(userId as string)
+    srv = currentServer()
+    if srv = invalid then return
+    u = Servers.userOf(srv, userId)
+    if u = invalid then return
+    o = []
+    cur = userId = Util.toText(srv.userId)
+    if not cur then o.push({ id: "use", label: "Switch to " + Util.toText(u.n) })
+    o.push({ id: "signout", label: "Sign Out" })
+    m.menuProfile = userId
+    openPicker("prof", Util.toText(u.n), o, "")
+end sub
+
+' Signs one profile out: its session on the server, then it's forgotten here
+sub signOutProfile(userId as string)
+    srv = currentServer()
+    if srv = invalid then return
+    if userId = Util.toText(srv.userId)
+        m.top.action = { id: "signout" }
+        return
+    end if
+    us = Servers.asUser(srv, userId)
+    if us = invalid then return
+    if Util.toText(us.token) <> ""
+        if m.logoutTasks = invalid then m.logoutTasks = []
+        t = createObject("roSGNode", "ApiTask")
+        t.request = { method: "POST", url: Util.toText(us.url) + "/Sessions/Logout", headers: Api.headers(us, true), body: "", tag: { kind: "logout" }, timeout: 10000 }
+        m.logoutTasks.push(t)
+        t.control = "RUN"
+    end if
+    Servers.removeUser(Util.toText(srv.id), userId)
+    draw()
+end sub
+
 sub openPicker(purpose as string, title as string, options as object, selectedId as string)
     p = createObject("roSGNode", "Picker")
     p.purpose = purpose
@@ -991,6 +1071,12 @@ sub onPicked(ev as object)
         m.top.themeChanged = true
         draw()
         libraryMenu(m.menuLib)
+    else if purpose = "prof"
+        if c.id = "use"
+            m.top.action = { id: "useProfile", userId: m.menuProfile }
+        else if c.id = "signout"
+            signOutProfile(m.menuProfile)
+        end if
     else if purpose = "srv"
         id = m.menuServer
         if c.id = "connect"

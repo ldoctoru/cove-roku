@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- "Who's watching?" (Netflix-style, Glass): the server's saved profiles as round pictures with their names, then
+     "Add profile". Left / Right move, OK sets "chosen" = { id: userId | "add" | "servers" }, Down reaches
+     "Choose another server". profiles: [{ id, name, avatar (image URL or ""), hasPin, signedIn, note }].
+     MainScene shows it at start (2+ profiles) and from the sidebar / Settings; it asks the PIN and switches. -->
+<component name="ProfileScreen" extends="Group">
+    <script type="text/brightscript" uri="ProfileScreen.bs" />
+    <interface>
+        <field id="screenId" type="string" value="profiles" />
+        <field id="server" type="assocarray" />
+        <field id="profiles" type="array" onChange="build" />
+        <field id="currentId" type="string" />
+        <field id="status" type="string" onChange="onStatus" />
+        <field id="chosen" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />
+        <Label id="title" text="Who's watching?" width="1920" height="90" translation="[0,220]" horizAlign="center" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="64" />
+        </Label>
+        <Label id="subtitle" text="Loading..." width="1920" height="40" translation="[0,316]" horizAlign="center" color="0xFFFFFF8C">
+            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+        </Label>
+        <Group id="clip" translation="[0,400]" clippingRect="[0,0,1920,420]">
+            <Group id="tiles" />
+        </Group>
+        <Group id="other" translation="[0,860]" />
+        <Label id="statusLine" text="" width="1920" height="40" translation="[0,960]" horizAlign="center" color="0xFF9F0AFF">
+            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+        </Label>
+    </children>
+</component>

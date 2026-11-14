@@ -1,0 +1,207 @@
+import "pkg:/source/Util.bs"
+
+' Tiles: a 220 px round picture every 300 px, centred; up to 6 fit, more scroll sideways
+sub init()
+    t = m.global.theme
+    m.top.findNode("bg").color = t.bg
+    m.tiles = m.top.findNode("tiles")
+    m.other = m.top.findNode("other")
+    m.index = 0
+    m.area = "tiles"
+    m.top.observeField("server", "onServer")
+end sub
+
+sub onServer()
+    s = m.top.server
+    if s = invalid then return
+    m.top.findNode("subtitle").text = Util.toText(s.name)
+end sub
+
+sub onStatus()
+    m.top.findNode("statusLine").text = m.top.status
+end sub
+
+' (current profile first in focus, so OK alone keeps it)
+sub build()
+    m.index = 0
+    list = entries()
+    for i = 0 to list.count() - 1
+        if list[i].id = m.top.currentId then m.index = i
+    end for
+    paint()
+end sub
+
+function entries() as object
+    out = []
+    if m.top.profiles <> invalid
+        for each p in m.top.profiles
+            out.push(p)
+        end for
+    end if
+    out.push({ id: "add", name: "Add profile", avatar: "", hasPin: false, signedIn: true, note: "" })
+    return out
+end function
+
+function mkFont(bold as boolean, size as integer) as object
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    if bold then f.uri = "font:BoldSystemFontFile"
+    f.size = size
+    return f
+end function
+
+function addLabel(parent as object, text as string, x as integer, y as integer, w as integer, h as integer, size as integer, bold as boolean, color as string) as object
+    l = parent.createChild("Label")
+    l.font = mkFont(bold, size)
+    l.text = text
+    l.color = color
+    l.translation = [x, y]
+    l.width = w
+    l.height = h
+    l.horizAlign = "center"
+    l.vertAlign = "center"
+    return l
+end function
+
+sub paint()
+    t = m.global.theme
+    m.tiles.removeChildrenIndex(m.tiles.getChildCount(), 0)
+    list = entries()
+    n = list.count()
+    slot = 300
+    x0 = Int((1920 - n * slot) / 2)
+    ' (more than 6: keep the focused one on screen)
+    if n > 6
+        x0 = 60 - (m.index - 2) * slot
+        if x0 > 60 then x0 = 60
+        minX = 1860 - n * slot
+        if x0 < minX then x0 = minX
+    end if
+    for i = 0 to n - 1
+        p = list[i]
+        isFocus = i = m.index and m.area = "tiles"
+        g = m.tiles.createChild("Group")
+        g.translation = [x0 + i * slot + 40, 24]
+        if p.id = "add"
+            c = g.createChild("Poster")
+            c.uri = "pkg:/images/ui/glass_circle_210.png"
+            c.width = 220
+            c.height = 220
+            plus = g.createChild("Poster")
+            plus.uri = "pkg:/images/ui/icon_plus_48.png"
+            plus.width = 64
+            plus.height = 64
+            plus.translation = [78, 78]
+            plus.blendColor = "0xFFFFFFCC"
+        else
+            ' the accent circle with the first letter, under the server's picture (shown when there is none)
+            c = g.createChild("Poster")
+            c.uri = "pkg:/images/ui/white_circle_240.png"
+            c.width = 220
+            c.height = 220
+            c.blendColor = t.accent
+            letter = UCase(Util.toText(p.name).left(1))
+            if letter = "" then letter = "?"
+            addLabel(g, letter, 0, 0, 220, 220, 96, true, t.onAccent)
+            if Util.toText(p.avatar) <> ""
+                img = g.createChild("Poster")
+                img.width = 220
+                img.height = 220
+                img.loadWidth = 220
+                img.loadHeight = 220
+                img.loadDisplayMode = "scaleToZoom"
+                img.uri = Util.toText(p.avatar)
+                mk = g.createChild("Poster")
+                mk.uri = t.maskCircle
+                mk.width = 220
+                mk.height = 220
+            end if
+            if p.hasPin = true
+                lk = g.createChild("Poster")
+                lk.uri = "pkg:/images/ui/glass_circle_69.png"
+                lk.width = 56
+                lk.height = 56
+                lk.translation = [168, 168]
+                li = g.createChild("Poster")
+                li.uri = "pkg:/images/ui/icon_lock_28.png"
+                li.width = 28
+                li.height = 28
+                li.translation = [182, 181]
+            end if
+        end if
+        if isFocus
+            ring = g.createChild("Poster")
+            ring.uri = "pkg:/images/ui/ring_circle_256.png"
+            ring.width = 256
+            ring.height = 256
+            ring.translation = [-18, -18]
+        end if
+        col = "0xFFFFFF8C"
+        if isFocus then col = "0xFFFFFFFF"
+        addLabel(g, Util.toText(p.name), -40, 250, 300, 44, 30, isFocus, col)
+        note = Util.toText(p.note)
+        if note <> "" then addLabel(g, note, -40, 294, 300, 32, 21, false, "0xFFFFFF66")
+    end for
+    paintOther()
+end sub
+
+' "Choose another server" under the profiles
+sub paintOther()
+    m.other.removeChildrenIndex(m.other.getChildCount(), 0)
+    isFocus = m.area = "other"
+    bgp = m.other.createChild("Poster")
+    lab = m.other.createChild("Label")
+    lab.font = mkFont(isFocus, 26)
+    lab.text = "Choose another server"
+    tw = lab.boundingRect().width
+    w = tw + 56
+    x = Int((1920 - w) / 2)
+    bgp.translation = [x, 0]
+    bgp.width = w
+    bgp.height = 56
+    lab.translation = [x + 28, 0]
+    lab.width = tw + 4
+    lab.height = 56
+    lab.vertAlign = "center"
+    if isFocus
+        bgp.uri = "pkg:/images/ui/white_pill.9.png"
+        lab.color = "0x000000FF"
+    else
+        bgp.uri = "pkg:/images/ui/glass_pill.9.png"
+        lab.color = "0xFFFFFFB3"
+    end if
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    n = entries().count()
+    if m.area = "other"
+        if key = "up"
+            m.area = "tiles"
+            paint()
+        else if key = "OK"
+            m.top.chosen = { id: "servers" }
+        else if key = "back"
+            return false
+        end if
+        return true
+    end if
+    if key = "left"
+        if m.index > 0 then m.index = m.index - 1
+        paint()
+        return true
+    else if key = "right"
+        if m.index < n - 1 then m.index = m.index + 1
+        paint()
+        return true
+    else if key = "down"
+        m.area = "other"
+        paint()
+        return true
+    else if key = "OK"
+        m.top.status = ""
+        m.top.chosen = { id: entries()[m.index].id }
+        return true
+    end if
+    return false
+end function
