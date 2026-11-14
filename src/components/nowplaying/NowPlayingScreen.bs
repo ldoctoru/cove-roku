@@ -108,3 +108,11 @@ sub onFocusChanged()
         if m.grid.content <> invalid and m.grid.content.getChildCount() > 0 then m.grid.setFocus(true)
     end if
 end sub
+
+sub onSuspended()
+    if m.top.suspended
+        m.timer.control = "stop"
+    else if m.top.isInFocusChain()
+        refresh()
+    end if
+end sub

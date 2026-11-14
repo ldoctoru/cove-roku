@@ -629,6 +629,20 @@ sub onFocusChanged()
     end if
 end sub
 
+' Instant Resume: the app went to the background / came back. Back in front, the timers start again as
+' when Home gets the focus back (only if Home is the page on top).
+sub onSuspended()
+    if m.top.suspended
+        m.timersPaused = true
+        m.heroTimer.control = "stop"
+        m.sessionsTimer.control = "stop"
+        m.backdropTimer.control = "stop"
+        m.watchdog.control = "stop"
+    else if m.top.isInFocusChain()
+        onFocusChanged()
+    end if
+end sub
+
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     if key = "options"

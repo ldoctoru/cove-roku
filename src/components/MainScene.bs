@@ -36,6 +36,10 @@ sub init()
     end try
     m.pendingLink = invalid
     m.homeReady = false         ' Home is on screen with a signed-in server: deep links can be opened
+    m.suspendedAt = 0           ' (Instant Resume) when the app went to the background, in seconds
+    m.homeLoadedAt = 0          ' when Home last loaded its rows
+    ' (Instant Resume: the stop report and the end of a conversion still go out after the app is suspended)
+    if m.top.hasField("allowBackgroundTask") then m.top.allowBackgroundTask = true
     start()
 end sub
 
@@ -128,6 +132,7 @@ sub pop()
     if m.homeStale and t.screenId = "home"
         m.homeStale = false
         t.reload = true
+        m.homeLoadedAt = nowSecs()
     end if
 end sub
 
@@ -180,6 +185,7 @@ sub showHome(server as object)
     reset(h)
     h.server = server
     m.homeReady = true
+    m.homeLoadedAt = nowSecs()
     launchComplete()
     ' a deep link that came before the sign-in finished
     if m.pendingLink <> invalid
@@ -625,6 +631,8 @@ sub dispatchResponse(r as object)
         if r.code = 200 and Util.isAA(r.json) and Util.toText(r.json.SeriesId) <> ""
             openItem({ itemId: Util.toText(r.json.Id), itemType: "Season", seriesId: Util.toText(r.json.SeriesId), seriesName: Util.toText(r.json.SeriesName), title: Util.toText(r.json.Name) })
         end if
+    else if kind = "resumeCheck"
+        onResumeCheck(r)
     else if kind = "logout"
         print "Cove: signed out of the removed server -> "; r.code
     end if
@@ -875,3 +883,96 @@ function handleTransport(evt as object) as object
     if t <> invalid and t.screenId = "player" then return t.callFunc("handleTransport", evt)
     return { status: "unhandled" }
 end function
+
+' ---------------------------------------------------------------- Instant Resume
+
+function nowSecs() as integer
+    return createObject("roDateTime").asSeconds()
+end function
+
+' The app goes to the background (Home, Back out of the app, the screensaver). It stays in memory, so the
+' screens stay as they are; only what runs on its own stops: a playing video ends as on Back (stop report,
+' the server's conversion ended), Home and Now Playing stop polling.
+sub customSuspend(args as dynamic)
+    reason = ""
+    if Util.isAA(args) then reason = Util.toText(args.lastSuspendOrResumeReason)
+    where = ""
+    t = top()
+    if t <> invalid then where = Util.toText(t.screenId)
+    print "Cove: suspended ("; reason; ") on "; where
+    m.suspendedAt = nowSecs()
+    try
+        stopNextAsk()
+        stopQuickConnect()
+        ' (the player is taken off the stack: when the app comes back the user is on the page it was started from)
+        stopPlayers()
+        for each s in m.stack
+            if s.hasField("suspended") then s.suspended = true
+        end for
+    catch e
+        print "Cove: suspend failed: "; Util.redact(Util.toText(e.message))
+    end try
+end sub
+
+' The app is launched again from memory: the screens pick up their timers, the saved sign-in is checked
+' (it may have been revoked meanwhile), Home reloads its rows if they are older than a few minutes, and a
+' deep link that came with the launch is opened.
+sub customResume(args as dynamic)
+    away = 0
+    if m.suspendedAt > 0 then away = nowSecs() - m.suspendedAt
+    reason = ""
+    if Util.isAA(args) then reason = Util.toText(args.lastSuspendOrResumeReason)
+    print "Cove: resumed ("; reason; ") after "; away; " s"
+    try
+        for each s in m.stack
+            if s.hasField("suspended") then s.suspended = false
+        end for
+        if m.homeReady and m.server <> invalid and Util.toText(m.server.token) <> ""
+            request("GET", m.server, "/Users/" + Util.toText(m.server.userId), true, "", { kind: "resumeCheck", serverId: Util.toText(m.server.id) })
+        else if topIs("connecting")
+            ' (still checking the saved sign-in when the app was suspended: try again)
+            validate(m.server)
+        end if
+        if Util.isAA(args) and Util.isAA(args.launchParams)
+            lp = args.launchParams
+            if lp.contentId <> invalid and lp.mediaType <> invalid
+                print "Cove: resumed with contentId="; Util.toText(lp.contentId); " mediaType="; Util.toText(lp.mediaType)
+                m.top.deepLink = { contentId: lp.contentId, mediaType: lp.mediaType }
+            end if
+        end if
+    catch e
+        print "Cove: resume failed: "; Util.redact(Util.toText(e.message))
+    end try
+    ' (the screen is on and can be used: Roku measures the resume up to here)
+    m.top.signalBeacon("AppResumeComplete")
+end sub
+
+sub stopNextAsk()
+    m.nextAsk = invalid
+    m.dialogTimer.control = "stop"
+end sub
+
+' The sign-in check after a resume
+sub onResumeCheck(r as object)
+    if m.server = invalid or Util.toText(r.tag.serverId) <> Util.toText(m.server.id) then return
+    if r.code = 401 or r.code = 403
+        print "Cove: the saved sign-in no longer works after the resume"
+        m.pendingLink = invalid
+        m.server.token = ""
+        Servers.upsert(m.server)
+        openSignIn(m.server, "Your sign-in has expired. Please sign in again.")
+        return
+    end if
+    if r.code <> 200
+        print "Cove: sign-in check after the resume -> "; r.code
+        return
+    end if
+    ' rows older than 5 minutes: Home reloads now if it is on top, otherwise when it is shown again
+    if nowSecs() - m.homeLoadedAt < 300 then return
+    if topIs("home")
+        m.homeLoadedAt = nowSecs()
+        top().reload = true
+    else
+        markStale()
+    end if
+end sub

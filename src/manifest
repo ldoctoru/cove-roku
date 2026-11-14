@@ -14,3 +14,7 @@ rsg_version=1.3
 supports_voice_roinput=1
 supports_etc_seek=1
 supports_etc_next=1
+# Instant Resume: the app stays in memory after Home / Back and comes back where the user was
+# (MainScene customSuspend / customResume)
+sdk_instant_resume=1
+run_as_process=1
