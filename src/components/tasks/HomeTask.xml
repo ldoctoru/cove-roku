@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- Loads the home rows for "server": Continue Watching, Next Up, latest per library, libraries.
+<!-- Loads the home rows for "server": the rows of Settings → Home → Rows in their order
+     (Continue Watching, Next Up, Favourites, Recently Added, each library's row, libraries) or the server's layout.
      "content" = RowList content (one child per row, row title = its title); "error" if nothing could be loaded. -->
 <component name="HomeTask" extends="Task">
     <script type="text/brightscript" uri="HomeTask.bs" />

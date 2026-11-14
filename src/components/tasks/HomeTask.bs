@@ -1,6 +1,7 @@
 import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Prefs.bs"
+import "pkg:/source/HomeLayout.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -32,28 +33,23 @@ sub load()
     m.failures = 0
     m.requests = 0
 
-    ' Jellyfin 10.9+ also has /UserItems, /UserViews; the /Users/{id}/... routes work on Emby and Jellyfin
-    resume = getList("/Users/" + uid + "/Items/Resume?Limit=20&MediaTypes=Video&" + f, "/UserItems/Resume?userId=" + uid + "&Limit=20&MediaTypes=Video&" + f)
-    if m.top.authFailed then return
-    addRow(root, "Continue Watching", resume, true)
-    ' Settings → Home: Up Next and Favorites rows
-    if Prefs.showUpNextRow() then addRow(root, "Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20&" + f, ""), true)
-    if Prefs.flagOn("homeFavorites", true) then addRow(root, "Favourites", getList("/Users/" + uid + "/Items?Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f, "/Items?userId=" + uid + "&Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f), false)
-
+    ' The libraries first (the rows depend on them); Jellyfin 10.9+ also has /UserItems, /UserViews, while the
+    ' /Users/{id}/... routes work on Emby and Jellyfin
     views = getList("/Users/" + uid + "/Views", "/UserViews?userId=" + uid)
+    if m.top.authFailed then return
     ' Settings → Libraries: their order and names, which are in the sidebar / on Home, and what the row shows
     libs = []
     for each v in views
         libs.push({ id: Util.toText(v.Id), title: Util.toText(v.Name), itemType: Util.toText(v.Type), collectionType: LCase(Util.toText(v.CollectionType)), view: v })
     end for
-    libs = Prefs.orderLibraries(libs, Util.toText(srv.id))
+    sid = Util.toText(srv.id)
+    libs = Prefs.orderLibraries(libs, sid)
     shown = []
+    byId = {}
     for each l in libs
         lp = Prefs.library(l.id)
         l.nav = lp.nav
-        if lp.nav and lp.home and Prefs.hasHomeRow(l.collectionType)
-            addRow(root, rowTitle(lp.style, l.title), libraryRow(uid, l, lp.style, f), false)
-        end if
+        byId[HomeLayout.libRowId(l.id)] = l
         if lp.nav
             v = l.view
             v.Name = l.title
@@ -61,8 +57,52 @@ sub load()
         end if
         l.delete("view")
     end for
-    addRow(root, "Libraries", shown, true)
     m.top.libraries = libs
+
+    ' Settings → Home → Rows: the order and switches, or the server's Home layout (its web app's Home sections)
+    ids = HomeLayout.orderedIds(sid, libs)
+    serverMode = HomeLayout.useServerLayout(sid)
+    if serverMode
+        fromSrv = HomeLayout.fromServer(displayPrefs(uid), libs)
+        if fromSrv = invalid
+            print "Cove: home: the server's Home layout couldn't be read, using Cove's"
+            serverMode = false
+        else
+            ids = fromSrv
+        end if
+    end if
+    print "Cove: home rows order "; Util.join(ids, ",").len(); " chars, server layout "; serverMode
+    for each id in ids
+        isShown = false
+        if serverMode
+            ' (the server decides the sections; a library's row still needs it in the sidebar and on Home)
+            isShown = true
+            if id.left(1) = "L"
+                lp = Prefs.library(id.mid(1))
+                isShown = lp.nav and lp.home
+            end if
+        else
+            isShown = HomeLayout.isOn(sid, id)
+        end if
+        if isShown
+            if id = "resume"
+                addRow(root, "Continue Watching", getList("/Users/" + uid + "/Items/Resume?Limit=20&MediaTypes=Video&" + f, "/UserItems/Resume?userId=" + uid + "&Limit=20&MediaTypes=Video&" + f), true)
+                if m.top.authFailed then return
+            else if id = "nextup"
+                addRow(root, "Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20&" + f, ""), true)
+            else if id = "favorites"
+                addRow(root, "Favourites", getList("/Users/" + uid + "/Items?Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f, "/Items?userId=" + uid + "&Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f), false)
+            else if id = "recent"
+                addRow(root, "Recently Added", getList("/Users/" + uid + "/Items/Latest?Limit=20&" + f, "/Items/Latest?userId=" + uid + "&Limit=20&" + f), false)
+            else if id = "libraries"
+                addRow(root, "Libraries", shown, true)
+            else if byId.doesExist(id)
+                l = byId[id]
+                lp = Prefs.library(l.id)
+                if Prefs.hasHomeRow(l.collectionType) then addRow(root, rowTitle(lp.style, l.title), libraryRow(uid, l, lp.style, f), false)
+            end if
+        end if
+    end for
 
     if root.getChildCount() = 0
         if m.failures > 0
@@ -97,6 +137,15 @@ function libraryRow(uid as string, l as object, style as string, f as string) as
     if types = "" then types = "Movie,Series,Video"
     q = q + "&IncludeItemTypes=" + types
     return getList("/Users/" + uid + "/Items?" + q, "/Items?userId=" + uid + "&" + q)
+end function
+
+' The web app's Home sections (GET /DisplayPreferences/usersettings?client=emby), or invalid
+function displayPrefs(uid as string) as dynamic
+    print "Cove: GET /DisplayPreferences/usersettings"
+    r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + "/DisplayPreferences/usersettings?userId=" + uid + "&client=emby", headers: m.h, timeout: 15000 })
+    print "Cove:   -> "; r.code
+    if r.code <> 200 or not Util.isAA(r.json) then return invalid
+    return r.json
 end function
 
 ' GET a list (an array, or { Items: [...] }); on 404 try the newer Jellyfin route
