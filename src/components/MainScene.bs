@@ -749,7 +749,8 @@ end sub
 
 sub openServer(server as dynamic)
     if server = invalid then return
-    if Servers.profiles(server).count() >= 2
+    ' (several profiles, or the last one used has a PIN: Who's watching? asks for it)
+    if Servers.profiles(server).count() >= 2 or Servers.pinOf(server, Util.toText(server.userId)) <> ""
         showWho(server, "", topIs("servers"))
     else if Util.toText(server.token) <> ""
         validate(server)
