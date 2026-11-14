@@ -1,6 +1,7 @@
 import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Prefs.bs"
+import "pkg:/source/Ratings.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -100,7 +101,10 @@ function libraryRow(uid as string, l as object, style as string, f as string) as
 end function
 
 ' GET a list (an array, or { Items: [...] }); on 404 try the newer Jellyfin route
-function getList(path as string, fallback as string) as object
+function getList(rawPath as string, rawFallback as string) as object
+    ' (the profile's rating limit, v0.9.0)
+    path = Ratings.withLimit(m.srv, rawPath)
+    fallback = Ratings.withLimit(m.srv, rawFallback)
     print "Cove: GET "; path.split("?")[0]
     r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + path, headers: m.h, timeout: 20000 })
     print "Cove:   -> "; r.code
@@ -126,6 +130,8 @@ function getList(path as string, fallback as string) as object
 end function
 
 sub addRow(root as object, title as string, list as object, isLandscape as boolean)
+    ' (titles above the profile's rating limit, from routes that ignore MaxOfficialRating)
+    list = Ratings.keep(m.srv, list)
     if list.count() = 0 then return
     row = root.createChild("ContentNode")
     row.title = title

@@ -4,6 +4,7 @@ import "pkg:/source/Api.bs"
 import "pkg:/source/DeviceCaps.bs"
 import "pkg:/source/Theme.bs"
 import "pkg:/source/Pins.bs"
+import "pkg:/source/Ratings.bs"
 
 sub init()
     ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
@@ -108,6 +109,12 @@ sub onSettingsAction(ev as object)
         showServers("")
     else if a.id = "profiles"
         showWho(m.server, "", true)
+    else if a.id = "profileChanged"
+        ' (the rating limit of the profile on Home: the saved record, read again)
+        if m.server <> invalid
+            fresh = Servers.find(Util.toText(m.server.id))
+            if fresh <> invalid then m.server = fresh
+        end if
     else if a.id = "addProfile"
         if m.server <> invalid then openSignIn(m.server, "")
     else if a.id = "useProfile"
@@ -274,6 +281,10 @@ sub onDeepLinkItem(r as object)
         return
     end if
     it = r.json
+    if not Ratings.allowed(m.server, it)
+        showNotice("Not available", "This title is above the rating limit of this profile.")
+        return
+    end if
     mt = r.tag.mediaType
     t = Util.toText(it.Type)
     playable = mt = "movie" or mt = "episode" or mt = "shortformvideo" or mt = "tvspecial"
@@ -956,6 +967,7 @@ function whoList(srv as object) as object
     out = []
     for each p in Servers.profiles(srv)
         note = ""
+        if p.maxRating <> "" then note = "Up to " + p.maxRating
         if not p.signedIn then note = "Signed out"
         out.push({ id: p.id, name: p.name, avatar: avatarUrl(srv, p.id, p.avatar), hasPin: p.hasPin, signedIn: p.signedIn, note: note })
     end for

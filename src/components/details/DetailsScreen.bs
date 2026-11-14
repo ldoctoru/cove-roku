@@ -6,6 +6,7 @@ import "pkg:/source/Playback.bs"
 import "pkg:/source/Tracks.bs"
 import "pkg:/source/Subs.bs"
 import "pkg:/source/MediaInfo.bs"
+import "pkg:/source/Ratings.bs"
 
 sub init()
     m.focusEpisodes = false
@@ -121,7 +122,10 @@ sub onResponse(ev as object)
         if k = "item" then m.status.text = "Couldn't load this title. " + Api.describeFailure(r)
         return
     end if
-    if k = "item"
+    if k = "item" and not Ratings.allowed(m.top.server, r.json)
+        ' (v0.9.0: above the profile's rating limit, e.g. reached from a link or a collection)
+        m.status.text = "This title is above this profile's rating limit (" + Util.toText(m.top.server.maxRating) + ")."
+    else if k = "item"
         showItem(r.json)
     else if k = "seasons"
         onSeasons(r.json)
@@ -132,12 +136,12 @@ sub onResponse(ev as object)
     else if k = "epStreams"
         onEpisodeStreams(r.json)
     else if k = "similar"
-        m.similarList = listOf(r.json)
+        m.similarList = Ratings.keep(m.top.server, listOf(r.json))
         rebuildRows()
     else if k = "seasonCounts"
         onSeasonCounts(r.json)
     else if k = "boxItems"
-        m.boxList = listOf(r.json)
+        m.boxList = Ratings.keep(m.top.server, listOf(r.json))
         print "Cove: collection titles -> "; m.boxList.count()
         buildButtons()
         rebuildRows()

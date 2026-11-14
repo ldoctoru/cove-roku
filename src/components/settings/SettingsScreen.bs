@@ -7,6 +7,7 @@ import "pkg:/source/Tracks.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/DeviceCaps.bs"
 import "pkg:/source/Pins.bs"
+import "pkg:/source/Ratings.bs"
 
 ' Layout (1920 x 1080): cards from x 200, 1520 wide; the label column ends at x 610, controls start at x 650
 ' (the Mac's PrefRow: label right-aligned in a fixed column, the control beside it)
@@ -269,7 +270,7 @@ sub profileRows(out as object)
     out.push(note("With 2 or more profiles on this server, Cove starts with Who's watching?. The profile entry at the bottom of the sidebar switches at any time."))
     out.push({ kind: "button", id: "switchProfile", label: "", text: "Switch Profile..." })
     out.push({ kind: "button", id: "addProfile", label: "", text: "Add Profile..." })
-    out.push(note("Add Profile signs in another user of this server; each profile keeps its own sign-in, Continue Watching and favourites."))
+    out.push(note("Add Profile signs in another user of this server; each profile keeps its own sign-in, Continue Watching and favourites. OK on a profile: its PIN and Maximum rating (titles rated above it are hidden for that profile; with a PIN, only someone who knows it can change the limit). The server's own parental controls still apply."))
 end sub
 
 function profileSub(srv as object, p as object) as string
@@ -277,6 +278,8 @@ function profileSub(srv as object, p as object) as string
     if p.id = Util.toText(srv.userId) then parts.push("Watching now")
     if not p.signedIn then parts.push("Signed out")
     if parts.count() = 0 then parts.push("Signed in")
+    if p.hasPin then parts.push("PIN")
+    if p.maxRating <> "" then parts.push("Up to " + p.maxRating)
     return Util.join(parts, "  ·  ")
 end function
 
@@ -988,6 +991,7 @@ sub profileMenu(userId as string)
         o.push({ id: "pinChange", label: "Profile PIN: On  ·  Change PIN..." })
         o.push({ id: "pinRemove", label: "Remove PIN" })
     end if
+    o.push({ id: "rating", label: "Maximum rating: " + Ratings.labelFor(Util.toText(u.r)) + "..." })
     o.push({ id: "signout", label: "Sign Out" })
     m.menuProfile = userId
     openPicker("prof", Util.toText(u.n), o, "")
@@ -1057,6 +1061,8 @@ sub onPinTimer()
     if n = invalid then return
     if n.kind = "pin"
         nextPin(n.stepName)
+    else if n.kind = "rating"
+        openRatingPicker()
     else
         d = createObject("roSGNode", "StandardMessageDialog")
         d.title = "Profile PIN"
@@ -1149,7 +1155,33 @@ end sub
 
 ' (other things a PIN guards; see the rating limit)
 sub pinGoal(goal as string, userId as string)
-    print "Cove: PIN checked for "; goal; " ("; userId.len(); ")"
+    if goal = "rating"
+        m.menuProfile = userId
+        later({ kind: "rating" })
+    end if
+end sub
+
+' Maximum rating (kids limit) for a profile
+sub openRatingPicker()
+    srv = currentServer()
+    if srv = invalid then return
+    u = Servers.userOf(srv, m.menuProfile)
+    if u = invalid then return
+    openPicker("rating", "Maximum rating for " + Util.toText(u.n), Ratings.choices(), Util.toText(u.r))
+end sub
+
+sub setRating(userId as string, value as string)
+    srv = currentServer()
+    if srv = invalid then return
+    Servers.setUserField(Util.toText(srv.id), userId, "r", value)
+    if userId = Util.toText(srv.userId)
+        ' the profile on Home: its lists are asked again with the new limit when Settings closes
+        cur = Servers.find(Util.toText(srv.id))
+        if cur <> invalid then m.top.server = cur
+        m.top.action = { id: "profileChanged" }
+        m.top.themeChanged = true
+    end if
+    draw()
 end sub
 
 ' Signs one profile out: its session on the server, then it's forgotten here
@@ -1257,7 +1289,12 @@ sub onPicked(ev as object)
             startPinFlow(m.menuProfile, "change")
         else if c.id = "pinRemove"
             startPinFlow(m.menuProfile, "remove")
+        else if c.id = "rating"
+            ' (a profile with a PIN: its PIN first)
+            startPinFlow(m.menuProfile, "rating")
         end if
+    else if purpose = "rating"
+        setRating(m.menuProfile, c.id)
     else if purpose = "srv"
         id = m.menuServer
         if c.id = "connect"
