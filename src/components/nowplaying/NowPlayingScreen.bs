@@ -2,6 +2,7 @@ import "pkg:/source/Util.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Playback.bs"
+import "pkg:/source/Speak.bs"
 
 sub init()
     m.top.findNode("bg").color = m.global.theme.bg
@@ -13,6 +14,23 @@ sub init()
     m.top.observeField("focusedChild", "onFocusChanged")
     m.grid.content = createObject("roSGNode", "ContentNode")
     m.task = invalid
+    ' Audio Guide: the list is rebuilt every 5 s, so Cove says a card only when the focus moves to another one
+    m.spokenKey = ""
+    m.grid.observeField("itemFocused", "onCardFocused")
+    Speak.mute([m.grid])
+end sub
+
+sub onCardFocused()
+    if not Speak.isOn() or not m.grid.isInFocusChain() or m.grid.content = invalid then return
+    c = m.grid.content.getChild(m.grid.itemFocused)
+    if c = invalid then return
+    key = Util.toText(c.itemId) + Util.toText(c.who) + Util.toText(c.where)
+    if key = m.spokenKey then return
+    m.spokenKey = key
+    parts = [Util.toText(c.title), Util.toText(c.line2), Util.toText(c.who) + " on " + Util.toText(c.where)]
+    if c.paused = true then parts.push("paused")
+    if Util.toText(c.method) <> "" then parts.push(Util.toText(c.method))
+    Speak.say(Speak.clean(Util.join(parts, ", ")) + Speak.position(m.grid.itemFocused, m.grid.content.getChildCount()))
 end sub
 
 sub refresh()
@@ -105,6 +123,18 @@ sub onFocusChanged()
     if not m.top.isInFocusChain() then m.timer.control = "stop"
     if m.top.hasFocus()
         refresh()
-        if m.grid.content <> invalid and m.grid.content.getChildCount() > 0 then m.grid.setFocus(true)
+        if m.grid.content <> invalid and m.grid.content.getChildCount() > 0
+            m.grid.setFocus(true)
+            m.spokenKey = ""
+            onCardFocused()
+        end if
+    end if
+end sub
+
+sub onSuspended()
+    if m.top.suspended
+        m.timer.control = "stop"
+    else if m.top.isInFocusChain()
+        refresh()
     end if
 end sub

@@ -8,6 +8,7 @@ import "pkg:/source/Servers.bs"
 import "pkg:/source/DeviceCaps.bs"
 import "pkg:/source/Pins.bs"
 import "pkg:/source/Ratings.bs"
+import "pkg:/source/Speak.bs"
 
 ' Layout (1920 x 1080): cards from x 200, 1520 wide; the label column ends at x 610, controls start at x 650
 ' (the Mac's PrefRow: label right-aligned in a fixed column, the control beside it)
@@ -40,6 +41,10 @@ sub init()
     end try
     m.top.observeField("focusedChild", "onFocusChanged")
     m.top.observeField("server", "onServer")
+    ' Audio Guide: what was said last (a redraw that doesn't move the focus says nothing) and its section
+    m.spokenKey = ""
+    m.spokenHead = ""
+    Speak.mute([m.keys])
     draw()
 end sub
 
@@ -310,7 +315,86 @@ sub draw()
     m.top.findNode("bg").color = t.bg
     drawTabs()
     drawContent()
+    speakFocus()
 end sub
+
+' ---------------------------------------------------------------- Audio Guide
+
+' The focused tab or row, said once per focus move: "Subtitles tab, 4 of 8"; "Accent color: Blue, use Left
+' and Right"; "Show Next Up, switch, on", with the section's name when the focus enters a new section and
+' the help text under the row
+sub speakFocus()
+    if not Speak.isOn() or m.picker <> invalid then return
+    tabs = tabList()
+    text = ""
+    if m.area = "tabs"
+        text = tabs[m.tab].label + " tab" + Speak.position(m.tab, tabs.count())
+        if m.spokenKey = "" then text = "Settings. " + text
+        m.spokenHead = ""
+    else if m.area = "rows" and m.row < m.focusables.count()
+        idx = m.focusables[m.row]
+        text = rowSpeech(m.rows[idx])
+        head = ""
+        for i = idx to 0 step -1
+            if m.rows[i].kind = "head"
+                head = Util.toText(m.rows[i].text)
+                exit for
+            end if
+        end for
+        if head <> m.spokenHead
+            m.spokenHead = head
+            if head <> "" then text = head + ". " + text
+        end if
+        if idx + 1 < m.rows.count() and m.rows[idx + 1].kind = "note" then text = text + ". " + Util.toText(m.rows[idx + 1].text)
+    else
+        return
+    end if
+    text = Speak.clean(text)
+    key = m.area + m.tab.toStr() + "/" + m.row.toStr() + text
+    if key = m.spokenKey then return
+    m.spokenKey = key
+    Speak.say(text)
+end sub
+
+function rowSpeech(r as object) as string
+    k = r.kind
+    label = Util.toText(r.label)
+    if k = "choice" then return label + ": " + Util.toText(r.value) + ", menu button"
+    if k = "button" then return Speak.button(Util.toText(r.text))
+    if k = "toggle"
+        text = label
+        if Util.toText(r.text) <> "" then text = text + ", " + Util.toText(r.text)
+        if r.on = true then return text + ", switch, on"
+        return text + ", switch, off"
+    end if
+    if k = "swatches" or k = "tiles"
+        cur = Util.toText(r.cur)
+        for each o in r.options
+            if Util.toText(o.id) = cur and o.label <> invalid then cur = Util.toText(o.label)
+        end for
+        return label + ": " + cur + ", press Left or Right to change"
+    end if
+    if k = "server"
+        text = label + ", " + Util.toText(r.sub)
+        if r.current = true then return text + ", connected"
+        return text + ", button"
+    end if
+    if k = "section"
+        if r.on = true then return label + ", in the sidebar"
+        return label + ", hidden"
+    end if
+    if k = "library"
+        text = label
+        if r.nav = true
+            text = text + ", in the sidebar"
+        else
+            text = text + ", not in the sidebar"
+        end if
+        if r.nav = true and r.home = true then text = text + ", on Home"
+        return text + ", menu button"
+    end if
+    return label
+end function
 
 sub drawTabs()
     t = m.global.theme
@@ -745,6 +829,8 @@ function onKeyEvent(key as string, press as boolean) as boolean
             ' a page with nothing to change (Remote): Down / Up scroll it
             m.area = "scroll"
             scrollBy(240)
+            ' (Audio Guide: a page to read, not to change)
+            Speak.say(Speak.labelsOf(m.content, 60))
         else if key = "back"
             return false
         end if
@@ -1227,6 +1313,7 @@ sub closePicker()
         m.picker = invalid
     end if
     m.keys.setFocus(true)
+    m.spokenKey = "picker"
 end sub
 
 sub onPickerCancelled()

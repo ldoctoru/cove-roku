@@ -1,6 +1,7 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Prefs.bs"
+import "pkg:/source/Speak.bs"
 
 sub init()
     m.grid = m.top.findNode("grid")
@@ -28,6 +29,9 @@ sub init()
     m.keepIndex = -1        ' refresh: the card to focus again once the first page is back
     ' (the grid gets focus as soon as the screen is shown, before the library is set: never leave it without content)
     m.grid.content = createObject("roSGNode", "ContentNode")
+    ' Audio Guide: Cove says the cards and the pills itself (the last pill said, so a redraw stays quiet)
+    m.spokenKey = ""
+    Speak.mute([m.grid, m.top.findNode("barKeys")])
 end sub
 
 sub onLibrary()
@@ -259,6 +263,29 @@ sub drawBar()
             end if
         end if
     end for
+    if focused then speakBar(texts)
+end sub
+
+' Audio Guide: the focused pill, "Sort: Name, menu button, 2 of 6"; the library's name first on the way in
+sub speakBar(texts as object)
+    if not Speak.isOn() or m.barIdx >= texts.count() then return
+    id = m.barIds[m.barIdx]
+    text = texts[m.barIdx]
+    if id = "letter"
+        text = "Starts with: " + text.mid(5)
+    else if id.startsWith("tab:")
+        text = text + ", tab"
+        if id = "tab:" + m.tab then text = text + ", selected"
+    else if id <> "shuffle"
+        text = text + ", menu"
+    end if
+    key = m.barIdx.toStr() + text
+    if key = m.spokenKey then return
+    first = m.spokenKey = ""
+    m.spokenKey = key
+    text = Speak.button(text) + Speak.position(m.barIdx, texts.count())
+    if first then text = Util.toText(m.top.library.title) + ", filters. " + text
+    Speak.say(text)
 end sub
 
 ' Movie libraries have the Collections tab (the Mac's LibraryView tabs)
@@ -268,6 +295,7 @@ end function
 
 sub enterBar()
     m.inBar = true
+    m.spokenKey = ""
     m.top.findNode("barKeys").setFocus(true)
     drawBar()
 end sub
@@ -453,6 +481,10 @@ end sub
 sub onFocused()
     if m.grid.content = invalid or m.top.library = invalid then return
     count = m.grid.content.getChildCount()
+    if not m.inBar and m.picker = invalid and m.grid.isInFocusChain() and Speak.isOn()
+        c = m.grid.content.getChild(m.grid.itemFocused)
+        if c <> invalid then Speak.say(Speak.card(c) + Speak.position(m.grid.itemFocused, m.total))
+    end if
     if not m.loading and count < m.total and m.grid.itemFocused >= count - 21 then loadPage(count, 60)
 end sub
 
@@ -508,6 +540,7 @@ sub closePicker()
         m.top.removeChild(m.picker)
         m.picker = invalid
     end if
+    m.spokenKey = ""
     if m.inBar
         m.top.findNode("barKeys").setFocus(true)
     else
@@ -544,5 +577,7 @@ sub onFocusChanged()
         m.picker.setFocus(true)
     else if not m.inBar and m.grid.content <> invalid and m.grid.content.getChildCount() > 0
         m.grid.setFocus(true)
+        ' (back on this page: the focused card again)
+        onFocused()
     end if
 end sub

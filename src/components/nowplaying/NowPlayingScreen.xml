@@ -8,6 +8,8 @@
         <field id="screenId" type="string" value="nowplaying" />
         <field id="server" type="assocarray" onChange="refresh" />
         <field id="action" type="assocarray" alwaysNotify="true" />
+        <!-- Instant Resume: true while the app is in the background (no polling) -->
+        <field id="suspended" type="boolean" onChange="onSuspended" />
     </interface>
     <children>
         <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />
