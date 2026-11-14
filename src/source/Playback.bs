@@ -2,6 +2,7 @@ import "pkg:/source/Prefs.bs"
 import "pkg:/source/Util.bs"
 import "pkg:/source/DeviceCaps.bs"
 import "pkg:/source/Api.bs"
+import "pkg:/source/Servers.bs"
 
 ' What to ask the server for and how to play what it returns. The device profile is built from what this Roku
 ' reports (DeviceCaps), so the server only converts what the Roku can't play. Streambar 9102: HEVC Main 10 /
@@ -15,11 +16,33 @@ namespace Playback
         audio = ["aac", "mp3", "flac"]
         if caps.eac3 then audio.push("eac3")
         if caps.ac3 then audio.push("ac3")
-        ' Converted audio: surround codecs first, so a 5.1 / 7.1 track keeps its channels
+        ' Settings → Playback → Audio → DTS passthrough (only when the Roku says the receiver / TV takes DTS)
+        if Prefs.dtsPassthrough() and Util.flag(caps, "dts")
+            audio.push("dts")
+            audio.push("dca")
+        end if
+        maxCh = Prefs.audioChannels()
+        ' Converted audio: surround codecs first, so a 5.1 / 7.1 track keeps its channels; AAC first for stereo
         tAudio = []
+        if maxCh = 2 then tAudio.push("aac")
         if caps.eac3 then tAudio.push("eac3")
         if caps.ac3 then tAudio.push("ac3")
-        tAudio.push("aac")
+        if maxCh <> 2 then tAudio.push("aac")
+        ' Settings → Playback → Audio → Convert to: that codec first, when this Roku plays it
+        pref = Prefs.audioCodec()
+        playable = false
+        for each a in tAudio
+            if a = pref then playable = true
+        end for
+        if playable
+            ordered = [pref]
+            for each a in tAudio
+                if a <> pref then ordered.push(a)
+            end for
+            tAudio = ordered
+        end if
+        tCh = "6"
+        if maxCh > 0 then tCh = maxCh.toStr()
         ' Copy HEVC into the HLS stream when possible; when the server must encode it uses the first: H.264
         tVideo = "h264"
         if caps.hevc then tVideo = "h264,hevc"
@@ -39,6 +62,8 @@ namespace Playback
         ' let Jellyfin (10.9+ range types) convert those. Emby names this property differently, so not sent there.
         if caps.hevc and jellyfin and not caps.dolbyVision then hevcConds.push({ "Condition": "NotEquals", "Property": "VideoRangeType", "Value": "DOVI", "IsRequired": false })
         if hevcConds.count() > 0 then codecProfiles.push({ "Type": "Video", "Codec": "hevc", "Conditions": hevcConds })
+        ' Settings → Playback → Audio → Maximum channels: a track with more is converted (downmixed) by the server
+        if maxCh > 0 then codecProfiles.push({ "Type": "VideoAudio", "Conditions": [{ "Condition": "LessThanEqual", "Property": "AudioChannels", "Value": maxCh.toStr(), "IsRequired": false }] })
         maxW = "1920"
         if caps.fourK then maxW = "3840"
 
@@ -53,7 +78,7 @@ namespace Playback
             "TranscodingProfiles": [
                 {
                     "Container": "ts", "Type": "Video", "Protocol": "hls", "Context": "Streaming",
-                    "VideoCodec": tVideo, "AudioCodec": Util.join(tAudio, ","), "MaxAudioChannels": "6",
+                    "VideoCodec": tVideo, "AudioCodec": Util.join(tAudio, ","), "MaxAudioChannels": tCh,
                     "MinSegments": "1", "BreakOnNonKeyFrames": true
                 }
             ],
@@ -79,9 +104,14 @@ namespace Playback
 
     ' Choices for one playback: audio / sub = stream index (-1: default audio / no subtitles), burn = the
     ' subtitle is an image the server burns in, maxBitrate = 0 for automatic, defaultAudio = the file's default
-    function options() as object
-        ' (quality: Settings → Start with quality)
-        return { audio: -1, sub: -1, burn: false, maxBitrate: Prefs.startQuality(), defaultAudio: -1, sourceId: "" }
+    ' server: whose address decides home network or internet (Settings → Playback → Start with); invalid = the
+    ' active server
+    function options(server = invalid as dynamic) as object
+        srv = server
+        if srv = invalid then srv = Servers.active()
+        url = ""
+        if Util.isAA(srv) then url = Util.toText(srv.url)
+        return { audio: -1, sub: -1, burn: false, maxBitrate: Prefs.startQuality(url), defaultAudio: -1, sourceId: "" }
     end function
 
     function bitrateOf(opts as object) as integer

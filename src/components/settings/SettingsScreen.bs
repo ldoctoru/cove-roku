@@ -9,6 +9,7 @@ import "pkg:/source/DeviceCaps.bs"
 import "pkg:/source/Pins.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/HomeLayout.bs"
 
 ' Layout (1920 x 1080): cards from x 200, 1520 wide; the label column ends at x 610, controls start at x 650
 ' (the Mac's PrefRow: label right-aligned in a fixed column, the control beside it)
@@ -34,8 +35,10 @@ sub init()
     info = createObject("roAppInfo")
     m.version = info.getVersion()
     m.device = ""
+    m.caps = {}
     try
-        m.device = DeviceCaps.deviceLine(DeviceCaps.get())
+        m.caps = DeviceCaps.get()
+        m.device = DeviceCaps.deviceLine(m.caps)
     catch e
         m.device = ""
     end try
@@ -80,7 +83,7 @@ sub onViews(ev as object)
     list = []
     if type(r.json.Items) = "roArray"
         for each v in r.json.Items
-            list.push({ id: Util.toText(v.Id), title: Util.toText(v.Name), kind: LCase(Util.toText(v.CollectionType)) })
+            list.push({ id: Util.toText(v.Id), title: Util.toText(v.Name), kind: LCase(Util.toText(v.CollectionType)), collectionType: LCase(Util.toText(v.CollectionType)) })
         end for
     end if
     m.libs = list
@@ -134,11 +137,28 @@ function rowsFor(tabId as string) as object
         out.push(toggle("showRecent", "Also show", "Recently Added", Prefs.showRecent()))
         out.push(note("Home is always there. Libraries, Favorites and Now Playing are chosen in Libraries."))
     else if tabId = "home"
+        ' Settings → Home → Rows (HomeLayout): every Home row with its switch and place, per server
+        sid = serverKey()
+        srvOn = HomeLayout.useServerLayout(sid)
+        out.push(sectionHead("Layout"))
+        out.push(toggle("homeServerLayout", "", "Use the server's Home layout", srvOn))
+        out.push(note("Home follows the Home sections set in the server's web app (Settings > Home): Continue Watching, Next Up, Latest per library and My Media. Sections Cove doesn't have are left out; a library's row still follows its switch below."))
         out.push(sectionHead("Rows"))
-        out.push(toggle("showUpNextRow", "Watching", "Up Next", Prefs.showUpNextRow()))
-        out.push(note("The next episode of each show you're watching, under Continue Watching."))
-        out.push(toggle("homeFavorites", "Also show", "Favorites", Prefs.flagOn("homeFavorites", true)))
-        out.push(note("Which libraries get a row on Home, and what each row shows, is set per library in Libraries."))
+        libs = homeLibs()
+        for each id in HomeLayout.orderedIds(sid, libs)
+            out.push(homeRowEntry(id, libs, srvOn))
+        end for
+        if m.libs.count() = 0
+            if m.libError <> ""
+                out.push(note(m.libError))
+            else
+                out.push(note("Loading your libraries..."))
+            end if
+        end if
+        out.push(note("OK on a row: show or hide it, or move it up or down (Left / Right switch it off / on). What a library's row shows (Latest, Top Rated, ...) is set in Libraries. Saved for this server."))
+        b = { kind: "button", id: "homeDefaultOrder", label: "", text: "Default Order" }
+        b.dim = srvOn
+        out.push(b)
     else if tabId = "libraries"
         out.push(sectionHead("Your libraries"))
         out.push({ kind: "section", id: "showFavorites", label: "Favorites", icon: "heart", on: Prefs.showFavorites() })
@@ -159,7 +179,7 @@ function rowsFor(tabId as string) as object
                 out.push(note("Loading your libraries..."))
             end if
         end if
-        out.push(note("OK on a library: show it in the sidebar or on Home, what its Home row shows, how it opens, its name and its place in the list."))
+        out.push(note("OK on a library: show it in the sidebar or on Home, what its Home row shows, how it opens, its name and its place in the sidebar. The order of the Home rows is in Home > Rows."))
         out.push(sectionHead("Movie and show pages"))
         out.push(choice("castSize", "Cast & Crew", [{ id: "normal", label: "Normal" }, { id: "large", label: "Large" }], Prefs.text("castSize", "normal")))
         out.push(note("Large shows bigger actor photos and names."))
@@ -186,7 +206,9 @@ function rowsFor(tabId as string) as object
         out.push(note("A style left at its default follows the Roku's caption style (Roku Settings > Accessibility > Captions). With the Roku's captions On, titles start with subtitles in this language unless you chose others for them."))
     else if tabId = "playback"
         out.push(sectionHead("Start with"))
-        out.push(choice("startQuality", "Quality", Tracks.qualities(), Prefs.startQuality().toStr()))
+        out.push(choice("startQualityHome", "Home network", Tracks.qualities(), Prefs.startQualityOf("startQualityHome").toStr()))
+        out.push(choice("startQualityNet", "Internet", Tracks.qualities(), Prefs.startQualityOf("startQualityNet").toStr()))
+        out.push(note(networkNote()))
         sk = []
         for each v in [5, 10, 15, 30]
             sk.push({ id: v.toStr(), label: v.toStr() + " s" })
@@ -201,6 +223,18 @@ function rowsFor(tabId as string) as object
         out.push(note("The back / forward buttons in the player and the Rewind / Fast forward keys."))
         out.push(choice("rewindOnResume", "Rewind on resume", [{ id: "off", label: "Off" }, { id: "5", label: "5 s" }, { id: "10", label: "10 s" }, { id: "30", label: "30 s" }], Prefs.text("rewindOnResume", "5")))
         out.push(note("Goes back a little when a title resumes where you left it, or after a pause of 5 minutes or more."))
+        out.push(sectionHead("Audio"))
+        out.push(choice("audioChannels", "Maximum channels", [{ id: "auto", label: "Automatic" }, { id: "2", label: "Stereo (2.0)" }, { id: "6", label: "5.1" }, { id: "8", label: "7.1" }], Prefs.text("audioChannels", "auto")))
+        ac = [{ id: "auto", label: "Automatic" }, { id: "aac", label: "AAC" }]
+        if Util.flag(m.caps, "ac3") then ac.push({ id: "ac3", label: "Dolby Digital (AC3)" })
+        if Util.flag(m.caps, "eac3") then ac.push({ id: "eac3", label: "Dolby Digital Plus (E-AC3)" })
+        out.push(choice("audioCodec", "Preferred audio", ac, Prefs.audioCodec()))
+        dts = toggle("dtsPassthrough", "", "DTS passthrough", Prefs.dtsPassthrough() and Util.flag(m.caps, "dts"))
+        dts.dim = not Util.flag(m.caps, "dts")
+        out.push(dts)
+        dtsNote = "DTS passthrough sends DTS unchanged to your receiver."
+        if not Util.flag(m.caps, "dts") then dtsNote = "This Roku reports no DTS decoder (a receiver or TV that takes DTS) on its HDMI, so the server converts DTS."
+        out.push(note("Stereo makes the server mix surround tracks down to 2 channels. Preferred audio is what the server converts to when the Roku can't play a track as it is (e.g. TrueHD, DTS). " + dtsNote))
         out.push(sectionHead("Automatically"))
         out.push(toggle("autoNext", "", "Play the next episode", Prefs.autoNext()))
         out.push(toggle("autoSkipIntro", "", "Skip intros", Prefs.autoSkipIntro()))
@@ -294,6 +328,54 @@ function currentServer() as dynamic
     s = Servers.find(Util.toText(m.top.server.id))
     if s = invalid then s = m.top.server
     return s
+end function
+
+' The current server's libraries in the Libraries order (with the saved names), for Home → Rows
+function homeLibs() as object
+    return Prefs.orderLibraries(m.libs, serverKey())
+end function
+
+function homeRowEntry(id as string, libs as object, srvOn as boolean) as object
+    sid = serverKey()
+    e = { kind: "homerow", id: id, label: id, icon: "folder", on: HomeLayout.isOn(sid, id), state: "" }
+    if id = "resume"
+        e.label = "Continue Watching"
+        e.icon = "clock"
+    else if id = "nextup"
+        e.label = "Next Up"
+        e.icon = "next"
+    else if id = "favorites"
+        e.label = "Favorites"
+        e.icon = "heart"
+    else if id = "recent"
+        e.label = "Recently Added"
+        e.icon = "clock"
+    else if id = "libraries"
+        e.label = "My Libraries (tiles)"
+        e.icon = "folder"
+    else
+        for each l in libs
+            if HomeLayout.libRowId(Util.toText(l.id)) = id
+                e.label = Util.toText(l.title)
+                if l.kind = "movies" then e.icon = "film"
+                if l.kind = "tvshows" then e.icon = "tv"
+                lp = Prefs.library(Util.toText(l.id))
+                e.state = labelOf(styleOptions(), lp.style)
+                if not lp.nav then e.state = "Hidden in Libraries"
+            end if
+        end for
+    end if
+    e.dim = srvOn
+    return e
+end function
+
+' Settings → Playback → Start with: which of the two the current server uses
+function networkNote() as string
+    t = "The player's Quality button changes it for one video. "
+    srv = m.top.server
+    if srv = invalid then return t + "Home network: a server address on your network (192.168..., 10..., .local)."
+    if Util.isPrivateHost(Util.hostOf(Util.toText(srv.url))) then return t + Util.toText(srv.name) + " is on your home network."
+    return t + Util.toText(srv.name) + " is reached over the internet."
 end function
 
 function capital(s as string) as string
@@ -535,7 +617,7 @@ function rowHeight(r as object) as integer
     if k = "swatches" then return 72
     if k = "tiles" then return 124
     if k = "server" or k = "info" or k = "profile" then return 80
-    if k = "library" or k = "section" then return 60
+    if k = "library" or k = "section" or k = "homerow" then return 60
     if k = "keys" then return 50
     if k = "preview" then return 0
     return 58
@@ -631,7 +713,7 @@ sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionT
         cap.width = kw
         cap.height = 38
         addLabel(c, r.text, x, y, 1040, 50, 24, false, "0xFFFFFFB3")
-    else if k = "server" or k = "library" or k = "section" or k = "profile"
+    else if k = "server" or k = "library" or k = "section" or k = "profile" or k = "homerow"
         drawListRow(c, r, x, y, isFocus)
     else if k = "preview"
         drawPreview(c, sectionTop)
@@ -743,8 +825,16 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
         nameCol = main
         if r.kind = "section" and not r.on then nameCol = second
         if r.kind = "library" and not r.nav then nameCol = second
+        if r.kind = "homerow" and (not r.on or r.dim = true) then nameCol = second
         addLabel(c, r.label, x + 60, y, 520, h, 26, false, nameCol)
-        if r.kind = "section"
+        if r.kind = "homerow"
+            stateText = "Hidden"
+            if r.on then stateText = "On Home"
+            if r.dim = true then stateText = "Set by the server"
+            if r.state <> "" and r.dim <> true then stateText = r.state + "   ·   " + stateText
+            s1 = addLabel(c, stateText, x + w - 470, y, 440, h, 22, false, second)
+            s1.horizAlign = "right"
+        else if r.kind = "section"
             stateText = "Hidden"
             if r.on then stateText = "In the sidebar"
             s1 = addLabel(c, stateText, x + w - 430, y, 400, h, 22, false, second)
@@ -880,6 +970,10 @@ function onKeyEvent(key as string, press as boolean) as boolean
             if idx >= 0 and idx < r.options.count() then apply(r.id, r.options[idx].id)
         else if r.kind = "toggle"
             apply(r.id, onOff(key = "right"))
+        else if r.kind = "homerow"
+            HomeLayout.setOn(serverKey(), homeLibs(), r.id, key = "right")
+            m.top.themeChanged = true
+            draw()
         end if
     else if key = "OK"
         useRow(r)
@@ -914,6 +1008,8 @@ sub useRow(r as object)
         ' (Left / Right change them)
     else if k = "library"
         libraryMenu(r.id)
+    else if k = "homerow"
+        homeRowMenu(r.id)
     else if k = "server"
         serverMenu(r.id)
     else if k = "profile"
@@ -923,6 +1019,11 @@ sub useRow(r as object)
             for each key in ["subTextSize", "subColor", "subShadow", "subBg", "subBottom"]
                 Util.writeText(key, "")
             end for
+            draw()
+        else if r.id = "homeDefaultOrder"
+            HomeLayout.resetOrder(serverKey())
+            m.top.themeChanged = true
+            m.row = 1
             draw()
         else if r.id = "retryLibs"
             onServer()
@@ -950,6 +1051,11 @@ sub apply(id as string, value as string)
     else if id = "accent" or id = "background"
         Util.writeText(id, value)
         m.global.theme = Theme.get()
+        m.top.themeChanged = true
+    else if id = "startQualityHome" or id = "startQualityNet"
+        Prefs.setStartQuality(id, value)
+    else if id = "homeServerLayout"
+        HomeLayout.setServerLayout(serverKey(), value = "on")
         m.top.themeChanged = true
     else if id = "subLang"
         Util.writeText(id, value)
@@ -1044,6 +1150,26 @@ sub moveLibrary(id as string, delta as integer)
             exit for
         end if
     end for
+end sub
+
+' Home → Rows: OK on a row
+sub homeRowMenu(id as string)
+    sid = serverKey()
+    libs = homeLibs()
+    o = []
+    label = "Show on Home: " + yesNo(HomeLayout.isOn(sid, id))
+    if id.left(1) = "L" and not Prefs.library(id.mid(1)).nav then label = label + " (On also shows it in the sidebar)"
+    o.push({ id: "toggle", label: label })
+    ids = HomeLayout.orderedIds(sid, libs)
+    at = HomeLayout.indexIn(ids, id)
+    if at > 0 then o.push({ id: "up", label: "Move up" })
+    if at >= 0 and at < ids.count() - 1 then o.push({ id: "down", label: "Move down" })
+    m.menuHomeRow = id
+    title = id
+    for each r in m.rows
+        if r.kind = "homerow" and r.id = id then title = r.label
+    end for
+    openPicker("homerow", title, o, "")
 end sub
 
 sub serverMenu(id as string)
@@ -1355,6 +1481,20 @@ sub onPicked(ev as object)
             draw()
             libraryMenu(id)
         end if
+    else if purpose = "homerow"
+        id = m.menuHomeRow
+        sid = serverKey()
+        if c.id = "toggle"
+            HomeLayout.setOn(sid, homeLibs(), id, not HomeLayout.isOn(sid, id))
+        else if c.id = "up" or c.id = "down"
+            delta = 1
+            if c.id = "up" then delta = -1
+            ' (keep the focus on the moved row)
+            if HomeLayout.move(sid, homeLibs(), id, delta) then m.row = m.row + delta
+        end if
+        m.top.themeChanged = true
+        draw()
+        homeRowMenu(id)
     else if purpose.startsWith("libset:")
         Prefs.setLibrary(m.menuLib, purpose.mid(7), c.id)
         m.top.themeChanged = true
@@ -1412,6 +1552,7 @@ sub removeServer(id as string)
         t.control = "RUN"
     end for
     Servers.remove(id)
+    HomeLayout.forget(id)
     draw()
 end sub
 
