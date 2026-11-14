@@ -1,0 +1,153 @@
+import "pkg:/source/Util.bs"
+
+' Speech for the Roku Audio Guide (the screen reader: Settings > Accessibility > Audio Guide, or * pressed four
+' times quickly). Roku speaks its own lists, keyboards and dialogs; Cove's own focus model (hero buttons, pills,
+' cards drawn by the app, settings rows, player controls) is spoken from here. Nothing is spoken, and almost
+' nothing is computed, while the Audio Guide is off.
+namespace Speak
+
+    ' The Audio Guide is on (asked from the device at most every 3 s, so a focus change stays cheap)
+    function isOn() as boolean
+        if m.speakClock = invalid
+            m.speakClock = createObject("roTimespan")
+            m.speakOn = readOn()
+        else if m.speakClock.totalMilliseconds() > 3000
+            m.speakClock.mark()
+            m.speakOn = readOn()
+        end if
+        return m.speakOn = true
+    end function
+
+    function readOn() as boolean
+        try
+            di = createObject("roDeviceInfo")
+            v = di.IsAudioGuideEnabled()
+            return (type(v) = "roBoolean" or type(v) = "Boolean") and v
+        catch e
+            return false
+        end try
+    end function
+
+    ' Says text through the Audio Guide. flush: stop what is being said first (a new focus); otherwise it is
+    ' queued after the current speech (a detail that follows).
+    sub say(text as string, flush = true as boolean)
+        if text = "" or not isOn() then return
+        if m.speakGuide = invalid then m.speakGuide = createObject("roAudioGuide")
+        if m.speakGuide = invalid then return
+        print "Cove: speak: "; text
+        m.speakGuide.Say(text, flush, false)
+    end sub
+
+    ' Turns off Roku's own speech for nodes whose focus Cove speaks itself (lists of app-drawn cards, key
+    ' groups), so the two don't talk over each other
+    sub mute(nodes as object)
+        for each n in nodes
+            if n <> invalid and n.hasField("muteAudioGuide") then n.muteAudioGuide = true
+        end for
+    end sub
+
+    ' Stops any speech (a screen closes)
+    sub hush()
+        if m.speakGuide <> invalid then m.speakGuide.Flush()
+    end sub
+
+    ' "label, button": the spoken name of a control
+    function button(label as string) as string
+        return label + ", button"
+    end function
+
+    ' ", 2 of 5" for a position in a row of choices
+    function position(index as integer, count as integer) as string
+        if count <= 1 then return ""
+        return ", " + (index + 1).toStr() + " of " + count.toStr()
+    end function
+
+    ' A time as words: "1 hour 5 minutes 30 seconds" (a clock like 1:05:30 is read badly by the voice)
+    function duration(secs as dynamic) as string
+        t = Int(Util.toNumber(secs))
+        if t < 0 then t = 0
+        h = Int(t / 3600)
+        mins = Int((t mod 3600) / 60)
+        sec = t mod 60
+        parts = []
+        if h = 1 then parts.push("1 hour")
+        if h > 1 then parts.push(h.toStr() + " hours")
+        if mins = 1 then parts.push("1 minute")
+        if mins > 1 then parts.push(mins.toStr() + " minutes")
+        if sec = 1 then parts.push("1 second")
+        if sec > 1 or (h = 0 and mins = 0 and sec = 0) then parts.push(sec.toStr() + " seconds")
+        return Util.join(parts, " ")
+    end function
+
+    ' A card (a ContentNode from Items / HomeTask): title, episode or year, time left or progress, watched,
+    ' unplayed episodes, favourite
+    function card(c as dynamic) as string
+        if c = invalid then return ""
+        parts = [Util.toText(c.title)]
+        ep = Util.toText(c.episode)
+        if ep <> "" then parts.push(ep.replace("·", ","))
+        remain = Util.toText(c.timeLeft)
+        p = Util.toNumber(c.progress)
+        if remain <> ""
+            parts.push(remain)
+        else if p <> invalid and p > 0.01 and p < 0.99
+            parts.push(Int(p * 100).toStr() + " percent watched")
+        end if
+        if Util.flag({ v: c.played }, "v") then parts.push("watched")
+        n = Util.toNumber(c.unplayed)
+        if n <> invalid and n > 0
+            if n = 1
+                parts.push("1 unplayed episode")
+            else
+                parts.push(Int(n).toStr() + " unplayed episodes")
+            end if
+        end if
+        if Util.flag({ v: c.favorite }, "v") then parts.push("favourite")
+        return clean(Util.join(parts, ", "))
+    end function
+
+    ' The focused card of a RowList of app-drawn cards, with the row's title when the row changed
+    ' (m.speakRow: the row said last; set it to -1 to say the title again)
+    sub rowCard(list as dynamic)
+        if list = invalid or not isOn() or not list.isInFocusChain() then return
+        f = list.rowItemFocused
+        if f = invalid or f.count() < 2 or list.content = invalid then return
+        row = list.content.getChild(f[0])
+        if row = invalid then return
+        c = row.getChild(f[1])
+        if c = invalid then return
+        text = card(c) + position(f[1], row.getChildCount())
+        if m.speakRow <> f[0]
+            m.speakRow = f[0]
+            text = Util.toText(row.title) + ". " + text
+        end if
+        say(text)
+    end sub
+
+    ' The text of the visible Labels under a node, in order (a panel read out when it opens)
+    function labelsOf(node as dynamic, maxParts = 40 as integer) as string
+        parts = []
+        collectLabels(node, parts, maxParts)
+        return clean(Util.join(parts, ". "))
+    end function
+
+    sub collectLabels(node as dynamic, parts as object, maxParts as integer)
+        if node = invalid or not node.visible or parts.count() >= maxParts then return
+        k = node.subtype()
+        if k = "Label" or k = "ScrollingLabel" or k = "SimpleLabel"
+            t = Util.toText(node.text).trim()
+            if t <> "" then parts.push(t)
+        end if
+        for i = 0 to node.getChildCount() - 1
+            collectLabels(node.getChild(i), parts, maxParts)
+        end for
+    end sub
+
+    ' Symbols the voice would spell out or skip: separators become pauses
+    function clean(text as string) as string
+        t = text.replace("  ·  ", ", ").replace(" · ", ", ").replace("·", ",")
+        t = t.replace("  ", " ")
+        return t
+    end function
+
+end namespace
