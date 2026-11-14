@@ -36,6 +36,8 @@ sub init()
     end try
     m.pendingLink = invalid
     m.homeReady = false         ' Home is on screen with a signed-in server: deep links can be opened
+    ' (v0.9.0: saved sign-ins become profiles, several per server)
+    Servers.migrate()
     start()
 end sub
 
@@ -157,8 +159,7 @@ end sub
 sub showServers(status as string)
     items = []
     for each s in Servers.all()
-        who = Util.toText(s.userName)
-        if Util.toText(s.token) = "" then who = "not signed in"
+        who = profileNames(s)
         lbl = Util.toText(s.name) + "   ·   " + who + "   ·   " + Servers.typeName(s)
         if Util.isPlainHttp(Util.toText(s.url)) then lbl = lbl + "   ·   Not encrypted"
         items.push({ id: "srv:" + Util.toText(s.id), label: lbl })
@@ -171,6 +172,17 @@ sub showServers(status as string)
     reset(sc)
     if status = "" and m.deviceLine <> "" then sc.status = m.deviceLine
 end sub
+
+' "Liviu", "Liviu, Ana", "3 profiles" or "not signed in" for the server list
+function profileNames(s as object) as string
+    names = []
+    for each p in Servers.profiles(s)
+        if p.signedIn then names.push(p.name)
+    end for
+    if names.count() = 0 then return "not signed in"
+    if names.count() > 2 then return names.count().toStr() + " profiles"
+    return Util.join(names, ", ")
+end function
 
 sub showHome(server as object)
     Servers.setActive(Util.toText(server.id))
@@ -482,11 +494,9 @@ sub onRemoveButton()
     remove = m.top.dialog.buttonSelected = 0
     closeDialog()
     if remove
-        ' end the session on the server too (best effort, nothing waits for it)
-        for each s in Servers.all()
-            if Util.toText(s.id) = m.removeId and Util.toText(s.token) <> ""
-                request("POST", s, "/Sessions/Logout", true, "", { kind: "logout" })
-            end if
+        ' end the sessions of all its profiles on the server too (best effort, nothing waits for them)
+        for each us in Servers.sessions(Servers.find(m.removeId))
+            request("POST", us, "/Sessions/Logout", true, "", { kind: "logout" })
         end for
         Servers.remove(m.removeId)
         showServers("Server removed.")
@@ -690,9 +700,12 @@ end sub
 ' old session is ended at the old address, where the token belongs (best effort).
 sub addProbed(srv as object)
     prev = Servers.find(Util.toText(srv.id))
-    if prev <> invalid and Util.toText(prev.token) <> "" and Util.originOf(Util.toText(prev.url)) <> Util.originOf(Util.toText(srv.url))
-        print "Cove: known server at a new address: the saved sign-in is not reused"
-        request("POST", prev, "/Sessions/Logout", true, "", { kind: "logout" })
+    if prev <> invalid and Util.originOf(Util.toText(prev.url)) <> Util.originOf(Util.toText(srv.url))
+        ' (every profile's sign-in: Servers.upsert clears their tokens, the profiles stay to sign in again)
+        for each us in Servers.sessions(prev)
+            print "Cove: known server at a new address: the saved sign-in is not reused"
+            request("POST", us, "/Sessions/Logout", true, "", { kind: "logout" })
+        end for
         srv.token = ""
         srv.userId = ""
     end if
@@ -775,6 +788,8 @@ sub signedIn(auth as object)
     if Util.isAA(Util.field(auth, "User"))
         s.userId = Util.toText(auth.User.Id)
         s.userName = Util.toText(auth.User.Name)
+        ' (the profile picture, for Who's watching?)
+        s.avatar = Util.toText(auth.User.PrimaryImageTag)
     end if
     Servers.upsert(s)
     showHome(s)
@@ -862,11 +877,26 @@ sub signOut()
         showServers("")
         return
     end if
-    request("POST", s, "/Sessions/Logout", true, "", { kind: "logout" })
-    s.token = ""
-    Servers.upsert(s)
+    ' only this profile: the server's other profiles stay signed in
+    if Util.toText(s.token) <> "" then request("POST", s, "/Sessions/Logout", true, "", { kind: "logout" })
+    who = Util.toText(s.userName)
+    Servers.removeUser(Util.toText(s.id), Util.toText(s.userId))
+    rest = Servers.find(Util.toText(s.id))
+    msg = "Signed out of " + Util.toText(s.name) + "."
+    if who <> "" then msg = who + " signed out of " + Util.toText(s.name) + "."
+    if rest <> invalid and Servers.sessions(rest).count() > 0
+        m.server = rest
+        afterSignOut(rest, msg)
+        return
+    end if
     Servers.setActive("")
-    showServers("Signed out of " + Util.toText(s.name) + ".")
+    showServers(msg)
+end sub
+
+' Another profile is still signed in on that server: its list (Who's watching?), or the server list
+sub afterSignOut(server as object, msg as string)
+    print "Cove: other profiles stay signed in on "; Util.toText(server.name)
+    showServers(msg)
 end sub
 
 ' Voice / transport commands go to the player on top; elsewhere the Roku does its default

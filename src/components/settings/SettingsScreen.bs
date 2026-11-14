@@ -1012,12 +1012,14 @@ end sub
 sub removeServer(id as string)
     s = Servers.find(id)
     if s = invalid then return
-    if Util.toText(s.token) <> ""
+    ' (every profile's session; the tasks are kept until they finish)
+    if m.logoutTasks = invalid then m.logoutTasks = []
+    for each us in Servers.sessions(s)
         t = createObject("roSGNode", "ApiTask")
-        t.request = { method: "POST", url: Util.toText(s.url) + "/Sessions/Logout", headers: Api.headers(s, true), body: "", tag: { kind: "logout" }, timeout: 10000 }
-        m.logoutTask = t
+        t.request = { method: "POST", url: Util.toText(us.url) + "/Sessions/Logout", headers: Api.headers(us, true), body: "", tag: { kind: "logout" }, timeout: 10000 }
+        m.logoutTasks.push(t)
         t.control = "RUN"
-    end if
+    end for
     Servers.remove(id)
     draw()
 end sub
