@@ -28,8 +28,10 @@ sub init()
     info = createObject("roAppInfo")
     m.version = info.getVersion()
     m.device = ""
+    m.caps = {}
     try
-        m.device = DeviceCaps.deviceLine(DeviceCaps.get())
+        m.caps = DeviceCaps.get()
+        m.device = DeviceCaps.deviceLine(m.caps)
     catch e
         m.device = ""
     end try
@@ -193,7 +195,9 @@ function rowsFor(tabId as string) as object
         out.push(note("A style left at its default follows the Roku's caption style (Roku Settings > Accessibility > Captions). With the Roku's captions On, titles start with subtitles in this language unless you chose others for them."))
     else if tabId = "playback"
         out.push(sectionHead("Start with"))
-        out.push(choice("startQuality", "Quality", Tracks.qualities(), Prefs.startQuality().toStr()))
+        out.push(choice("startQualityHome", "Home network", Tracks.qualities(), Prefs.startQualityOf("startQualityHome").toStr()))
+        out.push(choice("startQualityNet", "Internet", Tracks.qualities(), Prefs.startQualityOf("startQualityNet").toStr()))
+        out.push(note(networkNote()))
         sk = []
         for each v in [5, 10, 15, 30]
             sk.push({ id: v.toStr(), label: v.toStr() + " s" })
@@ -208,6 +212,18 @@ function rowsFor(tabId as string) as object
         out.push(note("The back / forward buttons in the player and the Rewind / Fast forward keys."))
         out.push(choice("rewindOnResume", "Rewind on resume", [{ id: "off", label: "Off" }, { id: "5", label: "5 s" }, { id: "10", label: "10 s" }, { id: "30", label: "30 s" }], Prefs.text("rewindOnResume", "5")))
         out.push(note("Goes back a little when a title resumes where you left it, or after a pause of 5 minutes or more."))
+        out.push(sectionHead("Audio"))
+        out.push(choice("audioChannels", "Maximum channels", [{ id: "auto", label: "Automatic" }, { id: "2", label: "Stereo (2.0)" }, { id: "6", label: "5.1" }, { id: "8", label: "7.1" }], Prefs.text("audioChannels", "auto")))
+        ac = [{ id: "auto", label: "Automatic" }, { id: "aac", label: "AAC" }]
+        if Util.flag(m.caps, "ac3") then ac.push({ id: "ac3", label: "Dolby Digital (AC3)" })
+        if Util.flag(m.caps, "eac3") then ac.push({ id: "eac3", label: "Dolby Digital Plus (E-AC3)" })
+        out.push(choice("audioCodec", "Preferred audio", ac, Prefs.audioCodec()))
+        dts = toggle("dtsPassthrough", "", "DTS passthrough", Prefs.dtsPassthrough() and Util.flag(m.caps, "dts"))
+        dts.dim = not Util.flag(m.caps, "dts")
+        out.push(dts)
+        dtsNote = "DTS passthrough sends DTS unchanged to your receiver."
+        if not Util.flag(m.caps, "dts") then dtsNote = "This Roku reports no DTS decoder (a receiver or TV that takes DTS) on its HDMI, so the server converts DTS."
+        out.push(note("Stereo makes the server mix surround tracks down to 2 channels. Preferred audio is what the server converts to when the Roku can't play a track as it is (e.g. TrueHD, DTS). " + dtsNote))
         out.push(sectionHead("Automatically"))
         out.push(toggle("autoNext", "", "Play the next episode", Prefs.autoNext()))
         out.push(toggle("autoSkipIntro", "", "Skip intros", Prefs.autoSkipIntro()))
@@ -305,6 +321,15 @@ function homeRowEntry(id as string, libs as object, srvOn as boolean) as object
     end if
     e.dim = srvOn
     return e
+end function
+
+' Settings → Playback → Start with: which of the two the current server uses
+function networkNote() as string
+    t = "The player's Quality button changes it for one video. "
+    srv = m.top.server
+    if srv = invalid then return t + "Home network: a server address on your network (192.168..., 10..., .local)."
+    if Util.isPrivateHost(Util.hostOf(Util.toText(srv.url))) then return t + Util.toText(srv.name) + " is on your home network."
+    return t + Util.toText(srv.name) + " is reached over the internet."
 end function
 
 function capital(s as string) as string
@@ -888,6 +913,8 @@ sub apply(id as string, value as string)
         Util.writeText(id, value)
         m.global.theme = Theme.get()
         m.top.themeChanged = true
+    else if id = "startQualityHome" or id = "startQualityNet"
+        Prefs.setStartQuality(id, value)
     else if id = "homeServerLayout"
         HomeLayout.setServerLayout(serverKey(), value = "on")
         m.top.themeChanged = true

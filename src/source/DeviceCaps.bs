@@ -21,7 +21,9 @@ namespace DeviceCaps
             hevc10: canDecode(di, "hevc", "main 10", "5.1"),
             h264: canDecode(di, "mpeg4 avc", "high", "4.2"),
             ac3: canDecodeAudio(di, "ac3"),
-            eac3: canDecodeAudio(di, "eac3")
+            eac3: canDecodeAudio(di, "eac3"),
+            ' (DTS only passes through to a receiver or TV that decodes it)
+            dts: canDecodeAudio(di, "dts")
         }
         caps.fourK = Instr(1, caps.videoMode, "2160") > 0
         return caps
@@ -48,6 +50,7 @@ namespace DeviceCaps
         if caps.h264 then codecs.push("H.264")
         if caps.eac3 then codecs.push("E-AC3")
         if caps.ac3 then codecs.push("AC3")
+        if Util.flag(caps, "dts") then codecs.push("DTS")
         return Util.join(hdr, ", ") + "  ·  " + Util.join(codecs, ", ")
     end function
 
