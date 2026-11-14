@@ -1,7 +1,28 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Speak.bs"
+
 sub init()
     m.list = m.top.findNode("list")
     m.list.observeField("itemSelected", "onSelected")
     m.top.observeField("focusedChild", "onFocusChanged")
+    ' (Audio Guide: Cove says the options itself, without the "> " mark and with the menu's title first)
+    m.list.observeField("itemFocused", "onItemFocused")
+    m.spokeTitle = false
+    Speak.mute([m.list])
+end sub
+
+sub onItemFocused()
+    i = m.list.itemFocused
+    opts = m.top.options
+    if not Speak.isOn() or opts = invalid or i < 0 or i >= opts.count() or not m.top.isInFocusChain() then return
+    text = Speak.clean(Util.toText(opts[i].label))
+    if Util.toText(opts[i].id) = m.top.selectedId then text = text + ", selected"
+    text = text + Speak.position(i, opts.count())
+    if not m.spokeTitle
+        m.spokeTitle = true
+        text = Util.toText(m.top.title) + ", menu. " + text
+    end if
+    Speak.say(text)
 end sub
 
 sub onTitle()
@@ -32,7 +53,10 @@ sub onSelected()
 end sub
 
 sub onFocusChanged()
-    if m.top.hasFocus() then m.list.setFocus(true)
+    if m.top.hasFocus()
+        m.list.setFocus(true)
+        onItemFocused()
+    end if
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean

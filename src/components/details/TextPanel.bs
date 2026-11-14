@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Speak.bs"
 
 sub init()
     m.rowsShown = 14
@@ -6,6 +7,8 @@ sub init()
     m.allLines = []
     m.offset = 0
     m.body = m.top.findNode("body")
+    ' (Cove reads the whole text itself when it opens)
+    Speak.mute([m.top])
     f = createObject("roSGNode", "Font")
     f.uri = "font:MediumSystemFontFile"
     f.size = 28
@@ -44,6 +47,8 @@ sub onText()
     m.top.findNode("thumb").visible = isLong
     print "Cove: full description, "; out.count(); " lines"
     drawLines()
+    ' (Audio Guide: the whole text, then how to close it)
+    Speak.say(Util.toText(m.top.heading) + ". " + Util.toText(m.top.text) + ". Back to close")
 end sub
 
 sub drawLines()

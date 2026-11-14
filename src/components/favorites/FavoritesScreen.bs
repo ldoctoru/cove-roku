@@ -1,6 +1,7 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Prefs.bs"
+import "pkg:/source/Speak.bs"
 
 sub init()
     m.rows = m.top.findNode("rows")
@@ -16,6 +17,14 @@ sub init()
     m.keep = invalid        ' [row key, column] to focus again after a reload
     m.rowKeys = []
     m.loadError = invalid
+    ' Audio Guide: Cove says the cards (title, progress) with the row's name
+    m.speakRow = -1
+    m.rows.observeField("rowItemFocused", "onCardFocused")
+    Speak.mute([m.rows])
+end sub
+
+sub onCardFocused()
+    Speak.rowCard(m.rows)
 end sub
 
 ' Everything marked favourite (Mac Emby.favorites) and the favourite people (Emby.favoritePeople)
@@ -178,5 +187,9 @@ sub onFocusChanged()
         m.top.stale = false
         loadFavorites()
     end if
-    if m.top.hasFocus() and m.rows.content <> invalid and m.rows.content.getChildCount() > 0 then m.rows.setFocus(true)
+    if m.top.hasFocus() and m.rows.content <> invalid and m.rows.content.getChildCount() > 0
+        m.rows.setFocus(true)
+        m.speakRow = -1
+        Speak.rowCard(m.rows)
+    end if
 end sub

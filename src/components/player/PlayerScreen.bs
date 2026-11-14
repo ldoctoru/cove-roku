@@ -6,6 +6,7 @@ import "pkg:/source/Tracks.bs"
 import "pkg:/source/Subs.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/MediaInfo.bs"
+import "pkg:/source/Speak.bs"
 
 sub init()
     m.video = m.top.findNode("video")
@@ -68,6 +69,9 @@ sub init()
     m.autoCount = 0
     m.lastInput = createObject("roTimespan")
     m.pauseClock = invalid  ' since the video paused (Rewind on resume after a long pause)
+    ' Audio Guide: Cove says its own controls (the control said last, so a redraw stays quiet)
+    m.spokenKey = ""
+    Speak.mute([m.keys, m.action, m.upNext, m.still])
     resetState()
 end sub
 
@@ -143,6 +147,7 @@ sub begin()
     m.top.findNode("episode").text = Util.toText(it.subtitle)
     if it.options <> invalid and it.options.audio <> invalid then m.opts = it.options
     showLoading(0, "")
+    Speak.say(Speak.clean("Loading " + Util.toText(it.title) + ", " + Util.toText(it.subtitle)))
     get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + it.id + "?Fields=MediaSources,MediaStreams,Chapters,Trickplay", { kind: "info", itemId: it.id })
 end sub
 
@@ -553,6 +558,7 @@ sub showAction(kind as string, label as string)
     m.actionLabel.text = label
     m.action.visible = true
     m.action.setFocus(true)
+    Speak.say(Speak.button(label) + ", press OK")
 end sub
 
 sub hideAction()
@@ -650,6 +656,7 @@ sub onFinished()
         m.upNext.visible = true
         m.upNext.setFocus(true)
         m.countdown.control = "start"
+        Speak.say(Speak.clean("Up next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play now, button, plays in 10 seconds")
     else
         close()
     end if
@@ -749,6 +756,8 @@ sub closePicker()
         m.picker.unobserveField("cancelled")
         m.top.removeChild(m.picker)
         m.picker = invalid
+        ' (Audio Guide: the focused control is said again)
+        m.spokenKey = ""
     end if
 end sub
 
@@ -1008,6 +1017,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
             close()
         else
             m.osdShown = false
+            m.spokenKey = ""
             fadeOsd(0.0)
         end if
     else if m.area = "bar" and (key = "left" or key = "right")
@@ -1245,7 +1255,62 @@ sub drawControls()
         if isFocus then col = "0x000000FF"
         ic.blendColor = col
     end for
+    if focused then speakControl()
 end sub
+
+' ---------------------------------------------------------------- Audio Guide
+
+' The focused control: "Pause, button, 2 of 3"; "Subtitles: Romanian, button, 4 of 6"; on the bar the
+' position, "12 minutes 5 seconds of 45 minutes"
+sub speakControl()
+    if not Speak.isOn() then return
+    text = ""
+    if m.area = "bar"
+        text = "Progress, " + positionSpeech(currentPos()) + ". Left or Right to move, OK to pause"
+        if m.video.state = "paused" then text = "Progress, " + positionSpeech(currentPos()) + ", paused. Left or Right to move, OK to play"
+        key = "bar" + m.video.state
+    else if m.area = "center"
+        ids = centerIds()
+        if m.idx >= ids.count() then return
+        cid = ids[m.idx]
+        label = "Pause"
+        if not (m.video.state = "playing" or m.video.state = "buffering") then label = "Play"
+        if cid = "prev"
+            label = "Previous episode"
+            if m.prev = invalid then label = label + ", unavailable"
+        else if cid = "next"
+            label = "Next episode"
+            if m.next = invalid then label = label + ", unavailable"
+        end if
+        text = Speak.button(label) + Speak.position(m.idx, ids.count())
+        key = "c" + text
+    else
+        if m.idx >= m.toolIds.count() then return
+        text = Speak.button(toolSpeech(m.toolIds[m.idx])) + Speak.position(m.idx, m.toolIds.count())
+        key = "t" + text
+    end if
+    if key = m.spokenKey then return
+    m.spokenKey = key
+    Speak.say(Speak.clean(text))
+end sub
+
+function positionSpeech(atSec as float) as string
+    d = m.video.duration
+    if d <= 0 then return Speak.duration(atSec)
+    return Speak.duration(atSec) + " of " + Speak.duration(d)
+end function
+
+function toolSpeech(id as string) as string
+    j = Prefs.jumpSeconds().toStr()
+    if id = "jumpBack" then return "Back " + j + " seconds"
+    if id = "jumpFwd" then return "Forward " + j + " seconds"
+    if id = "episodes" then return "Episodes"
+    if id = "subs" then return "Subtitles: " + Tracks.subLabel(m.tracks, m.opts.sub)
+    if id = "audio" then return "Audio: " + Tracks.audioLabel(m.tracks, effectiveAudio())
+    if id = "quality" then return "Quality: " + Tracks.qualityLabel(m.opts.maxBitrate)
+    if id = "chapters" then return "Chapters"
+    return id
+end function
 
 sub showOsd(autoHide as boolean)
     if not m.osdShown
@@ -1264,6 +1329,7 @@ end sub
 sub hideOsd()
     if m.video.state = "paused" or m.seekTarget >= 0 or m.picker <> invalid then return
     m.osdShown = false
+    m.spokenKey = ""
     fadeOsd(0.0)
 end sub
 
@@ -1291,6 +1357,8 @@ sub seekBy(delta as integer)
     showOsd(false)
     m.seekTimer.control = "stop"
     m.seekTimer.control = "start"
+    ' (each press replaces the last: only where it lands is heard)
+    Speak.say(positionSpeech(target))
 end sub
 
 sub applySeek()
@@ -2021,6 +2089,7 @@ sub askStill(kind as string)
     if kind = "next" and m.next <> invalid and Util.toText(m.next.SeriesName) <> "" then name = Util.toText(m.next.SeriesName)
     m.top.findNode("stillTitle").text = name + "?"
     print "Cove: are you still watching ("; kind; ")"
+    m.stillSpoken = false
     drawStill()
     m.still.visible = true
     m.still.setFocus(true)
@@ -2061,6 +2130,10 @@ sub drawStill()
             l.color = "0xFFFFFFFF"
         end if
     end for
+    text = Speak.button(labels[m.stillBtn]) + Speak.position(m.stillBtn, 2)
+    if m.stillSpoken <> true then text = "Are you still watching " + m.top.findNode("stillTitle").text + " " + text
+    m.stillSpoken = true
+    Speak.say(text)
 end sub
 
 sub stillKey(key as string)

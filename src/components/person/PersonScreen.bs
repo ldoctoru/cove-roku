@@ -1,6 +1,7 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
+import "pkg:/source/Speak.bs"
 
 sub init()
     t = m.global.theme
@@ -17,6 +18,15 @@ sub init()
     m.favKnown = false
     m.inHead = false
     m.favBusy = false
+    ' Audio Guide: Cove says the cards and the heart itself
+    m.speakRow = -1
+    m.spokeName = false
+    m.rows.observeField("rowItemFocused", "onCardFocused")
+    Speak.mute([m.rows, m.top.findNode("headKeys")])
+end sub
+
+sub onCardFocused()
+    Speak.rowCard(m.rows)
 end sub
 
 sub load()
@@ -148,6 +158,8 @@ sub onFocusChanged()
         if m.favKnown then enterHead()
     else
         m.rows.setFocus(true)
+        m.speakRow = -1
+        Speak.rowCard(m.rows)
     end if
 end sub
 
@@ -190,6 +202,14 @@ sub drawFav()
     if m.isFav and not m.inHead then ic.blendColor = m.global.theme.accent
     ' (right-aligned at the header's edge)
     g.translation = [1724 - w, 14]
+    if m.inHead and Speak.isOn()
+        text = Speak.button(lab.text)
+        if not m.spokeName
+            m.spokeName = true
+            text = Util.toText(m.top.person.name) + ". " + text
+        end if
+        Speak.say(text)
+    end if
 end sub
 
 sub enterHead()

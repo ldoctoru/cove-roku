@@ -51,8 +51,51 @@ namespace Prefs
         return flagOn("autoNext", true)
     end function
 
-    function startQuality() as integer
-        return Util.readText("startQuality").toInt()
+    ' Settings → Playback → Start with: one quality for a server on the home network, one for a server over the
+    ' internet (decided by its address, Util.isPrivateHost; no address = home). 0 = Automatic. The old single
+    ' "startQuality" counts for both until one of them is changed (setStartQuality then splits it).
+    function startQuality(serverUrl = "" as string) as integer
+        if serverUrl <> "" and not Util.isPrivateHost(Util.hostOf(serverUrl)) then return startQualityOf("startQualityNet")
+        return startQualityOf("startQualityHome")
+    end function
+
+    function startQualityOf(key as string) as integer
+        v = Util.readText(key)
+        if v = "" then v = Util.readText("startQuality")
+        return v.toInt()
+    end function
+
+    sub setStartQuality(key as string, value as string)
+        old = Util.readText("startQuality")
+        if old <> ""
+            for each k in ["startQualityHome", "startQualityNet"]
+                if Util.readText(k) = "" then Util.writeText(k, old)
+            end for
+            sec = createObject("roRegistrySection", "Cove")
+            sec.delete("startQuality")
+            sec.flush()
+        end if
+        Util.writeText(key, value)
+    end sub
+
+    ' Settings → Playback → Audio: the most channels to ask for (0 = Automatic: what the file has, 5.1 when
+    ' the server converts; 2 = stereo, 6 = 5.1, 8 = 7.1)
+    function audioChannels() as integer
+        v = text("audioChannels", "auto")
+        if v = "2" or v = "6" or v = "8" then return v.toInt()
+        return 0
+    end function
+
+    ' The codec the server converts audio to: "auto" (surround first: E-AC3, AC3, then AAC), "aac", "ac3", "eac3"
+    function audioCodec() as string
+        v = text("audioCodec", "auto")
+        if v = "aac" or v = "ac3" or v = "eac3" then return v
+        return "auto"
+    end function
+
+    ' DTS sent unchanged to a receiver that decodes it (off by default: the server converts DTS)
+    function dtsPassthrough() as boolean
+        return flagOn("dtsPassthrough", false)
     end function
 
     ' A choice with a default ("sidebar", "both", ...)

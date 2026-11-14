@@ -1,0 +1,82 @@
+import "pkg:/source/Util.bs"
+
+' Kids limit (per profile, Settings → Servers → a profile → Maximum rating): Off / G / PG / PG-13 / R. Lists
+' ask the server with MaxOfficialRating (it compares with its own rating scale), and titles with a known rating
+' above the limit are also hidden here (routes that ignore the parameter: Latest, Resume, Next Up, Similar).
+' A title without a rating, or with one Cove doesn't know, stays visible: the server's own parental controls
+' (per user, in the server's dashboard: maximum rating, block unrated items) still apply on top of this.
+' The limit rides on the server record as server.maxRating (Servers.bs, the profile's "r" field).
+namespace Ratings
+
+    function choices() as object
+        return [
+            { id: "", label: "Off" }, { id: "G", label: "G (all ages)" }, { id: "PG", label: "PG" },
+            { id: "PG-13", label: "PG-13" }, { id: "R", label: "R" }
+        ]
+    end function
+
+    function labelFor(choiceId as string) as string
+        if choiceId = "" then return "Off"
+        return choiceId
+    end function
+
+    ' The limit as a level: G 1, PG 2, PG-13 3, R 4; 0 = no limit
+    function limitOf(server as dynamic) as integer
+        if server = invalid then return 0
+        return levelOf(Util.toText(server.maxRating))
+    end function
+
+    ' A rating's level on the same scale (US film and TV ratings, and the common European age ratings);
+    ' 0 = no rating or not known
+    function levelOf(rating as string) as integer
+        r = UCase(rating.trim()).replace(" ", "-")
+        if r = "" then return 0
+        table = scale()
+        if table.doesExist(r) then return table[r]
+        ' "DE-12", "GB-15", "FSK-16", "US/PG-13": the part after the country or system
+        for each sep in ["/", ":", "-"]
+            at = r.instr(sep)
+            if at > 0
+                rest = r.mid(at + 1)
+                if table.doesExist(rest) then return table[rest]
+            end if
+        end for
+        return 0
+    end function
+
+    function scale() as object
+        return {
+            "G": 1, "TV-Y": 1, "TV-G": 1, "U": 1, "0": 1, "ALL": 1, "AL": 1, "APPROVED": 1, "E": 1,
+            "PG": 2, "TV-Y7": 2, "TV-Y7-FV": 2, "TV-PG": 2, "6": 2, "7": 2, "8": 2, "9": 2, "10": 2,
+            "PG-13": 3, "TV-14": 3, "11": 3, "12": 3, "12A": 3, "13": 3, "14": 3,
+            "R": 4, "TV-MA": 4, "15": 4, "16": 4, "17": 4, "M": 4, "MA15+": 4,
+            "NC-17": 5, "18": 5, "R18": 5, "X": 5, "XXX": 5, "AO": 5, "R18+": 5
+        }
+    end function
+
+    ' Whether a server item (JSON) may be shown to the profile
+    function allowed(server as dynamic, it as dynamic) as boolean
+        limit = limitOf(server)
+        if limit = 0 or not Util.isAA(it) then return true
+        lvl = levelOf(Util.toText(it.OfficialRating))
+        return lvl = 0 or lvl <= limit
+    end function
+
+    ' The items of a list the profile may see
+    function keep(server as dynamic, list as dynamic) as object
+        if type(list) <> "roArray" then return []
+        if limitOf(server) = 0 then return list
+        out = []
+        for each it in list
+            if allowed(server, it) then out.push(it)
+        end for
+        return out
+    end function
+
+    ' A request path with MaxOfficialRating added when the profile has a limit
+    function withLimit(server as dynamic, path as string) as string
+        if path = "" or limitOf(server) = 0 then return path
+        return Util.setQuery(path, "MaxOfficialRating", Util.toText(server.maxRating).encodeUriComponent())
+    end function
+
+end namespace
