@@ -19,7 +19,7 @@
         <!-- a thin bar on the right shows where the visible part is in a long text -->
         <Rectangle id="track" width="4" height="560" translation="[1584,266]" color="0xFFFFFF26" visible="false" />
         <Rectangle id="thumb" width="4" height="100" translation="[1584,266]" color="0xFFFFFFB3" visible="false" />
-        <Label id="hint" width="1200" height="36" translation="[360,866]" color="0xFFFFFF8C" text="Back to close">
+        <Label id="hint" width="1200" height="36" translation="[360,866]" color="0xFFFFFFCC" text="Back to close">
             <Font role="font" uri="font:MediumSystemFontFile" size="24" />
         </Label>
     </children>

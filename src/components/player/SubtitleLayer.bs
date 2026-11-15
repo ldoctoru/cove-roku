@@ -4,9 +4,19 @@ sub init()
     m.cueList = []
     m.ci = 0
     m.text = ""
-    m.style = Subs.style()
+    m.shown = ""            ' the cue text as given (m.text is what's drawn)
     ' a Label used only to measure text widths
     m.probe = createObject("roSGNode", "Label")
+    applyStyle()
+end sub
+
+' The style and its Font node, made once per style (P-7), not on every cue
+sub applyStyle()
+    m.style = Subs.style()
+    m.font = createObject("roSGNode", "Font")
+    m.font.uri = m.style.fontUri
+    m.font.size = m.style.fontSize
+    m.probe.font = m.font
 end sub
 
 sub onCues()
@@ -19,7 +29,8 @@ sub onCues()
 end sub
 
 sub onRestyle()
-    m.style = Subs.style()
+    applyStyle()
+    caseText()
     draw()
 end sub
 
@@ -78,9 +89,16 @@ sub onPosition()
 end sub
 
 sub setText(t as string)
-    if t = m.text then return
-    m.text = t
+    if t = m.shown then return
+    m.shown = t
+    caseText()
     draw()
+end sub
+
+' (the Roku's caption font set to Small Caps: drawn as capitals)
+sub caseText()
+    m.text = m.shown
+    if m.style.upper then m.text = UCase(m.shown)
 end sub
 
 ' Lines centred at the bottom, word-wrapped to 84 % of the width, with the shadow (copies of the text, offset)
@@ -89,10 +107,7 @@ sub draw()
     m.top.removeChildrenIndex(m.top.getChildCount(), 0)
     if m.text = "" then return
     st = m.style
-    font = createObject("roSGNode", "Font")
-    font.uri = "font:MediumSystemFontFile"
-    font.size = st.fontSize
-    m.probe.font = font
+    font = m.font
     maxW = 1612
     lines = []
     for each para in m.text.split(chr(10))
@@ -113,6 +128,14 @@ sub draw()
     padY = 4
     bottom = 1080 - m.top.lift
     top = bottom - blockH
+    ' (the Roku's caption window: a wider box behind the text's background)
+    if st.winColor <> ""
+        w = m.top.createChild("Rectangle")
+        w.color = st.winColor
+        w.width = blockW + padX * 4
+        w.height = blockH + padY * 2 + 24
+        w.translation = [Int((1920 - blockW) / 2) - padX * 2, top - padY - 12]
+    end if
     if st.bgColor <> ""
         r = m.top.createChild("Rectangle")
         r.color = st.bgColor

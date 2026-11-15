@@ -35,7 +35,7 @@
             <Group id="chip" translation="[96,0]" visible="false">
                 <Rectangle id="chipBg" height="36" color="0x0000008C" />
                 <Label id="chipText" height="36" vertAlign="center" translation="[12,0]" color="0xFFFFFFFF">
-                    <Font role="font" uri="font:BoldSystemFontFile" size="22" />
+                    <Font role="font" uri="font:BoldSystemFontFile" size="24" />
                 </Label>
             </Group>
             <Poster id="heroLogo" loadDisplayMode="scaleToFit" loadWidth="630" loadHeight="135" visible="false" />
@@ -100,9 +100,13 @@
         <!-- Holds the focus while the hero buttons are active (keys reach HomeScreen.onKeyEvent) -->
         <Group id="heroKeys" focusable="true" />
 
-        <Label id="status" width="1728" height="44" translation="[176,520]" color="0xFFFFFF8C" text="Loading your libraries...">
+        <Label id="status" width="1728" height="44" translation="[176,520]" color="0xFFFFFFCC" text="Loading your libraries...">
             <Font role="font" uri="font:MediumSystemFontFile" size="30" />
         </Label>
+        <!-- the server failed or there is nothing to show: Try Again / Switch Server / Settings -->
+        <ErrorPanel id="errorPanel" translation="[200,380]" width="1640" visible="false" />
+        <!-- once per profile, until * is used: "* Options" when a card first takes the focus -->
+        <HintBar id="hintBar" />
 
         <Timer id="backdropTimer" duration="0.3" repeat="false" />
         <Timer id="heroTimer" duration="9" repeat="true" />

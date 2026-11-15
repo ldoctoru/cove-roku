@@ -1,0 +1,264 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Servers.bs"
+import "pkg:/source/Pins.bs"
+
+sub init()
+    m.stepTimer = m.top.findNode("stepTimer")
+    m.stepTimer.observeField("fire", "onStepTimer")
+    m.flow = invalid
+    m.nextStep = ""
+    m.noticeText = ""
+    m.doneResult = invalid
+    m.dialog = invalid
+end sub
+
+sub onRequest()
+    q = m.top.request
+    if not Util.isAA(q) then return
+    m.stepTimer.control = "stop"
+    if Util.toText(q.goal) = "notice"
+        ' (just a message, once the dialog or picker before it has gone)
+        m.flow = invalid
+        m.noticeText = Util.toText(q.message)
+        later("notice")
+        return
+    end if
+    m.flow = { goal: Util.toText(q.goal), serverId: Util.toText(q.serverId), userId: Util.toText(q.userId), title: Util.toText(q.title), message: Util.toText(q.message), doneText: Util.toText(q.doneText), quiet: Util.flag(q, "quiet"), tag: q.tag, newPin: "" }
+    srv = Servers.find(m.flow.serverId)
+    if srv = invalid
+        failFlow("")
+        return
+    end if
+    g = m.flow.goal
+    if g = "set"
+        later("new")
+        return
+    end if
+    if g = "parent"
+        if Servers.parentIds(srv).count() = 0
+            failFlow("Set a PIN on a parent profile first (a profile without a rating limit). Only a parent PIN can change this.")
+            return
+        end if
+    else if Servers.pinOf(srv, m.flow.userId) = ""
+        passFlow(m.flow.userId)
+        return
+    end if
+    wait_ = waitNow(srv)
+    if wait_ > 0
+        failFlow(Pins.waitText(wait_))
+        return
+    end if
+    later("verify")
+end sub
+
+' Seconds before a PIN can be tried again (a parent PIN: the longest wait of the parents)
+function waitNow(srv as object) as integer
+    sid = m.flow.serverId
+    if m.flow.goal <> "parent" then return Pins.waitLeft(sid, m.flow.userId)
+    most = 0
+    for each pid in Servers.parentIds(srv)
+        w = Pins.waitLeft(sid, pid)
+        if w > most then most = w
+    end for
+    return most
+end function
+
+sub later(stepName as string)
+    m.nextStep = stepName
+    m.stepTimer.control = "start"
+end sub
+
+sub onStepTimer()
+    s = m.nextStep
+    m.nextStep = ""
+    if m.flow = invalid and s <> "notice" then return
+    if s = "verify" or s = "new" or s = "confirm"
+        openPad(s)
+    else if s = "notice"
+        openNotice(m.noticeText)
+    else if s = "result"
+        emitDone(false)
+    else if s = "doneNotice"
+        emitDone(true)
+    end if
+end sub
+
+sub emitDone(withNotice as boolean)
+    res = m.doneResult
+    m.doneResult = invalid
+    text = ""
+    if m.flow <> invalid then text = m.flow.doneText
+    m.flow = invalid
+    if res <> invalid then m.top.result = res
+    if withNotice then openNotice(text)
+end sub
+
+function nameOf(userId as string) as string
+    u = Servers.userOf(Servers.find(m.flow.serverId), userId)
+    return Util.toText(Util.field(u, "n"))
+end function
+
+sub openPad(stepName as string)
+    m.flow.stepName = stepName
+    f = m.flow
+    title = f.title
+    msg = f.message
+    if stepName = "verify" and f.goal = "parent"
+        if title = "" then title = "Parent PIN"
+        if msg = "" then msg = "Enter the PIN of a profile without a rating limit."
+    else if stepName = "verify"
+        if title = "" then title = "Enter the PIN for " + nameOf(f.userId)
+        if msg = "" then msg = "This profile is locked with a PIN."
+    else if stepName = "new"
+        if title = "" then title = "New PIN for " + nameOf(f.userId)
+        if msg = "" then msg = "4 digits. Cove asks for it when someone picks this profile."
+    else
+        title = "Confirm the PIN"
+        msg = "Enter the same 4 digits again."
+    end if
+    d = createObject("roSGNode", "StandardPinPadDialog")
+    d.title = title
+    d.message = [msg]
+    d.buttons = ["OK", "Cancel"]
+    if d.hasField("textEditBox") and d.textEditBox <> invalid
+        d.textEditBox.secureMode = true
+        d.textEditBox.maxTextLength = 4
+    end if
+    d.observeField("buttonSelected", "onPadButton")
+    d.observeField("wasClosed", "onPadClosed")
+    showDialog(d)
+end sub
+
+sub openNotice(text as string)
+    if text = "" then return
+    d = createObject("roSGNode", "StandardMessageDialog")
+    d.title = "Profile PIN"
+    d.message = [text]
+    d.buttons = ["OK"]
+    d.observeField("buttonSelected", "onNoticeClosed")
+    d.observeField("wasClosed", "onNoticeClosed")
+    showDialog(d)
+end sub
+
+sub showDialog(d as object)
+    sc = m.top.getScene()
+    if sc = invalid then return
+    m.dialog = d
+    sc.dialog = d
+    d.setFocus(true)
+end sub
+
+' Stop listening before closing, so the dialog's late "wasClosed" can't reach the next one
+sub dropDialog(d as object)
+    d.unobserveField("buttonSelected")
+    d.unobserveField("wasClosed")
+    d.close = true
+    if m.dialog <> invalid and m.dialog.isSameNode(d) then m.dialog = invalid
+    fb = m.top.focusBack
+    if fb <> invalid then fb.setFocus(true)
+end sub
+
+sub onNoticeClosed(ev as object)
+    dropDialog(ev.getRoSGNode())
+end sub
+
+' Back on the PIN pad: the same as Cancel
+sub onPadClosed(ev as object)
+    d = ev.getRoSGNode()
+    if m.dialog = invalid or not d.isSameNode(m.dialog) then return
+    dropDialog(d)
+    cancelFlow()
+end sub
+
+sub onPadButton(ev as object)
+    d = ev.getRoSGNode()
+    ok = d.buttonSelected = 0
+    pin = Util.toText(d.pin)
+    dropDialog(d)
+    f = m.flow
+    if f = invalid then return
+    if not ok
+        cancelFlow()
+        return
+    end if
+    srv = Servers.find(f.serverId)
+    if srv = invalid
+        failFlow("")
+        return
+    end if
+    sid = f.serverId
+    if f.stepName = "verify"
+        ids = [f.userId]
+        if f.goal = "parent" then ids = Servers.parentIds(srv)
+        matched = ""
+        for each uid in ids
+            stored = Servers.pinOf(srv, uid)
+            if matched = "" and Pins.matches(stored, sid, uid, pin)
+                matched = uid
+                ' (a v0.9.0 hash: saved again in the v0.9.1 form)
+                if Pins.isOldHash(stored) then Servers.setUserField(sid, uid, "p", Pins.make(sid, uid, pin))
+            end if
+        end for
+        if matched <> ""
+            for each uid in ids
+                Pins.clearWrong(sid, uid)
+            end for
+            passFlow(matched)
+        else
+            print "Cove: wrong profile PIN"
+            ' (a wrong parent PIN counts for every parent, so trying it here is no faster than on each profile)
+            wait_ = 0
+            for each uid in ids
+                w = Pins.noteWrong(sid, uid)
+                if w > wait_ then wait_ = w
+            end for
+            failFlow(Pins.wrongText(wait_))
+        end if
+    else if f.stepName = "new"
+        if not Pins.isValid(pin)
+            later("new")
+            return
+        end if
+        f.newPin = pin
+        later("confirm")
+    else if f.stepName = "confirm"
+        if pin <> f.newPin
+            f.newPin = ""
+            failFlow("The PINs didn't match. The PIN wasn't changed.")
+            return
+        end if
+        Servers.setUserField(sid, f.userId, "p", Pins.make(sid, f.userId, pin))
+        Pins.clearWrong(sid, f.userId)
+        f.newPin = ""
+        passFlow(f.userId)
+    end if
+end sub
+
+' Done: the result once the dialog has gone (the caller may open the next one), with the done notice
+sub passFlow(userId as string)
+    f = m.flow
+    m.doneResult = { ok: true, cancelled: false, goal: f.goal, userId: userId, message: "", tag: f.tag }
+    if f.doneText <> "" and not f.quiet
+        later("doneNotice")
+    else
+        later("result")
+    end if
+end sub
+
+sub failFlow(text as string)
+    f = m.flow
+    m.flow = invalid
+    if f = invalid then return
+    m.top.result = { ok: false, cancelled: false, goal: f.goal, userId: f.userId, message: text, tag: f.tag }
+    if text <> "" and not f.quiet
+        m.noticeText = text
+        later("notice")
+    end if
+end sub
+
+sub cancelFlow()
+    f = m.flow
+    m.flow = invalid
+    if f = invalid then return
+    m.top.result = { ok: false, cancelled: true, goal: f.goal, userId: f.userId, message: "", tag: f.tag }
+end sub

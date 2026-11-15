@@ -26,6 +26,6 @@ sub onFocus()
     else
         m.name.color = "0xFFFFFFFF"
         if m.isCurrent then m.name.color = m.global.theme.accent
-        m.time.color = "0xFFFFFF8C"
+        m.time.color = "0xFFFFFFCC"
     end if
 end sub

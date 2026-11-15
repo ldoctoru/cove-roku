@@ -79,9 +79,9 @@ sub paint()
         if it.header = true
             if open
                 l = m.entries.createChild("Label")
-                l.font = font("font:BoldSystemFontFile", 22)
+                l.font = font("font:BoldSystemFontFile", 24)
                 l.text = UCase(Util.toText(it.label))
-                l.color = "0xFFFFFF66"
+                l.color = "0xFFFFFFCC"
                 l.translation = [36, y + 14]
                 l.height = 36
             else
@@ -115,7 +115,7 @@ sub paint()
             ic.width = 36
             ic.height = 36
             ic.translation = [38, 14]
-            col = "0xFFFFFFB3"
+            col = "0xFFFFFFCC"
             if isCurrent then col = accent
             if isFocus then col = "0x000000FF"
             ic.blendColor = col
@@ -138,19 +138,19 @@ sub paint()
                 dot.uri = "pkg:/images/ui/white_circle_56.png"
                 dot.blendColor = accent
                 bl = g.createChild("Label")
-                bl.font = font("font:BoldSystemFontFile", 18)
+                bl.font = font("font:BoldSystemFontFile", 24)
                 bl.text = b.toStr()
                 bl.color = "0xFFFFFFFF"
                 bl.horizAlign = "center"
                 bl.vertAlign = "center"
                 if open
-                    dot.width = 34
-                    dot.height = 34
-                    dot.translation = [330, 15]
+                    dot.width = 38
+                    dot.height = 38
+                    dot.translation = [328, 13]
                 else
-                    dot.width = 26
-                    dot.height = 26
-                    dot.translation = [64, 6]
+                    dot.width = 32
+                    dot.height = 32
+                    dot.translation = [62, 4]
                 end if
                 bl.width = dot.width
                 bl.height = dot.height

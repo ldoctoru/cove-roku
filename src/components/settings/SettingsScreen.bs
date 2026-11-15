@@ -6,10 +6,10 @@ import "pkg:/source/Prefs.bs"
 import "pkg:/source/Tracks.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/DeviceCaps.bs"
-import "pkg:/source/Pins.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/HomeLayout.bs"
+import "pkg:/source/Toasts.bs"
 
 ' Layout (1920 x 1080): cards from x 200, 1520 wide; the label column ends at x 610, controls start at x 650
 ' (the Mac's PrefRow: label right-aligned in a fixed column, the control beside it)
@@ -19,10 +19,11 @@ sub init()
     m.keys = m.top.findNode("keys")
     m.kbTimer = m.top.findNode("kbTimer")
     m.kbTimer.observeField("fire", "focusKeyboard")
-    m.pinTimer = m.top.findNode("pinTimer")
-    m.pinTimer.observeField("fire", "onPinTimer")
-    m.pinFlow = invalid         ' (v0.9.0) the profile PIN steps in progress
-    m.nextDialog = invalid
+    ' (v0.9.1) the profile PIN steps (components/profiles/PinFlow): parent PIN, profile PIN, new PIN
+    m.pinFlow = createObject("roSGNode", "PinFlow")
+    m.pinFlow.focusBack = m.keys
+    m.pinFlow.observeField("result", "onPinResult")
+    m.top.appendChild(m.pinFlow)
     m.tab = 0
     m.area = "tabs"
     m.row = 0
@@ -55,7 +56,7 @@ function tabList() as object
     return [
         { id: "general", label: "General" }, { id: "home", label: "Home" }, { id: "libraries", label: "Libraries" },
         { id: "subtitles", label: "Subtitles" }, { id: "playback", label: "Playback" }, { id: "servers", label: "Servers" },
-        { id: "remote", label: "Remote" }, { id: "about", label: "About" }
+        { id: "profiles", label: "Profiles" }, { id: "remote", label: "Remote" }, { id: "about", label: "About" }
     ]
 end function
 
@@ -203,7 +204,7 @@ function rowsFor(tabId as string) as object
             out.push(choice(ch.key, ch.label, ch.options, Subs.current(ch)))
         end for
         out.push({ kind: "button", id: "subDefaults", label: "", text: "Restore Defaults" })
-        out.push(note("A style left at its default follows the Roku's caption style (Roku Settings > Accessibility > Captions). With the Roku's captions On, titles start with subtitles in this language unless you chose others for them."))
+        out.push(note("Roku setting follows the Roku's caption style (Roku Settings > Accessibility > Caption style), including its font, opacity and window. With the Roku's captions On, titles start with subtitles in this language unless you chose others for them."))
     else if tabId = "playback"
         out.push(sectionHead("Start with"))
         out.push(choice("startQualityHome", "Home network", Tracks.qualities(), Prefs.startQualityOf("startQualityHome").toStr()))
@@ -223,6 +224,15 @@ function rowsFor(tabId as string) as object
         out.push(note("The back / forward buttons in the player and the Rewind / Fast forward keys."))
         out.push(choice("rewindOnResume", "Rewind on resume", [{ id: "off", label: "Off" }, { id: "5", label: "5 s" }, { id: "10", label: "10 s" }, { id: "30", label: "30 s" }], Prefs.text("rewindOnResume", "5")))
         out.push(note("Goes back a little when a title resumes where you left it, or after a pause of 5 minutes or more."))
+        ' (v1.0 F-3) the speed every title starts at (the player's * menu still changes it for one title)
+        sp = []
+        for each v in ["0.5", "0.75", "1", "1.25", "1.5", "2"]
+            lb = v + "×"
+            if v = "1" then lb = "Normal (1×)"
+            sp.push({ id: v, label: lb })
+        end for
+        out.push(choice("defaultSpeed", "Default speed", sp, Prefs.defaultSpeed()))
+        out.push(note("Titles start at this speed on Rokus that can change it. The player's * menu changes it for one title."))
         out.push(sectionHead("Audio"))
         out.push(choice("audioChannels", "Maximum channels", [{ id: "auto", label: "Automatic" }, { id: "2", label: "Stereo (2.0)" }, { id: "6", label: "5.1" }, { id: "8", label: "7.1" }], Prefs.text("audioChannels", "auto")))
         ac = [{ id: "auto", label: "Automatic" }, { id: "aac", label: "AAC" }]
@@ -237,12 +247,23 @@ function rowsFor(tabId as string) as object
         out.push(note("Stereo makes the server mix surround tracks down to 2 channels. Preferred audio is what the server converts to when the Roku can't play a track as it is (e.g. TrueHD, DTS). " + dtsNote))
         out.push(sectionHead("Automatically"))
         out.push(toggle("autoNext", "", "Play the next episode", Prefs.autoNext()))
+        ' (v1.0 F-11) how long Up Next counts down before the next episode
+        un = choice("upNextSecs", "Up Next countdown", [{ id: "off", label: "Off" }, { id: "5", label: "5 s" }, { id: "10", label: "10 s" }, { id: "15", label: "15 s" }], Prefs.text("upNextSecs", "10"))
+        un.dim = not Prefs.autoNext()
+        out.push(un)
+        out.push(note("Off starts the next episode as soon as one ends, without the Up Next card."))
         out.push(toggle("autoSkipIntro", "", "Skip intros", Prefs.autoSkipIntro()))
         out.push(toggle("autoSkipRecap", "", "Skip recaps", Prefs.autoSkipRecap()))
         out.push(note("Recaps, previews and ads show a Skip button when the server knows where they are (Jellyfin media segments)."))
         out.push(sectionHead("Are you still watching?"))
         out.push(choice("stillWatching", "Ask after", [{ id: "off", label: "Off" }, { id: "2", label: "2 episodes" }, { id: "3", label: "3 episodes" }, { id: "5", label: "5 episodes" }], Prefs.text("stillWatching", "3")))
-        out.push(note("Cove pauses and asks after this many episodes in a row, or after 2 hours, without a key press."))
+        ' (v1.0 F-11) replaces the fixed 2 hours
+        out.push(choice("stillIdle", "Ask if still watching after", [{ id: "off", label: "Off" }, { id: "1", label: "1 hour" }, { id: "2", label: "2 hours" }, { id: "3", label: "3 hours" }], Prefs.text("stillIdle", "2")))
+        out.push(note("Cove pauses and asks after this many episodes in a row, or after this long of playing, without a key press."))
+        ' (v1.0 F-10) the server's intros before a film
+        out.push(sectionHead("Cinema Mode"))
+        out.push(toggle("cinemaMode", "", "Play intros before a movie", Prefs.cinemaMode()))
+        out.push(note("Plays the trailers and pre-rolls your server sets up (Cinema Mode / intros) before a movie you start from the beginning."))
     else if tabId = "servers"
         srv = m.top.server
         out.push(sectionHead("Current server"))
@@ -250,7 +271,7 @@ function rowsFor(tabId as string) as object
             out.push({ kind: "info", label: "Connected to", text: Util.toText(srv.name), sub: Util.toText(srv.userName) + "  ·  " + Util.toText(srv.url) })
         end if
         out.push({ kind: "button", id: "signout", label: "", text: "Sign Out" })
-        profileRows(out)
+        out.push(note("Profiles, PINs and rating limits are in the Profiles tab."))
         out.push(sectionHead("Saved servers"))
         for each s in Servers.all()
             kind = "Emby"
@@ -268,13 +289,16 @@ function rowsFor(tabId as string) as object
         end for
         out.push({ kind: "button", id: "addServer", label: "", text: "Add Server..." })
         out.push(note("OK on a server: connect to it, rename it or remove it. Add Server opens the sign-in screen."))
+        if isRestricted() then out.push(note(restrictedNote()))
+    else if tabId = "profiles"
+        profileRows(out)
     else if tabId = "remote"
         out.push(sectionHead("While a video plays"))
         for each k in [["OK", "Play or pause; with the controls showing, use the selected button"], ["Left / Right", "Skip back / forward (Settings > Playback); with the controls showing, move along the bar"], ["Up / Down", "Show the controls; move between the bar, the round buttons and the buttons on the right"], ["Rewind / Fast fwd", "Jump back / forward (Settings > Playback > Jump buttons)"], ["Instant replay", "Jump 10 s back (with the Roku's captions on Instant replay, subtitles show for a moment)"], ["*", "Audio, subtitles, quality, version and speed"], ["Back", "Hide the controls, or leave the player"]]
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
         out.push(sectionHead("Home"))
-        for each k in [["Left", "Open the sidebar (from the first button or the first card of a row)"], ["Rewind / Fast fwd", "Previous / next title in the banner"], ["*", "On a card: play, mark as watched, favourites, remove from Continue Watching; elsewhere: the app options"]]
+        for each k in [["Left", "Open the sidebar (from the first button or the first card of a row)"], ["Rewind / Fast fwd", "Previous / next title in the banner"], ["*", "On a card: play, mark as watched, Favorites, remove from Continue Watching; elsewhere: the app options"]]
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
         out.push(sectionHead("Other pages"))
@@ -292,15 +316,19 @@ function rowsFor(tabId as string) as object
         if m.device <> "" then out.push({ kind: "info", label: "This Roku", text: m.device, sub: "" })
         out.push(sectionHead("Reset"))
         out.push({ kind: "button", id: "reset", label: "Reset", text: "Reset All Settings..." })
-        out.push(note("Puts every setting back to its default. Your servers and sign-in are kept."))
+        out.push(note("Puts every setting back to its default. Your servers, profiles, PINs and rating limits are kept."))
     end if
     return out
 end function
 
-'' (v0.9.0) Servers → Profiles: the current server's saved profiles, Who's watching? at start, add / switch
+'' (v0.9.0) Profiles (v0.9.1: its own tab): the current server's saved profiles, Who's watching? at start, add /
+' switch, and the parent PIN that guards the rating limits
 sub profileRows(out as object)
     srv = currentServer()
-    if srv = invalid then return
+    if srv = invalid
+        out.push(note("Sign in to a server to see its profiles."))
+        return
+    end if
     out.push(sectionHead("Profiles on " + Util.toText(srv.name)))
     for each p in Servers.profiles(srv)
         out.push({ kind: "profile", id: p.id, label: p.name, sub: profileSub(srv, p), current: p.id = Util.toText(srv.userId) })
@@ -309,8 +337,27 @@ sub profileRows(out as object)
     out.push(note("With 2 or more profiles on this server, Cove starts with Who's watching?. The profile entry at the bottom of the sidebar switches at any time."))
     out.push({ kind: "button", id: "switchProfile", label: "", text: "Switch Profile..." })
     out.push({ kind: "button", id: "addProfile", label: "", text: "Add Profile..." })
-    out.push(note("Add Profile signs in another user of this server; each profile keeps its own sign-in, Continue Watching and favourites. OK on a profile: its PIN and Maximum rating (titles rated above it are hidden for that profile; with a PIN, only someone who knows it can change the limit). The server's own parental controls still apply."))
+    out.push(note("Add Profile signs in another user of this server; each profile keeps its own sign-in, Continue Watching and favorites. OK on a profile: its PIN, Maximum rating and Hide unrated titles."))
+    out.push(sectionHead("Parental controls"))
+    parents = Servers.parentIds(srv).count()
+    state = "No parent PIN yet"
+    if parents = 1 then state = "1 profile without a limit has a PIN"
+    if parents > 1 then state = parents.toStr() + " profiles without a limit have a PIN"
+    out.push({ kind: "info", label: "Parent PIN", text: state, sub: "" })
+    out.push(note("A rating limit is changed only with a parent PIN: the PIN of a profile without a limit. Titles rated above the limit are hidden, and an episode without its own rating takes its series' rating. The server's own parental controls still apply on top."))
+    if isRestricted() then out.push(note(restrictedNote()))
 end sub
+
+' (v0.9.1) The profile on Home has a rating limit: profiles, PINs, servers and Reset need a parent PIN
+' (the screen's copy of the server: Settings is rebuilt after a profile switch, and profileChanged() refreshes it,
+' so draw() doesn't read the registry for this)
+function isRestricted() as boolean
+    return Ratings.limitOf(m.top.server) > 0
+end function
+
+function restrictedNote() as string
+    return "A profile with a rating limit is watching: changing profiles, PINs, rating limits or servers, and Reset All Settings, ask for a parent PIN."
+end function
 
 function profileSub(srv as object, p as object) as string
     parts = []
@@ -319,6 +366,8 @@ function profileSub(srv as object, p as object) as string
     if parts.count() = 0 then parts.push("Signed in")
     if p.hasPin then parts.push("PIN")
     if p.maxRating <> "" then parts.push("Up to " + p.maxRating)
+    if p.maxRating <> "" and p.hideUnrated then parts.push("Hides unrated")
+    if p.maxRating = "" and p.hasPin then parts.push("Parent")
     return Util.join(parts, "  ·  ")
 end function
 
@@ -503,7 +552,7 @@ sub drawTabs()
                 bgp.blendColor = t.accent.left(8) + "33"
             end if
         end if
-        col = "0xFFFFFF8C"
+        col = "0xFFFFFFCC"
         if isCur then col = t.accent
         if isFocus then col = "0x000000FF"
         ic = cell.createChild("Poster")
@@ -513,7 +562,7 @@ sub drawTabs()
         ic.translation = [(w - 40) / 2, 14]
         ic.blendColor = col
         l = cell.createChild("Label")
-        l.font = mkFont(isCur, 22)
+        l.font = mkFont(isCur, 24)
         l.text = tabs[i].label
         l.color = col
         l.width = w
@@ -571,8 +620,8 @@ sub drawContent()
                 card.height = y - cardTop + 8
                 y = y + 22
             end if
-            addLabel(c, UCase(r.text), 210, y, 1400, 30, 20, true, "0xFFFFFF8C")
-            y = y + 34
+            addLabel(c, UCase(r.text), 210, y, 1400, 32, 24, true, "0xFFFFFFCC")
+            y = y + 38
             card = c.createChild("Poster")
             card.uri = "pkg:/images/ui/card_r18.9.png"
             card.translation = [200, y]
@@ -613,7 +662,7 @@ end sub
 
 function rowHeight(r as object) as integer
     k = r.kind
-    if k = "note" then return 28 * noteLines(r.text) + 6
+    if k = "note" then return 32 * noteLines(r.text) + 6
     if k = "swatches" then return 72
     if k = "tiles" then return 124
     if k = "server" or k = "info" or k = "profile" then return 80
@@ -624,7 +673,7 @@ function rowHeight(r as object) as integer
 end function
 
 function noteLines(text as string) as integer
-    return Util.wrapLines(text, 86, 6).count()
+    return Util.wrapLines(text, 76, 6).count()
 end function
 
 sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionTop as integer)
@@ -632,9 +681,9 @@ sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionT
     k = r.kind
     x = 650
     if k = "note"
-        lines = Util.wrapLines(r.text, 86, 6)
+        lines = Util.wrapLines(r.text, 76, 6)
         for i = 0 to lines.count() - 1
-            addLabel(c, lines[i], x, y + i * 28, 1040, 28, 21, false, "0xFFFFFF8C")
+            addLabel(c, lines[i], x, y + i * 32, 1040, 32, 24, false, "0xFFFFFFCC")
         end for
     else if k = "choice"
         drawPill(c, x, y + 6, r.value, isFocus, r.dim = true, true)
@@ -694,25 +743,25 @@ sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionT
             edge.width = 132
             edge.height = 72
             edge.translation = [tx, y + 8]
-            col = "0xFFFFFF8C"
+            col = "0xFFFFFFCC"
             if o.id = r.cur then col = "0xFFFFFFFF"
-            lab = addLabel(c, o.label, tx, y + 86, 132, 30, 20, o.id = r.cur, col)
+            lab = addLabel(c, o.label, tx - 8, y + 86, 148, 32, 24, o.id = r.cur, col)
             lab.horizAlign = "center"
         end for
     else if k = "info"
         addLabel(c, r.text, x, y + 4, 1040, 40, 27, true, "0xFFFFFFFF")
-        if r.sub <> "" then addLabel(c, r.sub, x, y + 42, 1040, 32, 22, false, "0xFFFFFF8C")
+        if r.sub <> "" then addLabel(c, r.sub, x, y + 42, 1040, 32, 24, false, "0xFFFFFFCC")
     else if k = "keys"
         cap = c.createChild("Poster")
         cap.uri = "pkg:/images/ui/glass_pill.9.png"
-        kl = addLabel(c, r.key, 0, y + 6, 0, 38, 22, true, "0xFFFFFFFF")
+        kl = addLabel(c, r.key, 0, y + 6, 0, 38, 24, true, "0xFFFFFFFF")
         kw = kl.boundingRect().width + 32
         kl.translation = [610 - kw + 16, y + 6]
         kl.width = kw - 32
         cap.translation = [610 - kw, y + 6]
         cap.width = kw
         cap.height = 38
-        addLabel(c, r.text, x, y, 1040, 50, 24, false, "0xFFFFFFB3")
+        addLabel(c, r.text, x, y, 1040, 50, 24, false, "0xFFFFFFCC")
     else if k = "server" or k = "library" or k = "section" or k = "profile" or k = "homerow"
         drawListRow(c, r, x, y, isFocus)
     else if k = "preview"
@@ -789,7 +838,7 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
         bgp.translation = [x - 10, y + 2]
     end if
     main = "0xFFFFFFFF"
-    second = "0xFFFFFF8C"
+    second = "0xFFFFFFCC"
     if isFocus
         main = "0x000000FF"
         second = "0x000000A6"
@@ -806,7 +855,7 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
     if isFocus then ic.blendColor = main
     if r.kind = "server" or r.kind = "profile"
         addLabel(c, r.label, x + 60, y + 6, 640, 36, 26, true, main)
-        addLabel(c, r.sub, x + 60, y + 40, 760, 30, 20, false, second)
+        addLabel(c, r.sub, x + 60, y + 38, 760, 32, 24, false, second)
         if r.current = true
             ck = c.createChild("Poster")
             ck.uri = "pkg:/images/ui/icon_check_28.png"
@@ -832,12 +881,12 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
             if r.on then stateText = "On Home"
             if r.dim = true then stateText = "Set by the server"
             if r.state <> "" and r.dim <> true then stateText = r.state + "   ·   " + stateText
-            s1 = addLabel(c, stateText, x + w - 470, y, 440, h, 22, false, second)
+            s1 = addLabel(c, stateText, x + w - 470, y, 440, h, 24, false, second)
             s1.horizAlign = "right"
         else if r.kind = "section"
             stateText = "Hidden"
             if r.on then stateText = "In the sidebar"
-            s1 = addLabel(c, stateText, x + w - 430, y, 400, h, 22, false, second)
+            s1 = addLabel(c, stateText, x + w - 430, y, 400, h, 24, false, second)
             s1.horizAlign = "right"
         else
             a = "Not in the sidebar"
@@ -846,7 +895,7 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
             if r.nav and r.home then b = "Home"
             ab = a + "   ·   " + b
             if not Prefs.hasHomeRow(Util.toText(r.libKind)) then ab = a
-            s1 = addLabel(c, ab, x + w - 470, y, 440, h, 22, false, second)
+            s1 = addLabel(c, ab, x + w - 470, y, 440, h, 24, false, second)
             s1.horizAlign = "right"
         end if
     end if
@@ -1020,24 +1069,26 @@ sub useRow(r as object)
                 Util.writeText(key, "")
             end for
             draw()
+            Toasts.notify("Subtitle style reset to the defaults", "check")
         else if r.id = "homeDefaultOrder"
             HomeLayout.resetOrder(serverKey())
             m.top.themeChanged = true
             m.row = 1
             draw()
+            Toasts.notify("Home rows back in the default order", "check")
         else if r.id = "retryLibs"
             onServer()
             draw()
         else if r.id = "signout"
-            m.top.action = { id: "signout" }
+            guarded({ do: "signout" })
         else if r.id = "addServer"
-            m.top.action = { id: "switch" }
+            guarded({ do: "addServer" })
         else if r.id = "switchProfile"
             m.top.action = { id: "profiles" }
         else if r.id = "addProfile"
-            m.top.action = { id: "addProfile" }
+            guarded({ do: "addProfile" })
         else if r.id = "reset"
-            openPicker("reset", "Reset all settings?", [{ id: "yes", label: "Reset" }, { id: "no", label: "Cancel" }], "no")
+            guarded({ do: "reset" })
         end if
     end if
 end sub
@@ -1046,8 +1097,10 @@ end sub
 sub apply(id as string, value as string)
     homeKeys = { navStyle: 1, topBarLabels: 1, showRecent: 1, showUpNextRow: 1, homeFavorites: 1, showFavorites: 1, showNowPlaying: 1, hideSpoilers: 1 }
     if id = "askWho"
-        ' (kept with the server's profiles, not with the settings that Reset clears)
-        Servers.setAsk(serverKey(), value = "on")
+        ' (kept with the server's profiles, not with the settings that Reset clears; a parent PIN first while a
+        ' profile with a rating limit is watching)
+        guarded({ do: "askWho", on: value = "on" })
+        return
     else if id = "accent" or id = "background"
         Util.writeText(id, value)
         m.global.theme = Theme.get()
@@ -1188,7 +1241,8 @@ sub serverMenu(id as string)
     openPicker("srv", Util.toText(s.name), o, "")
 end sub
 
-'' OK on a profile: switch to it, or sign it out (the current one signs out with Sign Out above)
+'' OK on a profile: switch to it, its PIN, its rating limit, or sign it out (the current one signs out with Sign
+' Out in Servers)
 sub profileMenu(userId as string)
     srv = currentServer()
     if srv = invalid then return
@@ -1204,173 +1258,124 @@ sub profileMenu(userId as string)
         o.push({ id: "pinRemove", label: "Remove PIN" })
     end if
     o.push({ id: "rating", label: "Maximum rating: " + Ratings.labelFor(Util.toText(u.r)) + "..." })
+    if Util.toText(u.r) <> ""
+        o.push({ id: "hideUnrated", label: "Hide unrated titles: " + capital(onOff(Util.toText(u.h) = "1")) })
+    end if
     o.push({ id: "signout", label: "Sign Out" })
     m.menuProfile = userId
     openPicker("prof", Util.toText(u.n), o, "")
 end sub
 
-' ---------------------------------------------------------------- profile PIN
+' ---------------------------------------------------------------- PINs and the parent PIN (v0.9.1)
 
-' goal: "set" (new, confirm), "change" (current, new, confirm), "remove" (current), "signout" (current, when it
-' has one), and whatever else needs the PIN first ("rating"). A profile without a PIN skips the current step.
-sub startPinFlow(userId as string, goal as string)
+' Runs act now, or after a parent PIN while a profile with a rating limit is watching
+sub guarded(act as object)
+    if isRestricted()
+        askPin({ goal: "parent", message: "A profile with a rating limit is watching. Enter a parent PIN (the PIN of a profile without a limit) to continue." }, act)
+    else
+        runAct(act)
+    end if
+end sub
+
+' Starts the PIN steps (PinFlow); act runs when they succeed
+sub askPin(q as object, act as dynamic)
+    q.serverId = serverKey()
+    q.tag = act
+    m.pinFlow.request = q
+end sub
+
+sub notice(text as string)
+    m.pinFlow.request = { goal: "notice", serverId: serverKey(), message: text }
+end sub
+
+sub onPinResult(ev as object)
+    r = ev.getData()
+    if Util.flag(r, "ok") and Util.isAA(r.tag) then runAct(r.tag)
+    draw()
+end sub
+
+' A profile menu entry
+sub profileAction(choiceId as string, userId as string)
+    srv = currentServer()
+    if srv = invalid then return
+    cur = userId = Util.toText(srv.userId)
+    if choiceId = "use"
+        m.top.action = { id: "useProfile", userId: userId }
+    else if choiceId = "signout"
+        if isRestricted() or cur
+            guarded({ do: "signoutProfile", userId: userId })
+        else
+            ' (another profile's PIN guards it from being signed out here)
+            askPin({ goal: "verify", userId: userId }, { do: "signoutProfile", userId: userId })
+        end if
+    else if choiceId = "pinSet"
+        guarded({ do: "pinSet", userId: userId })
+    else if choiceId = "pinChange"
+        if isRestricted()
+            guarded({ do: "pinSet", userId: userId })
+        else
+            askPin({ goal: "verify", userId: userId, message: "Enter the current PIN of this profile." }, { do: "pinSet", userId: userId })
+        end if
+    else if choiceId = "pinRemove"
+        if Servers.isLastParent(srv, userId)
+            notice("This is the only parent PIN, and a profile has a rating limit. Set a PIN on another profile without a limit, or remove the limits, first.")
+        else if isRestricted()
+            guarded({ do: "pinRemove", userId: userId })
+        else
+            askPin({ goal: "verify", userId: userId, message: "Enter the current PIN of this profile." }, { do: "pinRemove", userId: userId })
+        end if
+    else if choiceId = "rating" or choiceId = "hideUnrated"
+        ' (always a parent PIN, never the profile's own; with no parent PIN yet, the profile on Home, which has
+        ' no limit, sets one first)
+        act = { do: choiceId, userId: userId }
+        if Servers.parentIds(srv).count() = 0 and not isRestricted()
+            askPin({ goal: "set", userId: Util.toText(srv.userId), title: "Parent PIN for " + Util.toText(srv.userName), message: "Rating limits are guarded by a parent PIN. Set a 4-digit PIN for this profile first." }, act)
+        else
+            askPin({ goal: "parent", message: "Enter a parent PIN (the PIN of a profile without a rating limit) to change this." }, act)
+        end if
+    end if
+end sub
+
+' What a profile, server or Reset entry does once it's allowed
+sub runAct(act as object)
+    what = Util.toText(act.do)
+    uid = Util.toText(act.userId)
     srv = currentServer()
     if srv = invalid then return
     sid = Util.toText(srv.id)
-    m.pinFlow = { userId: userId, goal: goal, newPin: "" }
-    if goal = "set"
-        nextPin("new")
-    else if Servers.pinOf(srv, userId) = ""
-        pinVerified()
-    else
-        wait_ = Pins.waitLeft(sid, userId)
-        if wait_ > 0
-            m.pinFlow = invalid
-            later({ kind: "notice", text: Pins.waitText(wait_) })
-            return
-        end if
-        nextPin("verify")
-    end if
-end sub
-
-sub nextPin(stepName as string)
-    m.pinFlow.stepName = stepName
-    u = Servers.userOf(currentServer(), m.pinFlow.userId)
-    who = Util.toText(Util.field(u, "n"))
-    if stepName = "verify"
-        openPinPad("PIN for " + who, "Enter the current PIN of this profile.")
-    else if stepName = "new"
-        openPinPad("New PIN for " + who, "4 digits. Cove asks for it when someone picks this profile, and before its rating limit changes.")
-    else
-        openPinPad("Confirm the PIN", "Enter the same 4 digits again.")
-    end if
-end sub
-
-sub openPinPad(title as string, message as string)
-    d = createObject("roSGNode", "StandardPinPadDialog")
-    d.title = title
-    d.message = [message]
-    d.buttons = ["OK", "Cancel"]
-    if d.hasField("textEditBox") and d.textEditBox <> invalid
-        d.textEditBox.secureMode = true
-        d.textEditBox.maxTextLength = 4
-    end if
-    d.observeField("buttonSelected", "onPinPadButton")
-    d.observeField("wasClosed", "onPinPadClosed")
-    m.top.getScene().dialog = d
-    m.kbTimer.control = "start"
-end sub
-
-' The next dialog once this one has gone (a dialog opened while the last one closes gets no focus)
-sub later(next_ as object)
-    m.nextDialog = next_
-    m.pinTimer.control = "start"
-end sub
-
-sub onPinTimer()
-    n = m.nextDialog
-    m.nextDialog = invalid
-    if n = invalid then return
-    if n.kind = "pin"
-        nextPin(n.stepName)
-    else if n.kind = "rating"
+    if what = "reset"
+        openPicker("reset", "Reset all settings?", [{ id: "yes", label: "Reset" }, { id: "no", label: "Cancel" }], "no")
+    else if what = "askWho"
+        Servers.setAsk(sid, Util.flag(act, "on"))
+    else if what = "addServer"
+        m.top.action = { id: "switch" }
+    else if what = "addProfile"
+        m.top.action = { id: "addProfile" }
+    else if what = "signout"
+        m.top.action = { id: "signout" }
+    else if what = "connect"
+        m.top.action = { id: "connect", serverId: Util.toText(act.serverId) }
+    else if what = "removeServer"
+        removeServer(Util.toText(act.serverId))
+    else if what = "signoutProfile"
+        signOutProfile(uid)
+    else if what = "pinSet"
+        askPin({ goal: "set", userId: uid, doneText: "PIN saved. Cove asks for it when someone picks this profile." }, invalid)
+    else if what = "pinRemove"
+        Servers.setUserField(sid, uid, "p", "")
+        notice("PIN removed. Anyone can pick this profile now.")
+    else if what = "rating"
+        m.menuProfile = uid
         openRatingPicker()
-    else
-        d = createObject("roSGNode", "StandardMessageDialog")
-        d.title = "Profile PIN"
-        d.message = [n.text]
-        d.buttons = ["OK"]
-        d.observeField("buttonSelected", "onPinPadClosed")
-        d.observeField("wasClosed", "onPinPadClosed")
-        m.top.getScene().dialog = d
-        m.kbTimer.control = "start"
-    end if
-end sub
-
-sub onPinPadClosed(ev as object)
-    d = ev.getRoSGNode()
-    d.unobserveField("buttonSelected")
-    d.unobserveField("wasClosed")
-    d.close = true
-    m.keys.setFocus(true)
-    draw()
-end sub
-
-sub onPinPadButton(ev as object)
-    d = ev.getRoSGNode()
-    ok = d.buttonSelected = 0
-    pin = Util.toText(d.pin)
-    d.unobserveField("buttonSelected")
-    d.unobserveField("wasClosed")
-    d.close = true
-    m.keys.setFocus(true)
-    f = m.pinFlow
-    srv = currentServer()
-    if not ok or f = invalid or srv = invalid
-        m.pinFlow = invalid
-        draw()
-        return
-    end if
-    sid = Util.toText(srv.id)
-    if f.stepName = "verify"
-        if Pins.matches(Servers.pinOf(srv, f.userId), sid, f.userId, pin)
-            Pins.clearWrong(sid, f.userId)
-            pinVerified()
-        else
-            print "Cove: wrong profile PIN"
-            m.pinFlow = invalid
-            later({ kind: "notice", text: Pins.wrongText(Pins.noteWrong(sid, f.userId)) })
-        end if
-    else if f.stepName = "new"
-        if not Pins.isValid(pin)
-            later({ kind: "pin", stepName: "new" })
-            return
-        end if
-        f.newPin = pin
-        later({ kind: "pin", stepName: "confirm" })
-    else if f.stepName = "confirm"
-        if pin <> f.newPin
-            f.newPin = ""
-            m.pinFlow = invalid
-            later({ kind: "notice", text: "The PINs didn't match. The PIN wasn't changed." })
-            return
-        end if
-        Servers.setUserField(sid, f.userId, "p", Pins.make(sid, f.userId, pin))
-        Pins.clearWrong(sid, f.userId)
-        m.pinFlow = invalid
-        later({ kind: "notice", text: "PIN saved. Cove asks for it when someone picks this profile." })
+    else if what = "hideUnrated"
+        u = Servers.userOf(srv, uid)
+        isOn = u <> invalid and Util.toText(u.h) = "1"
+        value = "1"
+        if isOn then value = ""
+        Servers.setUserField(sid, uid, "h", value)
+        profileChanged(uid)
     end if
     draw()
-end sub
-
-' The current PIN was right (or the profile has none): carry on with what it was asked for
-sub pinVerified()
-    f = m.pinFlow
-    srv = currentServer()
-    if f = invalid or srv = invalid then return
-    sid = Util.toText(srv.id)
-    if f.goal = "change"
-        later({ kind: "pin", stepName: "new" })
-        return
-    end if
-    m.pinFlow = invalid
-    if f.goal = "remove"
-        Servers.setUserField(sid, f.userId, "p", "")
-        later({ kind: "notice", text: "PIN removed. Anyone can pick this profile now." })
-    else if f.goal = "signout"
-        signOutProfile(f.userId)
-    else
-        pinGoal(f.goal, f.userId)
-    end if
-    draw()
-end sub
-
-' (other things a PIN guards; see the rating limit)
-sub pinGoal(goal as string, userId as string)
-    if goal = "rating"
-        m.menuProfile = userId
-        later({ kind: "rating" })
-    end if
 end sub
 
 ' Maximum rating (kids limit) for a profile
@@ -1385,7 +1390,21 @@ end sub
 sub setRating(userId as string, value as string)
     srv = currentServer()
     if srv = invalid then return
+    ids = Servers.parentIds(srv)
+    if value <> "" and ids.count() = 1 and ids[0] = userId
+        ' (a limit on the only parent would leave every limit without a parent PIN)
+        notice("This is the only profile without a limit that has a PIN. Set a PIN on another profile without a limit first.")
+        return
+    end if
     Servers.setUserField(Util.toText(srv.id), userId, "r", value)
+    profileChanged(userId)
+    draw()
+end sub
+
+' A profile's limit changed: when it's the one on Home, its lists are asked again when Settings closes
+sub profileChanged(userId as string)
+    srv = currentServer()
+    if srv = invalid then return
     if userId = Util.toText(srv.userId)
         ' the profile on Home: its lists are asked again with the new limit when Settings closes
         cur = Servers.find(Util.toText(srv.id))
@@ -1458,6 +1477,7 @@ sub onPicked(ev as object)
         m.global.theme = Theme.get()
         m.top.themeChanged = true
         draw()
+        Toasts.notify("All settings were reset", "check")
     else if purpose = "lib"
         id = m.menuLib
         lp = Prefs.library(id)
@@ -1501,38 +1521,20 @@ sub onPicked(ev as object)
         draw()
         libraryMenu(m.menuLib)
     else if purpose = "prof"
-        if c.id = "use"
-            m.top.action = { id: "useProfile", userId: m.menuProfile }
-        else if c.id = "signout"
-            ' (another profile's PIN guards it from being signed out here)
-            if m.menuProfile = Util.toText(currentServer().userId)
-                signOutProfile(m.menuProfile)
-            else
-                startPinFlow(m.menuProfile, "signout")
-            end if
-        else if c.id = "pinSet"
-            startPinFlow(m.menuProfile, "set")
-        else if c.id = "pinChange"
-            startPinFlow(m.menuProfile, "change")
-        else if c.id = "pinRemove"
-            startPinFlow(m.menuProfile, "remove")
-        else if c.id = "rating"
-            ' (a profile with a PIN: its PIN first)
-            startPinFlow(m.menuProfile, "rating")
-        end if
+        profileAction(c.id, m.menuProfile)
     else if purpose = "rating"
         setRating(m.menuProfile, c.id)
     else if purpose = "srv"
         id = m.menuServer
         if c.id = "connect"
-            m.top.action = { id: "connect", serverId: id }
+            guarded({ do: "connect", serverId: id })
         else if c.id = "signout"
-            m.top.action = { id: "signout" }
+            guarded({ do: "signout" })
         else if c.id = "rename"
             s = Servers.find(id)
             if s <> invalid then askName("srv", "Server name", Util.toText(s.name))
         else if c.id = "remove"
-            removeServer(id)
+            guarded({ do: "removeServer", serverId: id })
         end if
     else
         draw()
@@ -1551,6 +1553,7 @@ sub removeServer(id as string)
         m.logoutTasks.push(t)
         t.control = "RUN"
     end for
+    Servers.forgetAll(id)
     Servers.remove(id)
     HomeLayout.forget(id)
     draw()

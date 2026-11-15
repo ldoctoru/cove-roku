@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v0.9.1) The profile PIN steps, shared by MainScene (Who's watching?) and Settings. Set "request" to
+     { goal, serverId, userId, title, message, doneText, quiet, tag }:
+       goal "verify": the PIN of userId (a profile without a PIN passes at once);
+       goal "parent": a parent PIN, the PIN of any profile on the server without a rating limit;
+       goal "set": a new PIN for userId (new, then the same again), saved as a salted hash (Pins.bs);
+       goal "notice": just shows message (no result).
+     "result" answers { ok, cancelled, goal, userId (whose PIN was right), message, tag }. Wrong PINs count
+     towards the lockout; with quiet the caller shows result.message itself, otherwise a notice does. Each
+     dialog opens 0.4 s after the previous one has closed (a dialog opened while another closes gets no focus),
+     and focusBack gets the focus back when one closes. -->
+<component name="PinFlow" extends="Group">
+    <script type="text/brightscript" uri="PinFlow.bs" />
+    <interface>
+        <field id="request" type="assocarray" onChange="onRequest" alwaysNotify="true" />
+        <field id="result" type="assocarray" alwaysNotify="true" />
+        <field id="focusBack" type="node" />
+    </interface>
+    <children>
+        <Timer id="stepTimer" duration="0.4" repeat="false" />
+    </children>
+</component>

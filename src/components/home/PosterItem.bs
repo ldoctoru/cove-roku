@@ -72,14 +72,14 @@ sub onSize()
     sc.width = w
     sc.height = 150
     if m.epCard
-        sc.translation = [0, h - 250]
-        sc.height = 250
+        sc.translation = [0, h - 270]
+        sc.height = 270
         lw = w - 40
-        m.top.findNode("epEyebrow").translation = [20, h - 196]
-        m.top.findNode("epTitle").translation = [20, h - 170]
+        m.top.findNode("epEyebrow").translation = [20, h - 214]
+        m.top.findNode("epTitle").translation = [20, h - 182]
         for i = 0 to 2
             l = m.top.findNode("epOv" + i.toStr())
-            l.translation = [20, h - 132 + i * 27]
+            l.translation = [20, h - 142 + i * 30]
             l.width = lw
         end for
         m.top.findNode("epEyebrow").width = lw
@@ -201,7 +201,7 @@ sub onContent()
         m.top.findNode("scrim").visible = true
         m.top.findNode("epEyebrow").text = UCase(c.episode)
         m.top.findNode("epTitle").text = c.title
-        lines = Util.wrapLines(c.overview, 40, 3)
+        lines = Util.wrapLines(c.overview, 35, 3)
         for i = 0 to 2
             line = ""
             if i < lines.count() then line = lines[i]
@@ -255,7 +255,7 @@ sub onContent()
     else if unplayed > 0
         s = unplayed.toStr()
         if unplayed > 99 then s = "99+"
-        bw = 36 + (s.len() - 1) * 12
+        bw = 36 + (s.len() - 1) * 15
         badge.uri = "pkg:/images/ui/badge_capsule.9.png"
         badge.width = bw
         badge.height = 36

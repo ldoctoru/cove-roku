@@ -90,7 +90,7 @@ namespace Speak
         p = Util.toNumber(c.progress)
         if remain <> ""
             parts.push(remain)
-        else if p <> invalid and p > 0.01 and p < 0.99
+        else if p > 0.01 and p < 0.99
             parts.push(Int(p * 100).toStr() + " percent watched")
         end if
         if Util.flag({ v: c.played }, "v") then parts.push("watched")
@@ -102,7 +102,7 @@ namespace Speak
                 parts.push(Int(n).toStr() + " unplayed episodes")
             end if
         end if
-        if Util.flag({ v: c.favorite }, "v") then parts.push("favourite")
+        if Util.flag({ v: c.favorite }, "v") then parts.push("favorite")
         return clean(Util.join(parts, ", "))
     end function
 
@@ -146,7 +146,10 @@ namespace Speak
     ' Symbols the voice would spell out or skip: separators become pauses
     function clean(text as string) as string
         t = text.replace("  ·  ", ", ").replace(" · ", ", ").replace("·", ",")
-        t = t.replace("  ", " ")
+        ' (every run of spaces, not just one pair)
+        while t.instr("  ") >= 0
+            t = t.replace("  ", " ")
+        end while
         return t
     end function
 

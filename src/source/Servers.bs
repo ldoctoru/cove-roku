@@ -4,9 +4,11 @@ import "pkg:/source/Util.bs"
 ' signed-in users (profiles), compactly:
 '   { id, name, url, type ("emby" | "jellyfin"), version, cur (the active user's id), ask ("off" = don't ask
 '     who's watching at start), users: [{ i: userId, n: name, t: token, a: avatar image tag, p: PIN salt+hash,
-'     r: maximum rating }] }
-' Records read back get the active user's fields on top, as before (userId, userName, token) plus avatar and
-' maxRating, so every screen keeps reading server.userId / server.token. A record from v0.8.0 or earlier (one
+'     r: maximum rating, h: "1" = hide unrated titles (with a rating limit) }] }
+' Records read back get the active user's fields on top, as before (userId, userName, token) plus avatar,
+' maxRating and hideUnrated, so every screen keeps reading server.userId / server.token.
+' (v0.9.1) A profile with a rating limit is "limited"; a "parent" is a profile without a limit that has a PIN.
+' While a limited profile is active, Settings asks a parent PIN before anything that could lift the limit. A record from v0.8.0 or earlier (one
 ' user: userId, userName, token) is moved into users by migrate() at start (and read that way until then).
 ' A token belongs to the address it was issued on (SEC-1): when a server's address changes, every saved
 ' token of that server is cleared (the users stay, to sign in again).
@@ -56,12 +58,14 @@ namespace Servers
         s.token = ""
         s.avatar = ""
         s.maxRating = ""
+        s.hideUnrated = false
         u = userOf(s, Util.toText(s.cur))
         if u <> invalid
             s.userName = Util.toText(u.n)
             s.token = Util.toText(u.t)
             s.avatar = Util.toText(u.a)
             s.maxRating = Util.toText(u.r)
+            s.hideUnrated = Util.toText(u.h) = "1"
         end if
         return s
     end function
@@ -153,14 +157,14 @@ namespace Servers
         saveAll(list)
     end sub
 
-    ' Changes one stored field of a user (n, t, a, p, r); "" removes p / r
+    ' Changes one stored field of a user (n, t, a, p, r, h); "" removes p / r / h
     sub setUserField(serverId as string, userId as string, key as string, value as string)
         list = all()
         for each s in list
             if Util.toText(s.id) = serverId
                 u = userOf(s, userId)
                 if u <> invalid
-                    if value = "" and (key = "p" or key = "r")
+                    if value = "" and (key = "p" or key = "r" or key = "h")
                         u.delete(key)
                     else
                         u[key] = value
@@ -221,14 +225,40 @@ namespace Servers
         return withActive(c)
     end function
 
-    ' The profiles of a server: [{ id, name, avatar, signedIn, hasPin, maxRating }]
+    ' The profiles of a server: [{ id, name, avatar, signedIn, hasPin, maxRating, hideUnrated }]
     function profiles(s as object) as object
         out = []
         if s = invalid or type(s.users) <> "roArray" then return out
         for each u in s.users
-            out.push({ id: Util.toText(u.i), name: Util.toText(u.n), avatar: Util.toText(u.a), signedIn: Util.toText(u.t) <> "", hasPin: Util.toText(u.p) <> "", maxRating: Util.toText(u.r) })
+            out.push({ id: Util.toText(u.i), name: Util.toText(u.n), avatar: Util.toText(u.a), signedIn: Util.toText(u.t) <> "", hasPin: Util.toText(u.p) <> "", maxRating: Util.toText(u.r), hideUnrated: Util.toText(u.h) = "1" })
         end for
         return out
+    end function
+
+    ' (v0.9.1) The parents: profiles without a rating limit that have a PIN (their PINs guard the limits)
+    function parentIds(s as dynamic) as object
+        out = []
+        if s = invalid or type(s.users) <> "roArray" then return out
+        for each u in s.users
+            if Util.toText(u.r) = "" and Util.toText(u.p) <> "" then out.push(Util.toText(u.i))
+        end for
+        return out
+    end function
+
+    ' Some profile on the server has a rating limit
+    function anyLimited(s as dynamic) as boolean
+        if s = invalid or type(s.users) <> "roArray" then return false
+        for each u in s.users
+            if Util.toText(u.r) <> "" then return true
+        end for
+        return false
+    end function
+
+    ' The profile is the only parent while some profile has a limit (removing its PIN or adding a limit to it
+    ' would leave the limits without a parent PIN)
+    function isLastParent(s as dynamic, userId as string) as boolean
+        ids = parentIds(s)
+        return ids.count() = 1 and ids[0] = userId and anyLimited(s)
     end function
 
     function pinOf(s as object, userId as string) as string
@@ -237,7 +267,7 @@ namespace Servers
         return Util.toText(u.p)
     end function
 
-    ' Settings → Servers: "Ask who's watching at start" (on by default; only asked with 2 or more profiles)
+    ' Settings → Profiles: "Ask who's watching at start" (on by default; only asked with 2 or more profiles)
     function asksWho(s as object) as boolean
         return Util.toText(s.ask) <> "off"
     end function
@@ -287,5 +317,49 @@ namespace Servers
         if isJellyfin(server) then return "Jellyfin"
         return "Emby"
     end function
+
+    ' ---------------------------------------------------------------- cleanup when a server is removed
+    ' (R-8, k2) Everything Cove keeps for a server outside the "servers" record: its Home rows
+    ' (homeRows:<id>), its library order (libOrder:<id>), its libraries' settings (lib:<libId>) and page
+    ' filters (libFilters entries), and its profiles' PIN lockouts (pinWait). The libraries are the ones
+    ' named in its library order and Home rows. Call it before remove(id).
+    sub forgetAll(serverId as string)
+        if serverId = "" then return
+        sec = createObject("roRegistrySection", "Cove")
+        libIds = {}
+        for each tok in Util.readText("libOrder:" + serverId).split(",")
+            if tok <> "" then libIds[tok] = true
+        end for
+        for each tok in Util.readText("homeRows:" + serverId).replace("@", "").split(",")
+            t = tok
+            if t.left(1) = "+" or t.left(1) = "-" then t = t.mid(1)
+            if t.left(1) = "L" and t.len() > 1 then libIds[t.mid(1)] = true
+        end for
+        for each libId in libIds
+            if sec.exists("lib:" + libId) then sec.delete("lib:" + libId)
+        end for
+        filt = Util.readJson("libFilters")
+        if type(filt) = "roArray" and libIds.count() > 0
+            keptFilters = []
+            for each e in filt
+                if Util.isAA(e) and not libIds.doesExist(Util.toText(e.id)) then keptFilters.push(e)
+            end for
+            if keptFilters.count() <> filt.count() then sec.write("libFilters", formatJson(keptFilters))
+        end if
+        waitMap = Util.readJson("pinWait")
+        if Util.isAA(waitMap)
+            prefix = serverId.left(12) + ":"
+            keptWaits = {}
+            for each k in waitMap
+                if not k.startsWith(prefix) then keptWaits[k] = waitMap[k]
+            end for
+            if keptWaits.count() <> waitMap.count() then sec.write("pinWait", formatJson(keptWaits))
+        end if
+        for each k in ["homeRows:" + serverId, "libOrder:" + serverId]
+            if sec.exists(k) then sec.delete(k)
+        end for
+        if not sec.flush() then print "Cove: registry flush failed after forgetting a server"
+        print "Cove: forgot the settings of a removed server ("; libIds.count(); " libraries)"
+    end sub
 
 end namespace

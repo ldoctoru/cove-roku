@@ -1,0 +1,36 @@
+' Toasts: the confirmation pill at the bottom of the screen (MainScene hosts the Toast node). Any component
+' can call Toasts.notify(Toasts.favoriteText("Dune", true), "heart"); the scene shows it for 2 s and the Audio Guide
+' speaks it. Wording follows Cove for macOS (Emby.swift setPlayed / setFav).
+namespace Toasts
+
+    sub notify(text as string, icon = "" as string)
+        if text = "" then return
+        sc = invalid
+        if m.top <> invalid then sc = m.top.getScene()
+        if sc = invalid or not sc.hasField("toast") then return
+        sc.toast = { text: text, icon: icon }
+    end sub
+
+    ' "name" in quotes, as on the Mac (straight quotes: the system font may lack curly ones) (a long name is cut so the pill stays on one line)
+    function quoted(name as string) as string
+        n = name
+        if n.len() > 48 then n = n.left(46) + "..."
+        return chr(34) + n + chr(34)
+    end function
+
+    function watchedText(name as string, watched as boolean) as string
+        if watched then return "Marked " + quoted(name) + " as watched"
+        return "Marked " + quoted(name) + " as unwatched"
+    end function
+
+    function favoriteText(name as string, added as boolean) as string
+        if added then return "Added " + quoted(name) + " to Favorites"
+        return "Removed " + quoted(name) + " from Favorites"
+    end function
+
+    ' The same actions when the server refused them
+    function failedText(action as string) as string
+        return "Couldn't " + action + ". Please try again."
+    end function
+
+end namespace

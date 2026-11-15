@@ -107,7 +107,7 @@ sub paint()
             f.uri = "font:BoldSystemFontFile"
         else
             bg.visible = false
-            l.color = "0xFFFFFF8C"
+            l.color = "0xFFFFFFCC"
             f.uri = "font:MediumSystemFontFile"
         end if
         ic.blendColor = l.color

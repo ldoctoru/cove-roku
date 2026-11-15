@@ -3,6 +3,7 @@ import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/Ratings.bs"
 
 sub init()
     m.top.findNode("bg").color = m.global.theme.bg
@@ -55,7 +56,8 @@ sub onSessions(ev as object)
     srv = m.top.server
     list = []
     for each s in r.json
-        if s.NowPlayingItem <> invalid then list.push(s)
+        ' (v0.9.1: a profile with a rating limit doesn't see titles above it, or unrated episodes of unknown series)
+        if Util.isAA(s) and Util.isAA(s.NowPlayingItem) and Ratings.allowed(srv, s.NowPlayingItem) then list.push(s)
     end for
     list.sortBy("UserName")
     root = createObject("roSGNode", "ContentNode")

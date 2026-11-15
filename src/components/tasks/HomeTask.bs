@@ -92,7 +92,7 @@ sub load()
             else if id = "nextup"
                 addRow(root, "Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20&" + f, ""), true)
             else if id = "favorites"
-                addRow(root, "Favourites", getList("/Users/" + uid + "/Items?Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f, "/Items?userId=" + uid + "&Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f), false)
+                addRow(root, "Favorites", getList("/Users/" + uid + "/Items?Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f, "/Items?userId=" + uid + "&Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f), false)
             else if id = "recent"
                 addRow(root, "Recently Added", getList("/Users/" + uid + "/Items/Latest?Limit=20&" + f, "/Items/Latest?userId=" + uid + "&Limit=20&" + f), false)
             else if id = "libraries"
@@ -179,8 +179,9 @@ function getList(rawPath as string, rawFallback as string) as object
 end function
 
 sub addRow(root as object, title as string, list as object, isLandscape as boolean)
-    ' (titles above the profile's rating limit, from routes that ignore MaxOfficialRating)
-    list = Ratings.keep(m.srv, list)
+    ' (titles above the profile's rating limit, from routes that ignore MaxOfficialRating; unrated episodes
+    ' by their series' rating)
+    list = Ratings.keepChecked(m.srv, list)
     if list.count() = 0 then return
     row = root.createChild("ContentNode")
     row.title = title

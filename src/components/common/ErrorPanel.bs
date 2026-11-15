@@ -1,0 +1,136 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Speak.bs"
+
+sub init()
+    m.body = m.top.findNode("body")
+    m.top.focusable = true
+    m.list = [{ id: "retry", label: "Try Again" }, { id: "switch", label: "Switch Server" }, { id: "settings", label: "Settings" }]
+    m.spokenFocus = false
+    m.top.observeField("focusedChild", "onFocusChanged")
+    m.top.observeField("visible", "onVisible")
+end sub
+
+sub onButtons()
+    b = m.top.buttons
+    if type(b) = "roArray" and b.count() > 0 then m.list = b
+    if m.top.index >= m.list.count() then m.top.index = 0
+    draw()
+end sub
+
+sub onVisible()
+    if not m.top.visible then m.spokenFocus = false
+end sub
+
+sub onFocusChanged()
+    has = m.top.hasFocus()
+    draw()
+    if has and not m.spokenFocus
+        m.spokenFocus = true
+        speakPanel(true)
+    else if not m.top.isInFocusChain()
+        m.spokenFocus = false
+    end if
+end sub
+
+sub draw()
+    if m.body = invalid or m.list = invalid then return
+    m.body.removeChildrenIndex(m.body.getChildCount(), 0)
+    w = m.top.width
+    if w <= 0 then w = 1600
+    focused = m.top.hasFocus()
+    y = 0
+    ic = m.body.createChild("Poster")
+    ic.uri = "pkg:/images/ui/icon_info_48.png"
+    ic.width = 48
+    ic.height = 48
+    ic.translation = [Int((w - 48) / 2), 0]
+    ic.blendColor = "0xFFFFFFCC"
+    if m.top.icon = "error" then ic.blendColor = m.global.theme.error
+    y = 72
+    lines = Util.wrapLines(Util.toText(m.top.message), 64, 3)
+    for each line in lines
+        l = m.body.createChild("Label")
+        l.font = panelFont(true, 30)
+        l.text = line
+        l.color = "0xFFFFFFFF"
+        l.width = w
+        l.height = 42
+        l.horizAlign = "center"
+        l.translation = [0, y]
+        y = y + 42
+    end for
+    y = y + 28
+    ' the buttons, measured first so the row can be centred
+    labels = []
+    total = 0
+    gap = 20
+    for i = 0 to m.list.count() - 1
+        isFocus = focused and i = m.top.index
+        l = createObject("roSGNode", "Label")
+        l.font = panelFont(isFocus, 28)
+        l.text = Util.toText(m.list[i].label)
+        bw = l.boundingRect().width + 64
+        if bw < 200 then bw = 200
+        labels.push({ label: l, w: bw, focus: isFocus })
+        total = total + bw
+        if i > 0 then total = total + gap
+    end for
+    x = Int((w - total) / 2)
+    for each b in labels
+        bg = m.body.createChild("Poster")
+        bg.width = b.w
+        bg.height = 60
+        bg.translation = [x, y]
+        lab = b.label
+        lab.width = b.w
+        lab.height = 60
+        lab.horizAlign = "center"
+        lab.vertAlign = "center"
+        lab.translation = [x, y]
+        if b.focus
+            bg.uri = "pkg:/images/ui/white_pill.9.png"
+            lab.color = "0x000000FF"
+        else
+            bg.uri = "pkg:/images/ui/glass_pill.9.png"
+            lab.color = "0xFFFFFFFF"
+        end if
+        m.body.appendChild(lab)
+        x = x + b.w + gap
+    end for
+end sub
+
+function panelFont(bold as boolean, size as integer) as object
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    if bold then f.uri = "font:BoldSystemFontFile"
+    f.size = size
+    return f
+end function
+
+' Audio Guide: the message with the first button when the panel takes the focus, then each button
+sub speakPanel(withMessage as boolean)
+    if not Speak.isOn() or m.list.count() = 0 then return
+    i = m.top.index
+    text = Speak.button(Util.toText(m.list[i].label)) + Speak.position(i, m.list.count())
+    if withMessage then text = Speak.clean(Util.toText(m.top.message)) + ". " + text
+    Speak.say(text)
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press or m.list.count() = 0 then return false
+    if key = "left" and m.top.index > 0
+        m.top.index = m.top.index - 1
+        draw()
+        speakPanel(false)
+        return true
+    else if key = "right" and m.top.index < m.list.count() - 1
+        m.top.index = m.top.index + 1
+        draw()
+        speakPanel(false)
+        return true
+    else if key = "OK"
+        m.top.chosen = { id: Util.toText(m.list[m.top.index].id) }
+        return true
+    end if
+    return false
+end function

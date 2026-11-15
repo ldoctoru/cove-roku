@@ -1,13 +1,14 @@
 title=Cove
-major_version=0
-minor_version=9
+major_version=1
+minor_version=0
 build_version=0
 mm_icon_focus_hd=pkg:/images/icon_focus_hd.png
 mm_icon_focus_fhd=pkg:/images/icon_focus_fhd.png
 splash_screen_fhd=pkg:/images/splash_fhd.png
 splash_screen_hd=pkg:/images/splash_hd.png
 splash_color=#000000
-splash_min_time=800
+# (0: no minimum, the splash goes as soon as the first screen draws; unset would mean 1.6 s)
+splash_min_time=0
 ui_resolutions=fhd
 supports_input_launch=1
 rsg_version=1.3
