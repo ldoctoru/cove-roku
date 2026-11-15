@@ -203,7 +203,7 @@ function rowsFor(tabId as string) as object
             out.push(choice(ch.key, ch.label, ch.options, Subs.current(ch)))
         end for
         out.push({ kind: "button", id: "subDefaults", label: "", text: "Restore Defaults" })
-        out.push(note("A style left at its default follows the Roku's caption style (Roku Settings > Accessibility > Captions). With the Roku's captions On, titles start with subtitles in this language unless you chose others for them."))
+        out.push(note("Roku setting follows the Roku's caption style (Roku Settings > Accessibility > Caption style), including its font, opacity and window. With the Roku's captions On, titles start with subtitles in this language unless you chose others for them."))
     else if tabId = "playback"
         out.push(sectionHead("Start with"))
         out.push(choice("startQualityHome", "Home network", Tracks.qualities(), Prefs.startQualityOf("startQualityHome").toStr()))
