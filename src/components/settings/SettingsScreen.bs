@@ -1551,6 +1551,7 @@ sub removeServer(id as string)
         m.logoutTasks.push(t)
         t.control = "RUN"
     end for
+    Servers.forgetAll(id)
     Servers.remove(id)
     HomeLayout.forget(id)
     draw()

@@ -547,6 +547,7 @@ sub onRemoveButton()
         for each us in Servers.sessions(Servers.find(m.removeId))
             request("POST", us, "/Sessions/Logout", true, "", { kind: "logout" })
         end for
+        Servers.forgetAll(m.removeId)
         Servers.remove(m.removeId)
         showServers("Server removed.")
     end if
