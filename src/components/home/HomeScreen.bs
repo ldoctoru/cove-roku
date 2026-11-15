@@ -6,6 +6,7 @@ import "pkg:/source/Playback.bs"
 import "pkg:/source/Speak.bs"
 
 sub init()
+    m.readySent = false     ' Home told MainScene it is ready (AppLaunchComplete)
     t = m.global.theme
     m.rows = m.top.findNode("rows")
     m.status = m.top.findNode("status")
@@ -95,7 +96,10 @@ sub load()
 end sub
 
 sub onWatchdog()
-    if m.status.visible and not m.rows.visible then m.status.text = "The server is taking too long to answer. Press * and choose Reload."
+    if m.status.visible and not m.rows.visible
+        m.status.text = "The server is taking too long to answer. Press * and choose Reload."
+        signalReady()
+    end if
 end sub
 
 ' Reload after playback, keeping the screen as it is until the new rows arrive
@@ -109,6 +113,7 @@ sub onContent(ev as object)
     content = ev.getData()
     if content = invalid then return
     m.watchdog.control = "stop"
+    signalReady()
     ' Per row: 16:9 cards for Continue Watching / Next Up / Libraries, 2:3 posters with title and year otherwise
     heights = []
     sizes = []
@@ -154,6 +159,14 @@ sub onError(ev as object)
     if m.task = invalid or not ev.getRoSGNode().isSameNode(m.task) then return
     m.watchdog.control = "stop"
     m.status.text = Util.toText(ev.getData()) + "   Press * for options."
+    signalReady()
+end sub
+
+' The first rows or an error are on screen: MainScene sends AppLaunchComplete (C-2), once per Home
+sub signalReady()
+    if m.readySent then return
+    m.readySent = true
+    m.top.action = { id: "ready" }
 end sub
 
 ' A 401 on one list: check the sign-in itself before asking to sign in again (a single list can refuse
@@ -475,9 +488,9 @@ end sub
 sub speakHero(withTitle as boolean)
     if not Speak.isOn() or m.heroes.count() = 0 then return
     it = m.heroes[m.heroIndex]
-    names = ["Play", "Add to favourites", "More information"]
+    names = ["Play", "Add to Favorites", "More information"]
     if it.itemType = "Series" then names[0] = "Open"
-    if it.favorite then names[1] = "Remove from favourites"
+    if it.favorite then names[1] = "Remove from Favorites"
     text = Speak.button(names[m.btn]) + Speak.position(m.btn, 3)
     if withTitle then text = Speak.clean(it.title + ", " + it.heroMeta) + ". " + text
     Speak.say(text)
@@ -800,9 +813,9 @@ sub itemMenu(it as object)
         ' (only the row's own cards: the same title elsewhere on Home keeps the plain menu)
         if it.resumeAt > 0 and focusedRowTitle() = "Continue Watching" then o.push({ id: "unresume", label: "Remove from Continue Watching" })
         if it.favorite
-            o.push({ id: "fav", label: "Remove from favourites" })
+            o.push({ id: "fav", label: "Remove from Favorites" })
         else
-            o.push({ id: "fav", label: "Add to favourites" })
+            o.push({ id: "fav", label: "Add to Favorites" })
         end if
     end if
     o.push({ id: "open", label: "Details" })

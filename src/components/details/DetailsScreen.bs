@@ -583,8 +583,8 @@ function buttonSpeech(b as object) as string
     if b.label <> invalid then return b.label
     if b.text <> invalid then return b.text
     if id = "restart" then return "Play from the beginning"
-    if id = "fav" and m.isFav then return "Remove from favourites"
-    if id = "fav" then return "Add to favourites"
+    if id = "fav" and m.isFav then return "Remove from Favorites"
+    if id = "fav" then return "Add to Favorites"
     if id = "watched" and Util.flag(m.item.UserData, "Played") then return "Mark as unwatched"
     if id = "watched" then return "Mark as watched"
     if id = "trailer" then return "Trailer"
@@ -760,7 +760,7 @@ sub onFavourite(r as object)
         m.top.changed = true
         buildButtons()
     else
-        m.status.text = "Couldn't change the favourite. " + Api.describeFailure(r)
+        m.status.text = "Couldn't change the favorite. " + Api.describeFailure(r)
     end if
 end sub
 

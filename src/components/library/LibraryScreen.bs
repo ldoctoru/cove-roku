@@ -113,7 +113,7 @@ end function
 function showLabel() as string
     if m.show = "unwatched" then return "Unwatched"
     if m.show = "watched" then return "Watched"
-    if m.show = "favourites" then return "Favourites"
+    if m.show = "favourites" then return "Favorites"
     return "All"
 end function
 
@@ -340,7 +340,7 @@ sub useBar()
     else if id = "show"
         o = [{ id: "all", label: "All" }, { id: "unwatched", label: "Unwatched" }, { id: "watched", label: "Watched" }]
         ' (everything on the Favorites page is one already)
-        if feed() <> "favorites" then o.push({ id: "favourites", label: "Favourites" })
+        if feed() <> "favorites" then o.push({ id: "favourites", label: "Favorites" })
         openPicker("show", "Show", o, m.show)
     end if
 end sub

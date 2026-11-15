@@ -274,7 +274,7 @@ function rowsFor(tabId as string) as object
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
         out.push(sectionHead("Home"))
-        for each k in [["Left", "Open the sidebar (from the first button or the first card of a row)"], ["Rewind / Fast fwd", "Previous / next title in the banner"], ["*", "On a card: play, mark as watched, favourites, remove from Continue Watching; elsewhere: the app options"]]
+        for each k in [["Left", "Open the sidebar (from the first button or the first card of a row)"], ["Rewind / Fast fwd", "Previous / next title in the banner"], ["*", "On a card: play, mark as watched, Favorites, remove from Continue Watching; elsewhere: the app options"]]
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
         out.push(sectionHead("Other pages"))

@@ -245,7 +245,7 @@ sub onFavourite(r as object)
         m.isFav = r.tag.method = "POST"
         m.top.action = { id: "changed" }
     else
-        m.top.findNode("born").text = "Couldn't change the favourite. " + Api.describeFailure(r)
+        m.top.findNode("born").text = "Couldn't change the favorite. " + Api.describeFailure(r)
     end if
     drawFav()
 end sub
