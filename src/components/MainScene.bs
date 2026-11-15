@@ -42,6 +42,8 @@ sub init()
         print "Cove: device check failed: "; e.message
     end try
     m.pendingLink = invalid
+    m.lastLinkId = ""           ' the last deep link and when it came (repeats within 2 s are dropped)
+    m.lastLinkAt = 0
     m.homeReady = false         ' Home is on screen with a signed-in server: deep links can be opened
     ' (v0.9.0: saved sign-ins become profiles, several per server)
     Servers.migrate()
@@ -85,13 +87,19 @@ sub push(s as object)
     s.setFocus(true)
     ' the server list / sign-in shown before Home is a dialog for Roku's launch timing
     sid = Util.toText(s.screenId)
-    if not m.beaconSent and not m.inDialog and (sid = "servers" or sid = "signin" or sid = "address" or sid = "profiles")
-        m.inDialog = true
-        m.top.signalBeacon("AppDialogInitiate")
-    end if
+    if sid = "servers" or sid = "signin" or sid = "address" or sid = "profiles" then dialogStarted()
 end sub
 
-' Home is on screen: the launch is complete (after the dialog, if one was shown)
+' A screen that waits for the user before Home (server list, sign-in, Who's watching?, "Couldn't reach"):
+' a dialog for Roku's launch timing, once, closed by launchComplete
+sub dialogStarted()
+    if m.beaconSent or m.inDialog then return
+    m.inDialog = true
+    m.top.signalBeacon("AppDialogInitiate")
+end sub
+
+' Home has its first rows or shows its error (C-2: Home sends "ready"): the launch is complete (after the
+' dialog, if one was shown)
 sub launchComplete()
     if m.beaconSent then return
     if m.inDialog
@@ -221,7 +229,7 @@ sub showHome(server as object)
     h.server = server
     m.homeReady = true
     m.homeLoadedAt = nowSecs()
-    launchComplete()
+    ' (AppLaunchComplete waits for Home's "ready": its rows or its error on screen)
     ' a deep link that came before the sign-in finished
     if m.pendingLink <> invalid
         link = m.pendingLink
@@ -244,6 +252,14 @@ sub onDeepLink()
         print "Cove: ignored a deep link with an invalid contentId / mediaType"
         return
     end if
+    ' (R-13: one launch can arrive twice, as resume launchParams and as an roInputEvent: once within 2 s)
+    cid = Util.toText(link.contentId)
+    if cid = m.lastLinkId and nowSecs() - m.lastLinkAt <= 2
+        print "Cove: ignored a repeated deep link"
+        return
+    end if
+    m.lastLinkId = cid
+    m.lastLinkAt = nowSecs()
     if not m.homeReady or m.server = invalid or Util.toText(m.server.token) = ""
         m.pendingLink = link
         return
@@ -321,7 +337,9 @@ end sub
 
 sub onHomeAction(ev as object)
     a = ev.getData()
-    if a.id = "switch"
+    if a.id = "ready"
+        launchComplete()
+    else if a.id = "switch"
         ' (v0.9.1: another server could lift the rating limit: a parent PIN first while a limited profile watches)
         guardedAct(m.server, { do: "servers" })
     else if a.id = "signout"
@@ -351,9 +369,7 @@ sub onHomeAction(ev as object)
         l.server = m.server
         l.observeField("action", "onHomeAction")
         push(l)
-        title = "Favorites"
-        if a.id = "recent" then title = "Recently Added"
-        l.library = { id: "", title: title, itemType: "", collectionType: "", feed: a.id }
+        l.library = { id: "", title: "Recently Added", itemType: "", collectionType: "", feed: a.id }
     else if a.id = "profile"
         ' the sidebar's profile entry: Who's watching? over Home (Back returns)
         showWho(m.server, "", true)
@@ -541,6 +557,7 @@ sub onRemoveButton()
         for each us in Servers.sessions(Servers.find(m.removeId))
             request("POST", us, "/Sessions/Logout", true, "", { kind: "logout" })
         end for
+        Servers.forgetAll(m.removeId)
         Servers.remove(m.removeId)
         showServers("Server removed.")
     end if
@@ -926,6 +943,8 @@ sub onValidate(r as object)
             { id: "servers", label: "Choose another server" }
         ]
         t.status = "Couldn't reach " + Util.toText(m.server.name) + ". " + Api.describeFailure(r)
+        ' (R-10: the user has to choose here, so Roku's launch timing gets a dialog)
+        dialogStarted()
     end if
 end sub
 
@@ -1180,6 +1199,8 @@ end sub
 
 sub stopNextAsk()
     m.nextAsk = invalid
+    ' (R-9: a PIN notice waiting for that timer would pop up later over an unrelated keyboard)
+    m.nextNotice = invalid
     m.dialogTimer.control = "stop"
 end sub
 

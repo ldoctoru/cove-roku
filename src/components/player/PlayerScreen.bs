@@ -18,6 +18,8 @@ sub init()
     m.subLayer = m.top.findNode("subLayer")
     m.subTimer = m.top.findNode("subTimer")
     m.subTimer.observeField("fire", "onSubTick")
+    m.subsOn = false        ' cues loaded (the subtitle timer runs only while they are and the video plays)
+    m.stillClock = invalid  ' since "Are you still watching?" showed (R-5)
     m.loaderArc = m.top.findNode("loaderArc")
     m.loaderPct = m.top.findNode("loaderPct")
     m.video.observeField("bufferingStatus", "onBufferingStatus")
@@ -75,7 +77,23 @@ sub init()
     resetState()
 end sub
 
+' Settings read once per title (P-3: each Prefs read opens the registry, and some ran every second);
+' read again when a picker closes, since the player's menus can change them
+sub refreshPrefs()
+    m.pf = {
+        skipIntro: Prefs.autoSkipIntro(),
+        skipRecap: Prefs.autoSkipRecap(),
+        stillAfter: Prefs.stillWatchingAfter(),
+        jump: Prefs.jumpSeconds(),
+        skip: Prefs.skipSeconds(),
+        subBottom: Prefs.subBottom(),
+        autoNext: Prefs.autoNext(),
+        rewind: Prefs.rewindOnResume()
+    }
+end sub
+
 sub resetState()
+    refreshPrefs()
     m.loadNote = ""
     m.loadBase = 0
     m.subPos = 0.0
@@ -136,7 +154,7 @@ sub begin()
     if type(it.queue) = "roArray" then m.queue = it.queue
     m.startAt = it.start
     ' Settings → Playback → Rewind on resume: a title resuming from its saved position starts a little earlier
-    rw = Prefs.rewindOnResume()
+    rw = m.pf.rewind
     if rw > 0 and m.startAt > 1
         m.startAt = m.startAt - rw
         if m.startAt < 0 then m.startAt = 0
@@ -336,6 +354,7 @@ end sub
 sub clearSubs()
     if m.subLayer = invalid then return
     m.subTimer.control = "stop"
+    m.subsOn = false
     m.subLayer.cues = []
 end sub
 
@@ -355,7 +374,7 @@ end sub
 
 ' Settings → Subtitles → Distance from bottom; above the controls while they show (as on the Mac)
 sub liftSubs(controlsShown as boolean)
-    base = Int(1080 * Prefs.subBottom() / 100)
+    base = Int(1080 * m.pf.subBottom / 100)
     if controlsShown and base < 236 then base = 236
     m.subLayer.lift = base
 end sub
@@ -379,6 +398,7 @@ sub onSubProbe(r as object)
         m.subLayer.restyle = true
         liftSubs(m.osdShown)
         m.subLayer.cues = r.cues
+        m.subsOn = true
         m.subTimer.control = "start"
         m.replayReady = true
         return
@@ -390,6 +410,7 @@ sub onSubProbe(r as object)
             m.subLayer.restyle = true
             liftSubs(m.osdShown)
             m.subLayer.cues = r.cues
+            m.subsOn = true
             m.subTimer.control = "start"
         end if
         return
@@ -423,8 +444,11 @@ sub onState()
     if st = "paused"
         if m.pauseClock = invalid then m.pauseClock = createObject("roTimespan")
         m.pauseClock.Mark()
+        ' (P-6: the 10 Hz subtitle timer rests while paused; the layer keeps the cue shown)
+        m.subTimer.control = "stop"
     else if st = "playing"
         m.pauseClock = invalid
+        if m.subsOn then m.subTimer.control = "start"
     end if
     if st = "paused" then showOsd(false)
     if st = "playing" and m.osdShown then m.hideTimer.control = "start"
@@ -470,8 +494,19 @@ sub onProgressTimer()
     st = m.video.state
     ' (while paused the position doesn't move, but "Ends at" does)
     if m.osdShown and m.seekTarget < 0 then updateBar(m.video.position)
+    ' R-5: the question unanswered for 15 minutes: close (stop report, end the conversion); while it shows,
+    ' no ping keeps the server's conversion alive
+    if m.still.visible
+        if m.stillClock <> invalid and m.stillClock.TotalSeconds() >= 900
+            print "Cove: still watching unanswered for 15 min, closing"
+            m.still.visible = false
+            m.stillKind = ""
+            close()
+        end if
+        return
+    end if
     ' (2 hours of playing without a key press: pause and ask, so a sleeping viewer doesn't stream all night)
-    if st = "playing" and Prefs.stillWatchingAfter() > 0 and m.lastInput.TotalSeconds() >= 7200 and not m.still.visible
+    if st = "playing" and m.pf.stillAfter > 0 and m.lastInput.TotalSeconds() >= 7200 and not m.still.visible
         m.video.control = "pause"
         askStill("idle")
         return
@@ -527,14 +562,14 @@ sub onPosition()
     ' (credits with a known end before the real end: a scene after them, the button goes when it starts)
     if inCredits and m.next = invalid and mk.creditsEnd > mk.credits and p >= mk.creditsEnd - 2 then inCredits = false
     seg = segmentAt(p)
-    if inIntro and not m.introDismissed and Prefs.autoSkipIntro()
+    if inIntro and not m.introDismissed and m.pf.skipIntro
         ' Settings → Skip intros automatically
         m.introDismissed = true
         print "Cove: skipping the intro to "; Int(mk.introEnd); " s"
         m.video.seek = mk.introEnd
     else if inIntro and not m.introDismissed
         showAction("intro", "Skip intro")
-    else if seg <> invalid and seg.kind = "recap" and Prefs.autoSkipRecap()
+    else if seg <> invalid and seg.kind = "recap" and m.pf.skipRecap
         ' Settings → Skip recaps automatically
         m.segsDone[seg.key] = true
         print "Cove: skipping the recap to "; Int(seg.e); " s"
@@ -608,7 +643,7 @@ sub skipTo(t as float)
     d = m.video.duration
     if d > 0 and t >= d - 3
         print "Cove: skipped to the end"
-        if m.next <> invalid and Prefs.autoNext()
+        if m.next <> invalid and m.pf.autoNext
             ' (Up next runs over a stopped video, as after a real end)
             m.video.control = "stop"
             onFinished()
@@ -634,7 +669,7 @@ end sub
 
 sub onFinished()
     ' Settings → Play the next episode automatically (off: the player closes at the end)
-    if m.next <> invalid and Prefs.autoNext()
+    if m.next <> invalid and m.pf.autoNext
         report("/Sessions/Playing/Stopped", false, m.video.duration)
         stopEncoding()
         m.progressTimer.control = "stop"
@@ -667,7 +702,7 @@ sub onCountdown()
     if m.count <= 0
         m.countdown.control = "stop"
         ' Settings → Playback → Are you still watching?: this many episodes in a row without a key press
-        lim = Prefs.stillWatchingAfter()
+        lim = m.pf.stillAfter
         if lim > 0 and m.autoCount >= lim
             askStill("next")
             return
@@ -758,6 +793,7 @@ sub closePicker()
         m.picker = invalid
         ' (Audio Guide: the focused control is said again)
         m.spokenKey = ""
+        refreshPrefs()
     end if
 end sub
 
@@ -780,7 +816,7 @@ end sub
 
 ' Play on after a pause; after 5 minutes or more, Settings → Playback → Rewind on resume goes back a little first
 sub resumeVideo()
-    rw = Prefs.rewindOnResume()
+    rw = m.pf.rewind
     if rw > 0 and m.pauseClock <> invalid and m.pauseClock.TotalSeconds() >= 300
         t = m.video.position - rw
         if t < 0 then t = 0
@@ -848,6 +884,7 @@ sub onPicked(ev as object)
     end if
     if Left(c.purpose, 9) = "substyle:"
         Util.writeText(Mid(c.purpose, 10), c.id)
+        refreshPrefs()
         m.subLayer.restyle = true
         liftSubs(m.osdShown)
         openSubsMenu()
@@ -867,7 +904,6 @@ sub onPicked(ev as object)
         return
     end if
     if c.purpose = "version"
-        closePicker()
         m.keys.setFocus(true)
         if c.id <> Util.toText(m.opts.sourceId) and c.id <> m.tracks.sourceId
             ' another file: its own tracks (defaults), same position
@@ -981,9 +1017,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
     else if key = "rewind" or key = "fastforward"
         ' Settings → Playback → Jump buttons
         if key = "fastforward"
-            seekBy(Prefs.jumpSeconds())
+            seekBy(m.pf.jump)
         else
-            seekBy(-Prefs.jumpSeconds())
+            seekBy(-m.pf.jump)
         end if
         return true
     else if key = "play"
@@ -997,9 +1033,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
         else if key = "OK"
             togglePause()
         else if key = "left"
-            seekBy(-Prefs.skipSeconds())
+            seekBy(-m.pf.skip)
         else if key = "right"
-            seekBy(Prefs.skipSeconds())
+            seekBy(m.pf.skip)
         else
             showOsd(true)
         end if
@@ -1023,9 +1059,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
     else if m.area = "bar" and (key = "left" or key = "right")
         ' the progress bar has the focus: Left / Right move along it (presses add up, thumbnail shows)
         if key = "left"
-            seekBy(-Prefs.skipSeconds())
+            seekBy(-m.pf.skip)
         else
-            seekBy(Prefs.skipSeconds())
+            seekBy(m.pf.skip)
         end if
     else if key = "left"
         if m.idx > 0 then m.idx = m.idx - 1
@@ -1110,9 +1146,9 @@ sub useControl()
     end if
     id = m.toolIds[m.idx]
     if id = "jumpBack"
-        seekBy(-Prefs.jumpSeconds())
+        seekBy(-m.pf.jump)
     else if id = "jumpFwd"
-        seekBy(Prefs.jumpSeconds())
+        seekBy(m.pf.jump)
     else if id = "prev"
         playEpisode(m.prev)
     else if id = "next"
@@ -1174,8 +1210,8 @@ end sub
 function toolIcon(id as string) as string
     if id = "subs" then return "subtitles"
     ' (the icon shows the jump length from Settings → Playback → Jump buttons: back10 ... fwd60)
-    if id = "jumpBack" then return "back" + Prefs.jumpSeconds().toStr()
-    if id = "jumpFwd" then return "fwd" + Prefs.jumpSeconds().toStr()
+    if id = "jumpBack" then return "back" + m.pf.jump.toStr()
+    if id = "jumpFwd" then return "fwd" + m.pf.jump.toStr()
     return id
 end function
 
@@ -1301,7 +1337,7 @@ function positionSpeech(atSec as float) as string
 end function
 
 function toolSpeech(id as string) as string
-    j = Prefs.jumpSeconds().toStr()
+    j = m.pf.jump.toStr()
     if id = "jumpBack" then return "Back " + j + " seconds"
     if id = "jumpFwd" then return "Forward " + j + " seconds"
     if id = "episodes" then return "Episodes"
@@ -1611,7 +1647,7 @@ sub markIfWatched(atSec as float)
     fallback = ""
     if Util.toText(m.top.server.type) = "jellyfin" then fallback = "/UserPlayedItems/" + m.top.item.id + "?userId=" + uid
     fire("POST", "/Users/" + uid + "/PlayedItems/" + m.top.item.id, "", 0, fallback)
-    m.info.UserData.Played = true
+    if Util.isAA(m.info.UserData) then m.info.UserData.Played = true
 end sub
 
 sub report(path as string, paused as boolean, atSec = -1 as float)
@@ -2090,6 +2126,10 @@ sub askStill(kind as string)
     m.top.findNode("stillTitle").text = name + "?"
     print "Cove: are you still watching ("; kind; ")"
     m.stillSpoken = false
+    if m.stillClock = invalid then m.stillClock = createObject("roTimespan")
+    m.stillClock.Mark()
+    ' (the 10 s timer also closes the player when nobody answers; after the countdown it was stopped)
+    m.progressTimer.control = "start"
     drawStill()
     m.still.visible = true
     m.still.setFocus(true)
@@ -2261,9 +2301,9 @@ function handleTransport(evt as object) as object
         if st <> "playing" then return { status: "error.redundant" }
         m.video.control = "pause"
     else if cmd = "forward"
-        seekBy(Prefs.jumpSeconds())
+        seekBy(m.pf.jump)
     else if cmd = "rewind"
-        seekBy(-Prefs.jumpSeconds())
+        seekBy(-m.pf.jump)
     else if cmd = "replay"
         instantReplay()
     else if cmd = "startover"

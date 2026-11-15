@@ -193,7 +193,7 @@ namespace Prefs
     ' ---------------------------------------------------------------- filters chosen on a library page
 
     ' The Mac keeps them per library (LibraryView save() → "lf-<id>"). Here all libraries share one key
-    ' ("libFilters", most recent last, at most 40), with short fields s (sort), w (show), g (genre), l (A–Z),
+    ' ("libFilters", most recent last, at most 25), with short fields s (sort), w (show), g (genre), l (A–Z),
     ' only the ones that differ from the defaults: the registry also holds the sign-ins.
     function libFilters(libId as string) as dynamic
         if libId = "" then return invalid
@@ -216,7 +216,7 @@ namespace Prefs
             if Util.isAA(o) and Util.toText(o.id) <> libId then kept.push(o)
         end for
         if e.count() > 1 then kept.push(e)
-        while kept.count() > 40
+        while kept.count() > 25
             kept.shift()
         end while
         Util.writeText("libFilters", formatJson(kept))
@@ -295,7 +295,7 @@ namespace Prefs
     ' ---------------------------------------------------------------- subtitle language per series
 
     ' "" = automatic, "off", or a language code. All series share one key ("seriesLangs", most recent last,
-    ' at most 100): one key per series grew the registry without limit, and it also holds the sign-ins.
+    ' at most 50): one key per series grew the registry without limit, and it also holds the sign-ins.
     function seriesSubLang(seriesId as string) as string
         if seriesId = "" then return ""
         for each e in seriesLangList()
@@ -311,7 +311,7 @@ namespace Prefs
             if Util.toText(e.id) <> seriesId then kept.push(e)
         end for
         if lang <> "" then kept.push({ id: seriesId, lang: lang })
-        while kept.count() > 100
+        while kept.count() > 50
             kept.shift()
         end while
         Util.writeText("seriesLangs", formatJson(kept))
@@ -343,7 +343,7 @@ namespace Prefs
             sec.delete(k)
         end for
         sec.flush()
-        while kept.count() > 100
+        while kept.count() > 50
             kept.shift()
         end while
         Util.writeText("seriesLangs", formatJson(kept))
