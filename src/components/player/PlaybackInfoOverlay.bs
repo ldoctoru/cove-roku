@@ -9,12 +9,12 @@ sub onLines()
     m.rows.removeChildrenIndex(m.rows.getChildCount(), 0)
     y = 0
     for each l in m.top.lines
-        addRowLabel(Util.toText(l.k), 0, y, 250, "0xFFFFFF99")
-        parts = Util.wrapLines(Util.toText(l.v), 50, 2)
+        addRowLabel(Util.toText(l.k), 0, y, 250, "0xFFFFFFCC")
+        parts = Util.wrapLines(Util.toText(l.v), 46, 2)
         if parts.count() = 0 then parts = [""]
         for each part in parts
             addRowLabel(part, 254, y, 630, "0xFFFFFFFF")
-            y = y + 32
+            y = y + 34
         end for
         y = y + 2
     end for
@@ -25,11 +25,11 @@ sub addRowLabel(text as string, x as integer, y as integer, w as integer, col as
     lab = m.rows.createChild("Label")
     f = createObject("roSGNode", "Font")
     f.uri = "font:MediumSystemFontFile"
-    f.size = 22
+    f.size = 24
     lab.font = f
     lab.color = col
     lab.width = w
-    lab.height = 32
+    lab.height = 34
     lab.translation = [x, y]
     lab.text = text
 end sub

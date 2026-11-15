@@ -16,7 +16,7 @@
         <Label id="title" width="680" height="40" translation="[176,22]" color="0xFFFFFFFF">
             <Font role="font" uri="font:BoldSystemFontFile" size="30" />
         </Label>
-        <Label id="line2" width="680" height="34" translation="[176,62]" color="0xFFFFFFB3">
+        <Label id="line2" width="680" height="34" translation="[176,62]" color="0xFFFFFFCC">
             <Font role="font" uri="font:MediumSystemFontFile" size="24" />
         </Label>
         <Label id="who" width="680" height="34" translation="[176,104]" color="0xFFFFFFFF">
@@ -24,11 +24,11 @@
         </Label>
         <Rectangle id="track" width="440" height="6" translation="[176,170]" color="0xFFFFFF40" />
         <Rectangle id="fill" width="0" height="6" translation="[176,170]" color="0xFFFFFFFF" />
-        <Label id="pos" width="230" height="34" translation="[630,156]" horizAlign="right" color="0xFFFFFFB3">
-            <Font role="font" uri="font:MediumSystemFontFile" size="22" />
+        <Label id="pos" width="230" height="34" translation="[630,154]" horizAlign="right" color="0xFFFFFFCC">
+            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
         </Label>
-        <Label id="state" width="680" height="30" translation="[176,186]" color="0xFFFFFF8C">
-            <Font role="font" uri="font:MediumSystemFontFile" size="22" />
+        <Label id="state" width="680" height="32" translation="[176,186]" color="0xFFFFFFCC">
+            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
         </Label>
     </children>
 </component>

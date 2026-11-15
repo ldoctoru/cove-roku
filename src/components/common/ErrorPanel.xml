@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Shown instead of an empty page when the server couldn't be reached, answered with an error, or there is
+     nothing to show (Cove for macOS ErrorStateView): an icon, the message and focusable buttons such as
+     Try Again / Switch Server / Settings. Left / Right move between the buttons, OK sets `chosen`; other keys
+     (Back, Up, Left on the first button) go to the screen. The panel is centred in `width` around its own x. -->
+<component name="ErrorPanel" extends="Group">
+    <script type="text/brightscript" uri="ErrorPanel.bs" />
+    <interface>
+        <field id="message" type="string" onChange="draw" />
+        <!-- [{ id, label }]; default Try Again, Switch Server, Settings -->
+        <field id="buttons" type="array" onChange="onButtons" />
+        <!-- "info" (empty page) or "error" (the server failed): the icon above the message -->
+        <field id="icon" type="string" value="error" onChange="draw" />
+        <field id="width" type="integer" value="1600" onChange="draw" />
+        <!-- { id } of the button pressed -->
+        <field id="chosen" type="assocarray" alwaysNotify="true" />
+        <field id="index" type="integer" value="0" />
+    </interface>
+    <children>
+        <Group id="body" />
+    </children>
+</component>

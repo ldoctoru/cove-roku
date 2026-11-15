@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Placeholder cards at the final positions while a page loads (instead of a bare "Loading..."): faint
+     rounded rectangles with a title bar under each, gently pulsing. `rows` x `cols` cards of cardW x cardH,
+     one every stepX / stepY. Set `active` to start / stop it (visible follows). -->
+<component name="Skeleton" extends="Group">
+    <script type="text/brightscript" uri="Skeleton.bs" />
+    <interface>
+        <field id="rows" type="integer" value="2" />
+        <field id="cols" type="integer" value="6" />
+        <field id="cardW" type="integer" value="240" />
+        <field id="cardH" type="integer" value="360" />
+        <field id="stepX" type="integer" value="276" />
+        <field id="stepY" type="integer" value="470" />
+        <field id="titleBars" type="boolean" value="true" />
+        <field id="active" type="boolean" onChange="onActive" />
+    </interface>
+    <children>
+        <Group id="cards" />
+        <Animation id="pulse" duration="1.6" repeat="true" easeFunction="inOutQuad">
+            <FloatFieldInterpolator key="[0.0, 0.5, 1.0]" keyValue="[0.55, 1.0, 0.55]" fieldToInterp="cards.opacity" />
+        </Animation>
+    </children>
+</component>

@@ -19,7 +19,7 @@
         <Label id="title" width="1500" height="70" translation="[290,90]" color="0xFFFFFFFF">
             <Font role="font" uri="font:BoldSystemFontFile" size="52" />
         </Label>
-        <Label id="subtitle" width="1500" height="44" translation="[290,160]" color="0xFFFFFF8C">
+        <Label id="subtitle" width="1500" height="44" translation="[290,160]" color="0xFFFFFFCC">
             <Font role="font" uri="font:MediumSystemFontFile" size="28" />
         </Label>
         <Label id="code" width="1920" height="130" translation="[0,290]" horizAlign="center" color="0xFFFFFFFF" visible="false">
@@ -30,7 +30,7 @@
             <Font role="font" uri="font:MediumSystemFontFile" size="36" />
             <Font role="focusedFont" uri="font:BoldSystemFontFile" size="36" />
         </LabelList>
-        <Label id="status" width="1340" height="44" translation="[290,960]" color="0xFFFFFFB3">
+        <Label id="status" width="1340" height="44" translation="[290,960]" color="0xFFFFFFCC">
             <Font role="font" uri="font:MediumSystemFontFile" size="30" />
         </Label>
     </children>

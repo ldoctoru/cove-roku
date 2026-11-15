@@ -8,6 +8,7 @@ import "pkg:/source/Subs.bs"
 import "pkg:/source/MediaInfo.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/Toasts.bs"
 
 sub init()
     m.focusEpisodes = false
@@ -377,7 +378,7 @@ sub drawOverviewFocus()
     if on
         more.color = "0xFFFFFFFF"
     else
-        more.color = "0xFFFFFF99"
+        more.color = "0xFFFFFFCC"
     end if
 end sub
 
@@ -776,8 +777,10 @@ sub onFavourite(r as object)
         m.item.UserData.IsFavorite = m.isFav
         m.top.changed = true
         buildButtons()
+        Toasts.notify(Toasts.favoriteText(Util.toText(m.item.Name), m.isFav), "heart")
     else
-        m.status.text = "Couldn't change the favorite. " + Api.describeFailure(r)
+        m.status.text = "Couldn't update Favorites. " + Api.describeFailure(r)
+        Toasts.notify(Toasts.failedText("update Favorites"), "info")
     end if
 end sub
 
@@ -805,30 +808,30 @@ end sub
 
 sub toggleWatched()
     if m.item = invalid then return
-    markPlayed(Util.toText(m.item.Id), not Util.flag(m.item.UserData, "Played"))
+    markPlayed(Util.toText(m.item.Id), not Util.flag(m.item.UserData, "Played"), Util.toText(m.item.Name))
 end sub
 
-sub markPlayed(itemId as string, played as boolean)
+sub markPlayed(itemId as string, played as boolean, name = "" as string)
     method = "DELETE"
     if played then method = "POST"
-    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/PlayedItems/" + itemId, { kind: "watched", method: method, newRoute: false, itemId: itemId })
+    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/PlayedItems/" + itemId, { kind: "watched", method: method, newRoute: false, itemId: itemId, name: name })
 end sub
 
 sub onWatched(r as object)
     if r.code = 404 and not r.tag.newRoute
-        send(r.tag.method, "/UserPlayedItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "watched", method: r.tag.method, newRoute: true, itemId: r.tag.itemId })
+        send(r.tag.method, "/UserPlayedItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "watched", method: r.tag.method, newRoute: true, itemId: r.tag.itemId, name: Util.toText(r.tag.name) })
         return
     end if
     if r.code >= 200 and r.code < 300
         m.top.changed = true
         onRefresh()
-        if r.tag.method = "POST"
-            m.status.text = "Marked as watched."
-        else
-            m.status.text = "Marked as unwatched."
-        end if
+        m.status.text = ""
+        name = Util.toText(r.tag.name)
+        if name = "" and m.item <> invalid then name = Util.toText(m.item.Name)
+        Toasts.notify(Toasts.watchedText(name, r.tag.method = "POST"), "check")
     else
         m.status.text = "Couldn't change it. " + Api.describeFailure(r)
+        Toasts.notify(Toasts.failedText("change the watched state"), "info")
     end if
 end sub
 
@@ -938,7 +941,7 @@ sub onPicked(ev as object)
         else if c.id = "start"
             requestPlay(e, 0)
         else if c.id = "watched" or c.id = "unwatched"
-            markPlayed(Util.toText(e.Id), c.id = "watched")
+            markPlayed(Util.toText(e.Id), c.id = "watched", Util.toText(e.Name))
         else if c.id = "page"
             m.top.openItem = { id: "open", itemId: Util.toText(e.Id), itemType: "Episode", collectionType: "", title: Util.toText(e.Name) }
         end if
@@ -1403,7 +1406,7 @@ function addSeasonBadge(g as object, textW as integer, w as integer) as integer
     end if
     t = n.toStr()
     if n > 99 then t = "99+"
-    bw = 36 + (t.len() - 1) * 12
+    bw = 36 + (t.len() - 1) * 15
     bg = g.createChild("Poster")
     bg.uri = "pkg:/images/ui/badge_capsule.9.png"
     bg.width = bw
@@ -1412,7 +1415,7 @@ function addSeasonBadge(g as object, textW as integer, w as integer) as integer
     lab = g.createChild("Label")
     f = createObject("roSGNode", "Font")
     f.uri = "font:BoldSystemFontFile"
-    f.size = 20
+    f.size = 24
     lab.font = f
     lab.text = t
     lab.color = "0xFFFFFFFF"
@@ -1458,9 +1461,9 @@ sub useSeasonMenu(id as string)
     sid = Util.toText(m.seasonList[m.seasonIndex].Id)
     print "Cove: mark season "; sid; " "; id
     if id = "swatched"
-        markPlayed(sid, true)
+        markPlayed(sid, true, seasonName())
     else if id = "sunwatched"
-        markPlayed(sid, false)
+        markPlayed(sid, false, seasonName())
     end if
 end sub
 

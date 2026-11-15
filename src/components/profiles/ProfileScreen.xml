@@ -18,7 +18,7 @@
         <Label id="title" text="Who's watching?" width="1920" height="90" translation="[0,220]" horizAlign="center" color="0xFFFFFFFF">
             <Font role="font" uri="font:BoldSystemFontFile" size="64" />
         </Label>
-        <Label id="subtitle" text="Loading..." width="1920" height="40" translation="[0,316]" horizAlign="center" color="0xFFFFFF8C">
+        <Label id="subtitle" text="Loading..." width="1920" height="40" translation="[0,316]" horizAlign="center" color="0xFFFFFFCC">
             <Font role="font" uri="font:MediumSystemFontFile" size="26" />
         </Label>
         <Group id="clip" translation="[0,400]" clippingRect="[0,0,1920,420]">

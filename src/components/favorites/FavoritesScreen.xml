@@ -15,7 +15,7 @@
         <Label id="title" width="1200" height="60" translation="[180,40]" color="0xFFFFFFFF" text="Favorites">
             <Font role="font" uri="font:BoldSystemFontFile" size="44" />
         </Label>
-        <Label id="info" width="1200" height="40" translation="[180,96]" color="0xFFFFFF8C">
+        <Label id="info" width="1200" height="40" translation="[180,96]" color="0xFFFFFFCC">
             <Font role="font" uri="font:MediumSystemFontFile" size="26" />
         </Label>
         <RowList id="rows" translation="[78,160]" itemComponentName="PosterItem" numRows="2"
@@ -25,12 +25,14 @@
                  drawFocusFeedback="false" visible="false">
             <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />
         </RowList>
-        <Label id="status" width="1720" height="44" translation="[100,420]" color="0xFFFFFFB3" text="Loading...">
+        <Label id="status" width="1720" height="44" translation="[100,420]" color="0xFFFFFFCC" text="Loading...">
             <Font role="font" uri="font:MediumSystemFontFile" size="32" />
         </Label>
-        <Label id="hint" width="1720" height="40" translation="[100,472]" color="0xFFFFFF8C" visible="false"
+        <Label id="hint" width="1720" height="40" translation="[100,472]" color="0xFFFFFFCC" visible="false"
                text="Add a movie, show, episode, collection or person with the heart on its page.">
             <Font role="font" uri="font:MediumSystemFontFile" size="26" />
         </Label>
+        <!-- the favorites couldn't be loaded: Try Again / Switch Server / Settings -->
+        <ErrorPanel id="errorPanel" translation="[100,380]" width="1720" visible="false" />
     </children>
 </component>

@@ -1,0 +1,44 @@
+sub init()
+    m.cards = m.top.findNode("cards")
+    m.pulse = m.top.findNode("pulse")
+    m.top.visible = false
+    m.drawn = ""
+end sub
+
+sub onActive()
+    if m.top.active
+        draw()
+        m.top.visible = true
+        m.pulse.control = "start"
+    else
+        m.pulse.control = "stop"
+        m.top.visible = false
+    end if
+end sub
+
+sub draw()
+    key = m.top.rows.toStr() + "x" + m.top.cols.toStr() + "/" + m.top.cardW.toStr() + "x" + m.top.cardH.toStr()
+    if key = m.drawn then return
+    m.drawn = key
+    m.cards.removeChildrenIndex(m.cards.getChildCount(), 0)
+    for r = 0 to m.top.rows - 1
+        for c = 0 to m.top.cols - 1
+            x = c * m.top.stepX
+            y = r * m.top.stepY
+            card = m.cards.createChild("Poster")
+            card.uri = "pkg:/images/ui/white_rr12.9.png"
+            card.blendColor = "0xFFFFFF1F"
+            card.width = m.top.cardW
+            card.height = m.top.cardH
+            card.translation = [x, y]
+            if m.top.titleBars
+                bar = m.cards.createChild("Poster")
+                bar.uri = "pkg:/images/ui/white_rr12.9.png"
+                bar.blendColor = "0xFFFFFF1A"
+                bar.width = Int(m.top.cardW * 0.7)
+                bar.height = 22
+                bar.translation = [x + Int(m.top.cardW * 0.15), y + m.top.cardH + 18]
+            end if
+        end for
+    end for
+end sub

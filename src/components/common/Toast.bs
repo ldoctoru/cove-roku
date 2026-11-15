@@ -1,0 +1,80 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Speak.bs"
+
+sub init()
+    m.pill = m.top.findNode("pill")
+    m.bg = m.top.findNode("bg")
+    m.glass = m.top.findNode("glass")
+    m.icon = m.top.findNode("icon")
+    m.label = m.top.findNode("text")
+    m.fadeIn = m.top.findNode("fadeIn")
+    m.fadeOut = m.top.findNode("fadeOut")
+    m.hold = m.top.findNode("hold")
+    m.hold.observeField("fire", "onHoldDone")
+    m.fadeOut.observeField("state", "onFadeOutState")
+    m.queue = []
+    m.current = ""
+    m.busy = false
+    m.fading = false
+end sub
+
+' A new message: shown now when nothing is on screen, otherwise queued (at most 4 waiting)
+sub onShow()
+    msg = m.top.show
+    if not Util.isAA(msg) then return
+    text = Util.toText(msg.text)
+    if text = "" then return
+    ' (the same text that is shown, or last in the queue, is not repeated)
+    if m.queue.count() > 0
+        if Util.toText(m.queue.peek().text) = text then return
+    else if m.busy and m.current = text and not m.fading
+        m.hold.control = "stop"
+        m.hold.control = "start"
+        return
+    end if
+    m.queue.push({ text: text, icon: Util.toText(msg.icon) })
+    if m.queue.count() > 4 then m.queue.shift()
+    if not m.busy then showNext()
+end sub
+
+sub showNext()
+    if m.queue.count() = 0
+        m.busy = false
+        m.current = ""
+        return
+    end if
+    msg = m.queue.shift()
+    m.busy = true
+    m.current = msg.text
+    m.label.text = msg.text
+    tw = m.label.boundingRect().width
+    if tw > 1400 then tw = 1400
+    hasIcon = msg.icon <> ""
+    m.icon.visible = hasIcon
+    if hasIcon then m.icon.uri = "pkg:/images/ui/icon_" + msg.icon + "_28.png"
+    x = 32
+    if hasIcon then x = 68
+    m.label.translation = [x, 0]
+    m.label.width = tw + 4
+    w = x + tw + 36
+    m.bg.width = w
+    m.glass.width = w
+    m.pill.translation = [Int((1920 - w) / 2), 940]
+    m.fadeIn.control = "start"
+    m.hold.control = "start"
+    ' (queued after what the Audio Guide is saying about the focus)
+    Speak.say(msg.text, false)
+end sub
+
+sub onHoldDone()
+    m.fading = true
+    m.fadeOut.control = "start"
+end sub
+
+' The pill has faded out: the next waiting message, if any
+sub onFadeOutState()
+    if m.fadeOut.state <> "stopped" or m.fading <> true then return
+    m.fading = false
+    m.pill.opacity = 0
+    showNext()
+end sub

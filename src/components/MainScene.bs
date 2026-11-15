@@ -49,6 +49,7 @@ sub init()
     Servers.migrate()
     m.suspendedAt = 0           ' (Instant Resume) when the app went to the background, in seconds
     m.homeLoadedAt = 0          ' when Home last loaded its rows
+    m.toastOnHome = ""          ' a toast for the next Home (profile switch)
     ' (Instant Resume: the stop report and the end of a conversion still go out after the app is suspended)
     if m.top.hasField("allowBackgroundTask") then m.top.allowBackgroundTask = true
     start()
@@ -65,6 +66,13 @@ sub start()
     else
         showServers("")
     end if
+end sub
+
+' ---------------------------------------------------------------- toasts
+
+sub onToast()
+    host = m.top.findNode("toastHost")
+    if host <> invalid then host.show = m.top.toast
 end sub
 
 ' ---------------------------------------------------------------- screens
@@ -230,6 +238,11 @@ sub showHome(server as object)
     m.homeReady = true
     m.homeLoadedAt = nowSecs()
     ' (AppLaunchComplete waits for Home's "ready": its rows or its error on screen)
+    ' (a profile switch: say whose Home this is now)
+    if Util.toText(m.toastOnHome) <> ""
+        m.top.toast = { text: m.toastOnHome, icon: "" }
+        m.toastOnHome = ""
+    end if
     ' a deep link that came before the sign-in finished
     if m.pendingLink <> invalid
         link = m.pendingLink
@@ -1113,6 +1126,7 @@ sub switchProfile(srv as object, userId as string)
     s = Servers.useUser(Util.toText(srv.id), userId)
     if s = invalid then return
     print "Cove: switching profile on "; Util.toText(s.name)
+    m.toastOnHome = "Switched to " + Util.toText(s.userName)
     if Util.toText(s.token) <> ""
         validate(s)
     else

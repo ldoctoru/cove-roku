@@ -5,12 +5,19 @@ import "pkg:/source/Prefs.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Ratings.bs"
+import "pkg:/source/Toasts.bs"
+import "pkg:/source/Hints.bs"
 
 sub init()
     m.readySent = false     ' Home told MainScene it is ready (AppLaunchComplete)
     t = m.global.theme
     m.rows = m.top.findNode("rows")
     m.status = m.top.findNode("status")
+    m.errorPanel = m.top.findNode("errorPanel")
+    m.errorPanel.observeField("chosen", "onErrorChosen")
+    m.hintBar = m.top.findNode("hintBar")
+    m.wantHint = invalid     ' (read from the registry once, when the first card takes the focus)
+    m.hintShown = false
     ' Sidebar or top bar (Settings → General → Navigation)
     m.side = Prefs.navStyle() <> "topbar"
     m.navs = m.top.findNode("navs")
@@ -24,6 +31,7 @@ sub init()
         m.top.findNode("hero").translation = [0, 0]
         m.top.findNode("info").translation = [96, 96]
         m.top.findNode("status").translation = [96, 520]
+        m.top.findNode("errorPanel").translation = [140, 380]
         m.top.findNode("rows").itemSize = [1842, 466]
     end if
     m.nav.visible = true
@@ -80,6 +88,7 @@ sub load()
         m.status.text = "Loading your libraries..."
         m.status.visible = true
     end if
+    hideError()
     ' a reload while one still runs: drop the older task, its late answer must not be read as this one's
     if m.task <> invalid
         m.task.unobserveField("content")
@@ -98,8 +107,43 @@ end sub
 
 sub onWatchdog()
     if m.status.visible and not m.rows.visible
-        m.status.text = "The server is taking too long to answer. Press * and choose Reload."
+        showError("The server is taking too long to answer.")
         signalReady()
+    end if
+end sub
+
+' ---------------------------------------------------------------- error panel
+
+' Instead of the rows: the message with Try Again / Switch Server / Settings (the focus goes to the buttons)
+sub showError(text as string, icon = "error" as string)
+    m.watchdog.control = "stop"
+    m.status.visible = false
+    m.rows.visible = false
+    m.top.findNode("hero").visible = false
+    m.errorPanel.icon = icon
+    m.errorPanel.message = text
+    m.errorPanel.index = 0
+    m.errorPanel.visible = true
+    m.state = "error"
+    if m.top.isInFocusChain() and m.picker = invalid then m.errorPanel.setFocus(true)
+end sub
+
+sub hideError()
+    if not m.errorPanel.visible then return
+    m.errorPanel.visible = false
+    if m.errorPanel.isInFocusChain() then m.top.findNode("heroKeys").setFocus(true)
+end sub
+
+sub onErrorChosen(ev as object)
+    id = ev.getData().id
+    if id = "retry"
+        m.state = "loading"
+        m.rows.visible = false
+        load()
+    else if id = "switch"
+        m.top.action = { id: "switch" }
+    else if id = "settings"
+        m.top.action = { id: "settings" }
     end if
 end sub
 
@@ -114,6 +158,12 @@ sub onContent(ev as object)
     content = ev.getData()
     if content = invalid then return
     m.watchdog.control = "stop"
+    if content.getChildCount() = 0
+        showError("There is nothing to show on Home yet. Check that this account can see a library on the server.", "info")
+        signalReady()
+        return
+    end if
+    hideError()
     signalReady()
     ' Per row: 16:9 cards for Continue Watching / Next Up / Libraries, 2:3 posters with title and year otherwise
     heights = []
@@ -159,7 +209,15 @@ end sub
 sub onError(ev as object)
     if m.task = invalid or not ev.getRoSGNode().isSameNode(m.task) then return
     m.watchdog.control = "stop"
-    m.status.text = Util.toText(ev.getData()) + "   Press * for options."
+    text = Util.toText(ev.getData())
+    ' (a refresh that failed while the rows are up: keep them, say so)
+    if m.rows.visible and m.rows.content <> invalid and m.rows.content.getChildCount() > 0
+        m.reloading = false
+        if m.top.isInFocusChain() then Toasts.notify("Couldn't refresh Home. " + text, "info")
+        signalReady()
+        return
+    end if
+    showError(text)
     signalReady()
 end sub
 
@@ -523,7 +581,10 @@ sub leaveNav()
         enterHero()
         return
     end if
-    if m.navReturn = "rows" and m.rows.visible
+    if m.navReturn = "error" and m.errorPanel.visible
+        m.state = "error"
+        m.errorPanel.setFocus(true)
+    else if m.navReturn = "rows" and m.rows.visible
         m.state = "rows"
         m.rows.setFocus(true)
     else
@@ -609,6 +670,7 @@ sub onItemFocused()
     it = focusedItem()
     if it = invalid then return
     m.top.findNode("title").text = it.title
+    maybeShowHint()
     if Speak.isOn()
         ' (the row's name when the focus moves to another row)
         text = Speak.card(it)
@@ -675,6 +737,8 @@ sub onFocusChanged()
         onItemFocused()
     else if m.state = "nav"
         m.nav.setFocus(true)
+    else if m.state = "error" and m.errorPanel.visible
+        m.errorPanel.setFocus(true)
     else if m.state = "hero"
         m.top.findNode("heroKeys").setFocus(true)
         paintButtons()
@@ -696,9 +760,23 @@ sub onSuspended()
     end if
 end sub
 
+' U-5: the "* Options" hint the first time a card takes the focus, for a profile that has never pressed *
+sub maybeShowHint()
+    if m.hintShown then return
+    m.hintShown = true
+    if m.wantHint = invalid then m.wantHint = Hints.optionsHintWanted(m.top.server)
+    if m.wantHint then m.hintBar.show = true
+end sub
+
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     if key = "options"
+        ' (* used once: no more hint for this profile)
+        if m.wantHint = invalid or m.wantHint = true
+            Hints.optionsHintDone(m.top.server)
+            m.wantHint = false
+        end if
+        m.hintBar.show = false
         ' on a card: what to do with that title; elsewhere the app options
         if m.state = "rows" and focusedItem() <> invalid
             itemMenu(focusedItem())
@@ -754,7 +832,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
         end if
     else if m.state = "nav"
         ' no hero: Back from the rows comes here, so a second Back must leave the app instead of going round
-        if key = "back" and m.heroes.count() = 0 then return false
+        if key = "back" and (m.heroes.count() = 0 or m.navReturn = "error") then return false
         if (m.side and key = "right") or (not m.side and key = "down") or key = "back"
             leaveNav()
             return true
@@ -765,11 +843,24 @@ function onKeyEvent(key as string, press as boolean) as boolean
             enterNav()
             return true
         else if key = "up" or key = "back"
+            ' Back from a lower row or a scrolled row: the top first (the hero, or the first card when there is
+            ' no hero), then the sidebar / top bar; only Back from there leaves the app (MainScene)
+            f = m.rows.rowItemFocused
+            if key = "back" and m.heroes.count() = 0 and f <> invalid and f.count() >= 2 and (f[0] > 0 or f[1] > 0)
+                m.rows.jumpToRowItem = [0, 0]
+                return true
+            end if
             if m.heroes.count() > 0
                 enterHero()
             else
                 enterNav()
             end if
+            return true
+        end if
+    else if m.state = "error"
+        ' the panel keeps Left / Right between its buttons; past the first one (or Up with the top bar) the nav
+        if (key = "left" and m.side) or (key = "up" and not m.side)
+            enterNav()
             return true
         end if
     end if
@@ -781,7 +872,7 @@ end function
 sub toggleFavourite(it as object)
     method = "POST"
     if it.favorite then method = "DELETE"
-    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/FavoriteItems/" + it.itemId, { kind: "fav", method: method, newRoute: false, itemId: it.itemId })
+    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/FavoriteItems/" + it.itemId, { kind: "fav", method: method, newRoute: false, itemId: it.itemId, name: Util.toText(it.title) })
 end sub
 
 sub send(method as string, path as string, tag as object, body = "" as string)
@@ -858,7 +949,7 @@ sub onItemChosen(ev as object)
     else if id = "watched" or id = "unwatched"
         method = "DELETE"
         if id = "watched" then method = "POST"
-        send(method, "/Users/" + uid + "/PlayedItems/" + it.itemId, { kind: "watched", method: method, newRoute: false, itemId: it.itemId })
+        send(method, "/Users/" + uid + "/PlayedItems/" + it.itemId, { kind: "watched", method: method, newRoute: false, itemId: it.itemId, name: Util.toText(it.title) })
     else if id = "fav"
         toggleFavourite(it)
     else if id = "unresume"
@@ -885,18 +976,23 @@ sub onFavResponse(ev as object)
     end if
     if r.tag.kind = "watched"
         if r.code = 404 and not r.tag.newRoute
-            send(r.tag.method, "/UserPlayedItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "watched", method: r.tag.method, newRoute: true, itemId: r.tag.itemId })
+            send(r.tag.method, "/UserPlayedItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "watched", method: r.tag.method, newRoute: true, itemId: r.tag.itemId, name: Util.toText(r.tag.name) })
         else if r.code >= 200 and r.code < 300
             ' Continue Watching / Next Up and the checks change: reload the rows in place
+            Toasts.notify(Toasts.watchedText(Util.toText(r.tag.name), r.tag.method = "POST"), "check")
             m.top.reload = true
+        else
+            Toasts.notify(Toasts.failedText("change the watched state"), "info")
         end if
         return
     end if
     if r.code = 404 and not r.tag.newRoute
-        send(r.tag.method, "/UserFavoriteItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "fav", method: r.tag.method, newRoute: true, itemId: r.tag.itemId })
+        send(r.tag.method, "/UserFavoriteItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "fav", method: r.tag.method, newRoute: true, itemId: r.tag.itemId, name: Util.toText(r.tag.name) })
         return
     end if
+    if r.code < 200 or r.code >= 300 then Toasts.notify(Toasts.failedText("update Favorites"), "info")
     if r.code >= 200 and r.code < 300
+        Toasts.notify(Toasts.favoriteText(Util.toText(r.tag.name), r.tag.method = "POST"), "heart")
         for each h in m.heroes
             if h.itemId = r.tag.itemId then h.favorite = r.tag.method = "POST"
         end for
@@ -930,7 +1026,7 @@ sub removeFromResume(it as object)
     if not Servers.isJellyfin(m.top.server) then steps.push({ method: "POST", path: "/Users/" + uid + "/Items/" + it.itemId + "/HideFromResume?Hide=true", body: "" })
     if Servers.isJellyfin(m.top.server) then steps.push({ method: "POST", path: "/UserItems/" + it.itemId + "/UserData?userId=" + uid, body: body })
     steps.push({ method: "POST", path: "/Users/" + uid + "/Items/" + it.itemId + "/UserData", body: body })
-    unresumeStep({ kind: "unresume", itemId: it.itemId, steps: steps, at: 0 })
+    unresumeStep({ kind: "unresume", itemId: it.itemId, steps: steps, at: 0, name: Util.toText(it.title) })
 end sub
 
 sub unresumeStep(tag as object)
@@ -944,6 +1040,7 @@ sub onUnresume(r as object)
     tag = r.tag
     if r.code >= 200 and r.code < 300
         ' the row reloads in place (the focus stays on the same place in it)
+        Toasts.notify("Removed " + Toasts.quoted(Util.toText(tag.name)) + " from Continue Watching", "check")
         m.top.reload = true
         return
     end if
@@ -954,6 +1051,7 @@ sub onUnresume(r as object)
     end if
     ' (the card stays: the row shows the server's state)
     print "Cove: remove from Continue Watching failed "; r.code
+    Toasts.notify(Toasts.failedText("remove it from Continue Watching"), "info")
 end sub
 
 ' ---------------------------------------------------------------- * options
@@ -1005,6 +1103,8 @@ sub restoreFocus()
         m.rows.setFocus(true)
     else if m.state = "nav"
         m.nav.setFocus(true)
+    else if m.state = "error" and m.errorPanel.visible
+        m.errorPanel.setFocus(true)
     else
         m.top.findNode("heroKeys").setFocus(true)
     end if

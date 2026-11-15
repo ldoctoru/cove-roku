@@ -9,6 +9,7 @@ import "pkg:/source/DeviceCaps.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/HomeLayout.bs"
+import "pkg:/source/Toasts.bs"
 
 ' Layout (1920 x 1080): cards from x 200, 1520 wide; the label column ends at x 610, controls start at x 650
 ' (the Mac's PrefRow: label right-aligned in a fixed column, the control beside it)
@@ -531,7 +532,7 @@ sub drawTabs()
                 bgp.blendColor = t.accent.left(8) + "33"
             end if
         end if
-        col = "0xFFFFFF8C"
+        col = "0xFFFFFFCC"
         if isCur then col = t.accent
         if isFocus then col = "0x000000FF"
         ic = cell.createChild("Poster")
@@ -541,7 +542,7 @@ sub drawTabs()
         ic.translation = [(w - 40) / 2, 14]
         ic.blendColor = col
         l = cell.createChild("Label")
-        l.font = mkFont(isCur, 22)
+        l.font = mkFont(isCur, 24)
         l.text = tabs[i].label
         l.color = col
         l.width = w
@@ -599,8 +600,8 @@ sub drawContent()
                 card.height = y - cardTop + 8
                 y = y + 22
             end if
-            addLabel(c, UCase(r.text), 210, y, 1400, 30, 20, true, "0xFFFFFF8C")
-            y = y + 34
+            addLabel(c, UCase(r.text), 210, y, 1400, 32, 24, true, "0xFFFFFFCC")
+            y = y + 38
             card = c.createChild("Poster")
             card.uri = "pkg:/images/ui/card_r18.9.png"
             card.translation = [200, y]
@@ -641,7 +642,7 @@ end sub
 
 function rowHeight(r as object) as integer
     k = r.kind
-    if k = "note" then return 28 * noteLines(r.text) + 6
+    if k = "note" then return 32 * noteLines(r.text) + 6
     if k = "swatches" then return 72
     if k = "tiles" then return 124
     if k = "server" or k = "info" or k = "profile" then return 80
@@ -652,7 +653,7 @@ function rowHeight(r as object) as integer
 end function
 
 function noteLines(text as string) as integer
-    return Util.wrapLines(text, 86, 6).count()
+    return Util.wrapLines(text, 76, 6).count()
 end function
 
 sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionTop as integer)
@@ -660,9 +661,9 @@ sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionT
     k = r.kind
     x = 650
     if k = "note"
-        lines = Util.wrapLines(r.text, 86, 6)
+        lines = Util.wrapLines(r.text, 76, 6)
         for i = 0 to lines.count() - 1
-            addLabel(c, lines[i], x, y + i * 28, 1040, 28, 21, false, "0xFFFFFF8C")
+            addLabel(c, lines[i], x, y + i * 32, 1040, 32, 24, false, "0xFFFFFFCC")
         end for
     else if k = "choice"
         drawPill(c, x, y + 6, r.value, isFocus, r.dim = true, true)
@@ -722,25 +723,25 @@ sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionT
             edge.width = 132
             edge.height = 72
             edge.translation = [tx, y + 8]
-            col = "0xFFFFFF8C"
+            col = "0xFFFFFFCC"
             if o.id = r.cur then col = "0xFFFFFFFF"
-            lab = addLabel(c, o.label, tx, y + 86, 132, 30, 20, o.id = r.cur, col)
+            lab = addLabel(c, o.label, tx - 8, y + 86, 148, 32, 24, o.id = r.cur, col)
             lab.horizAlign = "center"
         end for
     else if k = "info"
         addLabel(c, r.text, x, y + 4, 1040, 40, 27, true, "0xFFFFFFFF")
-        if r.sub <> "" then addLabel(c, r.sub, x, y + 42, 1040, 32, 22, false, "0xFFFFFF8C")
+        if r.sub <> "" then addLabel(c, r.sub, x, y + 42, 1040, 32, 24, false, "0xFFFFFFCC")
     else if k = "keys"
         cap = c.createChild("Poster")
         cap.uri = "pkg:/images/ui/glass_pill.9.png"
-        kl = addLabel(c, r.key, 0, y + 6, 0, 38, 22, true, "0xFFFFFFFF")
+        kl = addLabel(c, r.key, 0, y + 6, 0, 38, 24, true, "0xFFFFFFFF")
         kw = kl.boundingRect().width + 32
         kl.translation = [610 - kw + 16, y + 6]
         kl.width = kw - 32
         cap.translation = [610 - kw, y + 6]
         cap.width = kw
         cap.height = 38
-        addLabel(c, r.text, x, y, 1040, 50, 24, false, "0xFFFFFFB3")
+        addLabel(c, r.text, x, y, 1040, 50, 24, false, "0xFFFFFFCC")
     else if k = "server" or k = "library" or k = "section" or k = "profile" or k = "homerow"
         drawListRow(c, r, x, y, isFocus)
     else if k = "preview"
@@ -817,7 +818,7 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
         bgp.translation = [x - 10, y + 2]
     end if
     main = "0xFFFFFFFF"
-    second = "0xFFFFFF8C"
+    second = "0xFFFFFFCC"
     if isFocus
         main = "0x000000FF"
         second = "0x000000A6"
@@ -834,7 +835,7 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
     if isFocus then ic.blendColor = main
     if r.kind = "server" or r.kind = "profile"
         addLabel(c, r.label, x + 60, y + 6, 640, 36, 26, true, main)
-        addLabel(c, r.sub, x + 60, y + 40, 760, 30, 20, false, second)
+        addLabel(c, r.sub, x + 60, y + 38, 760, 32, 24, false, second)
         if r.current = true
             ck = c.createChild("Poster")
             ck.uri = "pkg:/images/ui/icon_check_28.png"
@@ -860,12 +861,12 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
             if r.on then stateText = "On Home"
             if r.dim = true then stateText = "Set by the server"
             if r.state <> "" and r.dim <> true then stateText = r.state + "   ·   " + stateText
-            s1 = addLabel(c, stateText, x + w - 470, y, 440, h, 22, false, second)
+            s1 = addLabel(c, stateText, x + w - 470, y, 440, h, 24, false, second)
             s1.horizAlign = "right"
         else if r.kind = "section"
             stateText = "Hidden"
             if r.on then stateText = "In the sidebar"
-            s1 = addLabel(c, stateText, x + w - 430, y, 400, h, 22, false, second)
+            s1 = addLabel(c, stateText, x + w - 430, y, 400, h, 24, false, second)
             s1.horizAlign = "right"
         else
             a = "Not in the sidebar"
@@ -874,7 +875,7 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
             if r.nav and r.home then b = "Home"
             ab = a + "   ·   " + b
             if not Prefs.hasHomeRow(Util.toText(r.libKind)) then ab = a
-            s1 = addLabel(c, ab, x + w - 470, y, 440, h, 22, false, second)
+            s1 = addLabel(c, ab, x + w - 470, y, 440, h, 24, false, second)
             s1.horizAlign = "right"
         end if
     end if
@@ -1048,11 +1049,13 @@ sub useRow(r as object)
                 Util.writeText(key, "")
             end for
             draw()
+            Toasts.notify("Subtitle style reset to the defaults", "check")
         else if r.id = "homeDefaultOrder"
             HomeLayout.resetOrder(serverKey())
             m.top.themeChanged = true
             m.row = 1
             draw()
+            Toasts.notify("Home rows back in the default order", "check")
         else if r.id = "retryLibs"
             onServer()
             draw()
@@ -1454,6 +1457,7 @@ sub onPicked(ev as object)
         m.global.theme = Theme.get()
         m.top.themeChanged = true
         draw()
+        Toasts.notify("All settings were reset", "check")
     else if purpose = "lib"
         id = m.menuLib
         lp = Prefs.library(id)

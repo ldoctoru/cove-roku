@@ -1,0 +1,32 @@
+import "pkg:/source/Util.bs"
+
+' One-time hints: the "* Options" bar shown when a card first takes the focus, until the profile has pressed *
+' once. The profiles that have used * are kept in one short registry key (at most 12 user ids).
+namespace Hints
+
+    function profileKey(server as dynamic) as string
+        if not Util.isAA(server) then return ""
+        return Util.toText(server.userId).left(32)
+    end function
+
+    function optionsHintWanted(server as dynamic) as boolean
+        k = profileKey(server)
+        if k = "" then return false
+        done = Util.readText("hintOpts")
+        return Instr(1, "," + done + ",", "," + k + ",") = 0
+    end function
+
+    sub optionsHintDone(server as dynamic)
+        k = profileKey(server)
+        if k = "" or not optionsHintWanted(server) then return
+        ids = []
+        done = Util.readText("hintOpts")
+        if done <> "" then ids = done.split(",")
+        ids.push(k)
+        while ids.count() > 12
+            ids.shift()
+        end while
+        Util.writeText("hintOpts", Util.join(ids, ","))
+    end sub
+
+end namespace

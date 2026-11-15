@@ -148,11 +148,11 @@ sub paint(flush = true as boolean)
             ring.height = 256
             ring.translation = [-18, -18]
         end if
-        col = "0xFFFFFF8C"
+        col = "0xFFFFFFCC"
         if isFocus then col = "0xFFFFFFFF"
         addLabel(g, Util.toText(p.name), -40, 250, 300, 44, 30, isFocus, col)
         note = Util.toText(p.note)
-        if note <> "" then addLabel(g, note, -40, 294, 300, 32, 21, false, "0xFFFFFF66")
+        if note <> "" then addLabel(g, note, -40, 294, 300, 32, 24, false, "0xFFFFFFCC")
     end for
     paintOther()
     speakFocus(list, flush)
@@ -205,7 +205,7 @@ sub paintOther()
         lab.color = "0x000000FF"
     else
         bgp.uri = "pkg:/images/ui/glass_pill.9.png"
-        lab.color = "0xFFFFFFB3"
+        lab.color = "0xFFFFFFCC"
     end if
 end sub
 

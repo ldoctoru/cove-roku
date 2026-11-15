@@ -2,6 +2,7 @@ import "pkg:/source/Util.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/Toasts.bs"
 
 sub init()
     t = m.global.theme
@@ -9,6 +10,12 @@ sub init()
     m.top.findNode("photoMask").uri = t.maskCircle
     m.rows = m.top.findNode("rows")
     m.status = m.top.findNode("status")
+    m.errorPanel = m.top.findNode("errorPanel")
+    m.errorPanel.observeField("chosen", "onErrorChosen")
+    m.titlesFailed = 0
+    ' (U-7: placeholder cards instead of "Loading...")
+    m.skeleton = m.top.findNode("skeleton")
+    m.status.visible = false
     m.rows.observeField("rowItemSelected", "onSelected")
     m.top.observeField("focusedChild", "onFocusChanged")
     m.pending = []
@@ -39,6 +46,9 @@ sub load()
     ' their titles on this server, newest first (one request per row)
     base = "/Users/" + uid + "/Items?PersonIds=" + p.id + "&Recursive=true&SortBy=ProductionYear,SortName&SortOrder=Descending&Limit=100&" + Items.fields()
     m.waiting = 2
+    m.skeleton.active = true
+    m.titlesFailed = 0
+    m.lists = {}
     for each row in [{ key: "movies", types: "Movie" }, { key: "shows", types: "Series" }]
         t = createObject("roSGNode", "ItemsTask")
         t.server = srv
@@ -112,12 +122,15 @@ sub onTitles(ev as object)
     if m.waiting <= 0 then buildRows()
 end sub
 
-sub onTitlesError()
+sub onTitlesError(ev as object)
+    m.titlesFailed = m.titlesFailed + 1
+    m.titlesError = Util.toText(ev.getData())
     m.waiting = m.waiting - 1
     if m.waiting <= 0 then buildRows()
 end sub
 
 sub buildRows()
+    m.skeleton.active = false
     root = createObject("roSGNode", "ContentNode")
     for each row in [{ key: "movies", title: "Movies" }, { key: "shows", title: "Shows" }]
         holder = m.lists[row.key]
@@ -131,13 +144,23 @@ sub buildRows()
             r.appendChildren(kids)
         end if
     end for
+    if root.getChildCount() = 0 and m.titlesFailed > 0
+        m.status.visible = false
+        m.errorPanel.message = "Couldn't load the titles with " + Util.toText(m.top.person.name) + ". " + Util.toText(m.titlesError)
+        m.errorPanel.index = 0
+        m.errorPanel.visible = true
+        if m.top.isInFocusChain() and not m.inHead then m.errorPanel.setFocus(true)
+        return
+    end if
     if root.getChildCount() = 0
         m.status.text = "No movies or shows with " + Util.toText(m.top.person.name) + " on this server."
         m.status.translation = [100, 420]
+        m.status.visible = true
         if m.favKnown and m.top.isInFocusChain() then enterHead()
         return
     end if
     m.status.visible = false
+    m.errorPanel.visible = false
     m.rows.content = root
     m.rows.visible = true
     if m.top.isInFocusChain() and not m.inHead then m.rows.setFocus(true)
@@ -154,7 +177,9 @@ end sub
 
 sub onFocusChanged()
     if not m.top.hasFocus() then return
-    if m.inHead or m.rows.content = invalid or m.rows.content.getChildCount() = 0
+    if not m.inHead and m.errorPanel.visible
+        m.errorPanel.setFocus(true)
+    else if m.inHead or m.rows.content = invalid or m.rows.content.getChildCount() = 0
         if m.favKnown then enterHead()
     else
         m.rows.setFocus(true)
@@ -219,6 +244,12 @@ sub enterHead()
 end sub
 
 sub leaveHead()
+    if m.errorPanel.visible
+        m.inHead = false
+        drawFav()
+        m.errorPanel.setFocus(true)
+        return
+    end if
     if m.rows.content = invalid or m.rows.content.getChildCount() = 0 then return
     m.inHead = false
     drawFav()
@@ -244,10 +275,23 @@ sub onFavourite(r as object)
     if r.code >= 200 and r.code < 300
         m.isFav = r.tag.method = "POST"
         m.top.action = { id: "changed" }
+        Toasts.notify(Toasts.favoriteText(Util.toText(m.top.person.name), m.isFav), "heart")
     else
-        m.top.findNode("born").text = "Couldn't change the favorite. " + Api.describeFailure(r)
+        print "Cove: person favourite failed: "; Api.describeFailure(r)
+        Toasts.notify(Toasts.failedText("update Favorites"), "info")
     end if
     drawFav()
+end sub
+
+sub onErrorChosen(ev as object)
+    id = ev.getData().id
+    if id = "retry"
+        m.errorPanel.visible = false
+        m.top.findNode("headKeys").setFocus(true)
+        load()
+    else
+        m.top.action = { id: id }
+    end if
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean

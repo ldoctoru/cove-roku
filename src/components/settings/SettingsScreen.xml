@@ -16,7 +16,7 @@
     </interface>
     <children>
         <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />
-        <Label id="tabTitle" width="1920" height="36" translation="[0,14]" horizAlign="center" color="0xFFFFFF8C">
+        <Label id="tabTitle" width="1920" height="36" translation="[0,14]" horizAlign="center" color="0xFFFFFFCC">
             <Font role="font" uri="font:BoldSystemFontFile" size="24" />
         </Label>
         <Group id="tabs" translation="[0,54]" />
