@@ -51,6 +51,40 @@ namespace Prefs
         return flagOn("autoNext", true)
     end function
 
+    ' (v1.0) Settings → Playback → Up Next countdown: seconds before the next episode starts (0 = Off: it
+    ' starts at once, without the Up Next card); 5, 10 (default) or 15
+    function upNextSeconds() as integer
+        v = text("upNextSecs", "10")
+        if v = "off" then return 0
+        n = v.toInt()
+        if n <> 5 and n <> 15 then n = 10
+        return n
+    end function
+
+    ' (v1.0) Settings → Playback → Ask if still watching after: seconds of playing without a key press before
+    ' Cove pauses and asks (0 = Off); 1, 2 (default) or 3 hours
+    function stillIdleSeconds() as integer
+        v = text("stillIdle", "2")
+        if v = "off" then return 0
+        n = v.toInt()
+        if n < 1 or n > 3 then n = 2
+        return n * 3600
+    end function
+
+    ' (v1.0) Settings → Playback → Default speed: the speed every title starts at ("1" = normal)
+    function defaultSpeed() as string
+        v = text("defaultSpeed", "1")
+        for each c in ["0.5", "0.75", "1", "1.25", "1.5", "2"]
+            if c = v then return v
+        end for
+        return "1"
+    end function
+
+    ' (v1.0) Settings → Playback → Cinema Mode: the server's intros (trailers, pre-rolls) before a film
+    function cinemaMode() as boolean
+        return flagOn("cinemaMode", false)
+    end function
+
     ' Settings → Playback → Start with: one quality for a server on the home network, one for a server over the
     ' internet (decided by its address, Util.isPrivateHost; no address = home). 0 = Automatic. The old single
     ' "startQuality" counts for both until one of them is changed (setStartQuality then splits it).

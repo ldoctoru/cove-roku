@@ -52,6 +52,11 @@
                 <Label id="score" height="40" vertAlign="center" color="0xFFFFFFFF">
                     <Font role="font" uri="font:MediumSystemFontFile" size="26" />
                 </Label>
+                <!-- (v1.0 F-15) the critics' score: red tomato from 60 %, green splat below -->
+                <Poster id="critic" width="28" height="28" translation="[0,6]" visible="false" />
+                <Label id="criticScore" height="40" vertAlign="center" color="0xFFFFFFFF">
+                    <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+                </Label>
             </Group>
             <!-- Up from the buttons when the description is cut: a glass highlight, OK opens the whole text -->
             <Poster id="ovFocus" uri="pkg:/images/ui/sel_pill.9.png" visible="false" />
