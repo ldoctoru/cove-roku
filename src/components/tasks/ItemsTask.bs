@@ -26,6 +26,8 @@ sub work()
         end if
         if type(list) <> "roArray" then list = []
         ' (only objects: a wrong type in the list would stop at the first field read)
+        ' (served: what the server sent, before the rating filter; the caller pages from it, R-3)
+        served = list.count()
         kept = []
         for each it in list
             if Util.isAA(it) and (m.top.kind = "person" or Ratings.allowed(srv, it)) then kept.push(it)
@@ -38,7 +40,7 @@ sub work()
             for each it in list
                 names.push(Util.toText(it.Name))
             end for
-            m.top.result = { names: names, total: total, gen: m.top.gen }
+            m.top.result = { names: names, total: total, served: served, gen: m.top.gen }
             return
         end if
         holder = createObject("roSGNode", "ContentNode")
@@ -49,7 +51,7 @@ sub work()
                 holder.appendChild(Items.node(srv, it, kind = "landscape"))
             end if
         end for
-        m.top.result = { nodes: holder, total: total, startIndex: m.top.startIndex, gen: m.top.gen, kind: kind }
+        m.top.result = { nodes: holder, total: total, served: served, startIndex: m.top.startIndex, gen: m.top.gen, kind: kind }
     catch e
         print "Cove: ItemsTask failed: "; Util.redact(Util.toText(e.message))
         m.top.error = "Loading failed: " + Util.toText(e.message)
