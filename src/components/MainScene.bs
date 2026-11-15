@@ -5,6 +5,7 @@ import "pkg:/source/DeviceCaps.bs"
 import "pkg:/source/Theme.bs"
 import "pkg:/source/Pins.bs"
 import "pkg:/source/Ratings.bs"
+import "pkg:/source/Prefs.bs"
 
 sub init()
     ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
@@ -535,6 +536,43 @@ sub onPlay(ev as object)
 end sub
 
 sub startPlayer(item as object)
+    ' (v1.0 F-10) Settings → Playback → Cinema Mode: the server's intros first, for a title started from the
+    ' beginning (not a trailer / extra, not a Shuffle queue); the server decides which titles get intros
+    if Prefs.cinemaMode() and m.server <> invalid and not Util.flag(item, "trailer") and type(item.queue) <> "roArray" and Util.toNumber(item.start) <= 0
+        request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(item.id) + "/Intros", true, "", { kind: "intros", item: item, newRoute: false })
+        return
+    end if
+    openPlayer(item)
+end sub
+
+' The intros answer: the first intro plays with the rest and the film behind it (PlayerScreen.playAfterIntro)
+sub onIntros(r as object)
+    item = r.tag.item
+    if (r.code = 404 or r.code = 405) and not Util.flag(r.tag, "newRoute")
+        ' (Jellyfin 10.9+ route)
+        request("GET", m.server, "/Items/" + Util.toText(item.id) + "/Intros?userId=" + Util.toText(m.server.userId), true, "", { kind: "intros", item: item, newRoute: true })
+        return
+    end if
+    list = []
+    if r.code = 200
+        src = r.json
+        if Util.isAA(src) then src = src.Items
+        for each it in Ratings.keep(m.server, src)
+            if Util.isAA(it) and Util.isSafeId(it.Id, false) and list.count() < 5 then list.push({ id: Util.toText(it.Id), subtitle: Util.toText(it.Name) })
+        end for
+    end if
+    print "Cove: cinema mode intros -> "; r.code; " "; list.count()
+    if list.count() = 0
+        openPlayer(item)
+        return
+    end if
+    first = list.shift()
+    sub_ = "Intro"
+    if first.subtitle <> "" then sub_ = "Intro  ·  " + first.subtitle
+    openPlayer({ id: first.id, title: Util.toText(item.title), subtitle: sub_, start: 0.0, trailer: true, after: item, intros: list })
+end sub
+
+sub openPlayer(item as object)
     p = createObject("roSGNode", "PlayerScreen")
     p.server = m.server
     p.observeField("done", "onPlayerDone")
@@ -783,6 +821,8 @@ sub dispatchResponse(r as object)
         end if
     else if kind = "resumeCheck"
         onResumeCheck(r)
+    else if kind = "intros"
+        onIntros(r)
     else if kind = "logout"
         print "Cove: signed out of the removed server -> "; r.code
     end if
