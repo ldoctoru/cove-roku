@@ -14,7 +14,7 @@
             <Font role="font" uri="font:BoldSystemFontFile" size="44" />
         </Label>
         <MiniKeyboard id="keyboard" translation="[90,170]" />
-        <Label id="status" width="1080" height="44" translation="[720,150]" color="0xFFFFFF8C" text="Type to search your libraries.">
+        <Label id="status" width="1080" height="44" translation="[720,150]" color="0xFFFFFFCC" text="Type to search your libraries.">
             <Font role="font" uri="font:MediumSystemFontFile" size="30" />
         </Label>
         <RowList id="grid" translation="[702,220]" itemComponentName="PosterItem" numRows="3"
@@ -24,6 +24,8 @@
                  drawFocusFeedback="false">
             <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="30" />
         </RowList>
+        <!-- every search request failed: Try Again / Switch Server / Settings (Right from the keyboard) -->
+        <ErrorPanel id="errorPanel" translation="[720,300]" width="1100" visible="false" />
         <Timer id="debounce" duration="0.6" repeat="false" />
     </children>
 </component>

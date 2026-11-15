@@ -6,7 +6,7 @@ import "pkg:/source/Prefs.bs"
 ' styled from Settings → Subtitles. Roku's own caption renderer isn't used for text subtitles: it ignores the
 ' app's style whenever the Roku's Accessibility → Captions style isn't Default, and has only three sizes.
 ' The Roku's caption settings still count: captions On starts a subtitle when Cove has no choice of its own,
-' and its caption style fills in the style settings left at their defaults (see setting()).
+' and its caption style is used for every style setting left at "Roku setting", the default (see style()).
 namespace Subs
 
     ' SRT text → [{ s: start seconds, e: end seconds, t: "line" or "line 1" + chr(10) + "line 2" }], by start
@@ -67,99 +67,141 @@ namespace Subs
 
     ' The style from Settings → Subtitles, for a 1080 px high screen (the Mac's fractions of the height).
     ' scale: 1 for the player, smaller for the Settings preview.
+    ' C-1: a style setting the user hasn't set in Cove ("Roku setting", the default) follows the Roku's
+    ' Settings > Accessibility > Caption style: text size, color, opacity, font, edge effect, background
+    ' color and opacity, and the window (which only the Roku has).
     function style(scale = 1.0 as float) as object
-        size = setting("subTextSize", "normal")
+        di = createObject("roDeviceInfo")
+        size = setting("subTextSize", di)
         frac = 0.045
         if size = "smaller" then frac = 0.032
         if size = "small" then frac = 0.038
         if size = "large" then frac = 0.055
         if size = "larger" then frac = 0.066
-        col = setting("subColor", "white")
-        tc = "0xFFFFFFFF"
-        if col = "yellow" then tc = "0xFFEB3BFF"
-        if col = "gray" then tc = "0xCCCCCCFF"
-        if col = "black" then tc = "0x000000FF"
-        ' (colours only the Roku's caption settings have)
-        if col = "red" then tc = "0xFF453AFF"
-        if col = "green" then tc = "0x32D74BFF"
-        if col = "blue" then tc = "0x0A84FFFF"
-        if col = "magenta" then tc = "0xFF2DD4FF"
-        if col = "cyan" then tc = "0x64D2FFFF"
+        col = setting("subColor", di)
+        tc = colorHex(col)
+        ' (the Roku's text opacity, only while the color is the Roku's too)
+        alpha = "FF"
+        if not userSet("subColor") then alpha = opacityHex(captionOption(di, "Text/Opacity"), "FF")
         ' the shadow is black, or white behind black text
         shade = "0x000000E6"
         if col = "black" then shade = "0xFFFFFFE6"
-        sh = setting("subShadow", "drop")
+        sh = setting("subShadow", di)
         offsets = []
         d = 2
         if scale < 0.7 then d = 1
         if sh = "drop" then offsets = [[d, d], [d + 1, d + 1]]
+        if sh = "dropLeft" then offsets = [[-d, d], [-d - 1, d + 1]]
         if sh = "raised" then offsets = [[1, d]]
+        if sh = "depressed" then offsets = [[-1, -d]]
         if sh = "outline" then offsets = [[-d, 0], [d, 0], [0, -d], [0, d], [-d, -d], [d, d], [-d, d], [d, -d]]
-        bg = setting("subBg", "none")
         bgColor = ""
-        if bg = "semi" then bgColor = "0x00000080"
-        if bg = "black" then bgColor = "0x000000FF"
-        return { fontSize: Int(1080 * frac * scale + 0.5), color: tc, shade: shade, offsets: offsets, bgColor: bgColor, bottom: Prefs.subBottom() }
+        winColor = ""
+        if userSet("subBg")
+            bg = setting("subBg", di)
+            if bg = "semi" then bgColor = "0x00000080"
+            if bg = "black" then bgColor = "0x000000FF"
+        else
+            ' (the Roku's background and window: any color, the opacity decides whether it shows)
+            a = opacityHex(captionOption(di, "Background/Opacity"), "")
+            if a <> "" then bgColor = colorHex(LCase(captionOption(di, "Background/Color")), "black") + a
+            a = opacityHex(captionOption(di, "Window/Opacity"), "")
+            if a <> "" then winColor = colorHex(LCase(captionOption(di, "Window/Color")), "black") + a
+        end if
+        ' the Roku's font: only the system font is on the device, so Small Caps is drawn as capitals a
+        ' little smaller and every other face as the system font
+        caps = LCase(captionOption(di, "Text/Font")) = "small caps"
+        if caps then frac = frac * 0.85
+        return { fontSize: Int(1080 * frac * scale + 0.5), color: tc + alpha, shade: shade, offsets: offsets, bgColor: bgColor, winColor: winColor, upper: caps, fontUri: "font:MediumSystemFontFile", bottom: Prefs.subBottom() }
+    end function
+
+    ' "0xRRGGBB" for a Cove or Roku color name (fallback: the name to use when it's unknown / Default)
+    function colorHex(name as string, fallback = "white" as string) as string
+        hexes = { white: "0xFFFFFF", yellow: "0xFFEB3B", gray: "0xCCCCCC", black: "0x000000", red: "0xFF453A", green: "0x32D74B", blue: "0x0A84FF", magenta: "0xFF2DD4", cyan: "0x64D2FF" }
+        if hexes.doesExist(name) then return hexes[name]
+        return hexes[fallback]
+    end function
+
+    ' The alpha byte for a Roku opacity ("25%" → "40"); def for Default (and "" for Off)
+    function opacityHex(v as string, def as string) as string
+        if v = "Off" then return ""
+        if v = "25%" then return "40"
+        if v = "50%" then return "80"
+        if v = "75%" then return "BF"
+        if v = "100%" then return "FF"
+        return def
     end function
 
     ' The style settings, shared by Settings → Subtitles and the player's Subtitles menu:
-    ' [{ key, label, def, options: [{ id, label }] }]
+    ' [{ key, label, def, options: [{ id, label }] }]. "roku" (the default) follows the Roku's caption style.
     function styleChoices() as object
         bo = []
         for each v in [0, 5, 10, 15, 20, 25, 30]
             bo.push({ id: v.toStr(), label: v.toStr() + "%" })
         end for
+        rk = { id: "roku", label: "Roku setting" }
         return [
-            { key: "subTextSize", label: "Text size", def: "normal", options: [{ id: "smaller", label: "Smaller" }, { id: "small", label: "Small" }, { id: "normal", label: "Normal" }, { id: "large", label: "Large" }, { id: "larger", label: "Larger" }] },
-            { key: "subColor", label: "Text color", def: "white", options: [{ id: "white", label: "White" }, { id: "yellow", label: "Yellow" }, { id: "gray", label: "Light gray" }, { id: "black", label: "Black" }] },
-            { key: "subShadow", label: "Shadow", def: "drop", options: [{ id: "none", label: "None" }, { id: "drop", label: "Drop shadow" }, { id: "outline", label: "Outline" }, { id: "raised", label: "Raised" }] },
-            { key: "subBg", label: "Background", def: "none", options: [{ id: "none", label: "Transparent" }, { id: "semi", label: "Semi-transparent" }, { id: "black", label: "Black" }] },
+            { key: "subTextSize", label: "Text size", def: "roku", options: [rk, { id: "smaller", label: "Smaller" }, { id: "small", label: "Small" }, { id: "normal", label: "Normal" }, { id: "large", label: "Large" }, { id: "larger", label: "Larger" }] },
+            { key: "subColor", label: "Text color", def: "roku", options: [rk, { id: "white", label: "White" }, { id: "yellow", label: "Yellow" }, { id: "gray", label: "Light gray" }, { id: "black", label: "Black" }] },
+            { key: "subShadow", label: "Shadow", def: "roku", options: [rk, { id: "none", label: "None" }, { id: "drop", label: "Drop shadow" }, { id: "outline", label: "Outline" }, { id: "raised", label: "Raised" }] },
+            { key: "subBg", label: "Background", def: "roku", options: [rk, { id: "none", label: "Transparent" }, { id: "semi", label: "Semi-transparent" }, { id: "black", label: "Black" }] },
             { key: "subBottom", label: "Distance from bottom", def: "10", options: bo }
         ]
     end function
 
-    ' The saved value of one style setting (its default when unset)
+    ' The saved value of one style setting: "roku" while it follows the Roku's caption style
     function current(ch as object) as string
         if ch.key = "subBottom" then return Prefs.subBottom().toStr()
-        return setting(ch.key, ch.def)
+        if not userSet(ch.key) then return "roku"
+        return Util.readText(ch.key)
     end function
 
     ' ---------------------------------------------------------------- the Roku's caption settings
     ' Precedence for every style setting: Cove's own choice (Settings → Subtitles, the player's Subtitles menu)
     ' > the Roku's Settings → Accessibility → Captions style (when not Default) > Cove's default.
 
-    ' One style setting as it applies now
-    function setting(key as string, def as string) as string
+    ' The user chose this style setting in Cove (not "Roku setting" / never set)
+    function userSet(key as string) as boolean
         v = Util.readText(key)
-        if v <> "" then return v
-        r = rokuStyle(key)
+        return v <> "" and v <> "roku"
+    end function
+
+    ' One style setting as it applies now
+    function setting(key as string, di as dynamic) as string
+        if userSet(key) then return Util.readText(key)
+        r = rokuStyle(key, di)
         if r <> "" then return r
-        return def
+        defs = { subTextSize: "normal", subColor: "white", subShadow: "drop", subBg: "none" }
+        return Util.toText(defs[key])
+    end function
+
+    ' One of the Roku's caption options ("" when it can't be read)
+    function captionOption(di as dynamic, name as string) as string
+        if di = invalid then return ""
+        return Util.toText(di.GetCaptionsOption(name))
     end function
 
     ' The Roku's caption style for one of Cove's style keys, as a Cove value ("" = Default / no match).
-    ' Font and window settings have no counterpart (Cove draws with the system font, without a window).
-    function rokuStyle(key as string) as string
-        di = createObject("roDeviceInfo")
-        if di = invalid then return ""
+    function rokuStyle(key as string, di as dynamic) as string
         if key = "subTextSize"
-            v = LCase(Util.toText(di.GetCaptionsOption("Text/Size")))
+            v = LCase(captionOption(di, "Text/Size"))
             sizes = { "extra small": "smaller", "small": "small", "medium": "normal", "large": "large", "extra large": "larger" }
             if sizes.doesExist(v) then return sizes[v]
         else if key = "subColor"
-            v = LCase(Util.toText(di.GetCaptionsOption("Text/Color")))
+            v = LCase(captionOption(di, "Text/Color"))
             if v = "white" or v = "yellow" or v = "black" or v = "red" or v = "green" or v = "blue" or v = "magenta" or v = "cyan" then return v
         else if key = "subShadow"
-            v = LCase(Util.toText(di.GetCaptionsOption("Text/Effect")))
+            v = LCase(captionOption(di, "Text/Effect"))
             if v = "none" then return "none"
-            if v = "raised" or v = "depressed" then return "raised"
+            if v = "raised" then return "raised"
+            if v = "depressed" then return "depressed"
             if v = "uniform" then return "outline"
+            if v = "drop shadow (left)" then return "dropLeft"
             if v.startsWith("drop shadow") then return "drop"
         else if key = "subBg"
-            ' (Cove's backgrounds are black: the Roku's opacity decides which one)
-            v = LCase(Util.toText(di.GetCaptionsOption("Background/Opacity")))
+            v = LCase(captionOption(di, "Background/Opacity"))
             if v = "off" then return "none"
-            if v = "25%" or v = "75%" then return "semi"
+            if v = "25%" or v = "50%" or v = "75%" then return "semi"
             if v = "100%" then return "black"
         end if
         return ""
@@ -190,7 +232,7 @@ namespace Subs
         return Prefs.subLang()
     end function
 
-    ' "Normal" for the saved value
+    ' "Normal" for the saved value ("Roku setting" while it follows the Roku)
     function currentLabel(ch as object) as string
         v = current(ch)
         for each o in ch.options

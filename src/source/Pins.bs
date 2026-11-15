@@ -1,21 +1,39 @@
 import "pkg:/source/Util.bs"
 
-' Profile PINs (4 digits). Only a salted SHA-256 is kept, in the profile's "p" field (Servers.bs): 16 hex
-' characters of random salt, then the 64 hex characters of SHA-256(salt:serverId:userId:pin). The PIN itself
-' is never stored or printed. 3 wrong tries in a row lock that profile for 30 s; the count is kept in the
-' registry ("pinWait"), so restarting the app doesn't reset it.
+' Profile PINs (4 digits). The PIN itself is never stored or printed: the profile's "p" field (Servers.bs) holds
+' a random salt and a hash. Since v0.9.1 that is "k" + 16 hex characters of salt + SHA-256 applied 1000 times
+' (the first round over salt:serverId:userId:pin, then over the previous digest); a v0.9.0 value (80 characters,
+' one round) still verifies and is replaced by the new form at the next right PIN. This is a household lock,
+' not strong protection: with only 10 000 possible PINs, anyone who can read the app's registry can find the
+' PIN by trying them all, and the rounds only make that a little slower.
+' Wrong tries: after every 3rd wrong PIN in a row the profile waits 30 s, then 1 min, 5 min and 15 min; the
+' streak is kept in the registry ("pinWait", kept through Reset All Settings) until a right PIN is entered.
 namespace Pins
 
     function isValid(pin as string) as boolean
         return CreateObject("roRegex", "^[0-9]{4}$", "").isMatch(pin)
     end function
 
+    ' (v0.9.0: one round)
     function digest(salt as string, serverId as string, userId as string, pin as string) as string
         ba = CreateObject("roByteArray")
         ba.fromAsciiString(salt + ":" + serverId + ":" + userId + ":" + pin)
         d = CreateObject("roEVPDigest")
         d.setup("sha256")
         return LCase(d.process(ba))
+    end function
+
+    ' (v0.9.1) the first round as above, then 999 more over the previous digest
+    function stretched(salt as string, serverId as string, userId as string, pin as string) as string
+        h = digest(salt, serverId, userId, pin)
+        ba = CreateObject("roByteArray")
+        d = CreateObject("roEVPDigest")
+        d.setup("sha256")
+        for i = 2 to 1000
+            ba.fromHexString(h)
+            h = d.process(ba)
+        end for
+        return LCase(h)
     end function
 
     ' A new salt + hash for the profile's "p" field
@@ -28,16 +46,25 @@ namespace Pins
                 salt = salt + StrI(Rnd(16) - 1, 16)
             end for
         end if
-        return salt + digest(salt, serverId, userId, pin)
+        return "k" + salt + stretched(salt, serverId, userId, pin)
     end function
 
     function matches(stored as string, serverId as string, userId as string, pin as string) as boolean
-        if stored.len() <> 80 or not isValid(pin) then return false
-        salt = stored.left(16)
-        return digest(salt, serverId, userId, pin) = stored.mid(16)
+        if not isValid(pin) then return false
+        if stored.len() = 81 and stored.left(1) = "k"
+            return stretched(stored.mid(1, 16), serverId, userId, pin) = stored.mid(17)
+        end if
+        ' (a v0.9.0 hash)
+        if stored.len() <> 80 then return false
+        return digest(stored.left(16), serverId, userId, pin) = stored.mid(16)
     end function
 
-    ' ---------------------------------------------------------------- 3 wrong tries → 30 s wait
+    ' A v0.9.0 hash, to replace with make() after a right PIN
+    function isOldHash(stored as string) as boolean
+        return stored.len() = 80
+    end function
+
+    ' ---------------------------------------------------------------- every 3 wrong tries: 30 s, 1 min, 5 min, 15 min
 
     function lockKey(serverId as string, userId as string) as string
         return serverId.left(12) + ":" + userId.left(12)
@@ -58,11 +85,12 @@ namespace Pins
         e = waits()[lockKey(serverId, userId)]
         if not Util.isAA(e) then return 0
         left_ = Int(Util.toNumber(e.u)) - now()
-        if left_ < 0 or left_ > 30 then return 0
+        if left_ < 0 or left_ > 900 then return 0
         return left_
     end function
 
-    ' A wrong PIN: the seconds to wait now (30 after the 3rd wrong try in a row, else 0)
+    ' A wrong PIN: the seconds to wait now (after the 3rd, 6th, 9th, 12th... wrong try in a row; else 0). The
+    ' streak (f) only ends with a right PIN (clearWrong).
     function noteWrong(serverId as string, userId as string) as integer
         all_ = waits()
         k = lockKey(serverId, userId)
@@ -70,10 +98,12 @@ namespace Pins
         if not Util.isAA(e) then e = { f: 0, u: 0 }
         e.f = Int(Util.toNumber(e.f)) + 1
         wait_ = 0
-        if e.f >= 3
-            e.f = 0
-            e.u = now() + 30
-            wait_ = 30
+        if e.f mod 3 = 0
+            steps = [30, 60, 300, 900]
+            idx = Int(e.f / 3) - 1
+            if idx > 3 then idx = 3
+            wait_ = steps[idx]
+            e.u = now() + wait_
         end if
         all_[k] = e
         Util.writeText("pinWait", formatJson(all_))
@@ -88,14 +118,20 @@ namespace Pins
         Util.writeText("pinWait", formatJson(all_))
     end sub
 
-    ' "Wrong PIN." / "Wrong PIN. Try again in 30 s."
+    ' "Wrong PIN. Please try again." / "Wrong PIN. Too many tries: try again in 5 min."
     function wrongText(wait_ as integer) as string
-        if wait_ > 0 then return "Wrong PIN. Too many tries: try again in " + wait_.toStr() + " s."
+        if wait_ > 0 then return "Wrong PIN. Too many tries: try again in " + waitWords(wait_) + "."
         return "Wrong PIN. Please try again."
     end function
 
     function waitText(wait_ as integer) as string
-        return "Too many wrong PINs. Try again in " + wait_.toStr() + " s."
+        return "Too many wrong PINs. Try again in " + waitWords(wait_) + "."
+    end function
+
+    ' 45 → "45 s", 300 → "5 min", 290 → "5 min" (rounded up)
+    function waitWords(wait_ as integer) as string
+        if wait_ < 60 then return wait_.toStr() + " s"
+        return Int((wait_ + 59) / 60).toStr() + " min"
     end function
 
 end namespace

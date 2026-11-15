@@ -6,6 +6,8 @@ sub init()
     m.keyboard = m.top.findNode("keyboard")
     m.grid = m.top.findNode("grid")
     m.status = m.top.findNode("status")
+    m.errorPanel = m.top.findNode("errorPanel")
+    m.errorPanel.observeField("chosen", "onErrorChosen")
     m.debounce = m.top.findNode("debounce")
     m.keyboard.observeField("text", "onText")
     m.debounce.observeField("fire", "search")
@@ -38,6 +40,7 @@ end sub
 sub search()
     term = m.keyboard.text.trim()
     m.gen = m.gen + 1
+    hidePanel()
     if term.len() < 2
         m.grid.content = invalid
         m.status.text = "Type to search your libraries."
@@ -115,7 +118,11 @@ sub showResults()
         m.inGrid = false
         ' (every request failed: say so, "No results" would be wrong)
         if m.failed >= 3
-            m.status.text = "Couldn't search. " + m.lastError
+            m.status.text = "Couldn't search."
+            m.errorPanel.message = "Couldn't search. " + m.lastError
+            m.errorPanel.index = 0
+            m.errorPanel.visible = true
+            Speak.say("Couldn't search. Press Right for Try Again.", false)
             return
         end if
         m.status.text = "No results for " + chr(34) + m.keyboard.text.trim() + chr(34) + "."
@@ -142,7 +149,13 @@ end sub
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     hasResults = m.grid.content <> invalid and m.grid.content.getChildCount() > 0
-    if key = "right" and m.keyboard.isInFocusChain() and hasResults
+    if key = "right" and m.keyboard.isInFocusChain() and not hasResults and m.errorPanel.visible
+        m.errorPanel.setFocus(true)
+        return true
+    else if key = "left" and m.errorPanel.isInFocusChain()
+        m.keyboard.setFocus(true)
+        return true
+    else if key = "right" and m.keyboard.isInFocusChain() and hasResults
         m.inGrid = true
         m.grid.setFocus(true)
         m.speakRow = -1
@@ -155,6 +168,22 @@ function onKeyEvent(key as string, press as boolean) as boolean
     end if
     return false
 end function
+
+sub hidePanel()
+    if not m.errorPanel.visible then return
+    hadFocus = m.errorPanel.isInFocusChain()
+    m.errorPanel.visible = false
+    if hadFocus then m.keyboard.setFocus(true)
+end sub
+
+sub onErrorChosen(ev as object)
+    id = ev.getData().id
+    if id = "retry"
+        search()
+    else
+        m.top.action = { id: id }
+    end if
+end sub
 
 ' Back from a result: the focus goes back to the results, on the card that was opened
 sub onFocusChanged()

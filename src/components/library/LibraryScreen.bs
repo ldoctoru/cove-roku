@@ -2,10 +2,14 @@ import "pkg:/source/Util.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/Toasts.bs"
 
 sub init()
     m.grid = m.top.findNode("grid")
     m.status = m.top.findNode("status")
+    m.errorPanel = m.top.findNode("errorPanel")
+    m.errorPanel.observeField("chosen", "onErrorChosen")
+    m.skeleton = m.top.findNode("skeleton")
     m.grid.observeField("itemFocused", "onFocused")
     m.grid.observeField("itemSelected", "onSelected")
     m.top.observeField("focusedChild", "onFocusChanged")
@@ -21,6 +25,7 @@ sub init()
     m.barIdx = 0
     m.barIds = []
     m.total = 0
+    m.nextStart = 0         ' the server offset of the next page (R-3)
     m.loading = false
     m.gen = 0
     m.task = invalid
@@ -76,9 +81,13 @@ end sub
 sub reload()
     m.gen = m.gen + 1
     m.total = 0
+    m.nextStart = 0
     m.grid.content = createObject("roSGNode", "ContentNode")
     m.status.text = "Loading..."
-    m.status.visible = true
+    ' (U-7: placeholder cards instead of the text)
+    m.status.visible = false
+    m.skeleton.active = true
+    hidePanel()
     loadPage(0, 60)
 end sub
 
@@ -111,7 +120,7 @@ end function
 function showLabel() as string
     if m.show = "unwatched" then return "Unwatched"
     if m.show = "watched" then return "Watched"
-    if m.show = "favourites" then return "Favourites"
+    if m.show = "favourites" then return "Favorites"
     return "All"
 end function
 
@@ -235,7 +244,7 @@ sub drawBar()
         else if isTab
             ' tabs sit together in one glass capsule (drawn below), the chosen one lit as on the Mac
             bg.uri = ""
-            lab.color = "0xFFFFFF99"
+            lab.color = "0xFFFFFFCC"
             if ids[i] = "tab:" + m.tab
                 bg.uri = "pkg:/images/ui/sel_pill.9.png"
                 lab.color = "0xFFFFFFFF"
@@ -305,6 +314,8 @@ sub leaveBar()
     drawBar()
     if m.grid.content <> invalid and m.grid.content.getChildCount() > 0
         m.grid.setFocus(true)
+    else if m.errorPanel.visible
+        m.errorPanel.setFocus(true)
     else
         m.top.setFocus(true)
     end if
@@ -338,7 +349,7 @@ sub useBar()
     else if id = "show"
         o = [{ id: "all", label: "All" }, { id: "unwatched", label: "Unwatched" }, { id: "watched", label: "Watched" }]
         ' (everything on the Favorites page is one already)
-        if feed() <> "favorites" then o.push({ id: "favourites", label: "Favourites" })
+        if feed() <> "favorites" then o.push({ id: "favourites", label: "Favorites" })
         openPicker("show", "Show", o, m.show)
     end if
 end sub
@@ -428,7 +439,12 @@ sub onPage(ev as object)
     r = ev.getData()
     if r.gen <> m.gen then return
     m.loading = false
+    m.skeleton.active = false
     m.total = r.total
+    ' (R-3: the next page starts at the server's offset; the rating limit may have dropped titles from this one)
+    served = Util.toNumber(r.served)
+    m.nextStart = r.startIndex + served
+    if served = 0 then m.nextStart = m.total
     holder = r.nodes
     ' (a refresh replaces what was shown only now, so the grid doesn't go blank while it loads)
     if r.startIndex = 0 then m.grid.content = createObject("roSGNode", "ContentNode")
@@ -439,13 +455,19 @@ sub onPage(ev as object)
     m.grid.content.appendChildren(nodes)
     count = m.grid.content.getChildCount()
     if count = 0
-        m.status.text = "Nothing here."
-        if feed() = "favorites" then m.status.text = "No favorites yet. Add titles with the heart on their page, or * on a card on Home."
-        if m.tab = "collections" then m.status.text = "No collections in this library."
-        if userFiltered() then m.status.text = "Nothing matches these filters. Press Up to change them."
-        m.status.visible = true
+        text = "Nothing here."
+        if feed() = "favorites" then text = "No favorites yet. Add titles with the heart on their page, or with * on a card on Home."
+        if m.tab = "collections" then text = "No collections in this library."
+        buttons = [{ id: "retry", label: "Try Again" }]
+        if userFiltered()
+            ' (U-8: one press back to everything)
+            text = "Nothing matches these filters."
+            buttons = [{ id: "clear", label: "Clear Filters" }, { id: "filters", label: "Change Filters" }]
+        end if
+        showPanel(text, "info", buttons)
     else
         m.status.visible = false
+        hidePanel()
         if r.startIndex = 0 and m.top.isInFocusChain() and not m.inBar then m.grid.setFocus(true)
         if r.startIndex = 0 and m.keepIndex > 0
             k = m.keepIndex
@@ -455,6 +477,8 @@ sub onPage(ev as object)
     end if
     m.keepIndex = -1
     updateInfo()
+    ' (a page thinned out by the rating limit: keep going while the focus is still near the end)
+    if count > 0 then pageMore(count)
 end sub
 
 sub onError(ev as object)
@@ -462,8 +486,50 @@ sub onError(ev as object)
     if ev.getRoSGNode().gen <> m.gen then return
     m.keepIndex = -1
     m.loading = false
-    m.status.text = ev.getData()
-    m.status.visible = true
+    m.skeleton.active = false
+    ' (a refresh or the next page failed while titles are shown: keep them)
+    if m.grid.content <> invalid and m.grid.content.getChildCount() > 0
+        if m.top.isInFocusChain() then Toasts.notify("Couldn't load more titles. " + Util.toText(ev.getData()), "info")
+        return
+    end if
+    showPanel(Util.toText(ev.getData()), "error", [{ id: "retry", label: "Try Again" }, { id: "switch", label: "Switch Server" }, { id: "settings", label: "Settings" }])
+end sub
+
+' ---------------------------------------------------------------- error / empty panel
+
+sub showPanel(text as string, icon as string, buttons as object)
+    m.status.visible = false
+    m.errorPanel.icon = icon
+    m.errorPanel.buttons = buttons
+    m.errorPanel.message = text
+    m.errorPanel.index = 0
+    m.errorPanel.visible = true
+    if m.top.isInFocusChain() and not m.inBar and m.picker = invalid then m.errorPanel.setFocus(true)
+end sub
+
+sub hidePanel()
+    if not m.errorPanel.visible then return
+    hadFocus = m.errorPanel.isInFocusChain()
+    m.errorPanel.visible = false
+    if hadFocus then m.top.setFocus(true)
+end sub
+
+sub onErrorChosen(ev as object)
+    id = ev.getData().id
+    if id = "retry"
+        reload()
+    else if id = "clear"
+        m.show = "all"
+        m.genre = ""
+        m.letter = ""
+        saveFilters()
+        drawBar()
+        reload()
+    else if id = "filters"
+        enterBar()
+    else if id = "switch" or id = "settings"
+        m.top.action = { id: id }
+    end if
 end sub
 
 sub updateInfo()
@@ -485,7 +551,12 @@ sub onFocused()
         c = m.grid.content.getChild(m.grid.itemFocused)
         if c <> invalid then Speak.say(Speak.card(c) + Speak.position(m.grid.itemFocused, m.total))
     end if
-    if not m.loading and count < m.total and m.grid.itemFocused >= count - 21 then loadPage(count, 60)
+    pageMore(count)
+end sub
+
+' The next 60 from the server's offset (m.nextStart), not from the number of cards shown
+sub pageMore(count as integer)
+    if not m.loading and m.nextStart < m.total and m.grid.itemFocused >= count - 21 then loadPage(m.nextStart, 60)
 end sub
 
 sub onSelected()
@@ -579,5 +650,7 @@ sub onFocusChanged()
         m.grid.setFocus(true)
         ' (back on this page: the focused card again)
         onFocused()
+    else if not m.inBar and m.errorPanel.visible
+        m.errorPanel.setFocus(true)
     end if
 end sub

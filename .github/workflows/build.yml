@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# One run per branch / PR at a time: a newer push cancels an older PR run; pushes to main / Development and
+# tag builds always finish (they queue instead)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Actions are pinned to full commit SHAs (the tag in the comment); Dependabot (.github/dependabot.yml) bumps them.
 env:
   # Roku's Static Channel Analysis tool, checked against this SHA-256 before it runs. Roku publishes it at a
@@ -21,6 +27,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -30,11 +37,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Fails when the tag isn't the package.json version (the version PR was forgotten), then stamps the build
       - name: Set version
         if: startsWith(github.ref, 'refs/tags/v')
-        run: node scripts/set-version.js "${GITHUB_REF_NAME}" "${GITHUB_RUN_NUMBER}"
+        run: node scripts/set-version.js --tag "${GITHUB_REF_NAME}" "${GITHUB_RUN_NUMBER}"
       - name: Lint and build (BrighterScript + bslint)
         run: npm run build
+      # BrightScript unit tests on the build output (Node interpreter) and the scripts' tests
+      - name: Unit tests
+        run: npm test
       - name: Check the package
         run: |
           unzip -l out/cove-roku.zip
@@ -59,18 +70,47 @@ jobs:
       - name: The package is unchanged
         run: sha256sum -c /tmp/cove-roku.sha256
 
+  # The committed UI images must be exactly what scripts/make-ui-assets.py makes with the pinned Pillow
+  # (scripts/requirements.txt, hash-checked) and the vendored font
+  ui-assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - run: python -m pip install --require-hashes -r scripts/requirements.txt
+      - name: Regenerate src/images/ui
+        run: python scripts/make-ui-assets.py
+      - name: The images are unchanged
+        run: |
+          git status --porcelain -- src/images/ui
+          git diff --exit-code --stat -- src/images/ui
+          if [ -n "$(git status --porcelain -- src/images/ui)" ]; then echo "::error::src/images/ui differs from scripts/make-ui-assets.py output: run it and commit the images"; exit 1; fi
+
   release:
-    needs: build
+    needs: [build, ui-assets]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # (id-token + attestations: only here, for the build provenance attestation of the release zip)
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: cove-roku
       - name: Checksums
         run: sha256sum cove-roku.zip | tee SHA256SUMS.txt
+      # Signed SLSA build provenance for the zip (verify: gh attestation verify cove-roku.zip -R ldoctoru/cove-roku)
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: cove-roku.zip
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Generates the Glass theme UI images in src/images/ui (run: python3 scripts/make-ui-assets.py; needs Pillow).
+"""Generates the Glass theme UI images in src/images/ui.
+
+    python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt
+    .venv/bin/python scripts/make-ui-assets.py            # regenerate src/images/ui
+    .venv/bin/python scripts/make-ui-assets.py --check    # only compare (exit 1 when src/images/ui differs)
+
+Options: --font PATH (default: the vendored scripts/fonts/DejaVuSans-Bold.ttf), --out DIR (default src/images/ui).
+
+The images are drawn into a temporary folder first, then synced into the output folder: changed and new files
+are written, files the script no longer makes are deleted (except HAND_MADE below), unchanged files are left
+alone. The output is byte-for-byte reproducible only with the pinned Pillow (scripts/requirements.txt) and the
+vendored font; CI checks that (the "UI assets" job).
 
 Roku has no blur, clipping or gradients, so they are faked with small PNGs:
 - *.9.png are 9-patches: content plus a 1px border whose black top/left pixels mark the stretchable middle.
@@ -7,10 +18,28 @@ Roku has no blur, clipping or gradients, so they are faked with small PNGs:
 - Gradient strips are tiny and get stretched by the Poster node.
 Shapes are drawn at 4x and scaled down for smooth edges. Colours follow Cove for macOS (Sources/Views.swift).
 """
+import argparse
+import filecmp
 import os
-from PIL import Image, ImageDraw, ImageFilter
+import shutil
+import sys
+import tempfile
 
-OUT = os.path.join(os.path.dirname(__file__), "..", "src", "images", "ui")
+try:
+    import PIL
+    from PIL import Image, ImageDraw, ImageFilter, ImageFont
+except ImportError:
+    sys.exit("make-ui-assets: Pillow is missing: pip install -r scripts/requirements.txt")
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_OUT = os.path.normpath(os.path.join(HERE, "..", "src", "images", "ui"))
+DEFAULT_FONT = os.path.join(HERE, "fonts", "DejaVuSans-Bold.ttf")
+# Drawn by hand, not by this script: kept by the sync (and by --check) instead of being deleted as stale
+HAND_MADE = {"icon_lock_28.png", "icon_profile_36.png", "icon_tab_profiles_44.png", "icon_critic_fresh_56.png", "icon_critic_rotten_56.png"}
+
+OUT = DEFAULT_OUT     # where save() writes (main() points it at a temporary folder)
+FONT = DEFAULT_FONT
+WRITTEN = []
 S = 4  # supersampling
 BGS = {"black": (0, 0, 0), "charcoal": (28, 28, 28), "navy": (10, 18, 43), "plum": (31, 13, 38), "forest": (10, 31, 20)}
 GLASS_FILL = (28, 28, 28, 179)
@@ -19,7 +48,14 @@ WHITE = (255, 255, 255, 255)
 
 
 def save(img, name):
+    if name in WRITTEN:
+        sys.exit("make-ui-assets: %s is drawn twice" % name)
+    WRITTEN.append(name)
     img.save(os.path.join(OUT, name), optimize=True)
+
+
+def font(size):
+    return ImageFont.truetype(FONT, size)
 
 
 def down(img, w, h):
@@ -83,6 +119,16 @@ def nine(content, stretch_x=None, stretch_y=None):
 
 def circle(size, fill, stroke=None, stroke_w=0):
     return shape(size, size, size // 2, fill, stroke, stroke_w)
+
+
+def ring_circle(size, width, color=WHITE):
+    """A ring: a filled circle with the middle cut out (\"Who's watching?\" focus ring)."""
+    big = Image.new("RGBA", (size * S, size * S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(big)
+    d.ellipse([0, 0, size * S - 1, size * S - 1], fill=color)
+    i = width * S
+    d.ellipse([i, i, size * S - 1 - i, size * S - 1 - i], fill=(0, 0, 0, 0))
+    return down(big, size, size)
 
 
 def strip(w, h, alpha_at, rgb=(0, 0, 0), vertical=True):
@@ -172,8 +218,7 @@ def restart(d, n):
 
 def captions(d, n):
     d.rounded_rectangle([n * 0.08, n * 0.2, n * 0.92, n * 0.8], n * 0.12, outline=WHITE, width=int(n * 0.08))
-    from PIL import ImageFont
-    f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", int(n * 0.36))
+    f = font(int(n * 0.36))
     bb = d.textbbox((0, 0), "CC", font=f)
     d.text(((n - (bb[2] - bb[0])) / 2 - bb[0], (n - (bb[3] - bb[1])) / 2 - bb[1]), "CC", font=f, fill=WHITE)
 
@@ -182,7 +227,6 @@ def skip30(forward, secs=30):
     label = str(secs)
 
     def draw(d, n):
-        from PIL import ImageFont
         w = int(n * 0.08)
         box = [n * 0.1, n * 0.1, n * 0.9, n * 0.9]
         if forward:
@@ -191,7 +235,7 @@ def skip30(forward, secs=30):
         else:
             d.arc(box, -70, 240, fill=WHITE, width=w)
             d.polygon([(n * 0.38, n * 0.02), (n * 0.14, n * 0.16), (n * 0.4, n * 0.3)], fill=WHITE)
-        f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", int(n * 0.34))
+        f = font(int(n * 0.34))
         bb = d.textbbox((0, 0), label, font=f)
         d.text(((n - (bb[2] - bb[0])) / 2 - bb[0], (n - (bb[3] - bb[1])) / 2 - bb[1] + n * 0.03), label, font=f, fill=WHITE)
     return draw
@@ -233,9 +277,8 @@ def waveform(d, n):
 
 
 def quality(d, n):
-    from PIL import ImageFont
     d.rounded_rectangle([n * 0.06, n * 0.2, n * 0.94, n * 0.8], n * 0.12, outline=WHITE, width=int(n * 0.07))
-    f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", int(n * 0.36))
+    f = font(int(n * 0.36))
     bb = d.textbbox((0, 0), "HD", font=f)
     d.text(((n - (bb[2] - bb[0])) / 2 - bb[0], (n - (bb[3] - bb[1])) / 2 - bb[1]), "HD", font=f, fill=WHITE)
 
@@ -405,8 +448,7 @@ def bubble_icon(d, n):
         d.line([(n * 0.24, n * y), (n * 0.76, n * y)], fill=WHITE, width=w)
 
 
-def main():
-    os.makedirs(OUT, exist_ok=True)
+def draw_all():
     save(nine(shape(60, 60, 30, GLASS_FILL, GLASS_STROKE, 2)), "glass_pill.9.png")
     save(nine(shape(48, 48, 24, (255, 255, 255, 56))), "sel_pill.9.png")
     save(nine(shape(48, 48, 24, WHITE)), "white_pill.9.png")
@@ -474,8 +516,93 @@ def main():
     for pct in range(0, 101, 4):
         save(arc(132, 8, pct), "load_arc_%03d.png" % pct)
     save(arc(132, 8, 100, (255, 255, 255, 46)), "load_track.png")
-    print("wrote", len(os.listdir(OUT)), "files to", os.path.normpath(OUT))
+    # "Who's watching?" profile picker: avatar circle and its focus ring
+    save(circle(240, WHITE), "white_circle_240.png")
+    save(ring_circle(256, 7), "ring_circle_256.png")
+
+
+def sync(src, dst):
+    """Copies new and changed files from src to dst and deletes the stale ones; returns the counts."""
+    os.makedirs(dst, exist_ok=True)
+    made = set(os.listdir(src))
+    added, changed, same, removed = [], [], [], []
+    for name in sorted(made):
+        target = os.path.join(dst, name)
+        if not os.path.exists(target):
+            added.append(name)
+        elif filecmp.cmp(os.path.join(src, name), target, shallow=False):
+            same.append(name)
+            continue
+        else:
+            changed.append(name)
+        shutil.copyfile(os.path.join(src, name), target)
+    for name in sorted(os.listdir(dst)):
+        if name not in made and name not in HAND_MADE and os.path.isfile(os.path.join(dst, name)):
+            os.remove(os.path.join(dst, name))
+            removed.append(name)
+    return added, changed, same, removed
+
+
+def compare(src, dst):
+    """--check: what a sync would change, without writing anything."""
+    made = set(os.listdir(src))
+    have = set(os.listdir(dst)) if os.path.isdir(dst) else set()
+    added = sorted(made - have)
+    changed = sorted(n for n in made & have if not filecmp.cmp(os.path.join(src, n), os.path.join(dst, n), shallow=False))
+    removed = sorted(n for n in have - made - HAND_MADE if os.path.isfile(os.path.join(dst, n)))
+    return added, changed, removed
+
+
+def pinned_pillow():
+    try:
+        with open(os.path.join(HERE, "requirements.txt")) as f:
+            for line in f:
+                if line.lower().startswith("pillow=="):
+                    return line.split("==", 1)[1].split()[0].rstrip("\\")
+    except OSError:
+        pass
+    return None
+
+
+def main(argv=None):
+    global OUT, FONT
+    ap = argparse.ArgumentParser(description="Generate the Glass theme UI images (src/images/ui).")
+    ap.add_argument("--font", default=DEFAULT_FONT, help="bold TrueType font for the CC / HD / 10-60 labels (default: %(default)s)")
+    ap.add_argument("--out", default=DEFAULT_OUT, help="output folder (default: %(default)s)")
+    ap.add_argument("--check", action="store_true", help="don't write: exit 1 if the output folder differs from what the script makes")
+    args = ap.parse_args(argv)
+    if not os.path.isfile(args.font):
+        sys.exit("make-ui-assets: font not found: %s (pass --font /path/to/DejaVuSans-Bold.ttf)" % args.font)
+    FONT = args.font
+    pin = pinned_pillow()
+    if pin and PIL.__version__ != pin:
+        print("make-ui-assets: warning: Pillow %s, scripts/requirements.txt pins %s; the PNG bytes may differ"
+              % (PIL.__version__, pin), file=sys.stderr)
+    with tempfile.TemporaryDirectory(prefix="cove-ui-") as tmp:
+        OUT = tmp
+        del WRITTEN[:]
+        draw_all()
+        out = os.path.normpath(args.out)
+        if args.check:
+            added, changed, removed = compare(tmp, out)
+            for label, names in (("missing", added), ("different", changed), ("not generated (stale)", removed)):
+                for n in names:
+                    print("  %s: %s" % (label, n))
+            if added or changed or removed:
+                print("make-ui-assets --check: %s is out of date (%d missing, %d different, %d stale); run scripts/make-ui-assets.py"
+                      % (out, len(added), len(changed), len(removed)))
+                return 1
+            print("make-ui-assets --check: %d generated files match %s (+%d hand-made kept)"
+                  % (len(WRITTEN), out, len(HAND_MADE & set(os.listdir(out)))))
+            return 0
+        added, changed, same, removed = sync(tmp, out)
+    for label, names in (("new", added), ("changed", changed), ("removed", removed)):
+        for n in names:
+            print("  %s: %s" % (label, n))
+    print("make-ui-assets: generated %d files into %s: %d new, %d changed, %d unchanged, %d stale removed"
+          % (len(WRITTEN), out, len(added), len(changed), len(same), len(removed)))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

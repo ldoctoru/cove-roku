@@ -18,6 +18,8 @@ sub init()
     m.subLayer = m.top.findNode("subLayer")
     m.subTimer = m.top.findNode("subTimer")
     m.subTimer.observeField("fire", "onSubTick")
+    m.subsOn = false        ' cues loaded (the subtitle timer runs only while they are and the video plays)
+    m.stillClock = invalid  ' since "Are you still watching?" showed (R-5)
     m.loaderArc = m.top.findNode("loaderArc")
     m.loaderPct = m.top.findNode("loaderPct")
     m.video.observeField("bufferingStatus", "onBufferingStatus")
@@ -75,7 +77,23 @@ sub init()
     resetState()
 end sub
 
+' Settings read once per title (P-3: each Prefs read opens the registry, and some ran every second);
+' read again when a picker closes, since the player's menus can change them
+sub refreshPrefs()
+    m.pf = {
+        skipIntro: Prefs.autoSkipIntro(),
+        skipRecap: Prefs.autoSkipRecap(),
+        stillAfter: Prefs.stillWatchingAfter(),
+        jump: Prefs.jumpSeconds(),
+        skip: Prefs.skipSeconds(),
+        subBottom: Prefs.subBottom(),
+        autoNext: Prefs.autoNext(),
+        rewind: Prefs.rewindOnResume()
+    }
+end sub
+
 sub resetState()
+    refreshPrefs()
     m.loadNote = ""
     m.loadBase = 0
     m.subPos = 0.0
@@ -91,9 +109,14 @@ sub resetState()
     m.osdShown = false
     m.osd.opacity = 0
     m.pauseClock = invalid
-    ' playback speed (* menu → Speed), back to 1× for every new title; Ends at divides the time left by it
+    ' playback speed (* menu → Speed), back to Settings → Playback → Default speed (v1.0 F-3) for every new
+    ' title; Ends at divides the time left by it
     m.speed = 1.0
     m.speedId = "1"
+    if speedSupported()
+        m.speedId = Prefs.defaultSpeed()
+        m.speed = Val(m.speedId)
+    end if
     m.session = invalid
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = invalid
@@ -136,7 +159,7 @@ sub begin()
     if type(it.queue) = "roArray" then m.queue = it.queue
     m.startAt = it.start
     ' Settings → Playback → Rewind on resume: a title resuming from its saved position starts a little earlier
-    rw = Prefs.rewindOnResume()
+    rw = m.pf.rewind
     if rw > 0 and m.startAt > 1
         m.startAt = m.startAt - rw
         if m.startAt < 0 then m.startAt = 0
@@ -336,6 +359,7 @@ end sub
 sub clearSubs()
     if m.subLayer = invalid then return
     m.subTimer.control = "stop"
+    m.subsOn = false
     m.subLayer.cues = []
 end sub
 
@@ -355,7 +379,7 @@ end sub
 
 ' Settings → Subtitles → Distance from bottom; above the controls while they show (as on the Mac)
 sub liftSubs(controlsShown as boolean)
-    base = Int(1080 * Prefs.subBottom() / 100)
+    base = Int(1080 * m.pf.subBottom / 100)
     if controlsShown and base < 236 then base = 236
     m.subLayer.lift = base
 end sub
@@ -379,6 +403,7 @@ sub onSubProbe(r as object)
         m.subLayer.restyle = true
         liftSubs(m.osdShown)
         m.subLayer.cues = r.cues
+        m.subsOn = true
         m.subTimer.control = "start"
         m.replayReady = true
         return
@@ -390,6 +415,7 @@ sub onSubProbe(r as object)
             m.subLayer.restyle = true
             liftSubs(m.osdShown)
             m.subLayer.cues = r.cues
+            m.subsOn = true
             m.subTimer.control = "start"
         end if
         return
@@ -423,8 +449,11 @@ sub onState()
     if st = "paused"
         if m.pauseClock = invalid then m.pauseClock = createObject("roTimespan")
         m.pauseClock.Mark()
+        ' (P-6: the 10 Hz subtitle timer rests while paused; the layer keeps the cue shown)
+        m.subTimer.control = "stop"
     else if st = "playing"
         m.pauseClock = invalid
+        if m.subsOn then m.subTimer.control = "start"
     end if
     if st = "paused" then showOsd(false)
     if st = "playing" and m.osdShown then m.hideTimer.control = "start"
@@ -470,8 +499,21 @@ sub onProgressTimer()
     st = m.video.state
     ' (while paused the position doesn't move, but "Ends at" does)
     if m.osdShown and m.seekTarget < 0 then updateBar(m.video.position)
-    ' (2 hours of playing without a key press: pause and ask, so a sleeping viewer doesn't stream all night)
-    if st = "playing" and Prefs.stillWatchingAfter() > 0 and m.lastInput.TotalSeconds() >= 7200 and not m.still.visible
+    ' R-5: the question unanswered for 15 minutes: close (stop report, end the conversion); while it shows,
+    ' no ping keeps the server's conversion alive
+    if m.still.visible
+        if m.stillClock <> invalid and m.stillClock.TotalSeconds() >= 900
+            print "Cove: still watching unanswered for 15 min, closing"
+            m.still.visible = false
+            m.stillKind = ""
+            close()
+        end if
+        return
+    end if
+    ' (Settings → Playback → Ask if still watching after, 2 hours by default, without a key press: pause and
+    ' ask, so a sleeping viewer doesn't stream all night; v1.0 F-11, read once per player)
+    if m.idleLimit = invalid then m.idleLimit = Prefs.stillIdleSeconds()
+    if st = "playing" and m.idleLimit > 0 and m.lastInput.TotalSeconds() >= m.idleLimit and not m.still.visible
         m.video.control = "pause"
         askStill("idle")
         return
@@ -527,14 +569,14 @@ sub onPosition()
     ' (credits with a known end before the real end: a scene after them, the button goes when it starts)
     if inCredits and m.next = invalid and mk.creditsEnd > mk.credits and p >= mk.creditsEnd - 2 then inCredits = false
     seg = segmentAt(p)
-    if inIntro and not m.introDismissed and Prefs.autoSkipIntro()
+    if inIntro and not m.introDismissed and m.pf.skipIntro
         ' Settings → Skip intros automatically
         m.introDismissed = true
         print "Cove: skipping the intro to "; Int(mk.introEnd); " s"
         m.video.seek = mk.introEnd
     else if inIntro and not m.introDismissed
         showAction("intro", "Skip intro")
-    else if seg <> invalid and seg.kind = "recap" and Prefs.autoSkipRecap()
+    else if seg <> invalid and seg.kind = "recap" and m.pf.skipRecap
         ' Settings → Skip recaps automatically
         m.segsDone[seg.key] = true
         print "Cove: skipping the recap to "; Int(seg.e); " s"
@@ -608,7 +650,7 @@ sub skipTo(t as float)
     d = m.video.duration
     if d > 0 and t >= d - 3
         print "Cove: skipped to the end"
-        if m.next <> invalid and Prefs.autoNext()
+        if m.next <> invalid and m.pf.autoNext
             ' (Up next runs over a stopped video, as after a real end)
             m.video.control = "stop"
             onFinished()
@@ -633,8 +675,18 @@ sub skipCredits()
 end sub
 
 sub onFinished()
+    ' (v1.0 F-12) sleep timer on "End of episode": the player closes here
+    if Util.toText(m.sleepMode) = "episode"
+        sleepExpire()
+        return
+    end if
+    ' (v1.0 F-10) Cinema Mode: the next intro, then the film
+    if m.top.item.after <> invalid
+        playAfterIntro()
+        return
+    end if
     ' Settings → Play the next episode automatically (off: the player closes at the end)
-    if m.next <> invalid and Prefs.autoNext()
+    if m.next <> invalid and m.pf.autoNext
         report("/Sessions/Playing/Stopped", false, m.video.duration)
         stopEncoding()
         m.progressTimer.control = "stop"
@@ -647,8 +699,15 @@ sub onFinished()
             m.top.findNode("upNextTitle").text = Util.toText(m.next.Name)
             m.top.findNode("upNextEpisode").text = ""
         end if
-        m.count = 10
-        m.top.findNode("upNextCount").text = "Play now  (10)"
+        ' Settings → Playback → Up Next countdown (v1.0 F-11): Off starts the next one at once
+        secs = Prefs.upNextSeconds()
+        if secs <= 0
+            m.count = 1
+            onCountdown()
+            return
+        end if
+        m.count = secs
+        m.top.findNode("upNextCount").text = "Play now  (" + secs.toStr() + ")"
         m.top.findNode("upNextStill").uri = Items.landscape(m.top.server, m.next, 240)
         m.osdShown = false
         m.osd.opacity = 0
@@ -656,7 +715,7 @@ sub onFinished()
         m.upNext.visible = true
         m.upNext.setFocus(true)
         m.countdown.control = "start"
-        Speak.say(Speak.clean("Up next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play now, button, plays in 10 seconds")
+        Speak.say(Speak.clean("Up next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play now, button, plays in " + secs.toStr() + " seconds")
     else
         close()
     end if
@@ -667,7 +726,7 @@ sub onCountdown()
     if m.count <= 0
         m.countdown.control = "stop"
         ' Settings → Playback → Are you still watching?: this many episodes in a row without a key press
-        lim = Prefs.stillWatchingAfter()
+        lim = m.pf.stillAfter
         if lim > 0 and m.autoCount >= lim
             askStill("next")
             return
@@ -758,12 +817,13 @@ sub closePicker()
         m.picker = invalid
         ' (Audio Guide: the focused control is said again)
         m.spokenKey = ""
+        refreshPrefs()
     end if
 end sub
 
 sub onPickerCancelled()
     ' (Back from a style list: the Subtitles menu again)
-    if m.picker <> invalid and (Left(Util.toText(m.picker.purpose), 9) = "substyle:" or m.picker.purpose = "subdelay")
+    if m.picker <> invalid and (Left(Util.toText(m.picker.purpose), 9) = "substyle:" or m.picker.purpose = "subdelay" or m.picker.purpose = "subsearchlang" or m.picker.purpose = "subresults")
         openSubsMenu()
         return
     end if
@@ -780,7 +840,7 @@ end sub
 
 ' Play on after a pause; after 5 minutes or more, Settings → Playback → Rewind on resume goes back a little first
 sub resumeVideo()
-    rw = Prefs.rewindOnResume()
+    rw = m.pf.rewind
     if rw > 0 and m.pauseClock <> invalid and m.pauseClock.TotalSeconds() >= 300
         t = m.video.position - rw
         if t < 0 then t = 0
@@ -830,6 +890,18 @@ sub onPicked(ev as object)
         end for
         return
     end if
+    if c.purpose = "subs" and c.id = "search"
+        openSubSearchLangs()
+        return
+    end if
+    if c.purpose = "subsearchlang"
+        searchSubtitles(c.id)
+        return
+    end if
+    if c.purpose = "subresults"
+        downloadSubtitle(c.id)
+        return
+    end if
     if c.purpose = "subs" and c.id = "delay"
         o = []
         for each ms in [-5000, -4500, -4000, -3500, -3000, -2500, -2000, -1500, -1000, -500, -250, 0, 250, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
@@ -848,6 +920,7 @@ sub onPicked(ev as object)
     end if
     if Left(c.purpose, 9) = "substyle:"
         Util.writeText(Mid(c.purpose, 10), c.id)
+        refreshPrefs()
         m.subLayer.restyle = true
         liftSubs(m.osdShown)
         openSubsMenu()
@@ -856,6 +929,12 @@ sub onPicked(ev as object)
     closePicker()
     if c.purpose = "chapter"
         seekToChapter(c)
+        return
+    end if
+    if c.purpose = "sleep"
+        m.keys.setFocus(true)
+        setSleep(c.id)
+        resumeAfterPicker()
         return
     end if
     if c.purpose = "speed"
@@ -867,7 +946,6 @@ sub onPicked(ev as object)
         return
     end if
     if c.purpose = "version"
-        closePicker()
         m.keys.setFocus(true)
         if c.id <> Util.toText(m.opts.sourceId) and c.id <> m.tracks.sourceId
             ' another file: its own tracks (defaults), same position
@@ -981,9 +1059,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
     else if key = "rewind" or key = "fastforward"
         ' Settings → Playback → Jump buttons
         if key = "fastforward"
-            seekBy(Prefs.jumpSeconds())
+            seekBy(m.pf.jump)
         else
-            seekBy(-Prefs.jumpSeconds())
+            seekBy(-m.pf.jump)
         end if
         return true
     else if key = "play"
@@ -997,9 +1075,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
         else if key = "OK"
             togglePause()
         else if key = "left"
-            seekBy(-Prefs.skipSeconds())
+            seekBy(-m.pf.skip)
         else if key = "right"
-            seekBy(Prefs.skipSeconds())
+            seekBy(m.pf.skip)
         else
             showOsd(true)
         end if
@@ -1023,9 +1101,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
     else if m.area = "bar" and (key = "left" or key = "right")
         ' the progress bar has the focus: Left / Right move along it (presses add up, thumbnail shows)
         if key = "left"
-            seekBy(-Prefs.skipSeconds())
+            seekBy(-m.pf.skip)
         else
-            seekBy(Prefs.skipSeconds())
+            seekBy(m.pf.skip)
         end if
     else if key = "left"
         if m.idx > 0 then m.idx = m.idx - 1
@@ -1110,9 +1188,9 @@ sub useControl()
     end if
     id = m.toolIds[m.idx]
     if id = "jumpBack"
-        seekBy(-Prefs.jumpSeconds())
+        seekBy(-m.pf.jump)
     else if id = "jumpFwd"
-        seekBy(Prefs.jumpSeconds())
+        seekBy(m.pf.jump)
     else if id = "prev"
         playEpisode(m.prev)
     else if id = "next"
@@ -1174,8 +1252,8 @@ end sub
 function toolIcon(id as string) as string
     if id = "subs" then return "subtitles"
     ' (the icon shows the jump length from Settings → Playback → Jump buttons: back10 ... fwd60)
-    if id = "jumpBack" then return "back" + Prefs.jumpSeconds().toStr()
-    if id = "jumpFwd" then return "fwd" + Prefs.jumpSeconds().toStr()
+    if id = "jumpBack" then return "back" + m.pf.jump.toStr()
+    if id = "jumpFwd" then return "fwd" + m.pf.jump.toStr()
     return id
 end function
 
@@ -1301,7 +1379,7 @@ function positionSpeech(atSec as float) as string
 end function
 
 function toolSpeech(id as string) as string
-    j = Prefs.jumpSeconds().toStr()
+    j = m.pf.jump.toStr()
     if id = "jumpBack" then return "Back " + j + " seconds"
     if id = "jumpFwd" then return "Forward " + j + " seconds"
     if id = "episodes" then return "Episodes"
@@ -1611,7 +1689,7 @@ sub markIfWatched(atSec as float)
     fallback = ""
     if Util.toText(m.top.server.type) = "jellyfin" then fallback = "/UserPlayedItems/" + m.top.item.id + "?userId=" + uid
     fire("POST", "/Users/" + uid + "/PlayedItems/" + m.top.item.id, "", 0, fallback)
-    m.info.UserData.Played = true
+    if Util.isAA(m.info.UserData) then m.info.UserData.Played = true
 end sub
 
 sub report(path as string, paused as boolean, atSec = -1 as float)
@@ -1815,6 +1893,7 @@ end sub
 ' * menu entries added after audio / subtitles / quality / version: Chapters, Playback info
 sub addMenuExtras(opts as object)
     if chapterEntries().count() > 0 then opts.push({ id: "chapters", label: "Chapters" })
+    opts.push({ id: "sleep", label: "Sleep timer: " + sleepLabel() })
     if m.pbInfo = invalid
         opts.push({ id: "pbinfo", label: "Show playback info" })
     else
@@ -1823,7 +1902,15 @@ sub addMenuExtras(opts as object)
 end sub
 
 sub useMenuExtra(id as string)
-    if id = "chapters"
+    if id = "sleep"
+        o = []
+        for each c in sleepChoices()
+            o.push({ id: c[0], label: c[1] })
+        end for
+        cur = Util.toText(m.sleepId)
+        if cur = "" then cur = "off"
+        openPicker("sleep", "Sleep timer", o, cur)
+    else if id = "chapters"
         showChapters()
     else if id = "pbinfo"
         togglePlaybackInfo()
@@ -2059,6 +2146,8 @@ sub openSubsMenu()
     end for
     ' (text subtitles only: burned-in ones are part of the picture)
     if m.opts.sub >= 0 and not m.opts.burn then o.push({ id: "delay", label: "Subtitle delay:  " + delayLabel(m.subDelayMs) })
+    ' (v1.0 F-13) the server's subtitle providers (OpenSubtitles, ...)
+    if m.info <> invalid then o.push({ id: "search", label: "Search for subtitles..." })
     for each ch in Subs.styleChoices()
         o.push({ id: "style:" + ch.key, label: ch.label + ":  " + Subs.currentLabel(ch) })
     end for
@@ -2090,6 +2179,10 @@ sub askStill(kind as string)
     m.top.findNode("stillTitle").text = name + "?"
     print "Cove: are you still watching ("; kind; ")"
     m.stillSpoken = false
+    if m.stillClock = invalid then m.stillClock = createObject("roTimespan")
+    m.stillClock.Mark()
+    ' (the 10 s timer also closes the player when nobody answers; after the countdown it was stopped)
+    m.progressTimer.control = "start"
     drawStill()
     m.still.visible = true
     m.still.setFocus(true)
@@ -2261,9 +2354,9 @@ function handleTransport(evt as object) as object
         if st <> "playing" then return { status: "error.redundant" }
         m.video.control = "pause"
     else if cmd = "forward"
-        seekBy(Prefs.jumpSeconds())
+        seekBy(m.pf.jump)
     else if cmd = "rewind"
-        seekBy(-Prefs.jumpSeconds())
+        seekBy(-m.pf.jump)
     else if cmd = "replay"
         instantReplay()
     else if cmd = "startover"
@@ -2304,3 +2397,255 @@ function handleTransport(evt as object) as object
     end if
     return ok
 end function
+
+' ---------------------------------------------------------------- sleep timer (v1.0 F-12)
+
+' (kept for the whole player: it spans the next episodes)
+function sleepChoices() as object
+    return [["off", "Off"], ["episode", "End of episode"], ["30", "30 minutes"], ["60", "60 minutes"], ["90", "90 minutes"]]
+end function
+
+sub setSleep(id as string)
+    m.sleepId = id
+    m.sleepMode = ""
+    m.sleepSecs = 0
+    if id = "episode"
+        m.sleepMode = "episode"
+    else if id.toInt() > 0
+        m.sleepMode = "time"
+        m.sleepSecs = id.toInt() * 60
+        m.sleepClock = createObject("roTimespan")
+    end if
+    if m.sleepTimer = invalid
+        m.sleepTimer = createObject("roSGNode", "Timer")
+        m.sleepTimer.duration = 10
+        m.sleepTimer.repeat = true
+        m.sleepTimer.observeField("fire", "onSleepTick")
+        m.top.appendChild(m.sleepTimer)
+    end if
+    if m.sleepMode = "time"
+        m.sleepTimer.control = "start"
+    else
+        m.sleepTimer.control = "stop"
+    end if
+    print "Cove: sleep timer "; id
+    showSleepLeft()
+end sub
+
+' Seconds left on a timed sleep timer (-1 when none runs)
+function sleepRemaining() as integer
+    if Util.toText(m.sleepMode) <> "time" or m.sleepClock = invalid then return -1
+    left_ = m.sleepSecs - m.sleepClock.TotalSeconds()
+    if left_ < 0 then left_ = 0
+    return left_
+end function
+
+function sleepLabel() as string
+    mode = Util.toText(m.sleepMode)
+    if mode = "episode" then return "End of episode"
+    r = sleepRemaining()
+    if r < 0 then return "Off"
+    mins = (r + 59) \ 60
+    if mins <= 1 then return "1 min left"
+    return mins.toStr() + " min left"
+end function
+
+' The time left at the top right of the controls (and nothing when the timer is off)
+sub showSleepLeft()
+    lb = m.top.findNode("sleepLeft")
+    if lb = invalid then return
+    if Util.toText(m.sleepMode) = ""
+        lb.text = ""
+    else
+        lb.text = "Sleep timer: " + sleepLabel()
+    end if
+end sub
+
+sub onSleepTick()
+    if m.closing
+        m.sleepTimer.control = "stop"
+        return
+    end if
+    showSleepLeft()
+    if sleepRemaining() = 0 then sleepExpire()
+end sub
+
+' Time is up (or the episode ended): pause, then close the player as Back does (stop report, watched mark)
+sub sleepExpire()
+    print "Cove: sleep timer ended, closing the player"
+    m.sleepMode = ""
+    m.sleepId = "off"
+    if m.sleepTimer <> invalid then m.sleepTimer.control = "stop"
+    if m.video.state = "playing" then m.video.control = "pause"
+    closePicker()
+    close()
+end sub
+
+' ---------------------------------------------------------------- Cinema Mode (v1.0 F-10)
+
+' An intro ended: the next one, or the film it was for (MainScene.onIntros put them in the item)
+sub playAfterIntro()
+    it = m.top.item
+    if m.started
+        report("/Sessions/Playing/Stopped", false, m.video.duration)
+        stopEncoding()
+    end if
+    m.video.control = "stop"
+    rest = it.intros
+    if type(rest) = "roArray" and rest.count() > 0
+        nx = rest[0]
+        more = []
+        for i = 1 to rest.count() - 1
+            more.push(rest[i])
+        end for
+        sub_ = "Intro"
+        if Util.toText(nx.subtitle) <> "" then sub_ = "Intro  ·  " + Util.toText(nx.subtitle)
+        m.top.item = { id: Util.toText(nx.id), title: Util.toText(it.title), subtitle: sub_, start: 0.0, trailer: true, after: it.after, intros: more }
+    else
+        print "Cove: intros done, starting the film"
+        m.top.item = it.after
+    end if
+end sub
+
+' ---------------------------------------------------------------- search for subtitles (v1.0 F-13)
+
+' GET /Items/{id}/RemoteSearch/Subtitles/{lang} (Emby and Jellyfin; the user needs the server's subtitle
+' download permission), POST /Items/{id}/RemoteSearch/Subtitles/{subtitleId} to download one, then the
+' item's streams again until the new subtitle is there; it is then chosen.
+sub openSubSearchLangs()
+    o = []
+    for each l in Prefs.languages()
+        o.push({ id: LCase(l.name), label: l.name })
+    end for
+    openPicker("subsearchlang", "Search for subtitles in", o, Prefs.subLang())
+end sub
+
+' The 3-letter code the providers use ("romanian" → "rum" / "ron": the first 3-letter one)
+function subSearchCode(langName as string) as string
+    for each c in Prefs.codesFor(langName)
+        if Len(c) = 3 then return c
+    end for
+    return "eng"
+end function
+
+sub searchSubtitles(langName as string)
+    m.subSearchLang = langName
+    code = subSearchCode(langName)
+    openPicker("subresults", "Searching...", [{ id: "none", label: "Searching for subtitles..." }], "")
+    subSearchRequest("GET", "/Items/" + m.top.item.id + "/RemoteSearch/Subtitles/" + code, { kind: "subSearch", itemId: m.top.item.id }, 0)
+end sub
+
+sub downloadSubtitle(id as string)
+    if id = "none" or Left(id, 2) <> "r:"
+        openSubsMenu()
+        return
+    end if
+    subId = Mid(id, 3)
+    m.subsBefore = {}
+    for each s in m.tracks.subs
+        m.subsBefore[s.index.toStr()] = true
+    end for
+    openPicker("subresults", "Downloading...", [{ id: "none", label: "Downloading the subtitle..." }], "")
+    subSearchRequest("POST", "/Items/" + m.top.item.id + "/RemoteSearch/Subtitles/" + subId.encodeUriComponent(), { kind: "subGet", itemId: m.top.item.id }, 0)
+end sub
+
+sub subSearchRequest(method as string, path as string, tag as object, delay as integer)
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: "", tag: tag, timeout: 60000, delay: delay }
+    t.observeField("response", "onSubSearch")
+    m.subSearchTask = t
+    t.control = "RUN"
+end sub
+
+' (answers for another title, after the player closed, or with the menu gone are dropped)
+sub onSubSearch(ev as object)
+    r = ev.getData()
+    if m.closing or r.tag.itemId <> m.top.item.id then return
+    k = r.tag.kind
+    print "Cove: subtitle "; k; " -> "; r.code
+    waiting = m.picker <> invalid and Util.toText(m.picker.purpose) = "subresults"
+    if k = "subSearch"
+        if not waiting then return
+        if r.code = 401 or r.code = 403
+            subSearchNote("Your user on the server isn't allowed to download subtitles.")
+            return
+        end if
+        o = []
+        if r.code = 200 and type(r.json) = "roArray"
+            for each x in r.json
+                if Util.isAA(x) and Util.toText(x.Id) <> "" and o.count() < 25 then o.push({ id: "r:" + Util.toText(x.Id), label: subResultLabel(x) })
+            end for
+        end if
+        if o.count() = 0
+            subSearchNote("No subtitles found. Check that the server has a subtitle provider (e.g. OpenSubtitles).")
+            return
+        end if
+        openPicker("subresults", "Subtitles found", o, "")
+    else if k = "subGet"
+        if r.code < 200 or r.code >= 300
+            if r.code = 401 or r.code = 403
+                subSearchNote("Your user on the server isn't allowed to download subtitles.")
+            else
+                subSearchNote("The server couldn't download this subtitle (" + r.code.toStr() + ").")
+            end if
+            return
+        end if
+        m.subTries = 0
+        subSearchRequest("GET", "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.item.id + "?Fields=MediaSources,MediaStreams", { kind: "subRefresh", itemId: m.top.item.id }, 1500)
+    else if k = "subRefresh"
+        if r.code <> 200 or not Util.isAA(r.json) then return
+        fresh = Tracks.fromItem(r.json, Util.toText(m.opts.sourceId))
+        added = invalid
+        for each s in fresh.subs
+            if m.subsBefore = invalid or not m.subsBefore.doesExist(s.index.toStr())
+                if added = invalid and s.isText then added = s
+            end if
+        end for
+        if added = invalid
+            m.subTries = m.subTries + 1
+            if m.subTries < 4
+                subSearchRequest("GET", "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.item.id + "?Fields=MediaSources,MediaStreams", { kind: "subRefresh", itemId: m.top.item.id }, 3000)
+            else if waiting
+                subSearchNote("Downloaded. It will be in the Subtitles list once the server has added it.")
+            end if
+            return
+        end if
+        ' the new track list (the item's streams too, for the playback info), and the new subtitle on
+        m.tracks = fresh
+        if m.info <> invalid
+            m.info.MediaSources = r.json.MediaSources
+            m.info.MediaStreams = r.json.MediaStreams
+        end if
+        m.opts.sub = added.index
+        m.opts.burn = false
+        m.subLang = added.language
+        print "Cove: downloaded subtitle is track "; added.index
+        loadTextSub()
+        if waiting
+            closePicker()
+            m.keys.setFocus(true)
+            resumeAfterPicker()
+        end if
+        drawControls()
+    end if
+end sub
+
+' "Name  ·  OpenSubtitles  ·  SRT  ·  1234 downloads"
+function subResultLabel(x as object) as string
+    parts = []
+    n = Util.toText(x.Name)
+    if n.len() > 60 then n = n.left(58) + "..."
+    if n <> "" then parts.push(n)
+    if Util.toText(x.ProviderName) <> "" then parts.push(Util.toText(x.ProviderName))
+    if Util.toText(x.Format) <> "" then parts.push(UCase(Util.toText(x.Format)))
+    dl = Util.toNumber(x.DownloadCount)
+    if dl > 0 then parts.push(Int(dl).toStr() + " downloads")
+    if Util.flag(x, "IsHashMatch") then parts.push("exact match")
+    return Util.join(parts, "  ·  ")
+end function
+
+' One line in the results panel (OK or Back goes back to the Subtitles menu)
+sub subSearchNote(text as string)
+    if m.picker = invalid or Util.toText(m.picker.purpose) <> "subresults" then return
+    openPicker("subresults", "Search for subtitles", [{ id: "none", label: text }], "")
+end sub

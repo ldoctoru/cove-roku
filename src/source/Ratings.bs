@@ -1,9 +1,15 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Api.bs"
 
-' Kids limit (per profile, Settings → Servers → a profile → Maximum rating): Off / G / PG / PG-13 / R. Lists
+' Kids limit (per profile, Settings → Profiles → a profile → Maximum rating): Off / G / PG / PG-13 / R. Lists
 ' ask the server with MaxOfficialRating (it compares with its own rating scale), and titles with a known rating
 ' above the limit are also hidden here (routes that ignore the parameter: Latest, Resume, Next Up, Similar).
-' A title without a rating, or with one Cove doesn't know, stays visible: the server's own parental controls
+' (v0.9.1) An episode or season without its own rating takes its series' rating: list tasks look the series up
+' once per list (prefetchSeries, GET /Users/{id}/Items?Ids=...), Details and deep links ask for it before
+' showing the title, and the answers are kept for the session in m.global.seriesRatings. While a limit is
+' set, an unrated episode whose series rating isn't known (yet) is hidden.
+' Any other title without a rating, or with one Cove doesn't know, stays visible unless the profile has
+' "Hide unrated titles" on (server.hideUnrated, the profile's "h" field). The server's own parental controls
 ' (per user, in the server's dashboard: maximum rating, block unrated items) still apply on top of this.
 ' The limit rides on the server record as server.maxRating (Servers.bs, the profile's "r" field).
 namespace Ratings
@@ -59,8 +65,107 @@ namespace Ratings
         limit = limitOf(server)
         if limit = 0 or not Util.isAA(it) then return true
         lvl = levelOf(Util.toText(it.OfficialRating))
-        return lvl = 0 or lvl <= limit
+        if lvl = 0 and needsSeries(server, it)
+            sr = cachedSeries(server, Util.toText(it.SeriesId))
+            ' (the series isn't known yet: hidden rather than shown)
+            if sr = invalid then return false
+            lvl = levelOf(sr)
+        end if
+        if lvl = 0 then return not hidesUnrated(server, it)
+        return lvl <= limit
     end function
+
+    ' "Hide unrated titles" (with a limit), for titles rather than folders, collections or people
+    function hidesUnrated(server as dynamic, it as object) as boolean
+        if not Util.flag(server, "hideUnrated") then return false
+        t = Util.toText(it.Type)
+        return not (t = "BoxSet" or t = "CollectionFolder" or t = "Folder" or t = "UserView" or t = "Playlist" or t = "Person" or t = "Channel" or t = "TvChannel")
+    end function
+
+    ' An episode or season without its own rating, while a limit is set: its series' rating decides
+    function needsSeries(server as dynamic, it as dynamic) as boolean
+        if limitOf(server) = 0 or not Util.isAA(it) then return false
+        t = Util.toText(it.Type)
+        if t <> "Episode" and t <> "Season" then return false
+        return levelOf(Util.toText(it.OfficialRating)) = 0 and Util.toText(it.SeriesId) <> ""
+    end function
+
+    ' The item still needs its series' rating (not asked yet this session)
+    function seriesUnknown(server as dynamic, it as dynamic) as boolean
+        return needsSeries(server, it) and cachedSeries(server, Util.toText(it.SeriesId)) = invalid
+    end function
+
+    function seriesKey(server as dynamic, seriesId as string) as string
+        return Util.toText(server.id).left(12) + ":" + seriesId
+    end function
+
+    ' The series' rating ("" = the series has none), or invalid when it hasn't been asked yet. (The copy of
+    ' m.global's field is kept in m and read again only on a miss, so a list costs one read.)
+    function cachedSeries(server as dynamic, seriesId as string) as dynamic
+        k = seriesKey(server, seriesId)
+        if Util.isAA(m.seriesMemo) and m.seriesMemo.doesExist(k) then return m.seriesMemo[k]
+        if m.global = invalid or not m.global.hasField("seriesRatings") then return invalid
+        m.seriesMemo = m.global.seriesRatings
+        if Util.isAA(m.seriesMemo) and m.seriesMemo.doesExist(k) then return m.seriesMemo[k]
+        return invalid
+    end function
+
+    ' The request for the series ratings (the profile's own view: a series the server hides from this user
+    ' isn't in the answer, and rememberSeries treats it as above any limit)
+    function seriesPath(server as dynamic, ids as object) as string
+        return "/Users/" + Util.toText(server.userId) + "/Items?Ids=" + Util.join(ids, ",") + "&Fields=OfficialRating&EnableImages=false&EnableUserData=false"
+    end function
+
+    ' Keeps the ratings of the asked series (from a 200 answer) for the session
+    sub rememberSeries(server as dynamic, ids as object, json as dynamic)
+        if m.global = invalid then return
+        if not m.global.hasField("seriesRatings") then m.global.addFields({ seriesRatings: {} })
+        cache = m.global.seriesRatings
+        if not Util.isAA(cache) or cache.count() > 400 then cache = {}
+        found = {}
+        list = Util.field(json, "Items")
+        if type(json) = "roArray" then list = json
+        if type(list) = "roArray"
+            for each it in list
+                if Util.isAA(it) and Util.toText(it.Id) <> ""
+                    found[Util.toText(it.Id)] = true
+                    cache[seriesKey(server, Util.toText(it.Id))] = Util.toText(it.OfficialRating)
+                end if
+            end for
+        end if
+        for each sid in ids
+            ' (not visible to this user on the server)
+            if not found.doesExist(sid) then cache[seriesKey(server, sid)] = "XXX"
+        end for
+        m.global.seriesRatings = cache
+        m.seriesMemo = cache
+    end sub
+
+    ' The series ids of a list that still need their rating
+    function missingSeries(server as dynamic, list as dynamic) as object
+        ids = []
+        if type(list) <> "roArray" or limitOf(server) = 0 then return ids
+        seen = {}
+        for each it in list
+            if seriesUnknown(server, it)
+                sid = Util.toText(it.SeriesId)
+                if ids.count() < 60 and Util.isSafeId(sid, false) and not seen.doesExist(sid)
+                    seen[sid] = true
+                    ids.push(sid)
+                end if
+            end if
+        end for
+        return ids
+    end function
+
+    ' (Tasks only: a request) Looks up the ratings of the series behind a list's unrated episodes, in one call
+    sub prefetchSeries(server as dynamic, list as dynamic)
+        ids = missingSeries(server, list)
+        if ids.count() = 0 then return
+        r = Api.execute({ method: "GET", url: Util.toText(server.url) + seriesPath(server, ids), headers: Api.headers(server, true), timeout: 15000 })
+        print "Cove: series ratings for "; ids.count(); " -> "; r.code
+        if r.code = 200 then rememberSeries(server, ids, r.json)
+    end sub
 
     ' The items of a list the profile may see
     function keep(server as dynamic, list as dynamic) as object
@@ -71,6 +176,14 @@ namespace Ratings
             if allowed(server, it) then out.push(it)
         end for
         return out
+    end function
+
+    ' (Tasks only) keep() after looking up the series ratings it needs
+    function keepChecked(server as dynamic, list as dynamic) as object
+        if type(list) <> "roArray" then return []
+        if limitOf(server) = 0 then return list
+        prefetchSeries(server, list)
+        return keep(server, list)
     end function
 
     ' A request path with MaxOfficialRating added when the profile has a limit

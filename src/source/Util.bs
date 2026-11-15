@@ -288,10 +288,50 @@ namespace Util
     end function
 
     ' (a full registry makes write / flush fail silently, which can lose a sign-in: say so in the log)
+    ' P-2: the 16 KB are shared with the sign-ins, so a setting is written only while it leaves 2 KB free for
+    ' them; when it wouldn't, the bounded lists (series subtitle languages, library page filters) are trimmed
+    ' first. The sign-ins ("servers", "active") and the PIN lockout ("pinWait") are always written, after
+    ' trimming if needed.
     sub writeText(key as string, value as string)
         sec = createObject("roRegistrySection", "Cove")
+        keepsLogin = key = "servers" or key = "active" or key = "pinWait"
+        if not hasRoomFor(sec, key, value, keepsLogin)
+            print "Cove: registry nearly full, setting not saved: "; key; " ("; value.len(); " chars)"
+            return
+        end if
         if not sec.write(key, value) then print "Cove: registry write failed for "; key; " ("; value.len(); " chars)"
         if not sec.flush() then print "Cove: registry flush failed after writing "; key
+    end sub
+
+    ' Room for this write (the growth of the key), keeping 2 KB for the sign-ins unless it is one
+    function hasRoomFor(sec as object, key as string, value as string, forLogin as boolean) as boolean
+        reg = createObject("roRegistry")
+        if reg = invalid then return true
+        oldLen = 0
+        if sec.exists(key) then oldLen = sec.read(key).len() + key.len()
+        needed = key.len() + value.len() - oldLen
+        if not forLogin then needed = needed + 2048
+        if needed <= 0 or reg.GetSpaceAvailable() >= needed then return true
+        trimLists(sec)
+        return reg.GetSpaceAvailable() >= needed or forLogin
+    end function
+
+    ' The oldest half of the bounded lists goes (each list is most recent last)
+    sub trimLists(sec as object)
+        for each k in ["seriesLangs", "libFilters"]
+            if sec.exists(k)
+                v = parseJson(sec.read(k))
+                if type(v) = "roArray" and v.count() > 1
+                    half = []
+                    for i = Int(v.count() / 2) to v.count() - 1
+                        half.push(v[i])
+                    end for
+                    sec.write(k, formatJson(half))
+                end if
+            end if
+        end for
+        sec.flush()
+        print "Cove: registry nearly full, trimmed the series languages and library filters"
     end sub
 
     function readText(key as string) as string

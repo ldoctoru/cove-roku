@@ -12,12 +12,16 @@
         <field id="deepLink" type="assocarray" alwaysNotify="true" onChange="onDeepLink" />
         <!-- a voice / transport command from main.bs (roInput) → { status } for roInput.eventResponse -->
         <function name="handleTransport" />
+        <!-- { text, icon }: a confirmation toast at the bottom of the screen (Toasts.notify from any screen) -->
+        <field id="toast" type="assocarray" alwaysNotify="true" onChange="onToast" />
     </interface>
     <children>
         <Rectangle id="background" width="1920" height="1080" color="0x000000FF" />
         <Group id="screens" />
         <!-- Requests that must finish after their screen is gone (playback stop reports) -->
         <Group id="tasks" />
+        <!-- action confirmations, above every screen -->
+        <Toast id="toastHost" />
         <!-- Opens the next keyboard only after the previous one has really closed (see askTextLater) -->
         <Timer id="dialogTimer" duration="0.4" repeat="false" />
     </children>

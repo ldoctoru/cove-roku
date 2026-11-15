@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Speak.bs"
 
 ' Tiles: a 220 px round picture every 300 px, centred; up to 6 fit, more scroll sideways
 sub init()
@@ -8,6 +9,9 @@ sub init()
     m.other = m.top.findNode("other")
     m.index = 0
     m.area = "tiles"
+    ' Audio Guide (R-6): the tiles are app-drawn, so Cove says them itself (the key said last: no repeats)
+    m.spokenKey = ""
+    Speak.mute([m.top, m.tiles, m.other])
     m.top.observeField("server", "onServer")
 end sub
 
@@ -19,6 +23,7 @@ end sub
 
 sub onStatus()
     m.top.findNode("statusLine").text = m.top.status
+    if Util.toText(m.top.status) <> "" then Speak.say(Util.toText(m.top.status), false)
 end sub
 
 ' (current profile first in focus, so OK alone keeps it)
@@ -28,7 +33,14 @@ sub build()
     for i = 0 to list.count() - 1
         if list[i].id = m.top.currentId then m.index = i
     end for
-    paint()
+    ' (the screen's title first, then the focused tile after it)
+    m.spokenKey = ""
+    if Speak.isOn()
+        title = "Who's watching?"
+        if m.top.server <> invalid and Util.toText(m.top.server.name) <> "" then title = title + " " + Util.toText(m.top.server.name)
+        Speak.say(title)
+    end if
+    paint(false)
 end sub
 
 function entries() as object
@@ -63,7 +75,7 @@ function addLabel(parent as object, text as string, x as integer, y as integer, 
     return l
 end function
 
-sub paint()
+sub paint(flush = true as boolean)
     t = m.global.theme
     m.tiles.removeChildrenIndex(m.tiles.getChildCount(), 0)
     list = entries()
@@ -136,13 +148,38 @@ sub paint()
             ring.height = 256
             ring.translation = [-18, -18]
         end if
-        col = "0xFFFFFF8C"
+        col = "0xFFFFFFCC"
         if isFocus then col = "0xFFFFFFFF"
         addLabel(g, Util.toText(p.name), -40, 250, 300, 44, 30, isFocus, col)
         note = Util.toText(p.note)
-        if note <> "" then addLabel(g, note, -40, 294, 300, 32, 21, false, "0xFFFFFF66")
+        if note <> "" then addLabel(g, note, -40, 294, 300, 32, 24, false, "0xFFFFFFCC")
     end for
     paintOther()
+    speakFocus(list, flush)
+end sub
+
+' "Anna, profile, Kids, PIN locked, 2 of 4" / "Add profile, button" / "Choose another server, button"
+sub speakFocus(list as object, flush as boolean)
+    if not Speak.isOn() then return
+    if m.area = "other"
+        key = "other"
+        text = Speak.button("Choose another server")
+    else
+        if m.index < 0 or m.index >= list.count() then return
+        p = list[m.index]
+        key = "tile:" + Util.toText(p.id)
+        if p.id = "add"
+            text = Speak.button("Add profile") + Speak.position(m.index, list.count())
+        else
+            parts = [Util.toText(p.name), "profile"]
+            if Util.toText(p.note) <> "" then parts.push(Util.toText(p.note))
+            if p.hasPin = true then parts.push("PIN locked")
+            text = Speak.clean(Util.join(parts, ", ")) + Speak.position(m.index, list.count())
+        end if
+    end if
+    if key = m.spokenKey then return
+    m.spokenKey = key
+    Speak.say(text, flush)
 end sub
 
 ' "Choose another server" under the profiles
@@ -168,7 +205,7 @@ sub paintOther()
         lab.color = "0x000000FF"
     else
         bgp.uri = "pkg:/images/ui/glass_pill.9.png"
-        lab.color = "0xFFFFFFB3"
+        lab.color = "0xFFFFFFCC"
     end if
 end sub
 

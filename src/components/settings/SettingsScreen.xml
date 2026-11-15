@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- Settings, built like Cove for macOS (Sources/Settings.swift): the tab name on top, a row of icon tabs (General,
-     Home, Libraries, Subtitles, Playback, Servers, Remote, About), then the tab's sections as cards with an
+     Home, Libraries, Subtitles, Playback, Servers, Profiles, Remote, About), then the tab's sections as cards with an
      UPPERCASE title, a right-aligned "Label:" column, the controls beside it and grey notes under them.
      Left / Right on the tabs change the tab, Down enters it; Up / Down move between rows, OK changes a setting
      (choices open in the side panel; colours and tiles change with Left / Right), Back closes. Every change is
@@ -16,7 +16,7 @@
     </interface>
     <children>
         <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />
-        <Label id="tabTitle" width="1920" height="36" translation="[0,14]" horizAlign="center" color="0xFFFFFF8C">
+        <Label id="tabTitle" width="1920" height="36" translation="[0,14]" horizAlign="center" color="0xFFFFFFCC">
             <Font role="font" uri="font:BoldSystemFontFile" size="24" />
         </Label>
         <Group id="tabs" translation="[0,54]" />
@@ -26,7 +26,5 @@
         </Group>
         <Group id="keys" focusable="true" />
         <Timer id="kbTimer" duration="0.4" repeat="false" />
-        <!-- (v0.9.0) opens the next PIN pad / notice once the previous dialog has closed -->
-        <Timer id="pinTimer" duration="0.4" repeat="false" />
     </children>
 </component>
