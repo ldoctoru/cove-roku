@@ -14,7 +14,8 @@ end sub
 
 sub test_make_and_matches()
     p = Pins_make("srv", "user", "2468")
-    t_eq(p.len(), 80, "16 salt + 64 hash characters")
+    ' (v0.9.0: 16 salt + 64 hash characters; a later format may add a prefix)
+    t_ok(p.len() >= 80 and p.len() <= 96, "salt + hash length, got " + p.len().toStr())
     t_ok(Pins_matches(p, "srv", "user", "2468"), "right PIN")
     t_ok(not Pins_matches(p, "srv", "user", "2469"), "wrong PIN")
     t_ok(not Pins_matches(p, "srv", "other", "2468"), "other user")
@@ -23,4 +24,13 @@ sub test_make_and_matches()
     t_ok(not Pins_matches(p, "srv", "user", "abcd"), "not a PIN")
     q = Pins_make("srv", "user", "2468")
     t_ok(p <> q, "a new salt each time")
+end sub
+
+' A PIN saved by v0.9.0 (salt + one SHA-256 round) must keep working after updates
+sub test_v090_hash_still_matches()
+    salt = "0123456789abcdef"
+    stored = salt + Pins_digest(salt, "srv", "user", "2468")
+    t_eq(stored.len(), 80, "v0.9.0 length")
+    t_ok(Pins_matches(stored, "srv", "user", "2468"), "right PIN")
+    t_ok(not Pins_matches(stored, "srv", "user", "1357"), "wrong PIN")
 end sub

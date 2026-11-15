@@ -43,6 +43,40 @@ class RoRegistrySection extends T.BrsComponent {
     toString() {
         return "<Component: roRegistrySection>";
     }
+    equalTo(other) {
+        return T.BrsBoolean.from(this === other);
+    }
+}
+
+// roRegistry: the whole store; GetSpaceAvailable counts keys + values against Roku's 16 KB per app
+const REGISTRY_BYTES = 16 * 1024;
+class RoRegistry extends T.BrsComponent {
+    constructor() {
+        super("roRegistry");
+        this.kind = T.ValueKind.Object;
+        const used = () => {
+            let n = 0;
+            for (const [name, sec] of registry) {
+                n += name.length;
+                for (const [k, v] of sec) n += k.length + v.length;
+            }
+            return n;
+        };
+        this.registerMethods({
+            ifRegistry: [
+                method("getSpaceAvailable", [], T.ValueKind.Int32, () => new T.Int32(Math.max(0, REGISTRY_BYTES - used()))),
+                method("getSectionList", [], T.ValueKind.Object, () => new T.RoList([...registry.keys()].map((k) => new T.BrsString(k)))),
+                method("delete", [str("section")], T.ValueKind.Boolean, (_, s) => T.BrsBoolean.from(registry.delete(s.value))),
+                method("flush", [], T.ValueKind.Boolean, () => T.BrsBoolean.True),
+            ],
+        });
+    }
+    toString() {
+        return "<Component: roRegistry>";
+    }
+    equalTo(other) {
+        return T.BrsBoolean.from(this === other);
+    }
 }
 
 class RoEVPDigest extends T.BrsComponent {
@@ -79,6 +113,9 @@ class RoEVPDigest extends T.BrsComponent {
     toString() {
         return "<Component: roEVPDigest>";
     }
+    equalTo(other) {
+        return T.BrsBoolean.from(this === other);
+    }
 }
 
 // roRegex with Roku-style \1 back-references in replace / replaceAll
@@ -101,6 +138,7 @@ function patchedRegex(_interpreter, expression, flags) {
 function install() {
     // (the third value is the number of CreateObject parameters, as in brs's own table)
     T.BrsObjects.set("roRegistrySection", (_, name) => new RoRegistrySection(name), 1);
+    T.BrsObjects.set("roRegistry", () => new RoRegistry(), 0);
     T.BrsObjects.set("roEVPDigest", () => new RoEVPDigest(), 0);
     T.BrsObjects.set("roRegex", patchedRegex, 2);
 }
