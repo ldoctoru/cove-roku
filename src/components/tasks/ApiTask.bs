@@ -7,21 +7,35 @@ end sub
 
 sub work()
     req = m.top.request
-    r = Api.execute(req)
-    ' a route that only newer servers have (or only older ones): the same request on the other route
-    if r.code = 404 and Util.toText(req.fallbackUrl) <> ""
-        alt = {}
-        alt.append(req)
-        alt.url = req.fallbackUrl
-        alt.delay = 0
-        r = Api.execute(alt)
-    end if
-    ' a download nobody wants any more (the player closed): don't leave it in tmp:
-    if req.saveTo <> invalid and m.top.discard then DeleteFile(req.saveTo)
-    ' subtitles: parsed here, off the render thread
-    if Util.toText(req.parse) = "srt"
-        r.cues = Subs.parseSrt(r.text)
-        r.text = invalid
-    end if
-    m.top.response = r
+    reqTag = invalid
+    if Util.isAA(req) then reqTag = req.tag
+    try
+        r = Api.execute(req)
+        ' a route that only newer servers have (or only older ones): the same request on the other route
+        if r.code = 404 and Util.toText(req.fallbackUrl) <> ""
+            alt = {}
+            alt.append(req)
+            alt.url = req.fallbackUrl
+            alt.delay = 0
+            r = Api.execute(alt)
+        end if
+        ' a download nobody wants any more (the player closed): don't leave it in tmp:
+        if req.saveTo <> invalid and m.top.discard then DeleteFile(req.saveTo)
+        ' subtitles: parsed here, off the render thread
+        if Util.toText(req.parse) = "srt"
+            r.cues = Subs.parseSrt(r.text)
+            r.text = invalid
+        end if
+        m.top.response = r
+    catch e
+        ' (an exception must still answer: callers wait on response, e.g. "Connecting..." or the player's ring)
+        msg = Util.toText(e.message)
+        where = ""
+        if type(e.backtrace) = "roArray" and e.backtrace.count() > 0
+            frame = e.backtrace[e.backtrace.count() - 1]
+            if Util.isAA(frame) then where = " (" + Util.toText(frame.filename) + ":" + Util.toText(frame.line_number) + ")"
+        end if
+        print "Cove: ApiTask failed: "; Util.redact(msg + where)
+        m.top.response = { code: -1, json: invalid, value: invalid, error: "The request failed: " + msg, tag: reqTag }
+    end try
 end sub
