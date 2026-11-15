@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Confirmation pill at the bottom centre after an action (Cove for macOS ToastOverlay): a glass capsule with an
+     icon and one line of text, shown for 2 s and spoken by the Audio Guide. Messages that arrive while one is
+     shown wait in a short queue (the same text twice in a row is shown once). Set `show` = { text, icon }. -->
+<component name="Toast" extends="Group">
+    <script type="text/brightscript" uri="Toast.bs" />
+    <interface>
+        <!-- { text, icon } (icon: a pkg:/images/ui/icon_<icon>_28.png name, or "") -->
+        <field id="show" type="assocarray" alwaysNotify="true" onChange="onShow" />
+    </interface>
+    <children>
+        <Group id="pill" opacity="0">
+            <Poster id="bg" uri="pkg:/images/ui/panel_dark_r18.9.png" height="64" />
+            <Poster id="glass" uri="pkg:/images/ui/glass_pill.9.png" height="64" />
+            <Poster id="icon" width="28" height="28" translation="[26,18]" />
+            <Label id="text" text="Done" height="64" vertAlign="center" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="26" />
+            </Label>
+        </Group>
+        <Animation id="fadeIn" duration="0.25" easeFunction="outQuad">
+            <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[0.0, 1.0]" fieldToInterp="pill.opacity" />
+        </Animation>
+        <Animation id="fadeOut" duration="0.3" easeFunction="inQuad">
+            <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[1.0, 0.0]" fieldToInterp="pill.opacity" />
+        </Animation>
+        <Timer id="hold" duration="2" repeat="false" />
+    </children>
+</component>

@@ -2,6 +2,7 @@ import "pkg:/source/Util.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/Toasts.bs"
 
 sub init()
     t = m.global.theme
@@ -244,8 +245,10 @@ sub onFavourite(r as object)
     if r.code >= 200 and r.code < 300
         m.isFav = r.tag.method = "POST"
         m.top.action = { id: "changed" }
+        Toasts.notify(Toasts.favoriteText(Util.toText(m.top.person.name), m.isFav), "heart")
     else
-        m.top.findNode("born").text = "Couldn't change the favourite. " + Api.describeFailure(r)
+        print "Cove: person favourite failed: "; Api.describeFailure(r)
+        Toasts.notify(Toasts.failedText("update Favorites"), "info")
     end if
     drawFav()
 end sub

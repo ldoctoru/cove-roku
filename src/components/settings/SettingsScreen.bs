@@ -10,6 +10,7 @@ import "pkg:/source/Pins.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/HomeLayout.bs"
+import "pkg:/source/Toasts.bs"
 
 ' Layout (1920 x 1080): cards from x 200, 1520 wide; the label column ends at x 610, controls start at x 650
 ' (the Mac's PrefRow: label right-aligned in a fixed column, the control beside it)
@@ -1020,11 +1021,13 @@ sub useRow(r as object)
                 Util.writeText(key, "")
             end for
             draw()
+            Toasts.notify("Subtitle style reset to the defaults", "check")
         else if r.id = "homeDefaultOrder"
             HomeLayout.resetOrder(serverKey())
             m.top.themeChanged = true
             m.row = 1
             draw()
+            Toasts.notify("Home rows back in the default order", "check")
         else if r.id = "retryLibs"
             onServer()
             draw()
@@ -1458,6 +1461,7 @@ sub onPicked(ev as object)
         m.global.theme = Theme.get()
         m.top.themeChanged = true
         draw()
+        Toasts.notify("All settings were reset", "check")
     else if purpose = "lib"
         id = m.menuLib
         lp = Prefs.library(id)

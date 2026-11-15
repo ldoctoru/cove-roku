@@ -4,6 +4,7 @@ import "pkg:/source/Api.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/Toasts.bs"
 
 sub init()
     t = m.global.theme
@@ -475,9 +476,9 @@ end sub
 sub speakHero(withTitle as boolean)
     if not Speak.isOn() or m.heroes.count() = 0 then return
     it = m.heroes[m.heroIndex]
-    names = ["Play", "Add to favourites", "More information"]
+    names = ["Play", "Add to Favorites", "More information"]
     if it.itemType = "Series" then names[0] = "Open"
-    if it.favorite then names[1] = "Remove from favourites"
+    if it.favorite then names[1] = "Remove from Favorites"
     text = Speak.button(names[m.btn]) + Speak.position(m.btn, 3)
     if withTitle then text = Speak.clean(it.title + ", " + it.heroMeta) + ". " + text
     Speak.say(text)
@@ -766,7 +767,7 @@ end function
 sub toggleFavourite(it as object)
     method = "POST"
     if it.favorite then method = "DELETE"
-    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/FavoriteItems/" + it.itemId, { kind: "fav", method: method, newRoute: false, itemId: it.itemId })
+    send(method, "/Users/" + Util.toText(m.top.server.userId) + "/FavoriteItems/" + it.itemId, { kind: "fav", method: method, newRoute: false, itemId: it.itemId, name: Util.toText(it.title) })
 end sub
 
 sub send(method as string, path as string, tag as object, body = "" as string)
@@ -800,9 +801,9 @@ sub itemMenu(it as object)
         ' (only the row's own cards: the same title elsewhere on Home keeps the plain menu)
         if it.resumeAt > 0 and focusedRowTitle() = "Continue Watching" then o.push({ id: "unresume", label: "Remove from Continue Watching" })
         if it.favorite
-            o.push({ id: "fav", label: "Remove from favourites" })
+            o.push({ id: "fav", label: "Remove from Favorites" })
         else
-            o.push({ id: "fav", label: "Add to favourites" })
+            o.push({ id: "fav", label: "Add to Favorites" })
         end if
     end if
     o.push({ id: "open", label: "Details" })
@@ -843,7 +844,7 @@ sub onItemChosen(ev as object)
     else if id = "watched" or id = "unwatched"
         method = "DELETE"
         if id = "watched" then method = "POST"
-        send(method, "/Users/" + uid + "/PlayedItems/" + it.itemId, { kind: "watched", method: method, newRoute: false, itemId: it.itemId })
+        send(method, "/Users/" + uid + "/PlayedItems/" + it.itemId, { kind: "watched", method: method, newRoute: false, itemId: it.itemId, name: Util.toText(it.title) })
     else if id = "fav"
         toggleFavourite(it)
     else if id = "unresume"
@@ -870,18 +871,23 @@ sub onFavResponse(ev as object)
     end if
     if r.tag.kind = "watched"
         if r.code = 404 and not r.tag.newRoute
-            send(r.tag.method, "/UserPlayedItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "watched", method: r.tag.method, newRoute: true, itemId: r.tag.itemId })
+            send(r.tag.method, "/UserPlayedItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "watched", method: r.tag.method, newRoute: true, itemId: r.tag.itemId, name: Util.toText(r.tag.name) })
         else if r.code >= 200 and r.code < 300
             ' Continue Watching / Next Up and the checks change: reload the rows in place
+            Toasts.notify(Toasts.watchedText(Util.toText(r.tag.name), r.tag.method = "POST"), "check")
             m.top.reload = true
+        else
+            Toasts.notify(Toasts.failedText("change the watched state"), "info")
         end if
         return
     end if
     if r.code = 404 and not r.tag.newRoute
-        send(r.tag.method, "/UserFavoriteItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "fav", method: r.tag.method, newRoute: true, itemId: r.tag.itemId })
+        send(r.tag.method, "/UserFavoriteItems/" + r.tag.itemId + "?userId=" + Util.toText(m.top.server.userId), { kind: "fav", method: r.tag.method, newRoute: true, itemId: r.tag.itemId, name: Util.toText(r.tag.name) })
         return
     end if
+    if r.code < 200 or r.code >= 300 then Toasts.notify(Toasts.failedText("update Favorites"), "info")
     if r.code >= 200 and r.code < 300
+        Toasts.notify(Toasts.favoriteText(Util.toText(r.tag.name), r.tag.method = "POST"), "heart")
         for each h in m.heroes
             if h.itemId = r.tag.itemId then h.favorite = r.tag.method = "POST"
         end for
@@ -915,7 +921,7 @@ sub removeFromResume(it as object)
     if not Servers.isJellyfin(m.top.server) then steps.push({ method: "POST", path: "/Users/" + uid + "/Items/" + it.itemId + "/HideFromResume?Hide=true", body: "" })
     if Servers.isJellyfin(m.top.server) then steps.push({ method: "POST", path: "/UserItems/" + it.itemId + "/UserData?userId=" + uid, body: body })
     steps.push({ method: "POST", path: "/Users/" + uid + "/Items/" + it.itemId + "/UserData", body: body })
-    unresumeStep({ kind: "unresume", itemId: it.itemId, steps: steps, at: 0 })
+    unresumeStep({ kind: "unresume", itemId: it.itemId, steps: steps, at: 0, name: Util.toText(it.title) })
 end sub
 
 sub unresumeStep(tag as object)
@@ -929,6 +935,7 @@ sub onUnresume(r as object)
     tag = r.tag
     if r.code >= 200 and r.code < 300
         ' the row reloads in place (the focus stays on the same place in it)
+        Toasts.notify("Removed " + Toasts.quoted(Util.toText(tag.name)) + " from Continue Watching", "check")
         m.top.reload = true
         return
     end if
@@ -939,6 +946,7 @@ sub onUnresume(r as object)
     end if
     ' (the card stays: the row shows the server's state)
     print "Cove: remove from Continue Watching failed "; r.code
+    Toasts.notify(Toasts.failedText("remove it from Continue Watching"), "info")
 end sub
 
 ' ---------------------------------------------------------------- * options
