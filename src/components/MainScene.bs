@@ -4,6 +4,7 @@ import "pkg:/source/Api.bs"
 import "pkg:/source/DeviceCaps.bs"
 import "pkg:/source/Theme.bs"
 import "pkg:/source/Ratings.bs"
+import "pkg:/source/Prefs.bs"
 
 sub init()
     ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
@@ -45,6 +46,10 @@ sub init()
     m.lastLinkId = ""           ' the last deep link and when it came (repeats within 2 s are dropped)
     m.lastLinkAt = 0
     m.homeReady = false         ' Home is on screen with a signed-in server: deep links can be opened
+    ' (v1.0 LAN discovery: servers that answered the UDP broadcast, and the task while it listens)
+    m.found = []
+    m.discovery = invalid
+    m.scanned = false
     ' (v0.9.0: saved sign-ins become profiles, several per server)
     Servers.migrate()
     m.suspendedAt = 0           ' (Instant Resume) when the app went to the background, in seconds
@@ -208,13 +213,109 @@ sub showServers(status as string)
         if Util.isPlainHttp(Util.toText(s.url)) then lbl = lbl + "   ·   Not encrypted"
         items.push({ id: "srv:" + Util.toText(s.id), label: lbl })
     end for
-    items.push({ id: "add", label: "Add a server" })
     sub_ = "Choose a server, or add one."
-    if items.count() > 1 then sub_ = "Choose a server  ·  press * on a server to remove it"
+    if items.count() > 0 then sub_ = "Choose a server  ·  press * on a server to remove it"
+    if items.count() = 0
+        ' first launch: the servers found on the network above "Enter address" (U-2 / F-8)
+        sub_ = "Pick a server found on your network, or enter its address."
+        items = foundItems("add")
+    else
+        items.push({ id: "add", label: "Add a server" })
+    end if
     sc = newMenu("servers", "Servers", sub_, items)
     sc.status = status
     reset(sc)
     if status = "" and m.deviceLine <> "" then sc.status = m.deviceLine
+    if Servers.all().count() = 0
+        if not m.scanned then startDiscovery()
+        if status = "" then sc.status = foundStatus()
+    end if
+end sub
+
+' ---------------------------------------------------------------- LAN discovery (U-2 / F-8)
+
+' "Found on your network" entries, then Enter address (enterId) and Search again
+function foundItems(enterId as string) as object
+    items = []
+    for i = 0 to m.found.count() - 1
+        f = m.found[i]
+        items.push({ id: "found:" + i.toStr(), label: Util.toText(f.name) + "   ·   " + foundAddress(f) + "   ·   Found on your network" })
+    end for
+    items.push({ id: enterId, label: "Enter address" })
+    if m.discovery = invalid then items.push({ id: "rescan", label: "Search again" })
+    return items
+end function
+
+' "192.168.1.20:8096" (the scheme is tried https first when picked)
+function foundAddress(f as object) as string
+    a = Util.toText(f.address)
+    at = a.instr("://")
+    if at >= 0 then a = a.mid(at + 3)
+    return a
+end function
+
+function foundStatus() as string
+    if m.discovery <> invalid then return "Looking for servers on your network..."
+    if not m.scanned then return ""
+    if m.found.count() = 0 then return "No servers found on your network. Enter the address instead."
+    if m.found.count() = 1 then return "Found 1 server on your network."
+    return "Found " + m.found.count().toStr() + " servers on your network."
+end function
+
+sub startDiscovery()
+    if m.discovery <> invalid then return
+    t = createObject("roSGNode", "DiscoveryTask")
+    t.seconds = 2
+    t.observeField("servers", "onDiscovered")
+    m.discovery = t
+    m.scanned = true
+    t.control = "RUN"
+end sub
+
+sub onDiscovered(ev as object)
+    list = ev.getData()
+    m.discovery = invalid
+    m.found = []
+    if type(list) = "roArray" then m.found = list
+    refreshFound()
+end sub
+
+' The list on screen again with the answers (first-launch server list, or Add a server)
+sub refreshFound()
+    t = top()
+    if t = invalid then return
+    if t.screenId = "servers" and Servers.all().count() = 0
+        t.items = foundItems("add")
+        t.status = foundStatus()
+    else if t.screenId = "address"
+        t.items = foundItems("enter")
+        t.status = foundStatus()
+    end if
+end sub
+
+' Add a server: the servers found on the network, Enter address, Search again
+sub showAddServer()
+    sc = newMenu("address", "Add a server", "Pick a server found on your network, or enter its address.", [])
+    push(sc)
+    startDiscovery()
+    sc.items = foundItems("enter")
+    sc.status = foundStatus()
+end sub
+
+' A found server: the usual probe (https first, then the address it gave), so the security rules still apply
+sub pickFound(index as integer)
+    if index < 0 or index >= m.found.count() then return
+    f = m.found[index]
+    addr = Util.toText(f.address)
+    hostPort = foundAddress(f)
+    cands = ["https://" + hostPort]
+    if LCase(addr).startsWith("http://") then cands.push(addr)
+    print "Cove: picked a discovered server"
+    probe(cands, 0, Util.toText(f.name))
+end sub
+
+sub askAddress()
+    askText("address", "Add a server", "The server's address, e.g. 192.168.1.20:8096 or https://emby.example.com", "", false)
 end sub
 
 ' "Liviu", "Liviu, Ana", "3 profiles" or "not signed in" for the server list
@@ -474,6 +575,43 @@ sub onPlay(ev as object)
 end sub
 
 sub startPlayer(item as object)
+    ' (v1.0 F-10) Settings → Playback → Cinema Mode: the server's intros first, for a title started from the
+    ' beginning (not a trailer / extra, not a Shuffle queue); the server decides which titles get intros
+    if Prefs.cinemaMode() and m.server <> invalid and not Util.flag(item, "trailer") and type(item.queue) <> "roArray" and Util.toNumber(item.start) <= 0
+        request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(item.id) + "/Intros", true, "", { kind: "intros", item: item, newRoute: false })
+        return
+    end if
+    openPlayer(item)
+end sub
+
+' The intros answer: the first intro plays with the rest and the film behind it (PlayerScreen.playAfterIntro)
+sub onIntros(r as object)
+    item = r.tag.item
+    if (r.code = 404 or r.code = 405) and not Util.flag(r.tag, "newRoute")
+        ' (Jellyfin 10.9+ route)
+        request("GET", m.server, "/Items/" + Util.toText(item.id) + "/Intros?userId=" + Util.toText(m.server.userId), true, "", { kind: "intros", item: item, newRoute: true })
+        return
+    end if
+    list = []
+    if r.code = 200
+        src = r.json
+        if Util.isAA(src) then src = src.Items
+        for each it in Ratings.keep(m.server, src)
+            if Util.isAA(it) and Util.isSafeId(it.Id, false) and list.count() < 5 then list.push({ id: Util.toText(it.Id), subtitle: Util.toText(it.Name) })
+        end for
+    end if
+    print "Cove: cinema mode intros -> "; r.code; " "; list.count()
+    if list.count() = 0
+        openPlayer(item)
+        return
+    end if
+    first = list.shift()
+    sub_ = "Intro"
+    if first.subtitle <> "" then sub_ = "Intro  ·  " + first.subtitle
+    openPlayer({ id: first.id, title: Util.toText(item.title), subtitle: sub_, start: 0.0, trailer: true, after: item, intros: list })
+end sub
+
+sub openPlayer(item as object)
     p = createObject("roSGNode", "PlayerScreen")
     p.server = m.server
     p.observeField("done", "onPlayerDone")
@@ -512,10 +650,18 @@ end sub
 sub onSelected(ev as object)
     s = ev.getRoSGNode()
     id = ev.getData().id
-    if s.screenId = "servers"
-        if id = "add"
-            askText("address", "Add a server", "The server's address, e.g. 192.168.1.20:8096 or https://emby.example.com", "", false)
-        else
+    if s.screenId = "servers" or s.screenId = "address"
+        if id = "enter" or (id = "add" and Servers.all().count() = 0)
+            askAddress()
+        else if id = "add"
+            showAddServer()
+        else if id = "rescan"
+            m.found = []
+            startDiscovery()
+            refreshFound()
+        else if id.startsWith("found:")
+            pickFound(id.mid(6).toInt())
+        else if id.startsWith("srv:")
             openServer(Servers.find(id.mid(4)))
         end if
     else if s.screenId = "signin"
@@ -720,6 +866,8 @@ sub dispatchResponse(r as object)
         end if
     else if kind = "resumeCheck"
         onResumeCheck(r)
+    else if kind = "intros"
+        onIntros(r)
     else if kind = "logout"
         print "Cove: signed out of the removed server -> "; r.code
     end if
@@ -730,11 +878,17 @@ end sub
 ' Tries the typed address as https / http / :8096 until one answers like an Emby or Jellyfin server
 sub probe(candidates as object, index as integer, typed as string)
     if index >= candidates.count()
-        setStatus("servers", "Couldn't find an Emby or Jellyfin server at " + typed + ". Check the address and that the server is running.")
+        probeStatus("Couldn't find an Emby or Jellyfin server at " + typed + ". Check the address and that the server is running.")
         return
     end if
-    setStatus("servers", "Looking for the server at " + candidates[index] + "...")
+    probeStatus("Looking for the server at " + candidates[index] + "...")
     request("GET", { url: candidates[index], type: "emby" }, "/System/Info/Public", false, "", { kind: "probe", candidates: candidates, index: index, typed: typed })
+end sub
+
+' (the server list, or Add a server when the address was typed or picked there)
+sub probeStatus(text as string)
+    setStatus("servers", text)
+    setStatus("address", text)
 end sub
 
 sub onProbe(r as object)
@@ -773,7 +927,7 @@ sub onPlainButton()
     m.plainServer = invalid
     closeDialog()
     if not proceed or srv = invalid
-        setStatus("servers", "Not added. Use the server's https address if it has one.")
+        probeStatus("Not added. Use the server's https address if it has one.")
         return
     end if
     addProbed(srv)

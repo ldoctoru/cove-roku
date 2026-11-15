@@ -109,9 +109,14 @@ sub resetState()
     m.osdShown = false
     m.osd.opacity = 0
     m.pauseClock = invalid
-    ' playback speed (* menu → Speed), back to 1× for every new title; Ends at divides the time left by it
+    ' playback speed (* menu → Speed), back to Settings → Playback → Default speed (v1.0 F-3) for every new
+    ' title; Ends at divides the time left by it
     m.speed = 1.0
     m.speedId = "1"
+    if speedSupported()
+        m.speedId = Prefs.defaultSpeed()
+        m.speed = Val(m.speedId)
+    end if
     m.session = invalid
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = invalid
@@ -505,8 +510,10 @@ sub onProgressTimer()
         end if
         return
     end if
-    ' (2 hours of playing without a key press: pause and ask, so a sleeping viewer doesn't stream all night)
-    if st = "playing" and m.pf.stillAfter > 0 and m.lastInput.TotalSeconds() >= 7200 and not m.still.visible
+    ' (Settings → Playback → Ask if still watching after, 2 hours by default, without a key press: pause and
+    ' ask, so a sleeping viewer doesn't stream all night; v1.0 F-11, read once per player)
+    if m.idleLimit = invalid then m.idleLimit = Prefs.stillIdleSeconds()
+    if st = "playing" and m.idleLimit > 0 and m.lastInput.TotalSeconds() >= m.idleLimit and not m.still.visible
         m.video.control = "pause"
         askStill("idle")
         return
@@ -668,6 +675,16 @@ sub skipCredits()
 end sub
 
 sub onFinished()
+    ' (v1.0 F-12) sleep timer on "End of episode": the player closes here
+    if Util.toText(m.sleepMode) = "episode"
+        sleepExpire()
+        return
+    end if
+    ' (v1.0 F-10) Cinema Mode: the next intro, then the film
+    if m.top.item.after <> invalid
+        playAfterIntro()
+        return
+    end if
     ' Settings → Play the next episode automatically (off: the player closes at the end)
     if m.next <> invalid and m.pf.autoNext
         report("/Sessions/Playing/Stopped", false, m.video.duration)
@@ -682,8 +699,15 @@ sub onFinished()
             m.top.findNode("upNextTitle").text = Util.toText(m.next.Name)
             m.top.findNode("upNextEpisode").text = ""
         end if
-        m.count = 10
-        m.top.findNode("upNextCount").text = "Play now  (10)"
+        ' Settings → Playback → Up Next countdown (v1.0 F-11): Off starts the next one at once
+        secs = Prefs.upNextSeconds()
+        if secs <= 0
+            m.count = 1
+            onCountdown()
+            return
+        end if
+        m.count = secs
+        m.top.findNode("upNextCount").text = "Play now  (" + secs.toStr() + ")"
         m.top.findNode("upNextStill").uri = Items.landscape(m.top.server, m.next, 240)
         m.osdShown = false
         m.osd.opacity = 0
@@ -691,7 +715,7 @@ sub onFinished()
         m.upNext.visible = true
         m.upNext.setFocus(true)
         m.countdown.control = "start"
-        Speak.say(Speak.clean("Up next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play now, button, plays in 10 seconds")
+        Speak.say(Speak.clean("Up next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play now, button, plays in " + secs.toStr() + " seconds")
     else
         close()
     end if
@@ -799,7 +823,7 @@ end sub
 
 sub onPickerCancelled()
     ' (Back from a style list: the Subtitles menu again)
-    if m.picker <> invalid and (Left(Util.toText(m.picker.purpose), 9) = "substyle:" or m.picker.purpose = "subdelay")
+    if m.picker <> invalid and (Left(Util.toText(m.picker.purpose), 9) = "substyle:" or m.picker.purpose = "subdelay" or m.picker.purpose = "subsearchlang" or m.picker.purpose = "subresults")
         openSubsMenu()
         return
     end if
@@ -866,6 +890,18 @@ sub onPicked(ev as object)
         end for
         return
     end if
+    if c.purpose = "subs" and c.id = "search"
+        openSubSearchLangs()
+        return
+    end if
+    if c.purpose = "subsearchlang"
+        searchSubtitles(c.id)
+        return
+    end if
+    if c.purpose = "subresults"
+        downloadSubtitle(c.id)
+        return
+    end if
     if c.purpose = "subs" and c.id = "delay"
         o = []
         for each ms in [-5000, -4500, -4000, -3500, -3000, -2500, -2000, -1500, -1000, -500, -250, 0, 250, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
@@ -893,6 +929,12 @@ sub onPicked(ev as object)
     closePicker()
     if c.purpose = "chapter"
         seekToChapter(c)
+        return
+    end if
+    if c.purpose = "sleep"
+        m.keys.setFocus(true)
+        setSleep(c.id)
+        resumeAfterPicker()
         return
     end if
     if c.purpose = "speed"
@@ -1851,6 +1893,7 @@ end sub
 ' * menu entries added after audio / subtitles / quality / version: Chapters, Playback info
 sub addMenuExtras(opts as object)
     if chapterEntries().count() > 0 then opts.push({ id: "chapters", label: "Chapters" })
+    opts.push({ id: "sleep", label: "Sleep timer: " + sleepLabel() })
     if m.pbInfo = invalid
         opts.push({ id: "pbinfo", label: "Show playback info" })
     else
@@ -1859,7 +1902,15 @@ sub addMenuExtras(opts as object)
 end sub
 
 sub useMenuExtra(id as string)
-    if id = "chapters"
+    if id = "sleep"
+        o = []
+        for each c in sleepChoices()
+            o.push({ id: c[0], label: c[1] })
+        end for
+        cur = Util.toText(m.sleepId)
+        if cur = "" then cur = "off"
+        openPicker("sleep", "Sleep timer", o, cur)
+    else if id = "chapters"
         showChapters()
     else if id = "pbinfo"
         togglePlaybackInfo()
@@ -2095,6 +2146,8 @@ sub openSubsMenu()
     end for
     ' (text subtitles only: burned-in ones are part of the picture)
     if m.opts.sub >= 0 and not m.opts.burn then o.push({ id: "delay", label: "Subtitle delay:  " + delayLabel(m.subDelayMs) })
+    ' (v1.0 F-13) the server's subtitle providers (OpenSubtitles, ...)
+    if m.info <> invalid then o.push({ id: "search", label: "Search for subtitles..." })
     for each ch in Subs.styleChoices()
         o.push({ id: "style:" + ch.key, label: ch.label + ":  " + Subs.currentLabel(ch) })
     end for
@@ -2344,3 +2397,255 @@ function handleTransport(evt as object) as object
     end if
     return ok
 end function
+
+' ---------------------------------------------------------------- sleep timer (v1.0 F-12)
+
+' (kept for the whole player: it spans the next episodes)
+function sleepChoices() as object
+    return [["off", "Off"], ["episode", "End of episode"], ["30", "30 minutes"], ["60", "60 minutes"], ["90", "90 minutes"]]
+end function
+
+sub setSleep(id as string)
+    m.sleepId = id
+    m.sleepMode = ""
+    m.sleepSecs = 0
+    if id = "episode"
+        m.sleepMode = "episode"
+    else if id.toInt() > 0
+        m.sleepMode = "time"
+        m.sleepSecs = id.toInt() * 60
+        m.sleepClock = createObject("roTimespan")
+    end if
+    if m.sleepTimer = invalid
+        m.sleepTimer = createObject("roSGNode", "Timer")
+        m.sleepTimer.duration = 10
+        m.sleepTimer.repeat = true
+        m.sleepTimer.observeField("fire", "onSleepTick")
+        m.top.appendChild(m.sleepTimer)
+    end if
+    if m.sleepMode = "time"
+        m.sleepTimer.control = "start"
+    else
+        m.sleepTimer.control = "stop"
+    end if
+    print "Cove: sleep timer "; id
+    showSleepLeft()
+end sub
+
+' Seconds left on a timed sleep timer (-1 when none runs)
+function sleepRemaining() as integer
+    if Util.toText(m.sleepMode) <> "time" or m.sleepClock = invalid then return -1
+    left_ = m.sleepSecs - m.sleepClock.TotalSeconds()
+    if left_ < 0 then left_ = 0
+    return left_
+end function
+
+function sleepLabel() as string
+    mode = Util.toText(m.sleepMode)
+    if mode = "episode" then return "End of episode"
+    r = sleepRemaining()
+    if r < 0 then return "Off"
+    mins = (r + 59) \ 60
+    if mins <= 1 then return "1 min left"
+    return mins.toStr() + " min left"
+end function
+
+' The time left at the top right of the controls (and nothing when the timer is off)
+sub showSleepLeft()
+    lb = m.top.findNode("sleepLeft")
+    if lb = invalid then return
+    if Util.toText(m.sleepMode) = ""
+        lb.text = ""
+    else
+        lb.text = "Sleep timer: " + sleepLabel()
+    end if
+end sub
+
+sub onSleepTick()
+    if m.closing
+        m.sleepTimer.control = "stop"
+        return
+    end if
+    showSleepLeft()
+    if sleepRemaining() = 0 then sleepExpire()
+end sub
+
+' Time is up (or the episode ended): pause, then close the player as Back does (stop report, watched mark)
+sub sleepExpire()
+    print "Cove: sleep timer ended, closing the player"
+    m.sleepMode = ""
+    m.sleepId = "off"
+    if m.sleepTimer <> invalid then m.sleepTimer.control = "stop"
+    if m.video.state = "playing" then m.video.control = "pause"
+    closePicker()
+    close()
+end sub
+
+' ---------------------------------------------------------------- Cinema Mode (v1.0 F-10)
+
+' An intro ended: the next one, or the film it was for (MainScene.onIntros put them in the item)
+sub playAfterIntro()
+    it = m.top.item
+    if m.started
+        report("/Sessions/Playing/Stopped", false, m.video.duration)
+        stopEncoding()
+    end if
+    m.video.control = "stop"
+    rest = it.intros
+    if type(rest) = "roArray" and rest.count() > 0
+        nx = rest[0]
+        more = []
+        for i = 1 to rest.count() - 1
+            more.push(rest[i])
+        end for
+        sub_ = "Intro"
+        if Util.toText(nx.subtitle) <> "" then sub_ = "Intro  ·  " + Util.toText(nx.subtitle)
+        m.top.item = { id: Util.toText(nx.id), title: Util.toText(it.title), subtitle: sub_, start: 0.0, trailer: true, after: it.after, intros: more }
+    else
+        print "Cove: intros done, starting the film"
+        m.top.item = it.after
+    end if
+end sub
+
+' ---------------------------------------------------------------- search for subtitles (v1.0 F-13)
+
+' GET /Items/{id}/RemoteSearch/Subtitles/{lang} (Emby and Jellyfin; the user needs the server's subtitle
+' download permission), POST /Items/{id}/RemoteSearch/Subtitles/{subtitleId} to download one, then the
+' item's streams again until the new subtitle is there; it is then chosen.
+sub openSubSearchLangs()
+    o = []
+    for each l in Prefs.languages()
+        o.push({ id: LCase(l.name), label: l.name })
+    end for
+    openPicker("subsearchlang", "Search for subtitles in", o, Prefs.subLang())
+end sub
+
+' The 3-letter code the providers use ("romanian" → "rum" / "ron": the first 3-letter one)
+function subSearchCode(langName as string) as string
+    for each c in Prefs.codesFor(langName)
+        if Len(c) = 3 then return c
+    end for
+    return "eng"
+end function
+
+sub searchSubtitles(langName as string)
+    m.subSearchLang = langName
+    code = subSearchCode(langName)
+    openPicker("subresults", "Searching...", [{ id: "none", label: "Searching for subtitles..." }], "")
+    subSearchRequest("GET", "/Items/" + m.top.item.id + "/RemoteSearch/Subtitles/" + code, { kind: "subSearch", itemId: m.top.item.id }, 0)
+end sub
+
+sub downloadSubtitle(id as string)
+    if id = "none" or Left(id, 2) <> "r:"
+        openSubsMenu()
+        return
+    end if
+    subId = Mid(id, 3)
+    m.subsBefore = {}
+    for each s in m.tracks.subs
+        m.subsBefore[s.index.toStr()] = true
+    end for
+    openPicker("subresults", "Downloading...", [{ id: "none", label: "Downloading the subtitle..." }], "")
+    subSearchRequest("POST", "/Items/" + m.top.item.id + "/RemoteSearch/Subtitles/" + subId.encodeUriComponent(), { kind: "subGet", itemId: m.top.item.id }, 0)
+end sub
+
+sub subSearchRequest(method as string, path as string, tag as object, delay as integer)
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: method, url: Util.toText(m.top.server.url) + path, headers: Api.headers(m.top.server, true), body: "", tag: tag, timeout: 60000, delay: delay }
+    t.observeField("response", "onSubSearch")
+    m.subSearchTask = t
+    t.control = "RUN"
+end sub
+
+' (answers for another title, after the player closed, or with the menu gone are dropped)
+sub onSubSearch(ev as object)
+    r = ev.getData()
+    if m.closing or r.tag.itemId <> m.top.item.id then return
+    k = r.tag.kind
+    print "Cove: subtitle "; k; " -> "; r.code
+    waiting = m.picker <> invalid and Util.toText(m.picker.purpose) = "subresults"
+    if k = "subSearch"
+        if not waiting then return
+        if r.code = 401 or r.code = 403
+            subSearchNote("Your user on the server isn't allowed to download subtitles.")
+            return
+        end if
+        o = []
+        if r.code = 200 and type(r.json) = "roArray"
+            for each x in r.json
+                if Util.isAA(x) and Util.toText(x.Id) <> "" and o.count() < 25 then o.push({ id: "r:" + Util.toText(x.Id), label: subResultLabel(x) })
+            end for
+        end if
+        if o.count() = 0
+            subSearchNote("No subtitles found. Check that the server has a subtitle provider (e.g. OpenSubtitles).")
+            return
+        end if
+        openPicker("subresults", "Subtitles found", o, "")
+    else if k = "subGet"
+        if r.code < 200 or r.code >= 300
+            if r.code = 401 or r.code = 403
+                subSearchNote("Your user on the server isn't allowed to download subtitles.")
+            else
+                subSearchNote("The server couldn't download this subtitle (" + r.code.toStr() + ").")
+            end if
+            return
+        end if
+        m.subTries = 0
+        subSearchRequest("GET", "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.item.id + "?Fields=MediaSources,MediaStreams", { kind: "subRefresh", itemId: m.top.item.id }, 1500)
+    else if k = "subRefresh"
+        if r.code <> 200 or not Util.isAA(r.json) then return
+        fresh = Tracks.fromItem(r.json, Util.toText(m.opts.sourceId))
+        added = invalid
+        for each s in fresh.subs
+            if m.subsBefore = invalid or not m.subsBefore.doesExist(s.index.toStr())
+                if added = invalid and s.isText then added = s
+            end if
+        end for
+        if added = invalid
+            m.subTries = m.subTries + 1
+            if m.subTries < 4
+                subSearchRequest("GET", "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.item.id + "?Fields=MediaSources,MediaStreams", { kind: "subRefresh", itemId: m.top.item.id }, 3000)
+            else if waiting
+                subSearchNote("Downloaded. It will be in the Subtitles list once the server has added it.")
+            end if
+            return
+        end if
+        ' the new track list (the item's streams too, for the playback info), and the new subtitle on
+        m.tracks = fresh
+        if m.info <> invalid
+            m.info.MediaSources = r.json.MediaSources
+            m.info.MediaStreams = r.json.MediaStreams
+        end if
+        m.opts.sub = added.index
+        m.opts.burn = false
+        m.subLang = added.language
+        print "Cove: downloaded subtitle is track "; added.index
+        loadTextSub()
+        if waiting
+            closePicker()
+            m.keys.setFocus(true)
+            resumeAfterPicker()
+        end if
+        drawControls()
+    end if
+end sub
+
+' "Name  ·  OpenSubtitles  ·  SRT  ·  1234 downloads"
+function subResultLabel(x as object) as string
+    parts = []
+    n = Util.toText(x.Name)
+    if n.len() > 60 then n = n.left(58) + "..."
+    if n <> "" then parts.push(n)
+    if Util.toText(x.ProviderName) <> "" then parts.push(Util.toText(x.ProviderName))
+    if Util.toText(x.Format) <> "" then parts.push(UCase(Util.toText(x.Format)))
+    dl = Util.toNumber(x.DownloadCount)
+    if dl > 0 then parts.push(Int(dl).toStr() + " downloads")
+    if Util.flag(x, "IsHashMatch") then parts.push("exact match")
+    return Util.join(parts, "  ·  ")
+end function
+
+' One line in the results panel (OK or Back goes back to the Subtitles menu)
+sub subSearchNote(text as string)
+    if m.picker = invalid or Util.toText(m.picker.purpose) <> "subresults" then return
+    openPicker("subresults", "Search for subtitles", [{ id: "none", label: text }], "")
+end sub

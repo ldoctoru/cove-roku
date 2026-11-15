@@ -61,6 +61,8 @@ sub init()
     m.ovWidth = 0
     m.textPanel = invalid   ' the whole description, while open
     m.trailers = []         ' trailers stored on the server with this title (LocalTrailers)
+    m.extrasList = []       ' (v1.0 F-9) extras / special features (behind the scenes, deleted scenes, ...)
+    m.seriesPlay = invalid  ' (v1.0 F-17) the Play All / Shuffle request waiting for its episodes
     m.boxList = []          ' a collection's titles, in release order
     m.includedList = []     ' the collections this title is in ("Included In")
     ' Audio Guide: what was said last (a redraw that doesn't move the focus says nothing), the title it was for
@@ -129,6 +131,11 @@ sub onResponse(ev as object)
         ' (v0.9.1) the series' rating for an unrated episode; a failed answer keeps the title hidden
         if r.code = 200 then Ratings.rememberSeries(m.top.server, [Util.toText(r.tag.seriesId)], r.json)
         if Util.isAA(r.tag.item) then onItemRated(r.tag.item)
+    else if k = "extras"
+        onExtras(r)
+        return
+    else if k = "seriesPlay"
+        onSeriesPlay(r)
         return
     end if
     if r.code <> 200 or r.json = invalid
@@ -263,6 +270,7 @@ sub showItem(it as object)
         end if
         get("/Items/" + Util.toText(it.Id) + "/Similar?UserId=" + Util.toText(srv.userId) + "&Limit=12&" + Items.fields(), { kind: "similar" })
         loadTrailers(it)
+        loadExtras(it)
         if t = "BoxSet" then loadBoxItems()
         if t <> "BoxSet" and t <> "Episode" then loadIncludedIn(it)
     end if
@@ -298,6 +306,19 @@ sub buildKind(it as object)
     if s <> ""
         st.translation = [x, 8]
         sl.translation = [x + 32, 0]
+        x = x + 32 + sl.boundingRect().width + 22
+    end if
+    ' (v1.0 F-15) the critics' score after the star
+    cs = Items.criticScore(it)
+    ci = m.top.findNode("critic")
+    cl = m.top.findNode("criticScore")
+    cl.text = cs
+    ci.visible = cs <> ""
+    if cs <> ""
+        ci.uri = "pkg:/images/ui/icon_critic_fresh_56.png"
+        if Util.toNumber(it.CriticRating) < 60 then ci.uri = "pkg:/images/ui/icon_critic_rotten_56.png"
+        ci.translation = [x, 6]
+        cl.translation = [x + 36, 0]
     end if
 end sub
 
@@ -450,6 +471,11 @@ sub buildButtons()
     end if
     if not isGroup or target <> invalid then btns.push({ id: "play", pill: true, label: label })
     if resumeAt > 30 then btns.push({ id: "restart", icon: "restart" })
+    ' (v1.0 F-17) a series: every episode in order, or shuffled
+    if t = "Series" and target <> invalid
+        btns.push({ id: "playall", text: "Play All" })
+        btns.push({ id: "shuffle", text: "Shuffle" })
+    end if
     favIcon = "plus"
     if m.isFav then favIcon = "check"
     btns.push({ id: "fav", icon: favIcon })
@@ -675,6 +701,10 @@ sub useButton()
             end for
             openPicker("trailer", "Trailers", o, "")
         end if
+    else if id = "playall"
+        playAllMenu()
+    else if id = "shuffle"
+        loadSeriesPlay("shuffle")
     else if id = "series" or id = "season"
         o = { itemId: Util.toText(it.SeriesId), itemType: "Series", title: Util.toText(it.SeriesName) }
         if id = "season" then o.seasonId = Util.toText(it.SeasonId)
@@ -754,6 +784,129 @@ sub playTrailer(i as integer)
     sub_ = "Trailer"
     if m.trailers.count() > 1 then sub_ = trailerName(i)
     m.top.play = { id: Util.toText(tr.Id), title: Util.toText(m.item.Name), subtitle: sub_, start: 0, trailer: true }
+end sub
+
+' ---------------------------------------------------------------- extras (v1.0 F-9)
+
+' GET /Users/{id}/Items/{item}/SpecialFeatures (Emby, Jellyfin up to 10.8); Jellyfin 10.9+:
+' /Items/{item}/SpecialFeatures?userId=. Skipped when the server says there are none (SpecialFeatureCount).
+sub loadExtras(it as object)
+    m.extrasList = []
+    t = Util.toText(it.Type)
+    if t = "BoxSet" or t = "Person" then return
+    if it.SpecialFeatureCount <> invalid and Util.toNumber(it.SpecialFeatureCount) <= 0 then return
+    get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + Util.toText(it.Id) + "/SpecialFeatures", { kind: "extras", itemId: Util.toText(it.Id), newRoute: false })
+end sub
+
+sub onExtras(r as object)
+    if m.item = invalid or r.tag.itemId <> Util.toText(m.item.Id) then return
+    if (r.code = 404 or r.code = 405) and not r.tag.newRoute
+        get("/Items/" + r.tag.itemId + "/SpecialFeatures?userId=" + Util.toText(m.top.server.userId), { kind: "extras", itemId: r.tag.itemId, newRoute: true })
+        return
+    end if
+    if r.code <> 200 then return
+    list = []
+    ' (the profile's rating limit applies to extras too)
+    for each x in Ratings.keep(m.top.server, listOf(r.json))
+        if Util.isAA(x) and Util.toText(x.Id) <> "" and list.count() < 30 then list.push(x)
+    end for
+    print "Cove: extras -> "; list.count()
+    m.extrasList = list
+    rebuildRows()
+end sub
+
+' "BehindTheScenes" → "Behind the Scenes"; "" when the server doesn't say
+function extraKind(x as object) as string
+    k = Util.toText(x.ExtraType)
+    names = { "BehindTheScenes": "Behind the Scenes", "DeletedScene": "Deleted Scene", "Featurette": "Featurette", "Interview": "Interview", "Scene": "Scene", "Short": "Short", "Sample": "Sample", "Trailer": "Trailer", "ThemeVideo": "Theme Video", "Clip": "Clip", "Unknown": "" }
+    for each n in names
+        if LCase(n) = LCase(k) then return names[n]
+    end for
+    return k
+end function
+
+' In the Cove player like a trailer: the film itself isn't touched (no resume point, not marked watched)
+sub playExtra(i as integer)
+    if i < 0 or i >= m.extrasList.count() then return
+    x = m.extrasList[i]
+    sub_ = Util.toText(x.Name)
+    if sub_ = "" then sub_ = extraKind(x)
+    m.top.play = { id: Util.toText(x.Id), title: Util.toText(m.item.Name), subtitle: sub_, start: 0, trailer: true }
+end sub
+
+' ---------------------------------------------------------------- series Play All / Shuffle (v1.0 F-17)
+
+' Play All: from S1:E1, or from the next unwatched episode when the series was started
+sub playAllMenu()
+    nu = m.nextUp
+    if nu <> invalid and not (Util.toNumber(nu.ParentIndexNumber) = 1 and Util.toNumber(nu.IndexNumber) = 1)
+        o = [{ id: "first", label: "From the Beginning (S1:E1)" }]
+        o.push({ id: "next", label: "From the Next Unwatched (S" + Util.toText(nu.ParentIndexNumber) + ":E" + Util.toText(nu.IndexNumber) + ")" })
+        openPicker("playall", "Play All", o, "")
+        return
+    end if
+    loadSeriesPlay("first")
+end sub
+
+' The series' episodes: in order (Play All from the start; the player goes on through the series with
+' Up Next), or random (Shuffle, as the library Shuffle: a queue for the player). Rating limit applies.
+sub loadSeriesPlay(mode as string)
+    if m.item = invalid or m.seriesPlay <> invalid then return
+    srv = m.top.server
+    uid = Util.toText(srv.userId)
+    sid = Util.toText(m.item.Id)
+    m.seriesPlay = mode
+    m.status.text = "Getting the episodes..."
+    if mode = "shuffle"
+        path = "/Users/" + uid + "/Items?ParentId=" + sid + "&Recursive=true&IncludeItemTypes=Episode&SortBy=Random&Limit=100&Fields=PrimaryImageAspectRatio&EnableUserData=false&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb"
+        get(Ratings.withLimit(srv, path), { kind: "seriesPlay", mode: mode, itemId: sid })
+    else
+        get("/Shows/" + sid + "/Episodes?UserId=" + uid + "&" + Items.fields(), { kind: "seriesPlay", mode: mode, itemId: sid })
+    end if
+end sub
+
+sub onSeriesPlay(r as object)
+    m.seriesPlay = invalid
+    m.status.text = ""
+    if m.item = invalid or r.tag.itemId <> Util.toText(m.item.Id) then return
+    if r.code <> 200
+        m.status.text = "Couldn't get the episodes. " + Api.describeFailure(r)
+        return
+    end if
+    eps = []
+    specials = []
+    for each e in Ratings.keep(m.top.server, listOf(r.json))
+        if Util.isAA(e) and Util.toText(e.Id) <> ""
+            ' (specials, season 0, only when there is nothing else)
+            if Util.toNumber(e.ParentIndexNumber) = 0
+                specials.push(e)
+            else
+                eps.push(e)
+            end if
+        end if
+    end for
+    if eps.count() = 0 then eps = specials
+    print "Cove: series "; r.tag.mode; " -> "; eps.count(); " episodes"
+    if eps.count() = 0
+        m.status.text = "No episodes to play."
+        return
+    end if
+    if r.tag.mode = "first"
+        requestPlay(eps[0], 0)
+        return
+    end if
+    ' Shuffle: the first plays, the others follow as the player's queue (trimmed: it rides in a node field)
+    keep = ["Id", "Name", "Type", "SeriesName", "SeriesId", "ParentIndexNumber", "IndexNumber", "ImageTags", "BackdropImageTags", "ParentBackdropItemId", "ParentBackdropImageTags", "ParentThumbItemId", "ParentThumbImageTag", "SeriesPrimaryImageTag"]
+    rest = []
+    for i = 1 to eps.count() - 1
+        o = {}
+        for each k in keep
+            if eps[i][k] <> invalid then o[k] = eps[i][k]
+        end for
+        rest.push(o)
+    end for
+    head = eps[0]
+    m.top.play = { id: Util.toText(head.Id), title: Util.toText(m.item.Name), subtitle: Items.episodeLabel(head), start: 0.0, queue: rest }
 end sub
 
 ' ---------------------------------------------------------------- favourite
@@ -953,6 +1106,18 @@ sub onPicked(ev as object)
         playTrailer(c.id.toInt())
         return
     end if
+    if c.purpose = "playall"
+        closePicker()
+        enterButtons(false)
+        if c.id = "next" and m.nextUp <> invalid
+            start = Items.resumeAt(m.nextUp)
+            if start <= 30 then start = 0
+            requestPlay(m.nextUp, start)
+        else
+            loadSeriesPlay("first")
+        end if
+        return
+    end if
     if c.purpose = "seasonmenu"
         closePicker()
         enterSeason()
@@ -1106,6 +1271,23 @@ sub rebuildRows()
         end for
         sizes.push([276, 466])
         heights.push(466)
+        labels.push(true)
+    end if
+    ' (v1.0 F-9) extras, as landscape cards like the episodes
+    if m.extrasList.count() > 0
+        row = newRow(root, "Extras", "extras")
+        for each x in m.extrasList
+            n = Items.node(srv, x, true)
+            n.title = Util.toText(x.Name)
+            n.episode = extraKind(x)
+            rt = ""
+            if x.RunTimeTicks <> invalid then rt = Int(x.RunTimeTicks / 600000000).toStr() + "m"
+            n.addFields({ kind: "episode", runtime: rt })
+            n.overview = ""
+            row.appendChild(n)
+        end for
+        sizes.push([516, 426])
+        heights.push(426)
         labels.push(true)
     end if
     if m.castList.count() > 0
@@ -1505,6 +1687,8 @@ sub onRowSelected()
         start = Items.resumeAt(e)
         if start <= 30 then start = 0
         requestPlay(e, start)
+    else if k = "extras" and i < m.extrasList.count()
+        playExtra(i)
     else if k = "cast" and i < m.castList.count()
         pp = m.castList[i]
         m.top.openItem = { id: "open", itemId: Util.toText(pp.Id), itemType: "Person", collectionType: "", title: Util.toText(pp.Name) }

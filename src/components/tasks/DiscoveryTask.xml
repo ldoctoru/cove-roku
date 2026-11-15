@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- LAN server discovery (U-2 / F-8): one UDP broadcast to 255.255.255.255:7359 with "Who is JellyfinServer?" and
+     "who is EmbyServer?", then the answers for 2 s. Jellyfin and Emby answer with JSON { Address, Id, Name }.
+     "servers" = [{ id, name, address }] (deduplicated by id; addresses checked to be plain http(s) host[:port]). -->
+<component name="DiscoveryTask" extends="Task">
+    <script type="text/brightscript" uri="DiscoveryTask.bs" />
+    <interface>
+        <field id="seconds" type="integer" value="2" />
+        <field id="servers" type="array" />
+    </interface>
+</component>

@@ -124,6 +124,14 @@ namespace Items
         return (cr \ 10).toStr() + "." + (cr mod 10).toStr()
     end function
 
+    ' (v1.0 F-15) The critics' score, 0-100 (Rotten Tomatoes on most servers) → "87%"; "" without one
+    function criticScore(it as object) as string
+        if it.CriticRating = invalid then return ""
+        v = Util.toNumber(it.CriticRating)
+        if v <= 0 or v > 100 then return ""
+        return Int(v + 0.5).toStr() + "%"
+    end function
+
     ' "S1, E2" (hero chip)
     function episodeChip(it as object) as string
         if Util.toText(it.Type) <> "Episode" then return ""
