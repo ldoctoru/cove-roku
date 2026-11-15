@@ -4,6 +4,7 @@ import "pkg:/source/Api.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/Ratings.bs"
 
 sub init()
     t = m.global.theme
@@ -225,7 +226,8 @@ sub onSessions(ev as object)
     n = 0
     if r.code = 200 and type(r.json) = "roArray"
         for each s in r.json
-            if s.NowPlayingItem <> invalid then n = n + 1
+            ' (v0.9.1: as on Now Playing, only what the profile's rating limit lets through)
+            if Util.isAA(s) and Util.isAA(s.NowPlayingItem) and Ratings.allowed(m.top.server, s.NowPlayingItem) then n = n + 1
         end for
     end if
     if n <> m.nowPlaying

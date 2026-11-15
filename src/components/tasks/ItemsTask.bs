@@ -27,6 +27,8 @@ sub work()
         if type(list) <> "roArray" then list = []
         ' (only objects: a wrong type in the list would stop at the first field read)
         kept = []
+        ' (v0.9.1: the series ratings of unrated episodes, one request)
+        if m.top.kind <> "person" then Ratings.prefetchSeries(srv, list)
         for each it in list
             if Util.isAA(it) and (m.top.kind = "person" or Ratings.allowed(srv, it)) then kept.push(it)
         end for

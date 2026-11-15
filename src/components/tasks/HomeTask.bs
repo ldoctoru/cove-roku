@@ -179,8 +179,9 @@ function getList(rawPath as string, rawFallback as string) as object
 end function
 
 sub addRow(root as object, title as string, list as object, isLandscape as boolean)
-    ' (titles above the profile's rating limit, from routes that ignore MaxOfficialRating)
-    list = Ratings.keep(m.srv, list)
+    ' (titles above the profile's rating limit, from routes that ignore MaxOfficialRating; unrated episodes
+    ' by their series' rating)
+    list = Ratings.keepChecked(m.srv, list)
     if list.count() = 0 then return
     row = root.createChild("ContentNode")
     row.title = title

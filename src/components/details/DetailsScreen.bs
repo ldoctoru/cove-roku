@@ -124,16 +124,22 @@ sub onResponse(ev as object)
     else if k = "trailers"
         onTrailers(r)
         return
+    else if k = "seriesRating"
+        ' (v0.9.1) the series' rating for an unrated episode; a failed answer keeps the title hidden
+        if r.code = 200 then Ratings.rememberSeries(m.top.server, [Util.toText(r.tag.seriesId)], r.json)
+        if Util.isAA(r.tag.item) then onItemRated(r.tag.item)
+        return
     end if
     if r.code <> 200 or r.json = invalid
         if k = "item" then m.status.text = "Couldn't load this title. " + Api.describeFailure(r)
         return
     end if
-    if k = "item" and not Ratings.allowed(m.top.server, r.json)
-        ' (v0.9.0: above the profile's rating limit, e.g. reached from a link or a collection)
-        m.status.text = "This title is above this profile's rating limit (" + Util.toText(m.top.server.maxRating) + ")."
+    if k = "item" and Ratings.seriesUnknown(m.top.server, r.json)
+        ' (v0.9.1: an episode without its own rating, under a limit: its series' rating first)
+        sid = Util.toText(r.json.SeriesId)
+        send("GET", Ratings.seriesPath(m.top.server, [sid]), { kind: "seriesRating", seriesId: sid, item: r.json })
     else if k = "item"
-        showItem(r.json)
+        onItemRated(r.json)
     else if k = "seasons"
         onSeasons(r.json)
     else if k = "episodes" and r.tag.gen = m.seasonGen
@@ -156,8 +162,19 @@ sub onResponse(ev as object)
         list = listOf(r.json)
         ' (a long answer means the server ignored the filter and sent every collection: show none, as the Mac)
         if list.count() > 10 then list = []
-        m.includedList = list
+        ' (v0.9.1: collections above the profile's rating limit stay away too)
+        m.includedList = Ratings.keep(m.top.server, list)
         rebuildRows()
+    end if
+end sub
+
+' The title, or the rating-limit message when the profile may not see it
+sub onItemRated(it as object)
+    if Ratings.allowed(m.top.server, it)
+        showItem(it)
+    else
+        ' (v0.9.0: above the profile's rating limit, e.g. reached from a link or a collection)
+        m.status.text = "This title is above this profile's rating limit (" + Util.toText(m.top.server.maxRating) + ")."
     end if
 end sub
 

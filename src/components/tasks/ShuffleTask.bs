@@ -60,6 +60,8 @@ function fetchItems(params as string) as object
     print "Cove: shuffle items -> "; r.code
     out = []
     if r.code <> 200 or not Util.isAA(r.json) or type(r.json.Items) <> "roArray" then return out
+    ' (v0.9.1: the series ratings of unrated episodes, one request)
+    Ratings.prefetchSeries(srv, r.json.Items)
     keep = ["Id", "Name", "Type", "SeriesName", "SeriesId", "ParentIndexNumber", "IndexNumber", "ImageTags", "BackdropImageTags", "ParentBackdropItemId", "ParentBackdropImageTags", "ParentThumbItemId", "ParentThumbImageTag", "SeriesPrimaryImageTag"]
     for each it in r.json.Items
         if Util.isAA(it) and Util.toText(it.Id) <> "" and Ratings.allowed(srv, it)
