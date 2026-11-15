@@ -352,10 +352,11 @@ namespace Prefs
 
     ' ---------------------------------------------------------------- reset
 
-    ' Every setting back to its default; the servers and sign-ins are kept (as on the Mac)
+    ' Every setting back to its default; the servers and sign-ins are kept (as on the Mac), and so are the
+    ' wrong-PIN counters (v0.9.1: a reset must not restart the PIN lockout)
     sub resetAll()
         sec = createObject("roRegistrySection", "Cove")
-        keep = { servers: true, active: true }
+        keep = { servers: true, active: true, pinWait: true }
         for each k in sec.getKeyList()
             if not keep.doesExist(k) then sec.delete(k)
         end for
