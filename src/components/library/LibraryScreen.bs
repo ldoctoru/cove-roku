@@ -235,7 +235,7 @@ sub drawBar()
         else if isTab
             ' tabs sit together in one glass capsule (drawn below), the chosen one lit as on the Mac
             bg.uri = ""
-            lab.color = "0xFFFFFF99"
+            lab.color = "0xFFFFFFCC"
             if ids[i] = "tab:" + m.tab
                 bg.uri = "pkg:/images/ui/sel_pill.9.png"
                 lab.color = "0xFFFFFFFF"

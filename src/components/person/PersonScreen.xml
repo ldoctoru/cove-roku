@@ -20,7 +20,7 @@
             <Label id="name" width="1020" height="76" translation="[290,10]" color="0xFFFFFFFF">
                 <Font role="font" uri="font:BoldSystemFontFile" size="60" />
             </Label>
-            <Label id="born" width="1340" height="40" translation="[290,90]" color="0xFFFFFF8C">
+            <Label id="born" width="1340" height="40" translation="[290,90]" color="0xFFFFFFCC">
                 <Font role="font" uri="font:MediumSystemFontFile" size="26" />
             </Label>
             <Label id="bio0" width="1400" height="34" translation="[290,140]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
@@ -39,7 +39,7 @@
                  drawFocusFeedback="false" visible="false">
             <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />
         </RowList>
-        <Label id="status" width="1720" height="44" translation="[100,520]" color="0xFFFFFFB3" text="Loading...">
+        <Label id="status" width="1720" height="44" translation="[100,520]" color="0xFFFFFFCC" text="Loading...">
             <Font role="font" uri="font:MediumSystemFontFile" size="32" />
         </Label>
     </children>

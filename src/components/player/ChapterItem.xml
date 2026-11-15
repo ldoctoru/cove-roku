@@ -15,8 +15,8 @@
         <Label id="name" text="Chapter" width="356" height="34" translation="[190,14]" color="0xFFFFFFFF">
             <Font role="font" uri="font:BoldSystemFontFile" size="26" />
         </Label>
-        <Label id="time" text="0:00" width="356" height="30" translation="[190,56]" color="0xFFFFFF8C">
-            <Font role="font" uri="font:MediumSystemFontFile" size="22" />
+        <Label id="time" text="0:00" width="356" height="32" translation="[190,56]" color="0xFFFFFFCC">
+            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
         </Label>
     </children>
 </component>

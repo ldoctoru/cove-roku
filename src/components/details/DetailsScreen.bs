@@ -360,7 +360,7 @@ sub drawOverviewFocus()
     if on
         more.color = "0xFFFFFFFF"
     else
-        more.color = "0xFFFFFF99"
+        more.color = "0xFFFFFFCC"
     end if
 end sub
 
@@ -1386,7 +1386,7 @@ function addSeasonBadge(g as object, textW as integer, w as integer) as integer
     end if
     t = n.toStr()
     if n > 99 then t = "99+"
-    bw = 36 + (t.len() - 1) * 12
+    bw = 36 + (t.len() - 1) * 15
     bg = g.createChild("Poster")
     bg.uri = "pkg:/images/ui/badge_capsule.9.png"
     bg.width = bw
@@ -1395,7 +1395,7 @@ function addSeasonBadge(g as object, textW as integer, w as integer) as integer
     lab = g.createChild("Label")
     f = createObject("roSGNode", "Font")
     f.uri = "font:BoldSystemFontFile"
-    f.size = 20
+    f.size = 24
     lab.font = f
     lab.text = t
     lab.color = "0xFFFFFFFF"

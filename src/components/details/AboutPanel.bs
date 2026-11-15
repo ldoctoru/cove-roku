@@ -32,7 +32,7 @@ sub fillColumn(col as object, rows as dynamic, w as integer)
             lines = Util.wrapLines(Util.toText(r.v), chars, 2)
         end if
         for each line in lines
-            addText(col, line, 0, y, w, "0xFFFFFFB3", false)
+            addText(col, line, 0, y, w, "0xFFFFFFCC", false)
             y = y + 32
         end for
         y = y + 18

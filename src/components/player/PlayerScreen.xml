@@ -62,7 +62,7 @@
                 <Rectangle id="fill" width="0" height="6" translation="[130,30]" color="0xFFFFFFFF" />
                 <Poster id="thumb" uri="pkg:/images/ui/dot_24.png" width="22" height="22" translation="[119,22]" />
                 <!-- the Mac's "Ends at" (scrubber help label): the Roku's local time, 24 h, after the time left at the current speed -->
-                <Label id="endsAt" text="Ends at --:--" width="196" height="66" translation="[1534,0]" vertAlign="center" color="0xFFFFFFA6">
+                <Label id="endsAt" text="Ends at --:--" width="196" height="66" translation="[1534,0]" vertAlign="center" color="0xFFFFFFCC">
                     <Font role="font" uri="font:MediumSystemFontFile" size="24" />
                 </Label>
                 <Label id="remaining" width="120" height="66" translation="[1728,0]" horizAlign="right" vertAlign="center" color="0xFFFFFFD9">
@@ -95,8 +95,8 @@
         <Group id="upNext" translation="[1164,766]" visible="false">
             <Poster uri="pkg:/images/ui/panel_dark_r18.9.png" width="660" height="230" />
             <Poster id="upNextStill" width="240" height="135" translation="[24,24]" loadWidth="240" loadHeight="135" loadDisplayMode="scaleToZoom" />
-            <Label text="Up next" width="350" height="30" translation="[288,22]" color="0xFFFFFF8C">
-                <Font role="font" uri="font:BoldSystemFontFile" size="22" />
+            <Label text="Up next" width="350" height="32" translation="[288,20]" color="0xFFFFFFCC">
+                <Font role="font" uri="font:BoldSystemFontFile" size="24" />
             </Label>
             <Label id="upNextTitle" width="350" height="36" translation="[288,54]" color="0xFFFFFFFF">
                 <Font role="font" uri="font:BoldSystemFontFile" size="28" />
@@ -108,7 +108,7 @@
             <Label id="upNextCount" width="250" height="52" translation="[24,166]" horizAlign="center" vertAlign="center" color="0x000000FF">
                 <Font role="font" uri="font:BoldSystemFontFile" size="24" />
             </Label>
-            <Label text="Back: stop" width="350" height="52" translation="[288,166]" vertAlign="center" color="0xFFFFFF8C">
+            <Label text="Back: stop" width="350" height="52" translation="[288,166]" vertAlign="center" color="0xFFFFFFCC">
                 <Font role="font" uri="font:MediumSystemFontFile" size="24" />
             </Label>
         </Group>
@@ -119,7 +119,7 @@
             <Rectangle width="1920" height="1080" color="0x000000A6" />
             <Group translation="[540,370]">
                 <Poster uri="pkg:/images/ui/panel_dark_r18.9.png" width="840" height="340" />
-                <Label text="Are you still watching" width="840" height="40" translation="[0,40]" horizAlign="center" color="0xFFFFFFB3">
+                <Label text="Are you still watching" width="840" height="40" translation="[0,40]" horizAlign="center" color="0xFFFFFFCC">
                     <Font role="font" uri="font:MediumSystemFontFile" size="30" />
                 </Label>
                 <Label id="stillTitle" text="this series?" width="780" height="60" translation="[30,90]" horizAlign="center" color="0xFFFFFFFF">
