@@ -32,5 +32,7 @@
                text="Add a movie, show, episode, collection or person with the heart on its page.">
             <Font role="font" uri="font:MediumSystemFontFile" size="26" />
         </Label>
+        <!-- the favorites couldn't be loaded: Try Again / Switch Server / Settings -->
+        <ErrorPanel id="errorPanel" translation="[100,380]" width="1720" visible="false" />
     </children>
 </component>

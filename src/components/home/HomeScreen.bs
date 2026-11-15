@@ -10,6 +10,8 @@ sub init()
     t = m.global.theme
     m.rows = m.top.findNode("rows")
     m.status = m.top.findNode("status")
+    m.errorPanel = m.top.findNode("errorPanel")
+    m.errorPanel.observeField("chosen", "onErrorChosen")
     ' Sidebar or top bar (Settings → General → Navigation)
     m.side = Prefs.navStyle() <> "topbar"
     m.navs = m.top.findNode("navs")
@@ -23,6 +25,7 @@ sub init()
         m.top.findNode("hero").translation = [0, 0]
         m.top.findNode("info").translation = [96, 96]
         m.top.findNode("status").translation = [96, 520]
+        m.top.findNode("errorPanel").translation = [140, 380]
         m.top.findNode("rows").itemSize = [1842, 466]
     end if
     m.nav.visible = true
@@ -79,6 +82,7 @@ sub load()
         m.status.text = "Loading your libraries..."
         m.status.visible = true
     end if
+    hideError()
     ' a reload while one still runs: drop the older task, its late answer must not be read as this one's
     if m.task <> invalid
         m.task.unobserveField("content")
@@ -96,7 +100,42 @@ sub load()
 end sub
 
 sub onWatchdog()
-    if m.status.visible and not m.rows.visible then m.status.text = "The server is taking too long to answer. Press * and choose Reload."
+    if m.status.visible and not m.rows.visible then showError("The server is taking too long to answer.")
+end sub
+
+' ---------------------------------------------------------------- error panel
+
+' Instead of the rows: the message with Try Again / Switch Server / Settings (the focus goes to the buttons)
+sub showError(text as string, icon = "error" as string)
+    m.watchdog.control = "stop"
+    m.status.visible = false
+    m.rows.visible = false
+    m.top.findNode("hero").visible = false
+    m.errorPanel.icon = icon
+    m.errorPanel.message = text
+    m.errorPanel.index = 0
+    m.errorPanel.visible = true
+    m.state = "error"
+    if m.top.isInFocusChain() and m.picker = invalid then m.errorPanel.setFocus(true)
+end sub
+
+sub hideError()
+    if not m.errorPanel.visible then return
+    m.errorPanel.visible = false
+    if m.errorPanel.isInFocusChain() then m.top.findNode("heroKeys").setFocus(true)
+end sub
+
+sub onErrorChosen(ev as object)
+    id = ev.getData().id
+    if id = "retry"
+        m.state = "loading"
+        m.rows.visible = false
+        load()
+    else if id = "switch"
+        m.top.action = { id: "switch" }
+    else if id = "settings"
+        m.top.action = { id: "settings" }
+    end if
 end sub
 
 ' Reload after playback, keeping the screen as it is until the new rows arrive
@@ -110,6 +149,11 @@ sub onContent(ev as object)
     content = ev.getData()
     if content = invalid then return
     m.watchdog.control = "stop"
+    if content.getChildCount() = 0
+        showError("There is nothing to show on Home yet. Check that this account can see a library on the server.", "info")
+        return
+    end if
+    hideError()
     ' Per row: 16:9 cards for Continue Watching / Next Up / Libraries, 2:3 posters with title and year otherwise
     heights = []
     sizes = []
@@ -154,7 +198,14 @@ end sub
 sub onError(ev as object)
     if m.task = invalid or not ev.getRoSGNode().isSameNode(m.task) then return
     m.watchdog.control = "stop"
-    m.status.text = Util.toText(ev.getData()) + "   Press * for options."
+    text = Util.toText(ev.getData())
+    ' (a refresh that failed while the rows are up: keep them, say so)
+    if m.rows.visible and m.rows.content <> invalid and m.rows.content.getChildCount() > 0
+        m.reloading = false
+        if m.top.isInFocusChain() then Toasts.notify("Couldn't refresh Home. " + text, "info")
+        return
+    end if
+    showError(text)
 end sub
 
 ' A 401 on one list: check the sign-in itself before asking to sign in again (a single list can refuse
@@ -509,7 +560,10 @@ sub leaveNav()
         enterHero()
         return
     end if
-    if m.navReturn = "rows" and m.rows.visible
+    if m.navReturn = "error" and m.errorPanel.visible
+        m.state = "error"
+        m.errorPanel.setFocus(true)
+    else if m.navReturn = "rows" and m.rows.visible
         m.state = "rows"
         m.rows.setFocus(true)
     else
@@ -661,6 +715,8 @@ sub onFocusChanged()
         onItemFocused()
     else if m.state = "nav"
         m.nav.setFocus(true)
+    else if m.state = "error" and m.errorPanel.visible
+        m.errorPanel.setFocus(true)
     else if m.state = "hero"
         m.top.findNode("heroKeys").setFocus(true)
         paintButtons()
@@ -740,7 +796,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
         end if
     else if m.state = "nav"
         ' no hero: Back from the rows comes here, so a second Back must leave the app instead of going round
-        if key = "back" and m.heroes.count() = 0 then return false
+        if key = "back" and (m.heroes.count() = 0 or m.navReturn = "error") then return false
         if (m.side and key = "right") or (not m.side and key = "down") or key = "back"
             leaveNav()
             return true
@@ -751,11 +807,24 @@ function onKeyEvent(key as string, press as boolean) as boolean
             enterNav()
             return true
         else if key = "up" or key = "back"
+            ' Back from a lower row or a scrolled row: the top first (the hero, or the first card when there is
+            ' no hero), then the sidebar / top bar; only Back from there leaves the app (MainScene)
+            f = m.rows.rowItemFocused
+            if key = "back" and m.heroes.count() = 0 and f <> invalid and f.count() >= 2 and (f[0] > 0 or f[1] > 0)
+                m.rows.jumpToRowItem = [0, 0]
+                return true
+            end if
             if m.heroes.count() > 0
                 enterHero()
             else
                 enterNav()
             end if
+            return true
+        end if
+    else if m.state = "error"
+        ' the panel keeps Left / Right between its buttons; past the first one (or Up with the top bar) the nav
+        if (key = "left" and m.side) or (key = "up" and not m.side)
+            enterNav()
             return true
         end if
     end if
@@ -998,6 +1067,8 @@ sub restoreFocus()
         m.rows.setFocus(true)
     else if m.state = "nav"
         m.nav.setFocus(true)
+    else if m.state = "error" and m.errorPanel.visible
+        m.errorPanel.setFocus(true)
     else
         m.top.findNode("heroKeys").setFocus(true)
     end if

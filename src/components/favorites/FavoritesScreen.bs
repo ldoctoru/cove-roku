@@ -6,6 +6,8 @@ import "pkg:/source/Speak.bs"
 sub init()
     m.rows = m.top.findNode("rows")
     m.status = m.top.findNode("status")
+    m.errorPanel = m.top.findNode("errorPanel")
+    m.errorPanel.observeField("chosen", "onErrorChosen")
     m.rows.observeField("rowItemSelected", "onSelected")
     m.top.observeField("focusedChild", "onFocusChanged")
     ' (the list may get focus before anything loaded: never leave it without content)
@@ -141,15 +143,21 @@ sub buildRows()
         m.rows.visible = false
         m.rows.content = createObject("roSGNode", "ContentNode")
         m.status.text = "No favorites yet"
-        if m.loadError <> invalid then m.status.text = m.loadError
-        m.status.visible = true
+        m.status.visible = m.loadError = invalid
         m.top.findNode("hint").visible = m.loadError = invalid
+        if m.loadError <> invalid
+            m.errorPanel.message = "Couldn't load your favorites. " + Util.toText(m.loadError)
+            m.errorPanel.index = 0
+            m.errorPanel.visible = true
+            if m.top.isInFocusChain() then m.errorPanel.setFocus(true)
+        end if
         m.loadError = invalid
         m.keep = invalid
         return
     end if
     m.loadError = invalid
     m.status.visible = false
+    m.errorPanel.visible = false
     m.top.findNode("hint").visible = false
     m.rows.rowItemSize = sizes
     m.rows.rowHeights = heights
@@ -191,5 +199,20 @@ sub onFocusChanged()
         m.rows.setFocus(true)
         m.speakRow = -1
         Speak.rowCard(m.rows)
+    else if m.top.hasFocus() and m.errorPanel.visible
+        m.errorPanel.setFocus(true)
+    end if
+end sub
+
+sub onErrorChosen(ev as object)
+    id = ev.getData().id
+    if id = "retry"
+        m.errorPanel.visible = false
+        m.status.text = "Loading..."
+        m.status.visible = true
+        m.top.setFocus(true)
+        loadFavorites()
+    else
+        m.top.action = { id: id }
     end if
 end sub

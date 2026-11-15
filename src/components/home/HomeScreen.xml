@@ -103,6 +103,8 @@
         <Label id="status" width="1728" height="44" translation="[176,520]" color="0xFFFFFFCC" text="Loading your libraries...">
             <Font role="font" uri="font:MediumSystemFontFile" size="30" />
         </Label>
+        <!-- the server failed or there is nothing to show: Try Again / Switch Server / Settings -->
+        <ErrorPanel id="errorPanel" translation="[200,380]" width="1640" visible="false" />
 
         <Timer id="backdropTimer" duration="0.3" repeat="false" />
         <Timer id="heroTimer" duration="9" repeat="true" />

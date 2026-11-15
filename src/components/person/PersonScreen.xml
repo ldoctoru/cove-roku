@@ -42,5 +42,7 @@
         <Label id="status" width="1720" height="44" translation="[100,520]" color="0xFFFFFFCC" text="Loading...">
             <Font role="font" uri="font:MediumSystemFontFile" size="32" />
         </Label>
+        <!-- the titles couldn't be loaded: Try Again / Switch Server / Settings (Up still reaches the heart) -->
+        <ErrorPanel id="errorPanel" translation="[100,440]" width="1720" visible="false" />
     </children>
 </component>
