@@ -7,9 +7,12 @@
   "scripts": {
     "build": "bsc && node scripts/check-shadowing.js",
     "lint": "bsc --create-package false --retain-staging-dir false",
+    "test": "node tests/run.js && node --test tests/scripts/*.test.js",
+    "assets": "python3 scripts/make-ui-assets.py",
     "deploy": "npm run build && node scripts/deploy.js"
   },
   "devDependencies": {
+    "@rokucommunity/brs": "^0.47.6",
     "@rokucommunity/bslint": "^0.8.0",
     "brighterscript": "^0.73.8",
     "roku-deploy": "^3.12.0"
