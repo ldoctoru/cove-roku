@@ -30,6 +30,8 @@
         <Label id="status" width="1720" height="44" translation="[100,520]" color="0xFFFFFFCC" text="Loading...">
             <Font role="font" uri="font:MediumSystemFontFile" size="32" />
         </Label>
+        <!-- placeholder cards while the first page loads -->
+        <Skeleton id="skeleton" translation="[96,242]" rows="2" cols="6" stepX="276" stepY="470" />
         <!-- the load failed or nothing to show: Try Again / Clear Filters / ... (Up still reaches the pills) -->
         <ErrorPanel id="errorPanel" translation="[100,400]" width="1720" visible="false" />
     </children>

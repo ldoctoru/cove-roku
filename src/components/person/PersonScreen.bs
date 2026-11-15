@@ -13,6 +13,9 @@ sub init()
     m.errorPanel = m.top.findNode("errorPanel")
     m.errorPanel.observeField("chosen", "onErrorChosen")
     m.titlesFailed = 0
+    ' (U-7: placeholder cards instead of "Loading...")
+    m.skeleton = m.top.findNode("skeleton")
+    m.status.visible = false
     m.rows.observeField("rowItemSelected", "onSelected")
     m.top.observeField("focusedChild", "onFocusChanged")
     m.pending = []
@@ -43,6 +46,7 @@ sub load()
     ' their titles on this server, newest first (one request per row)
     base = "/Users/" + uid + "/Items?PersonIds=" + p.id + "&Recursive=true&SortBy=ProductionYear,SortName&SortOrder=Descending&Limit=100&" + Items.fields()
     m.waiting = 2
+    m.skeleton.active = true
     m.titlesFailed = 0
     m.lists = {}
     for each row in [{ key: "movies", types: "Movie" }, { key: "shows", types: "Series" }]
@@ -126,6 +130,7 @@ sub onTitlesError(ev as object)
 end sub
 
 sub buildRows()
+    m.skeleton.active = false
     root = createObject("roSGNode", "ContentNode")
     for each row in [{ key: "movies", title: "Movies" }, { key: "shows", title: "Shows" }]
         holder = m.lists[row.key]
@@ -150,6 +155,7 @@ sub buildRows()
     if root.getChildCount() = 0
         m.status.text = "No movies or shows with " + Util.toText(m.top.person.name) + " on this server."
         m.status.translation = [100, 420]
+        m.status.visible = true
         if m.favKnown and m.top.isInFocusChain() then enterHead()
         return
     end if
@@ -281,8 +287,6 @@ sub onErrorChosen(ev as object)
     id = ev.getData().id
     if id = "retry"
         m.errorPanel.visible = false
-        m.status.text = "Loading..."
-        m.status.visible = true
         m.top.findNode("headKeys").setFocus(true)
         load()
     else

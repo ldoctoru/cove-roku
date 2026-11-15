@@ -33,6 +33,7 @@ sub onFocusChanged()
 end sub
 
 sub draw()
+    if m.body = invalid or m.list = invalid then return
     m.body.removeChildrenIndex(m.body.getChildCount(), 0)
     w = m.top.width
     if w <= 0 then w = 1600

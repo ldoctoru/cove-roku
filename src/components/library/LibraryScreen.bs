@@ -9,6 +9,7 @@ sub init()
     m.status = m.top.findNode("status")
     m.errorPanel = m.top.findNode("errorPanel")
     m.errorPanel.observeField("chosen", "onErrorChosen")
+    m.skeleton = m.top.findNode("skeleton")
     m.grid.observeField("itemFocused", "onFocused")
     m.grid.observeField("itemSelected", "onSelected")
     m.top.observeField("focusedChild", "onFocusChanged")
@@ -81,7 +82,9 @@ sub reload()
     m.total = 0
     m.grid.content = createObject("roSGNode", "ContentNode")
     m.status.text = "Loading..."
-    m.status.visible = true
+    ' (U-7: placeholder cards instead of the text)
+    m.status.visible = false
+    m.skeleton.active = true
     hidePanel()
     loadPage(0, 60)
 end sub
@@ -434,6 +437,7 @@ sub onPage(ev as object)
     r = ev.getData()
     if r.gen <> m.gen then return
     m.loading = false
+    m.skeleton.active = false
     m.total = r.total
     holder = r.nodes
     ' (a refresh replaces what was shown only now, so the grid doesn't go blank while it loads)
@@ -474,6 +478,7 @@ sub onError(ev as object)
     if ev.getRoSGNode().gen <> m.gen then return
     m.keepIndex = -1
     m.loading = false
+    m.skeleton.active = false
     ' (a refresh or the next page failed while titles are shown: keep them)
     if m.grid.content <> invalid and m.grid.content.getChildCount() > 0
         if m.top.isInFocusChain() then Toasts.notify("Couldn't load more titles. " + Util.toText(ev.getData()), "info")
