@@ -40,6 +40,10 @@
             <Label id="title" width="1100" height="56" translation="[24,888]" color="0xFFFFFFFF">
                 <Font role="font" uri="font:BoldSystemFontFile" size="44" />
             </Label>
+            <!-- (v1.0 F-12) top right: the sleep timer's time left -->
+            <Label id="sleepLeft" width="700" height="40" translation="[1196,40]" horizAlign="right" color="0xFFFFFFD9">
+                <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+            </Label>
             <!-- bottom-right: tool buttons in a glass capsule -->
             <Group id="tools" />
             <!-- seek thumbnail above the scrubber (Emby BIF / Jellyfin trickplay) -->

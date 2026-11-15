@@ -223,6 +223,15 @@ function rowsFor(tabId as string) as object
         out.push(note("The back / forward buttons in the player and the Rewind / Fast forward keys."))
         out.push(choice("rewindOnResume", "Rewind on resume", [{ id: "off", label: "Off" }, { id: "5", label: "5 s" }, { id: "10", label: "10 s" }, { id: "30", label: "30 s" }], Prefs.text("rewindOnResume", "5")))
         out.push(note("Goes back a little when a title resumes where you left it, or after a pause of 5 minutes or more."))
+        ' (v1.0 F-3) the speed every title starts at (the player's * menu still changes it for one title)
+        sp = []
+        for each v in ["0.5", "0.75", "1", "1.25", "1.5", "2"]
+            lb = v + "×"
+            if v = "1" then lb = "Normal (1×)"
+            sp.push({ id: v, label: lb })
+        end for
+        out.push(choice("defaultSpeed", "Default speed", sp, Prefs.defaultSpeed()))
+        out.push(note("Titles start at this speed on Rokus that can change it. The player's * menu changes it for one title."))
         out.push(sectionHead("Audio"))
         out.push(choice("audioChannels", "Maximum channels", [{ id: "auto", label: "Automatic" }, { id: "2", label: "Stereo (2.0)" }, { id: "6", label: "5.1" }, { id: "8", label: "7.1" }], Prefs.text("audioChannels", "auto")))
         ac = [{ id: "auto", label: "Automatic" }, { id: "aac", label: "AAC" }]
@@ -237,12 +246,23 @@ function rowsFor(tabId as string) as object
         out.push(note("Stereo makes the server mix surround tracks down to 2 channels. Preferred audio is what the server converts to when the Roku can't play a track as it is (e.g. TrueHD, DTS). " + dtsNote))
         out.push(sectionHead("Automatically"))
         out.push(toggle("autoNext", "", "Play the next episode", Prefs.autoNext()))
+        ' (v1.0 F-11) how long Up Next counts down before the next episode
+        un = choice("upNextSecs", "Up Next countdown", [{ id: "off", label: "Off" }, { id: "5", label: "5 s" }, { id: "10", label: "10 s" }, { id: "15", label: "15 s" }], Prefs.text("upNextSecs", "10"))
+        un.dim = not Prefs.autoNext()
+        out.push(un)
+        out.push(note("Off starts the next episode as soon as one ends, without the Up Next card."))
         out.push(toggle("autoSkipIntro", "", "Skip intros", Prefs.autoSkipIntro()))
         out.push(toggle("autoSkipRecap", "", "Skip recaps", Prefs.autoSkipRecap()))
         out.push(note("Recaps, previews and ads show a Skip button when the server knows where they are (Jellyfin media segments)."))
         out.push(sectionHead("Are you still watching?"))
         out.push(choice("stillWatching", "Ask after", [{ id: "off", label: "Off" }, { id: "2", label: "2 episodes" }, { id: "3", label: "3 episodes" }, { id: "5", label: "5 episodes" }], Prefs.text("stillWatching", "3")))
-        out.push(note("Cove pauses and asks after this many episodes in a row, or after 2 hours, without a key press."))
+        ' (v1.0 F-11) replaces the fixed 2 hours
+        out.push(choice("stillIdle", "Ask if still watching after", [{ id: "off", label: "Off" }, { id: "1", label: "1 hour" }, { id: "2", label: "2 hours" }, { id: "3", label: "3 hours" }], Prefs.text("stillIdle", "2")))
+        out.push(note("Cove pauses and asks after this many episodes in a row, or after this long of playing, without a key press."))
+        ' (v1.0 F-10) the server's intros before a film
+        out.push(sectionHead("Cinema Mode"))
+        out.push(toggle("cinemaMode", "", "Play intros before a movie", Prefs.cinemaMode()))
+        out.push(note("Plays the trailers and pre-rolls your server sets up (Cinema Mode / intros) before a movie you start from the beginning."))
     else if tabId = "servers"
         srv = m.top.server
         out.push(sectionHead("Current server"))

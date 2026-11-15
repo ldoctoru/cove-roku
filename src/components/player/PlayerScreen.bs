@@ -91,9 +91,14 @@ sub resetState()
     m.osdShown = false
     m.osd.opacity = 0
     m.pauseClock = invalid
-    ' playback speed (* menu → Speed), back to 1× for every new title; Ends at divides the time left by it
+    ' playback speed (* menu → Speed), back to Settings → Playback → Default speed (v1.0 F-3) for every new
+    ' title; Ends at divides the time left by it
     m.speed = 1.0
     m.speedId = "1"
+    if speedSupported()
+        m.speedId = Prefs.defaultSpeed()
+        m.speed = Val(m.speedId)
+    end if
     m.session = invalid
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = invalid
@@ -470,8 +475,10 @@ sub onProgressTimer()
     st = m.video.state
     ' (while paused the position doesn't move, but "Ends at" does)
     if m.osdShown and m.seekTarget < 0 then updateBar(m.video.position)
-    ' (2 hours of playing without a key press: pause and ask, so a sleeping viewer doesn't stream all night)
-    if st = "playing" and Prefs.stillWatchingAfter() > 0 and m.lastInput.TotalSeconds() >= 7200 and not m.still.visible
+    ' (Settings → Playback → Ask if still watching after, 2 hours by default, without a key press: pause and
+    ' ask, so a sleeping viewer doesn't stream all night; v1.0 F-11, read once per player)
+    if m.idleLimit = invalid then m.idleLimit = Prefs.stillIdleSeconds()
+    if st = "playing" and m.idleLimit > 0 and m.lastInput.TotalSeconds() >= m.idleLimit and not m.still.visible
         m.video.control = "pause"
         askStill("idle")
         return
@@ -633,6 +640,11 @@ sub skipCredits()
 end sub
 
 sub onFinished()
+    ' (v1.0 F-12) sleep timer on "End of episode": the player closes here
+    if Util.toText(m.sleepMode) = "episode"
+        sleepExpire()
+        return
+    end if
     ' Settings → Play the next episode automatically (off: the player closes at the end)
     if m.next <> invalid and Prefs.autoNext()
         report("/Sessions/Playing/Stopped", false, m.video.duration)
@@ -647,8 +659,15 @@ sub onFinished()
             m.top.findNode("upNextTitle").text = Util.toText(m.next.Name)
             m.top.findNode("upNextEpisode").text = ""
         end if
-        m.count = 10
-        m.top.findNode("upNextCount").text = "Play now  (10)"
+        ' Settings → Playback → Up Next countdown (v1.0 F-11): Off starts the next one at once
+        secs = Prefs.upNextSeconds()
+        if secs <= 0
+            m.count = 1
+            onCountdown()
+            return
+        end if
+        m.count = secs
+        m.top.findNode("upNextCount").text = "Play now  (" + secs.toStr() + ")"
         m.top.findNode("upNextStill").uri = Items.landscape(m.top.server, m.next, 240)
         m.osdShown = false
         m.osd.opacity = 0
@@ -656,7 +675,7 @@ sub onFinished()
         m.upNext.visible = true
         m.upNext.setFocus(true)
         m.countdown.control = "start"
-        Speak.say(Speak.clean("Up next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play now, button, plays in 10 seconds")
+        Speak.say(Speak.clean("Up next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play now, button, plays in " + secs.toStr() + " seconds")
     else
         close()
     end if
@@ -856,6 +875,12 @@ sub onPicked(ev as object)
     closePicker()
     if c.purpose = "chapter"
         seekToChapter(c)
+        return
+    end if
+    if c.purpose = "sleep"
+        m.keys.setFocus(true)
+        setSleep(c.id)
+        resumeAfterPicker()
         return
     end if
     if c.purpose = "speed"
@@ -1815,6 +1840,7 @@ end sub
 ' * menu entries added after audio / subtitles / quality / version: Chapters, Playback info
 sub addMenuExtras(opts as object)
     if chapterEntries().count() > 0 then opts.push({ id: "chapters", label: "Chapters" })
+    opts.push({ id: "sleep", label: "Sleep timer: " + sleepLabel() })
     if m.pbInfo = invalid
         opts.push({ id: "pbinfo", label: "Show playback info" })
     else
@@ -1823,7 +1849,15 @@ sub addMenuExtras(opts as object)
 end sub
 
 sub useMenuExtra(id as string)
-    if id = "chapters"
+    if id = "sleep"
+        o = []
+        for each c in sleepChoices()
+            o.push({ id: c[0], label: c[1] })
+        end for
+        cur = Util.toText(m.sleepId)
+        if cur = "" then cur = "off"
+        openPicker("sleep", "Sleep timer", o, cur)
+    else if id = "chapters"
         showChapters()
     else if id = "pbinfo"
         togglePlaybackInfo()
@@ -2304,3 +2338,86 @@ function handleTransport(evt as object) as object
     end if
     return ok
 end function
+
+' ---------------------------------------------------------------- sleep timer (v1.0 F-12)
+
+' (kept for the whole player: it spans the next episodes)
+function sleepChoices() as object
+    return [["off", "Off"], ["episode", "End of episode"], ["30", "30 minutes"], ["60", "60 minutes"], ["90", "90 minutes"]]
+end function
+
+sub setSleep(id as string)
+    m.sleepId = id
+    m.sleepMode = ""
+    m.sleepSecs = 0
+    if id = "episode"
+        m.sleepMode = "episode"
+    else if id.toInt() > 0
+        m.sleepMode = "time"
+        m.sleepSecs = id.toInt() * 60
+        m.sleepClock = createObject("roTimespan")
+    end if
+    if m.sleepTimer = invalid
+        m.sleepTimer = createObject("roSGNode", "Timer")
+        m.sleepTimer.duration = 10
+        m.sleepTimer.repeat = true
+        m.sleepTimer.observeField("fire", "onSleepTick")
+        m.top.appendChild(m.sleepTimer)
+    end if
+    if m.sleepMode = "time"
+        m.sleepTimer.control = "start"
+    else
+        m.sleepTimer.control = "stop"
+    end if
+    print "Cove: sleep timer "; id
+    showSleepLeft()
+end sub
+
+' Seconds left on a timed sleep timer (-1 when none runs)
+function sleepRemaining() as integer
+    if Util.toText(m.sleepMode) <> "time" or m.sleepClock = invalid then return -1
+    left_ = m.sleepSecs - m.sleepClock.TotalSeconds()
+    if left_ < 0 then left_ = 0
+    return left_
+end function
+
+function sleepLabel() as string
+    mode = Util.toText(m.sleepMode)
+    if mode = "episode" then return "End of episode"
+    r = sleepRemaining()
+    if r < 0 then return "Off"
+    mins = (r + 59) \ 60
+    if mins <= 1 then return "1 min left"
+    return mins.toStr() + " min left"
+end function
+
+' The time left at the top right of the controls (and nothing when the timer is off)
+sub showSleepLeft()
+    lb = m.top.findNode("sleepLeft")
+    if lb = invalid then return
+    if Util.toText(m.sleepMode) = ""
+        lb.text = ""
+    else
+        lb.text = "Sleep timer: " + sleepLabel()
+    end if
+end sub
+
+sub onSleepTick()
+    if m.closing
+        m.sleepTimer.control = "stop"
+        return
+    end if
+    showSleepLeft()
+    if sleepRemaining() = 0 then sleepExpire()
+end sub
+
+' Time is up (or the episode ended): pause, then close the player as Back does (stop report, watched mark)
+sub sleepExpire()
+    print "Cove: sleep timer ended, closing the player"
+    m.sleepMode = ""
+    m.sleepId = "off"
+    if m.sleepTimer <> invalid then m.sleepTimer.control = "stop"
+    if m.video.state = "playing" then m.video.control = "pause"
+    closePicker()
+    close()
+end sub
