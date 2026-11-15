@@ -4,6 +4,18 @@
 
 Only the latest release of Cove for Roku gets security fixes.
 
+## Threat model
+
+Cove trusts the media servers you add: their answers, the stream addresses they return and the redirects they
+send are followed as given. Access tokens are kept in the Roku's app storage and sent only to the server's own
+address in Cove's requests, but they also ride in stream URLs (`api_key=`), and redirects aren't filtered.
+Plain `http://` is allowed (it is common on home networks); Cove marks such servers "Not encrypted" and warns
+before you sign in to one outside your home network. Profile PINs and Cove's rating limits are a household lock
+for people using the same Roku, not access control: they are checked only on this Roku, a 4-digit PIN can be
+found from its stored hash by anyone able to read the app's storage, and the server's own parental controls are
+what really limits a user. Reports that break these assumptions in a way that matters (a token sent to another
+host, a limit bypass from the remote, a crash from a server answer) are welcome.
+
 ## Reporting a vulnerability
 
 Please report security problems privately, not in a public issue: use
