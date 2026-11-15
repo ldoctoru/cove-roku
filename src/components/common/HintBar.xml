@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- A one-time hint at the bottom centre: a glass capsule with the star key and what it does ("Options"),
+     shown for 5 s (spoken by the Audio Guide). Set `text` and `show` = true; `show` = false hides it. -->
+<component name="HintBar" extends="Group">
+    <script type="text/brightscript" uri="HintBar.bs" />
+    <interface>
+        <field id="text" type="string" value="Options" />
+        <field id="spoken" type="string" value="Tip: press the star button on a card for options" />
+        <field id="show" type="boolean" alwaysNotify="true" onChange="onShow" />
+    </interface>
+    <children>
+        <Group id="pill" opacity="0">
+            <Poster id="bg" uri="pkg:/images/ui/panel_dark_r18.9.png" height="60" />
+            <Poster id="glass" uri="pkg:/images/ui/glass_pill.9.png" height="60" />
+            <Poster id="keyCap" uri="pkg:/images/ui/white_circle_56.png" width="40" height="40" translation="[18,10]" />
+            <Poster id="star" uri="pkg:/images/ui/icon_star_28.png" width="24" height="24" translation="[26,18]" blendColor="0x000000FF" />
+            <Label id="label" text="Options" height="60" translation="[72,0]" vertAlign="center" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="26" />
+            </Label>
+        </Group>
+        <Animation id="fade" duration="0.3" easeFunction="outQuad">
+            <FloatFieldInterpolator id="fadeI" key="[0.0, 1.0]" keyValue="[0.0, 1.0]" fieldToInterp="pill.opacity" />
+        </Animation>
+        <Timer id="hold" duration="5" repeat="false" />
+    </children>
+</component>

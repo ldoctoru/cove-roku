@@ -105,6 +105,8 @@
         </Label>
         <!-- the server failed or there is nothing to show: Try Again / Switch Server / Settings -->
         <ErrorPanel id="errorPanel" translation="[200,380]" width="1640" visible="false" />
+        <!-- once per profile, until * is used: "* Options" when a card first takes the focus -->
+        <HintBar id="hintBar" />
 
         <Timer id="backdropTimer" duration="0.3" repeat="false" />
         <Timer id="heroTimer" duration="9" repeat="true" />

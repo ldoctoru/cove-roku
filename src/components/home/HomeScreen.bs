@@ -5,6 +5,7 @@ import "pkg:/source/Prefs.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Toasts.bs"
+import "pkg:/source/Hints.bs"
 
 sub init()
     t = m.global.theme
@@ -12,6 +13,9 @@ sub init()
     m.status = m.top.findNode("status")
     m.errorPanel = m.top.findNode("errorPanel")
     m.errorPanel.observeField("chosen", "onErrorChosen")
+    m.hintBar = m.top.findNode("hintBar")
+    m.wantHint = invalid     ' (read from the registry once, when the first card takes the focus)
+    m.hintShown = false
     ' Sidebar or top bar (Settings → General → Navigation)
     m.side = Prefs.navStyle() <> "topbar"
     m.navs = m.top.findNode("navs")
@@ -649,6 +653,7 @@ sub onItemFocused()
     it = focusedItem()
     if it = invalid then return
     m.top.findNode("title").text = it.title
+    maybeShowHint()
     if Speak.isOn()
         ' (the row's name when the focus moves to another row)
         text = Speak.card(it)
@@ -738,9 +743,23 @@ sub onSuspended()
     end if
 end sub
 
+' U-5: the "* Options" hint the first time a card takes the focus, for a profile that has never pressed *
+sub maybeShowHint()
+    if m.hintShown then return
+    m.hintShown = true
+    if m.wantHint = invalid then m.wantHint = Hints.optionsHintWanted(m.top.server)
+    if m.wantHint then m.hintBar.show = true
+end sub
+
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     if key = "options"
+        ' (* used once: no more hint for this profile)
+        if m.wantHint = invalid or m.wantHint = true
+            Hints.optionsHintDone(m.top.server)
+            m.wantHint = false
+        end if
+        m.hintBar.show = false
         ' on a card: what to do with that title; elsewhere the app options
         if m.state = "rows" and focusedItem() <> invalid
             itemMenu(focusedItem())

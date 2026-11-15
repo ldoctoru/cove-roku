@@ -1,0 +1,41 @@
+import "pkg:/source/Speak.bs"
+
+sub init()
+    m.pill = m.top.findNode("pill")
+    m.fade = m.top.findNode("fade")
+    m.fadeI = m.top.findNode("fadeI")
+    m.hold = m.top.findNode("hold")
+    m.hold.observeField("fire", "onHold")
+    m.on = false
+end sub
+
+sub onShow()
+    if m.top.show
+        lab = m.top.findNode("label")
+        lab.text = m.top.text
+        tw = lab.boundingRect().width
+        lab.width = tw + 4
+        w = 72 + tw + 30
+        m.top.findNode("bg").width = w
+        m.top.findNode("glass").width = w
+        m.pill.translation = [Int((1920 - w) / 2), 990]
+        m.on = true
+        fadeTo(1.0)
+        m.hold.control = "start"
+        Speak.say(m.top.spoken, false)
+    else if m.on
+        m.hold.control = "stop"
+        fadeTo(0.0)
+    end if
+end sub
+
+sub onHold()
+    if m.on then fadeTo(0.0)
+end sub
+
+sub fadeTo(v as float)
+    if v = 0 then m.on = false
+    m.fade.control = "stop"
+    m.fadeI.keyValue = [m.pill.opacity, v]
+    m.fade.control = "start"
+end sub
