@@ -35,7 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_OUT = os.path.normpath(os.path.join(HERE, "..", "src", "images", "ui"))
 DEFAULT_FONT = os.path.join(HERE, "fonts", "DejaVuSans-Bold.ttf")
 # Drawn by hand, not by this script: kept by the sync (and by --check) instead of being deleted as stale
-HAND_MADE = {"icon_lock_28.png", "icon_profile_36.png"}
+HAND_MADE = {"icon_lock_28.png", "icon_profile_36.png", "icon_tab_profiles_44.png", "icon_critic_fresh_56.png", "icon_critic_rotten_56.png"}
 
 OUT = DEFAULT_OUT     # where save() writes (main() points it at a temporary folder)
 FONT = DEFAULT_FONT
