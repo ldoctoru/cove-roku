@@ -511,9 +511,10 @@ sub onProgressTimer()
         return
     end if
     ' (Settings → Playback → Ask if still watching after, 2 hours by default, without a key press: pause and
-    ' ask, so a sleeping viewer doesn't stream all night; v1.0 F-11, read once per player)
+    ' ask, so a sleeping viewer doesn't stream all night; v1.0 F-11, read once per player). Episodes only:
+    ' a movie is never interrupted (v1.0.1)
     if m.idleLimit = invalid then m.idleLimit = Prefs.stillIdleSeconds()
-    if st = "playing" and m.idleLimit > 0 and m.lastInput.TotalSeconds() >= m.idleLimit and not m.still.visible
+    if st = "playing" and m.idleLimit > 0 and seriesKey() <> "" and m.lastInput.TotalSeconds() >= m.idleLimit and not m.still.visible
         m.video.control = "pause"
         askStill("idle")
         return
