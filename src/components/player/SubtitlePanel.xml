@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- The player's Subtitles menu (v1.0.1): two columns side by side in one wide Glass panel at the top (as tall
+     as its longest column, up to 8 rows), so the
+     subtitles stay visible underneath as a live preview.
+     Left: Language (Off, every track with a check on the current one, Search for Subtitles...).
+     Right: Style (Subtitle delay, Text size, Text color, Shadow, Background, Distance from bottom) with each value
+     shown; OK opens that setting's choices in the same column, OK on a choice applies it at once.
+     Left / Right move between the columns; Back closes (or leaves a setting's choices).
+     Set tracks ([{ id, label }]), selectedId and styles ([{ key, label, options: [{ id, label }], current }]);
+     "chosen" = { purpose: "subs", id } for a track or "search", { purpose: "subpanel", key, id } for a style. -->
+<component name="SubtitlePanel" extends="Group">
+    <script type="text/brightscript" uri="SubtitlePanel.bs" />
+    <interface>
+        <field id="tracks" type="array" />
+        <field id="selectedId" type="string" />
+        <field id="styles" type="array" />
+        <field id="purpose" type="string" value="subs" />
+        <field id="chosen" type="assocarray" alwaysNotify="true" />
+        <field id="cancelled" type="boolean" alwaysNotify="true" />
+        <!-- set last: draws the panel -->
+        <field id="ready" type="boolean" alwaysNotify="true" onChange="onReady" />
+    </interface>
+    <children>
+        <Poster id="bg" uri="pkg:/images/ui/panel_r21.9.png" width="1300" height="780" translation="[574,40]" />
+        <Label text="Subtitles" width="600" height="50" translation="[620,70]" color="0xFFFFFFFF">
+            <Font role="font" uri="font:BoldSystemFontFile" size="38" />
+        </Label>
+        <Label id="hint" width="640" height="40" translation="[1190,78]" horizAlign="right" color="0xFFFFFFCC"
+               text="Left / Right: column  ·  OK: choose  ·  Back: close">
+            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+        </Label>
+        <Label id="leftHead" text="LANGUAGE" width="560" height="36" translation="[620,140]" color="0xFFFFFFCC">
+            <Font role="font" uri="font:BoldSystemFontFile" size="24" />
+        </Label>
+        <Label id="rightHead" text="STYLE" width="580" height="36" translation="[1254,140]" color="0xFFFFFFCC">
+            <Font role="font" uri="font:BoldSystemFontFile" size="24" />
+        </Label>
+        <Rectangle id="divider" width="2" height="616" translation="[1222,140]" color="0xFFFFFF33" />
+        <Group id="leftRows" translation="[608,186]" />
+        <Group id="rightRows" translation="[1240,186]" />
+        <Label id="leftMore" width="590" height="30" translation="[608,762]" horizAlign="center" color="0xFFFFFFCC">
+            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+        </Label>
+        <Label id="rightMore" width="610" height="30" translation="[1240,762]" horizAlign="center" color="0xFFFFFFCC">
+            <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+        </Label>
+    </children>
+</component>

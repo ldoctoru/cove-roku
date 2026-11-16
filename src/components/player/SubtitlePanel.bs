@@ -1,0 +1,321 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Speak.bs"
+
+' The player's Subtitles menu: Language (left) and Style (right) side by side; see SubtitlePanel.xml.
+' Focus is Cove's own (two drawn columns), so the Audio Guide is spoken here.
+
+sub init()
+    m.ROWS = 8          ' rows visible per column
+    m.STEP = 70         ' row pitch (62 px rows, 8 px apart)
+    m.col = 0           ' 0 = Language, 1 = Style
+    m.li = 0            ' focused row in each column
+    m.ri = 0
+    m.lTop = 0          ' first row shown in each column (scrolling)
+    m.rTop = 0
+    m.optKey = ""       ' the Style column shows this setting's choices ("" = the settings)
+    m.oi = 0
+    m.left = []
+    m.top.observeField("focusedChild", "onFocusChanged")
+end sub
+
+sub onReady()
+    ' Language: Off, the tracks, Search for Subtitles...
+    m.left = []
+    for each t in m.top.tracks
+        m.left.push({ id: Util.toText(t.id), label: Util.toText(t.label), action: false })
+    end for
+    m.left.push({ id: "search", label: "Search for Subtitles...", action: true })
+    m.styles = m.top.styles
+    if m.styles = invalid then m.styles = []
+    m.li = 0
+    for i = 0 to m.left.count() - 1
+        if m.left[i].id = m.top.selectedId then m.li = i
+    end for
+    m.lTop = 0
+    keepVisible()
+    drawAll()
+end sub
+
+sub onFocusChanged()
+    if m.top.hasFocus() then sayFocused(true)
+end sub
+
+' ---------------------------------------------------------------- drawing
+
+sub drawAll()
+    drawLeft()
+    drawRight()
+    fitHeight()
+end sub
+
+' The panel is as tall as its longest column (up to 8 rows), plus a line for "more below" when one scrolls
+sub fitHeight()
+    n = m.left.count()
+    rn = m.styles.count()
+    if m.optKey <> "" then rn = m.styles[m.ri].options.count()
+    if rn > n then n = rn
+    more = n > m.ROWS
+    if n > m.ROWS then n = m.ROWS
+    rowsBottom = 186 + n * m.STEP - 8
+    m.top.findNode("leftMore").translation = [608, rowsBottom + 10]
+    m.top.findNode("rightMore").translation = [1240, rowsBottom + 10]
+    bottom = rowsBottom + 30
+    if more then bottom = rowsBottom + 56
+    m.top.findNode("bg").height = bottom - 40
+    m.top.findNode("divider").height = rowsBottom - 140
+end sub
+
+sub drawLeft()
+    g = m.top.findNode("leftRows")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    last = m.lTop + m.ROWS - 1
+    if last > m.left.count() - 1 then last = m.left.count() - 1
+    for i = m.lTop to last
+        e = m.left[i]
+        checked = e.id = m.top.selectedId
+        addRow(g, i - m.lTop, 590, e.label, "", checked, m.col = 0 and i = m.li, e.action)
+    end for
+    m.top.findNode("leftMore").text = moreText(m.lTop, m.left.count())
+end sub
+
+sub drawRight()
+    g = m.top.findNode("rightRows")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    if m.optKey = ""
+        m.top.findNode("rightHead").text = "STYLE"
+        last = m.rTop + m.ROWS - 1
+        if last > m.styles.count() - 1 then last = m.styles.count() - 1
+        for i = m.rTop to last
+            s = m.styles[i]
+            addRow(g, i - m.rTop, 610, s.label, valueLabel(s), false, m.col = 1 and i = m.ri, true)
+        end for
+        m.top.findNode("rightMore").text = moreText(m.rTop, m.styles.count())
+    else
+        s = m.styles[m.ri]
+        m.top.findNode("rightHead").text = UCase(Util.toText(s.label))
+        opts = s.options
+        last = m.rTop + m.ROWS - 1
+        if last > opts.count() - 1 then last = opts.count() - 1
+        for i = m.rTop to last
+            o = opts[i]
+            addRow(g, i - m.rTop, 610, Util.toText(o.label), "", Util.toText(o.id) = Util.toText(s.current), i = m.oi, false)
+        end for
+        m.top.findNode("rightMore").text = moreText(m.rTop, opts.count())
+    end if
+end sub
+
+' "More below" / "More above" under a column that scrolls
+function moreText(first as integer, count as integer) as string
+    if count <= m.ROWS then return ""
+    below = count - (first + m.ROWS)
+    if below > 0 then return below.toStr() + " more below"
+    return "Up for more"
+end function
+
+' One row: a glass pill (white when focused), an optional check, the label and a value or a chevron on the right
+sub addRow(g as object, slot as integer, w as integer, label as string, value as string, checked as boolean, focused as boolean, chevron as boolean)
+    row = g.createChild("Group")
+    row.translation = [0, slot * m.STEP]
+    bg = row.createChild("Poster")
+    bg.uri = "pkg:/images/ui/white_rr12.9.png"
+    bg.width = w
+    bg.height = 62
+    if focused
+        bg.opacity = 1.0
+    else
+        bg.opacity = 0.08
+    end if
+    textCol = "0xFFFFFFFF"
+    if focused then textCol = "0x000000FF"
+    if checked
+        ck = row.createChild("Poster")
+        ck.uri = "pkg:/images/ui/icon_check_28.png"
+        ck.width = 28
+        ck.height = 28
+        ck.translation = [18, 17]
+        if focused then ck.blendColor = "0x000000FF"
+    end if
+    x = 58
+    rightX = w - 20
+    if chevron
+        ch = row.createChild("Poster")
+        ch.uri = "pkg:/images/ui/icon_chevron_28.png"
+        ch.width = 28
+        ch.height = 28
+        ch.translation = [w - 44, 17]
+        if focused then ch.blendColor = "0x000000FF"
+        rightX = w - 52
+    end if
+    valW = 0
+    if value <> ""
+        valW = 250
+        v = row.createChild("Label")
+        v.text = value
+        v.width = valW
+        v.height = 62
+        v.horizAlign = "right"
+        v.vertAlign = "center"
+        v.translation = [rightX - valW, 0]
+        v.color = textCol
+        if not focused then v.color = "0xFFFFFFCC"
+        v.font = mkFont("font:MediumSystemFontFile", 26)
+    end if
+    l = row.createChild("Label")
+    l.text = label
+    l.width = rightX - x - valW - 10
+    l.height = 62
+    l.vertAlign = "center"
+    l.translation = [x, 0]
+    l.color = textCol
+    fu = "font:MediumSystemFontFile"
+    if focused or checked then fu = "font:BoldSystemFontFile"
+    l.font = mkFont(fu, 28)
+end sub
+
+function mkFont(uri as string, size as integer) as object
+    key = uri + size.toStr()
+    if m.fonts = invalid then m.fonts = {}
+    if m.fonts[key] = invalid
+        f = createObject("roSGNode", "Font")
+        f.uri = uri
+        f.size = size
+        m.fonts[key] = f
+    end if
+    return m.fonts[key]
+end function
+
+function valueLabel(s as object) as string
+    for each o in s.options
+        if Util.toText(o.id) = Util.toText(s.current) then return Util.toText(o.label)
+    end for
+    return Util.toText(s.current)
+end function
+
+' ---------------------------------------------------------------- keys
+
+' The focused row of the active column stays inside its window
+sub keepVisible()
+    if m.li < m.lTop then m.lTop = m.li
+    if m.li > m.lTop + m.ROWS - 1 then m.lTop = m.li - m.ROWS + 1
+    i = m.ri
+    if m.optKey <> "" then i = m.oi
+    if i < m.rTop then m.rTop = i
+    if i > m.rTop + m.ROWS - 1 then m.rTop = i - m.ROWS + 1
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return true
+    if key = "back" or key = "options"
+        if m.optKey <> ""
+            closeChoices()
+        else
+            m.top.cancelled = true
+        end if
+        return true
+    end if
+    if key = "up" or key = "down"
+        d = 1
+        if key = "up" then d = -1
+        if m.col = 0
+            n = m.left.count()
+            if m.li + d >= 0 and m.li + d < n then m.li = m.li + d
+        else if m.optKey = ""
+            n = m.styles.count()
+            if m.ri + d >= 0 and m.ri + d < n then m.ri = m.ri + d
+        else
+            n = m.styles[m.ri].options.count()
+            if m.oi + d >= 0 and m.oi + d < n then m.oi = m.oi + d
+        end if
+        keepVisible()
+        drawAll()
+        sayFocused(false)
+        return true
+    end if
+    if key = "right" and m.col = 0 and m.styles.count() > 0
+        m.col = 1
+        keepVisible()
+        drawAll()
+        sayFocused(true)
+        return true
+    end if
+    if key = "left" and m.col = 1
+        if m.optKey <> ""
+            closeChoices()
+        else
+            m.col = 0
+            drawAll()
+            sayFocused(true)
+        end if
+        return true
+    end if
+    if key = "OK"
+        if m.col = 0
+            m.top.chosen = { purpose: "subs", id: m.left[m.li].id }
+        else if m.optKey = ""
+            openChoices()
+        else
+            s = m.styles[m.ri]
+            o = s.options[m.oi]
+            s.current = Util.toText(o.id)
+            m.styles[m.ri] = s
+            m.top.chosen = { purpose: "subpanel", key: s.key, id: s.current }
+            closeChoices()
+        end if
+        return true
+    end if
+    return true
+end function
+
+' A style setting's choices in the Style column, the current one focused
+sub openChoices()
+    s = m.styles[m.ri]
+    m.optKey = s.key
+    m.oi = 0
+    for i = 0 to s.options.count() - 1
+        if Util.toText(s.options[i].id) = Util.toText(s.current) then m.oi = i
+    end for
+    m.rSaved = m.rTop
+    m.rTop = 0
+    keepVisible()
+    drawRight()
+    fitHeight()
+    sayFocused(true)
+end sub
+
+sub closeChoices()
+    m.optKey = ""
+    m.rTop = m.rSaved
+    if m.rTop = invalid then m.rTop = 0
+    keepVisible()
+    drawRight()
+    fitHeight()
+    sayFocused(false)
+end sub
+
+' ---------------------------------------------------------------- Audio Guide
+
+sub sayFocused(withHead as boolean)
+    if not Speak.isOn() or not m.top.isInFocusChain() then return
+    text = ""
+    if m.col = 0
+        if m.li >= m.left.count() then return
+        e = m.left[m.li]
+        text = Speak.clean(e.label)
+        if e.id = m.top.selectedId then text = text + ", selected"
+        text = text + Speak.position(m.li, m.left.count())
+        if withHead then text = "Subtitles, language. " + text
+    else if m.optKey = ""
+        if m.ri >= m.styles.count() then return
+        s = m.styles[m.ri]
+        text = Speak.clean(Util.toText(s.label) + ", " + valueLabel(s)) + Speak.position(m.ri, m.styles.count())
+        if withHead then text = "Subtitle style. " + text
+    else
+        s = m.styles[m.ri]
+        o = s.options[m.oi]
+        text = Speak.clean(Util.toText(o.label))
+        if Util.toText(o.id) = Util.toText(s.current) then text = text + ", selected"
+        text = text + Speak.position(m.oi, s.options.count())
+        if withHead then text = Util.toText(s.label) + ". " + text
+    end if
+    Speak.say(text)
+end sub

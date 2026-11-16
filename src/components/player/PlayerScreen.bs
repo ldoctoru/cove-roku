@@ -815,6 +815,7 @@ sub closePicker()
         m.picker.unobserveField("cancelled")
         m.top.removeChild(m.picker)
         m.picker = invalid
+        m.subLayer.sample = ""
         ' (Audio Guide: the focused control is said again)
         m.spokenKey = ""
         refreshPrefs()
@@ -822,8 +823,8 @@ sub closePicker()
 end sub
 
 sub onPickerCancelled()
-    ' (Back from a style list: the Subtitles menu again)
-    if m.picker <> invalid and (Left(Util.toText(m.picker.purpose), 9) = "substyle:" or m.picker.purpose = "subdelay" or m.picker.purpose = "subsearchlang" or m.picker.purpose = "subresults")
+    ' (Back from the subtitle search: the Subtitles menu again)
+    if m.picker <> invalid and (m.picker.purpose = "subsearchlang" or m.picker.purpose = "subresults")
         openSubsMenu()
         return
     end if
@@ -881,13 +882,19 @@ sub onPicked(ev as object)
         end if
         return
     end if
-    ' the Subtitles menu's style entries: a list of choices, then back to the menu with the new style
-    ' (openPicker replaces the open picker itself, keeping who paused the video)
-    if c.purpose = "subs" and Left(c.id, 6) = "style:"
-        key = Mid(c.id, 7)
-        for each ch in Subs.styleChoices()
-            if ch.key = key then openPicker("substyle:" + key, ch.label, ch.options, Subs.current(ch))
-        end for
+    ' the Subtitles panel's Style column: applied at once, the panel stays open (a live preview underneath)
+    if c.purpose = "subpanel"
+        if c.key = "delay"
+            ' (at once: the layer shows the cue for position - delay)
+            m.subDelayMs = c.id.toInt()
+            m.subLayer.delay = m.subDelayMs / 1000.0
+            print "Cove: subtitle delay "; delayLabel(m.subDelayMs)
+        else
+            Util.writeText(c.key, c.id)
+            refreshPrefs()
+            m.subLayer.restyle = true
+            liftSubs(m.osdShown)
+        end if
         return
     end if
     if c.purpose = "subs" and c.id = "search"
@@ -900,30 +907,6 @@ sub onPicked(ev as object)
     end if
     if c.purpose = "subresults"
         downloadSubtitle(c.id)
-        return
-    end if
-    if c.purpose = "subs" and c.id = "delay"
-        o = []
-        for each ms in [-5000, -4500, -4000, -3500, -3000, -2500, -2000, -1500, -1000, -500, -250, 0, 250, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
-            o.push({ id: ms.toStr(), label: delayLabel(ms) })
-        end for
-        openPicker("subdelay", "Subtitle delay", o, m.subDelayMs.toStr())
-        return
-    end if
-    if c.purpose = "subdelay"
-        ' (at once: the layer shows the cue for position - delay)
-        m.subDelayMs = c.id.toInt()
-        m.subLayer.delay = m.subDelayMs / 1000.0
-        print "Cove: subtitle delay "; delayLabel(m.subDelayMs)
-        openSubsMenu()
-        return
-    end if
-    if Left(c.purpose, 9) = "substyle:"
-        Util.writeText(Mid(c.purpose, 10), c.id)
-        refreshPrefs()
-        m.subLayer.restyle = true
-        liftSubs(m.osdShown)
-        openSubsMenu()
         return
     end if
     closePicker()
@@ -2138,20 +2121,41 @@ sub onBufferingStatus()
     setLoadPct(base + Int((100 - base) * bs.percentage / 100))
 end sub
 
-' The Subtitles menu: Off and the tracks, then the style (as in Settings → Subtitles), which applies at once
+' The Subtitles menu (v1.0.1): Language and Style side by side in one panel (SubtitlePanel), the subtitles
+' visible underneath as a live preview; style changes apply at once and the panel stays open
 sub openSubsMenu()
-    o = [{ id: "-1", label: "Off" }]
+    langRows = [{ id: "-1", label: "Off" }]
     for each s in m.tracks.subs
-        o.push({ id: s.index.toStr(), label: s.label })
+        langRows.push({ id: s.index.toStr(), label: s.label })
     end for
+    styles = []
     ' (text subtitles only: burned-in ones are part of the picture)
-    if m.opts.sub >= 0 and not m.opts.burn then o.push({ id: "delay", label: "Subtitle delay:  " + delayLabel(m.subDelayMs) })
-    ' (v1.0 F-13) the server's subtitle providers (OpenSubtitles, ...)
-    if m.info <> invalid then o.push({ id: "search", label: "Search for subtitles..." })
+    if m.opts.sub >= 0 and not m.opts.burn
+        o = []
+        for each ms in [-5000, -4500, -4000, -3500, -3000, -2500, -2000, -1500, -1000, -500, -250, 0, 250, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
+            o.push({ id: ms.toStr(), label: delayLabel(ms) })
+        end for
+        styles.push({ key: "delay", label: "Subtitle delay", options: o, current: m.subDelayMs.toStr() })
+    end if
     for each ch in Subs.styleChoices()
-        o.push({ id: "style:" + ch.key, label: ch.label + ":  " + Subs.currentLabel(ch) })
+        styles.push({ key: ch.key, label: ch.label, options: ch.options, current: Subs.current(ch) })
     end for
-    openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
+    if m.picker = invalid then m.pausedByPicker = m.video.state = "playing"
+    closePicker()
+    if m.video.state = "playing" then m.video.control = "pause"
+    p = createObject("roSGNode", "SubtitlePanel")
+    p.purpose = "subs"
+    p.tracks = langRows
+    p.selectedId = m.opts.sub.toStr()
+    p.styles = styles
+    p.ready = true
+    p.observeField("chosen", "onPicked")
+    p.observeField("cancelled", "onPickerCancelled")
+    m.top.appendChild(p)
+    m.picker = p
+    p.setFocus(true)
+    ' (no subtitle on screen while paused: a sample line shows the style)
+    m.subLayer.sample = "This is how subtitles will look"
 end sub
 
 ' ---------------------------------------------------------------- are you still watching?
