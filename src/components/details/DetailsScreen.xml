@@ -110,6 +110,8 @@
         <Label id="status" width="1728" height="44" translation="[96,1010]" color="0xFFFFFFCC">
             <Font role="font" uri="font:MediumSystemFontFile" size="28" />
         </Label>
+        <!-- (SC-9) a failed page load: the message and Try Again -->
+        <ErrorPanel id="errorPanel" translation="[100,420]" width="1720" visible="false" />
         <Animation id="slide" duration="0.3" easeFunction="outCubic">
             <Vector2DFieldInterpolator id="rowsMove" key="[0.0, 1.0]" fieldToInterp="lower.translation" />
             <FloatFieldInterpolator id="headerFade" key="[0.0, 1.0]" fieldToInterp="header.opacity" />

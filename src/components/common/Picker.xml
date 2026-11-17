@@ -10,11 +10,13 @@
         <field id="purpose" type="string" />
         <field id="chosen" type="assocarray" alwaysNotify="true" />
         <field id="cancelled" type="boolean" alwaysNotify="true" />
+        <!-- (SC-16) a wider panel for long entries (subtitle languages with a note, Settings explanations) -->
+        <field id="wide" type="boolean" value="false" onChange="onWide" />
     </interface>
     <children>
         <!-- Glass side panel (Cove player panels): dark rounded panel on the right over a dimmed screen -->
         <Rectangle width="1920" height="1080" color="0x00000066" />
-        <Poster uri="pkg:/images/ui/panel_r21.9.png" width="600" height="972" translation="[1272,54]" />
+        <Poster id="panel" uri="pkg:/images/ui/panel_r21.9.png" width="600" height="972" translation="[1272,54]" />
         <Label id="title" width="540" height="50" translation="[1302,86]" color="0xFFFFFFFF">
             <Font role="font" uri="font:BoldSystemFontFile" size="32" />
         </Label>

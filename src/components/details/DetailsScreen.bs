@@ -9,6 +9,7 @@ import "pkg:/source/MediaInfo.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Toasts.bs"
+import "pkg:/source/NavUtil.bs"
 
 sub init()
     m.focusEpisodes = false
@@ -24,6 +25,10 @@ sub init()
     m.logo = m.top.findNode("logo")
     m.btnGroup = m.top.findNode("buttons")
     m.btnKeys = m.top.findNode("btnKeys")
+    ' (SC-9) a failed page load: the message with Try Again, as on the other screens
+    m.errorPanel = m.top.findNode("errorPanel")
+    m.errorPanel.buttons = [{ id: "retry", label: "Try Again" }]
+    m.errorPanel.observeField("chosen", "onErrorChosen")
     m.slide = m.top.findNode("slide")
     m.top.findNode("scrimBottom").uri = t.scrimBottom
     m.top.findNode("rowsFade").uri = t.fade
@@ -155,7 +160,14 @@ sub onResponse(ev as object)
         return
     end if
     if r.code <> 200 or r.json = invalid
-        if k = "item" then m.status.text = "Couldn't load this title. " + Api.describeFailure(r)
+        if k = "item"
+            if m.item = invalid
+                showLoadError("Couldn't load this title. " + Api.describeFailure(r))
+            else
+                ' (a refresh: the page stays as it is)
+                print "Cove: details refresh failed -> "; r.code
+            end if
+        end if
         return
     end if
     if k = "item" and Ratings.seriesUnknown(m.top.server, r.json)
@@ -192,6 +204,24 @@ sub onResponse(ev as object)
     end if
 end sub
 
+' (SC-9) The page couldn't load: the message and Try Again instead of an empty page
+sub showLoadError(text as string)
+    m.status.text = ""
+    m.errorPanel.message = text
+    m.errorPanel.index = 0
+    m.errorPanel.visible = true
+    m.state = "error"
+    if m.top.isInFocusChain() and m.picker = invalid then m.errorPanel.setFocus(true)
+end sub
+
+sub onErrorChosen(ev as object)
+    if Util.toText(ev.getData().id) <> "retry" then return
+    m.errorPanel.visible = false
+    m.state = "buttons"
+    m.btnKeys.setFocus(true)
+    load()
+end sub
+
 ' The title, or the rating-limit message when the profile may not see it
 sub onItemRated(it as object)
     if Ratings.allowed(m.top.server, it)
@@ -215,6 +245,10 @@ sub showItem(it as object)
     m.item = it
     srv = m.top.server
     m.status.text = ""
+    if m.errorPanel.visible
+        m.errorPanel.visible = false
+        if m.state = "error" then m.state = "buttons"
+    end if
     t = Util.toText(it.Type)
     m.isFav = Util.flag(it.UserData, "IsFavorite")
     m.top.findNode("backdrop").uri = Items.backdrop(srv, it, 1280)
@@ -467,6 +501,9 @@ end sub
 sub buildButtons()
     it = m.item
     t = Util.toText(it.Type)
+    ' (SC-8) the focused button by id: a trailer or collection answer inserts buttons before it
+    prevId = ""
+    if m.btn >= 0 and m.btn < m.btns.count() then prevId = Util.toText(m.btns[m.btn].id)
     btns = []
     target = playTarget()
     isGroup = t = "Series" or t = "BoxSet"
@@ -507,10 +544,16 @@ sub buildButtons()
         btns.push({ id: "series", text: "Go to Series" })
         seasonTitle = Util.toText(it.SeasonName)
         if seasonTitle = "" and it.ParentIndexNumber <> invalid then seasonTitle = "Season " + Util.toText(it.ParentIndexNumber)
-        if Util.toText(it.SeasonId) <> "" and seasonTitle <> "" then btns.push({ id: "season", text: "Go to " + seasonTitle })
+        ' (SC-17: a long season name becomes "Go to Season N", so the row stays on screen)
+        if Util.toText(it.SeasonId) <> "" and seasonTitle <> "" then btns.push({ id: "season", text: NavUtil.seasonButtonText(seasonTitle, it.ParentIndexNumber) })
     end if
     m.btns = btns
-    if m.btn >= btns.count() then m.btn = 0
+    at = NavUtil.indexOfId(btns, prevId)
+    if at >= 0
+        m.btn = at
+    else if m.btn >= btns.count()
+        m.btn = 0
+    end if
     drawButtons()
 end sub
 
@@ -547,9 +590,12 @@ sub drawButtons()
     m.btnGroup.removeChildrenIndex(m.btnGroup.getChildCount(), 0)
     focused = m.state = "buttons" and m.picker = invalid
     x = 0
+    focusLeft = 0
+    focusRight = 0
     for i = 0 to m.btns.count() - 1
         b = m.btns[i]
         isFocus = focused and i = m.btn
+        if i = m.btn then focusLeft = x
         g = m.btnGroup.createChild("Group")
         g.translation = [x, 0]
         if b.pill <> invalid
@@ -632,7 +678,10 @@ sub drawButtons()
             end if
             x = x + 69 + 18
         end if
+        if i = m.btn then focusRight = x
     end for
+    ' (SC-17) a long row moves left so the focused button stays on screen (row from x 96, safe edge 1824)
+    m.btnGroup.translation = [96 + NavUtil.buttonShift(focusLeft, focusRight, 1728), 830]
     drawOverviewFocus()
     if focused then speakButton()
 end sub
@@ -859,6 +908,7 @@ sub playAllMenu()
         o = [{ id: "first", label: "From the Beginning (S1:E1)" }]
         o.push({ id: "next", label: "From the Next Unwatched (S" + Util.toText(nu.ParentIndexNumber) + ":E" + Util.toText(nu.IndexNumber) + ")" })
         openPicker("playall", "Play All", o, "")
+        m.picker.wide = true
         return
     end if
     loadSeriesPlay("first")
@@ -886,7 +936,8 @@ sub onSeriesPlay(r as object)
     m.status.text = ""
     if m.item = invalid or r.tag.itemId <> Util.toText(m.item.Id) then return
     if r.code <> 200
-        m.status.text = "Couldn't get the episodes. " + Api.describeFailure(r)
+        print "Cove: series play failed: "; Api.describeFailure(r)
+        Toasts.notify(Toasts.failedText("get the episodes"), "info")
         return
     end if
     eps = []
@@ -904,7 +955,7 @@ sub onSeriesPlay(r as object)
     if eps.count() = 0 then eps = specials
     print "Cove: series "; r.tag.mode; " -> "; eps.count(); " episodes"
     if eps.count() = 0
-        m.status.text = "No episodes to play."
+        Toasts.notify("No episodes to play", "info")
         return
     end if
     if r.tag.mode = "first"
@@ -948,7 +999,7 @@ sub onFavourite(r as object)
         buildButtons()
         Toasts.notify(Toasts.favoriteText(Util.toText(m.item.Name), m.isFav), "heart")
     else
-        m.status.text = "Couldn't update Favorites. " + Api.describeFailure(r)
+        print "Cove: favourite failed: "; Api.describeFailure(r)
         Toasts.notify(Toasts.failedText("update Favorites"), "info")
     end if
 end sub
@@ -999,7 +1050,7 @@ sub onWatched(r as object)
         if name = "" and m.item <> invalid then name = Util.toText(m.item.Name)
         Toasts.notify(Toasts.watchedText(name, r.tag.method = "POST"), "check")
     else
-        m.status.text = "Couldn't change it. " + Api.describeFailure(r)
+        print "Cove: watched change failed: "; Api.describeFailure(r)
         Toasts.notify(Toasts.failedText("change the watched state"), "info")
     end if
 end sub
@@ -1053,6 +1104,9 @@ sub onPickerCancelled()
     else if p <> invalid and p.purpose = "epmenu"
         m.state = "rows"
         m.rows.setFocus(true)
+    else if p <> invalid and (p.purpose = "audio" or p.purpose = "subs" or p.purpose = "quality" or p.purpose = "version")
+        ' (SC-10) Back in a list opened from Audio & Subtitles: that menu again
+        showTracksMenu()
     else
         enterButtons(false)
     end if
@@ -1073,6 +1127,7 @@ sub onPicked(ev as object)
                 o.push({ id: s.index.toStr(), label: s.label })
             end for
             openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
+            m.picker.wide = true
         else if c.id = "quality"
             openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
         else if c.id = "version"
@@ -1529,6 +1584,8 @@ sub useBar()
             o.push({ id: l.code, label: l.label })
         end for
         openPicker("slang", "Subtitles for this series", o, pref)
+        ' (SC-16: "Automatic (Portuguese (Brazil), Roku captions on)" needs the wide panel)
+        m.picker.wide = true
     end if
 end sub
 
@@ -1867,6 +1924,8 @@ sub onFocusChanged()
         onRowFocusedSpeak()
     else if m.state = "about"
         m.btnKeys.setFocus(true)
+    else if m.state = "error" and m.errorPanel.visible
+        m.errorPanel.setFocus(true)
     else
         m.state = "buttons"
         m.btnKeys.setFocus(true)
