@@ -679,7 +679,7 @@ sub skipTo(t as float)
             m.video.control = "stop"
             onFinished()
         else
-            close()
+            close(t)
         end if
         return
     end if
@@ -699,14 +699,16 @@ sub skipCredits()
 end sub
 
 sub onFinished()
-    ' (v1.0 F-12) sleep timer on "End of episode": the player closes here
-    if Util.toText(m.sleepMode) = "episode"
-        sleepExpire()
-        return
-    end if
-    ' (v1.0 F-10) Cinema Mode: the next intro, then the film
+    ' (v1.0 F-10) Cinema Mode: the next intro, then the film (PL-7: before the sleep timer, whose "End of
+    ' episode" means the film's end)
     if m.top.item.after <> invalid
         playAfterIntro()
+        return
+    end if
+    ' (v1.0 F-12) sleep timer on "End of episode": the player closes here (PL-10: at the end, since the
+    ' Video node's position after stop / finished can read 0)
+    if Util.toText(m.sleepMode) = "episode"
+        sleepExpire(m.video.duration)
         return
     end if
     ' Settings → Play the next episode automatically (off: the player closes at the end)
@@ -741,7 +743,7 @@ sub onFinished()
         m.countdown.control = "start"
         Speak.say(Speak.clean("Up next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play now, button, plays in " + secs.toStr() + " seconds")
     else
-        close()
+        close(m.video.duration)
     end if
 end sub
 
@@ -1084,7 +1086,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if not m.osdShown
         ' controls hidden: quick keys
         if key = "back"
-            close()
+            leavePlayer()
         else if key = "OK"
             togglePause()
         else if key = "left"
@@ -1105,7 +1107,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
             m.seekTarget = -1
             updateBar(m.video.position)
         else if m.video.state = "paused"
-            close()
+            leavePlayer()
         else
             m.osdShown = false
             m.spokenKey = ""
@@ -1647,7 +1649,8 @@ sub clearThumbFiles()
     m.bifPath = ""
 end sub
 
-sub close()
+' atSec: where the title was left (PL-10: given at the end, when the Video node may already read 0)
+sub close(atSec = -1.0 as float)
     if m.closing then return
     m.closing = true
     m.subTimer.control = "stop"
@@ -1656,7 +1659,7 @@ sub close()
     m.watchdog.control = "stop"
     m.hideTimer.control = "stop"
     m.seekTimer.control = "stop"
-    atSec = m.video.position
+    if atSec <= 0 then atSec = m.video.position
     m.video.control = "stop"
     if m.started then report("/Sessions/Playing/Stopped", false, atSec)
     markIfWatched(atSec)
@@ -1695,6 +1698,7 @@ end sub
 
 ' Closing past 90 % (or in the credits) counts as watched, like on the Mac
 sub markIfWatched(atSec as float)
+    if isIntro() then return
     d = m.video.duration
     if m.info = invalid or d <= 0 or Util.flag(m.info.UserData, "Played") then return
     inCredits = m.marks.credits > 0 and atSec >= m.marks.credits
@@ -1712,6 +1716,8 @@ end sub
 sub report(path as string, paused as boolean, atSec = -1 as float)
     s = m.session
     if s = invalid then return
+    ' (PL-7: a Cinema Mode intro isn't reported, so the server doesn't mark it played or list it in the history)
+    if isIntro() then return
     if atSec < 0 then atSec = m.video.position
     if atSec > 0 then m.lastPos = atSec
     fire("POST", path, Playback.reportBody(s, m.lastPos, paused))
@@ -2517,26 +2523,44 @@ sub onSleepTick()
 end sub
 
 ' Time is up (or the episode ended): pause, then close the player as Back does (stop report, watched mark)
-sub sleepExpire()
+sub sleepExpire(atSec = -1.0 as float)
     print "Cove: sleep timer ended, closing the player"
     m.sleepMode = ""
     m.sleepId = "off"
     if m.sleepTimer <> invalid then m.sleepTimer.control = "stop"
     if m.video.state = "playing" then m.video.control = "pause"
     closePicker()
-    close()
+    close(atSec)
 end sub
 
 ' ---------------------------------------------------------------- Cinema Mode (v1.0 F-10)
 
+' A Cinema Mode intro playing before its film (not a trailer opened from a details page)
+function isIntro() as boolean
+    it = m.top.item
+    return it <> invalid and Util.flag(it, "trailer") and it.after <> invalid
+end function
+
+' Back: during an intro, the film starts (PL-7); otherwise the player closes
+sub leavePlayer()
+    if isIntro()
+        print "Cove: Back during an intro, starting the film"
+        playAfterIntro(true)
+        return
+    end if
+    close()
+end sub
+
 ' An intro ended: the next one, or the film it was for (MainScene.onIntros put them in the item)
-sub playAfterIntro()
+' skipRest: the remaining intros too (Back during one)
+sub playAfterIntro(skipRest = false as boolean)
     it = m.top.item
     if m.started then report("/Sessions/Playing/Stopped", false, m.video.duration)
     ' (PL-3: also before the intro started)
     stopEncoding()
     m.video.control = "stop"
     rest = it.intros
+    if skipRest then rest = []
     if type(rest) = "roArray" and rest.count() > 0
         nx = rest[0]
         more = []
