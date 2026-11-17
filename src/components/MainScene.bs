@@ -65,6 +65,10 @@ sub init()
     m.suspendedAt = 0           ' (Instant Resume) when the app went to the background, in seconds
     m.homeLoadedAt = 0          ' when Home last loaded its rows
     m.toastOnHome = ""          ' a toast for the next Home (profile switch)
+    ' (SC-3 / SC-4) MainScene's own requests for a screen: the answer is dropped when that screen is no longer on top
+    m.reqSeq = 0
+    m.introsPending = invalid   ' { id, screen, at } while Cinema Mode asks for the intros (a second Play waits)
+    m.seasonPending = invalid   ' { id, screen } while a season card asks for its series
     ' (Instant Resume: the stop report and the end of a conversion still go out after the app is suspended)
     if m.top.hasField("allowBackgroundTask") then m.top.allowBackgroundTask = true
     start()
@@ -145,8 +149,9 @@ sub onSettingsAction(ev as object)
         m.themeDirty = false
         signOut()
     else if a.id = "switch"
-        m.themeDirty = false
-        showServers("")
+        ' (SC-5) the server list over Settings: Back returns there; the stack is replaced only when another
+        ' server or profile is opened
+        showServers("", m.homeReady)
     else if a.id = "profiles"
         showWho(m.server, "", true)
     else if a.id = "profileChanged"
@@ -177,8 +182,10 @@ end sub
 sub pop()
     s = m.stack.pop()
     m.screens.removeChild(s)
-    ' screens under Settings were drawn with the old colours: start again from a fresh home
-    if m.themeDirty = true and m.server <> invalid
+    detachScreen(s)
+    ' screens under Settings were drawn with the old colours: start again from a fresh home (SC-14: only when
+    ' Settings itself closes, not a page opened from it such as Who's watching?)
+    if m.themeDirty = true and m.server <> invalid and Util.toText(s.screenId) = "settings"
         m.themeDirty = false
         showHome(m.server)
         return
@@ -194,13 +201,36 @@ sub pop()
     end if
 end sub
 
+' (SC-3) A removed screen can still answer (its tasks keep it alive): it may not start playback or open pages.
+' Its "action" stays observed for "changed" (onHomeAction drops the rest from screens not on top).
+sub detachScreen(s as dynamic)
+    if s = invalid then return
+    if s.screenId = "details"
+        s.unobserveField("play")
+        s.unobserveField("openItem")
+    end if
+end sub
+
 ' Replace the whole stack with one screen (after signing in, or when starting over)
 sub reset(s as object)
+    for each old in m.stack
+        detachScreen(old)
+    end for
     m.screens.removeChildrenIndex(m.screens.getChildCount(), 0)
     m.stack = []
+    ' (the screens drawn with the old colours are gone)
+    m.themeDirty = false
     ' (showHome sets it again; any other start-over screen is before or outside Home)
     m.homeReady = false
     push(s)
+end sub
+
+' Takes the top screen away without showing the one under it (it is replaced right after)
+sub dropTop()
+    s = m.stack.pop()
+    if s = invalid then return
+    m.screens.removeChild(s)
+    detachScreen(s)
 end sub
 
 function top() as dynamic
@@ -213,11 +243,31 @@ function topIs(id as string) as boolean
     return t <> invalid and t.screenId = id
 end function
 
+' (SC-3) The node is the screen on top (a late answer from a screen under it, or already removed, is dropped)
+function isTopScreen(node as dynamic) as boolean
+    t = top()
+    return t <> invalid and node <> invalid and t.isSameNode(node)
+end function
+
+function inStack(node as dynamic) as boolean
+    if node = invalid then return false
+    for each s in m.stack
+        if s.isSameNode(node) then return true
+    end for
+    return false
+end function
+
+function nextReqId() as integer
+    m.reqSeq = m.reqSeq + 1
+    return m.reqSeq
+end function
+
 sub setStatus(id as string, text as string)
     if topIs(id) then top().status = text
 end sub
 
-sub showServers(status as string)
+' asPush (SC-5): over the current stack (opened from Home or Settings), so Back returns there
+sub showServers(status as string, asPush = false as boolean)
     items = []
     for each s in Servers.all()
         who = profileNames(s)
@@ -237,7 +287,11 @@ sub showServers(status as string)
     end if
     sc = newMenu("servers", "Servers", sub_, items)
     sc.status = status
-    reset(sc)
+    if asPush
+        push(sc)
+    else
+        reset(sc)
+    end if
     if status = "" and m.deviceLine <> "" then sc.status = m.deviceLine
     if Servers.all().count() = 0
         if not m.scanned then startDiscovery()
@@ -431,8 +485,8 @@ sub stopPlayers()
     t = top()
     if t = invalid then return
     t.visible = true
+    ' (SC-1: a details page reloads as it gets the focus, since markStale flagged it)
     t.setFocus(true)
-    if t.screenId = "details" then t.refresh = true
 end sub
 
 sub onDeepLinkItem(r as object)
@@ -480,6 +534,15 @@ end sub
 
 sub onHomeAction(ev as object)
     a = ev.getData()
+    sender = ev.getRoSGNode()
+    ' (SC-3) a late answer (Shuffle's queue, a search result) from a screen that was closed or covered must not
+    ' start playback or open a page over whatever is on top now; "ready" and "changed" are always fine
+    if a.id <> "ready" and a.id <> "changed" and not isTopScreen(sender)
+        if not (a.id = "expired" and inStack(sender))
+            print "Cove: ignored a late "; Util.toText(a.id); " from a screen that is no longer on top"
+            return
+        end if
+    end if
     if a.id = "ready"
         launchComplete()
     else if a.id = "switch"
@@ -506,7 +569,7 @@ sub onHomeAction(ev as object)
         fs.server = m.server
     else if a.id = "changed"
         ' (a favourite person on their page: Home and Favorites reload when shown again)
-        markStale()
+        markStale(sender)
     else if a.id = "recent"
         l = createObject("roSGNode", "LibraryScreen")
         l.server = m.server
@@ -555,7 +618,9 @@ sub openItem(a as object)
     if t = "Season"
         if Util.toText(a.seriesId) = ""
             ' (lists don't carry the series: ask the server, then come back here)
-            request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(a.itemId), true, "", { kind: "seasonOpen" })
+            rid = nextReqId()
+            m.seasonPending = { id: rid, screen: top() }
+            request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(a.itemId), true, "", { kind: "seasonOpen", reqId: rid })
             return
         end if
         a = { itemId: a.seriesId, itemType: "Series", title: Util.toText(a.seriesName), seasonId: a.itemId }
@@ -563,6 +628,13 @@ sub openItem(a as object)
     end if
     ' an actor / director: their page
     if t = "Person"
+        ' (SC-11) their page is already open further down (Cast -> Person -> title -> Cast...): back to it
+        at = stackIndexOf("person", Util.toText(a.itemId))
+        if at >= 0
+            backTo(at)
+            return
+        end if
+        capStack()
         ps = createObject("roSGNode", "PersonScreen")
         ps.server = m.server
         ps.observeField("action", "onHomeAction")
@@ -570,6 +642,15 @@ sub openItem(a as object)
         ps.person = { id: a.itemId, name: a.title }
         return
     end if
+    ' (SC-11) the title is already open further down (Go to Series from an episode of it, More Like This
+    ' loops): back to that page, on the season asked for
+    at = stackIndexOf("details", Util.toText(a.itemId))
+    if at >= 0
+        backTo(at)
+        if Util.toText(a.seasonId) <> "" then m.stack[at].openSeason = Util.toText(a.seasonId)
+        return
+    end if
+    capStack()
     d = createObject("roSGNode", "DetailsScreen")
     d.server = m.server
     d.observeField("play", "onPlay")
@@ -580,26 +661,88 @@ sub openItem(a as object)
     d.itemId = a.itemId
 end sub
 
+' (SC-11) Where a details / person page for this id is in the stack, or -1
+function stackIndexOf(kind as string, id as string) as integer
+    if id = "" then return -1
+    for i = m.stack.count() - 1 to 0 step -1
+        s = m.stack[i]
+        if s.screenId = kind
+            shown = ""
+            if kind = "details" then shown = Util.toText(s.itemId)
+            if kind = "person" and Util.isAA(s.person) then shown = Util.toText(s.person.id)
+            if shown = id then return i
+        end if
+    end for
+    return -1
+end function
+
+' Closes the screens above index (no rebuild: they are pages opened from the one kept)
+sub backTo(index as integer)
+    if index < 0 or index >= m.stack.count() then return
+    if index = m.stack.count() - 1 then return
+    while m.stack.count() - 1 > index
+        dropTop()
+    end while
+    t = m.stack.peek()
+    t.visible = true
+    t.setFocus(true)
+end sub
+
+' (SC-11) At most maxScreens screens: the oldest page above Home goes first (it only costs a Back step)
+sub capStack()
+    maxScreens = 12
+    while m.stack.count() >= maxScreens
+        dropped = false
+        for i = 1 to m.stack.count() - 2
+            k = Util.toText(m.stack[i].screenId)
+            if k = "details" or k = "person" or k = "library" or k = "search" or k = "favorites" or k = "nowplaying"
+                old = m.stack[i]
+                m.stack.delete(i)
+                m.screens.removeChild(old)
+                detachScreen(old)
+                print "Cove: closed the oldest page ("; k; "), "; m.stack.count(); " screens open"
+                dropped = true
+                exit for
+            end if
+        end for
+        if not dropped then return
+    end while
+end sub
+
 ' More Like This: open that title on top
 sub onDetailsOpen(ev as object)
+    if not isTopScreen(ev.getRoSGNode())
+        print "Cove: ignored a late page from a details page that is no longer on top"
+        return
+    end if
     openItem(ev.getData())
 end sub
 
 ' A favourite changed: the home rows reload when we get back there
-sub onDetailsChanged()
-    markStale()
+sub onDetailsChanged(ev as object)
+    markStale(ev.getRoSGNode())
 end sub
 
 ' Something was played or changed on Details: Home and the library pages under it (Favorites, Recently Added,
 ' a library with its progress bars and watched checks) reload when they are shown again
-sub markStale()
+' (SC-1) Every page that shows progress or watched / favourite state, at any depth: details pages lower in
+' the stack, person and search results too. except: the page that made the change (it is up to date).
+sub markStale(except = invalid as dynamic)
     m.homeStale = true
     for each s in m.stack
-        if s.screenId = "library" or s.screenId = "favorites" then s.stale = true
+        k = s.screenId
+        if k = "library" or k = "favorites" or k = "details" or k = "person" or k = "search"
+            if except = invalid or not s.isSameNode(except) then s.stale = true
+        end if
     end for
 end sub
 
 sub onPlay(ev as object)
+    ' (SC-3: Play All / Shuffle answering after Back)
+    if not isTopScreen(ev.getRoSGNode())
+        print "Cove: ignored a late play from a details page that is no longer on top"
+        return
+    end if
     startPlayer(ev.getData())
 end sub
 
@@ -607,7 +750,16 @@ sub startPlayer(item as object)
     ' (v1.0 F-10) Settings → Playback → Cinema Mode: the server's intros first, for a title started from the
     ' beginning (not a trailer / extra, not a Shuffle queue); the server decides which titles get intros
     if Prefs.cinemaMode() and m.server <> invalid and not Util.flag(item, "trailer") and type(item.queue) <> "roArray" and Util.toNumber(item.start) <= 0
-        request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(item.id) + "/Intros", true, "", { kind: "intros", item: item, newRoute: false })
+        ' (SC-4) a second OK while the intros are asked for would open a second player: wait for the answer
+        ' (at most 15 s, so a lost answer doesn't block Play)
+        if m.introsPending <> invalid and nowSecs() - m.introsPending.at < 15
+            print "Cove: cinema mode: still waiting for the intros"
+            return
+        end if
+        rid = nextReqId()
+        m.introsPending = { id: rid, screen: top(), at: nowSecs() }
+        m.top.toast = { text: "Getting the intros...", icon: "" }
+        request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(item.id) + "/Intros", true, "", { kind: "intros", item: item, newRoute: false, reqId: rid })
         return
     end if
     openPlayer(item)
@@ -616,11 +768,23 @@ end sub
 ' The intros answer: the first intro plays with the rest and the film behind it (PlayerScreen.playAfterIntro)
 sub onIntros(r as object)
     item = r.tag.item
-    if (r.code = 404 or r.code = 405) and not Util.flag(r.tag, "newRoute")
-        ' (Jellyfin 10.9+ route)
-        request("GET", m.server, "/Items/" + Util.toText(item.id) + "/Intros?userId=" + Util.toText(m.server.userId), true, "", { kind: "intros", item: item, newRoute: true })
+    ' (SC-3 / SC-4) only the answer to the last request, and only while the page that asked is still on top
+    p = m.introsPending
+    if p = invalid or Util.toNumber(r.tag.reqId) <> p.id
+        print "Cove: ignored an old intros answer"
         return
     end if
+    if not isTopScreen(p.screen)
+        m.introsPending = invalid
+        print "Cove: dropped the intros answer: the page that asked was closed"
+        return
+    end if
+    if (r.code = 404 or r.code = 405) and not Util.flag(r.tag, "newRoute")
+        ' (Jellyfin 10.9+ route)
+        request("GET", m.server, "/Items/" + Util.toText(item.id) + "/Intros?userId=" + Util.toText(m.server.userId), true, "", { kind: "intros", item: item, newRoute: true, reqId: p.id })
+        return
+    end if
+    m.introsPending = invalid
     list = []
     if r.code = 200
         src = r.json
@@ -653,9 +817,9 @@ sub onPlayerDone(ev as object)
     ' (before pop: a Home or library page right under the player reloads as it is shown)
     markStale()
     seriesId = Util.toText(ev.getRoSGNode().openSeries)
+    ' (SC-1: the page under the player, and every page under it, reload as they are shown: "stale")
     pop()
     t = top()
-    if t <> invalid and t.screenId = "details" then t.refresh = true
     ' "Back to the series" (Are you still watching?): its page, unless it is the one under the player
     if seriesId <> "" and not (t <> invalid and t.screenId = "details" and Util.toText(t.itemId) = seriesId) then openItem({ itemId: seriesId, itemType: "Series", title: "" })
 end sub
@@ -769,9 +933,16 @@ sub onRemoveButton()
         for each us in Servers.sessions(Servers.find(m.removeId))
             request("POST", us, "/Sessions/Logout", true, "", { kind: "logout" })
         end for
+        ' (SC-5) another server than the one on Home, from the list opened over Home: Home stays under it
+        keepStack = m.homeReady and m.server <> invalid and Util.toText(m.server.id) <> m.removeId and topIs("servers") and m.stack.count() > 1
         Servers.forgetAll(m.removeId)
         Servers.remove(m.removeId)
-        showServers("Server removed.")
+        if keepStack
+            dropTop()
+            showServers("Server removed.", true)
+        else
+            showServers("Server removed.")
+        end if
     end if
 end sub
 
@@ -918,6 +1089,13 @@ sub dispatchResponse(r as object)
     else if kind = "deeplink"
         onDeepLinkItem(r)
     else if kind = "seasonOpen"
+        ' (SC-3) dropped when the page with the season card was closed or covered meanwhile
+        p = m.seasonPending
+        if p = invalid or Util.toNumber(r.tag.reqId) <> p.id or not isTopScreen(p.screen)
+            print "Cove: ignored a late season answer"
+            return
+        end if
+        m.seasonPending = invalid
         if r.code = 200 and Util.isAA(r.json) and Util.toText(r.json.SeriesId) <> ""
             openItem({ itemId: Util.toText(r.json.Id), itemType: "Season", seriesId: Util.toText(r.json.SeriesId), seriesName: Util.toText(r.json.SeriesName), title: Util.toText(r.json.Name) })
         end if
@@ -1027,11 +1205,26 @@ sub openServer(server as dynamic)
     ' (several profiles, or the last one used has a PIN: Who's watching? asks for it)
     if Servers.profiles(server).count() >= 2 or Servers.pinOf(server, Util.toText(server.userId)) <> ""
         showWho(server, "", topIs("servers"))
+    else if isOnHome(server)
+        ' (SC-5) the server already on Home, picked from the list opened over it: just go back
+        backToHome()
     else if Util.toText(server.token) <> ""
         validate(server)
     else
         openSignIn(server, "")
     end if
+end sub
+
+' The server (and its profile) is the one on Home, signed in
+function isOnHome(server as object) as boolean
+    if not m.homeReady or m.server = invalid or Util.toText(m.server.token) = "" then return false
+    return Util.toText(m.server.id) = Util.toText(server.id) and Util.toText(m.server.userId) = Util.toText(server.userId)
+end function
+
+sub backToHome()
+    while m.stack.count() > 1 and not topIs("home")
+        pop()
+    end while
 end sub
 
 sub openSignIn(server as object, status as string)
@@ -1405,7 +1598,8 @@ sub runAct(act as object)
         srv = Servers.find(Util.toText(act.serverId))
         if srv <> invalid then switchProfile(srv, Util.toText(act.userId))
     else if what = "servers"
-        showServers("")
+        ' (SC-5: from Home or a Who's watching? opened over it, Back returns there)
+        showServers("", m.homeReady)
     else if what = "signout"
         signOut()
     else if what = "addProfile"
@@ -1418,9 +1612,7 @@ end sub
 sub switchProfile(srv as object, userId as string)
     ' (the profile already on Home, picked from the sidebar: just go back)
     if m.server <> invalid and m.homeReady and Util.toText(m.server.id) = Util.toText(srv.id) and Util.toText(m.server.userId) = userId and Util.toText(m.server.token) <> ""
-        while m.stack.count() > 1 and not topIs("home")
-            pop()
-        end while
+        backToHome()
         return
     end if
     s = Servers.useUser(Util.toText(srv.id), userId)

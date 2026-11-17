@@ -1,0 +1,43 @@
+import "pkg:/source/Util.bs"
+
+' Small pure helpers for screen layout and focus (v1.0.1 SC-8, SC-12, SC-17); unit-tested in tests/brs/navutil.test.brs
+namespace NavUtil
+
+    ' The index of the entry with this id ([{ id, ... }]), or -1
+    function indexOfId(list as object, id as string) as integer
+        if id = "" or type(list) <> "roArray" then return -1
+        for i = 0 to list.count() - 1
+            e = list[i]
+            if Util.isAA(e) and Util.toText(e.id) = id then return i
+        end for
+        return -1
+    end function
+
+    ' A kept focus index for a list of n entries: the last one when the list got shorter, -1 when empty
+    function clampIndex(i as integer, n as integer) as integer
+        if n <= 0 then return -1
+        if i >= n then return n - 1
+        if i < 0 then return 0
+        return i
+    end function
+
+    ' The episode page's "Go to <season>" button: a long season name would push the row off the screen, so it
+    ' becomes "Go to Season N" (or is cut when the number isn't known)
+    function seasonButtonText(seasonTitle as string, seasonNumber as dynamic) as string
+        maxName = 18
+        if seasonTitle.len() <= maxName then return "Go to " + seasonTitle
+        n = Util.toText(seasonNumber)
+        if n <> "" then return "Go to Season " + n
+        return "Go to " + seasonTitle.left(maxName - 3) + "..."
+    end function
+
+    ' How far a row of buttons moves left so the focused one (its left and right edge in the row) stays inside
+    ' width: 0 while it fits, never past the row's start
+    function buttonShift(focusLeft as integer, focusRight as integer, width as integer) as integer
+        if focusRight <= width then return 0
+        shift = width - focusRight
+        if focusLeft + shift < 0 then shift = -focusLeft
+        return shift
+    end function
+
+end namespace

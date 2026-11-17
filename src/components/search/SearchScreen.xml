@@ -7,6 +7,8 @@
         <field id="screenId" type="string" value="search" />
         <field id="server" type="assocarray" />
         <field id="action" type="assocarray" alwaysNotify="true" />
+        <!-- (SC-1) set by MainScene after playback or a change: the search runs again when shown -->
+        <field id="stale" type="boolean" value="false" />
     </interface>
     <children>
         <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="64" translation="[100,48]" />

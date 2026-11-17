@@ -140,6 +140,8 @@ sub buildRows()
     m.top.findNode("info").text = info
     print "Cove: favorites "; titleCount; " titles, "; groups.people.count(); " people"
     if root.getChildCount() = 0
+        ' (SC-7) the last favourite was removed: the focus leaves the hidden list
+        if m.rows.isInFocusChain() then m.top.setFocus(true)
         m.rows.visible = false
         m.rows.content = createObject("roSGNode", "ContentNode")
         m.status.text = "No favorites yet"

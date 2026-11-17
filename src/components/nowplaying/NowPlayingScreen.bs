@@ -4,6 +4,7 @@ import "pkg:/source/Items.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Ratings.bs"
+import "pkg:/source/NavUtil.bs"
 
 sub init()
     m.top.findNode("bg").color = m.global.theme.bg
@@ -108,7 +109,9 @@ sub onSessions(ev as object)
     keep = m.grid.itemFocused
     m.grid.content = root
     n = root.getChildCount()
-    if keep >= 0 and keep < n then m.grid.jumpToItem = keep
+    ' (SC-12: when the last session ends, the one before it rather than the first card)
+    if keep >= 0 then keep = NavUtil.clampIndex(keep, n)
+    if keep >= 0 then m.grid.jumpToItem = keep
     m.status.visible = n = 0
     m.status.text = "Nothing is playing right now."
     m.top.findNode("count").text = ""

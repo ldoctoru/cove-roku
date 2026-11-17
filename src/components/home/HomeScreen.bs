@@ -97,6 +97,7 @@ sub load()
         m.task.control = "stop"
     end if
     m.task = createObject("roSGNode", "HomeTask")
+    m.libsPending = true
     m.task.server = s
     m.task.observeField("content", "onContent")
     m.task.observeField("error", "onError")
@@ -149,6 +150,14 @@ end sub
 
 ' Reload after playback, keeping the screen as it is until the new rows arrive
 sub onReload()
+    ' (SC-2) no rows on screen (the error panel, or still loading): the normal load with its status and
+    ' watchdog, and the focus goes to the hero / rows when they arrive
+    if not m.rows.visible
+        m.reloading = false
+        if m.state = "error" then m.state = "loading"
+        load()
+        return
+    end if
     m.reloading = true
     load()
 end sub
@@ -192,12 +201,14 @@ sub onContent(ev as object)
     end if
     m.rows.visible = true
     m.status.visible = false
+    m.libsPending = false
     buildNav()
     loadSessions()
     ' (a reload can answer while another screen is on top: polling starts again when Home is back)
     if m.top.isInFocusChain() then m.sessionsTimer.control = "start"
     buildHeroes(content)
-    if not wasReload or m.state = "loading"
+    ' (SC-2: also from the error panel, which had the focus and is gone now)
+    if not wasReload or m.state = "loading" or m.state = "error"
         if m.heroes.count() > 0
             enterHero(false)
         else
@@ -257,9 +268,11 @@ sub buildNav()
     if Prefs.showNowPlaying() then items.push({ id: "nowplaying", label: "Now Playing", icon: "nowplaying", badge: m.nowPlaying })
     if m.side then items.push({ header: true, label: "Library" })
     if Prefs.showRecent() then items.push({ id: "recent", label: "Recently Added", icon: "clock" })
-    m.libraries = []
     libs = invalid
     if m.task <> invalid then libs = m.task.libraries
+    ' (SC-6) a reload's task has no libraries until its rows arrive: keep the last list meanwhile
+    if m.libsPending = true and m.libraries.count() > 0 then libs = m.libraries
+    m.libraries = []
     if libs <> invalid
         for i = 0 to libs.count() - 1
             m.libraries.push(libs[i])

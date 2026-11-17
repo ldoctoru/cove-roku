@@ -25,6 +25,21 @@ sub onItemFocused()
     Speak.say(text)
 end sub
 
+' The panel 900 wide instead of 600 (entries up to about 55 characters)
+sub onWide()
+    w = 600
+    if m.top.wide then w = 900
+    x = 1872 - w
+    panel = m.top.findNode("panel")
+    panel.width = w
+    panel.translation = [x, 54]
+    t = m.top.findNode("title")
+    t.width = w - 60
+    t.translation = [x + 30, 86]
+    m.list.translation = [x + 24, 160]
+    m.list.itemSize = [w - 48, 66]
+end sub
+
 sub onTitle()
     m.top.findNode("title").text = m.top.title
 end sub
