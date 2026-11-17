@@ -328,6 +328,8 @@ sub onStream(ev as object)
     if m.thumbs = invalid then loadThumbs(s)
     c = createObject("roSGNode", "ContentNode")
     c.url = s.url
+    ' (Jellyfin: the sign-in travels as a header, not in the URL; Playback.videoHeaders)
+    if type(s.headers) = "roArray" and s.headers.count() > 0 then c.HttpHeaders = s.headers
     c.streamFormat = s.streamFormat
     c.title = Util.toText(m.top.item.title)
     c.secondaryTitle = Util.toText(m.top.item.subtitle)
