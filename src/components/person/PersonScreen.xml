@@ -10,6 +10,8 @@
         <field id="server" type="assocarray" />
         <field id="person" type="assocarray" onChange="load" />
         <field id="action" type="assocarray" alwaysNotify="true" />
+        <!-- (SC-1) set by MainScene after playback or a change: the titles load again when shown -->
+        <field id="stale" type="boolean" value="false" />
     </interface>
     <children>
         <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />

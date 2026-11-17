@@ -18,6 +18,10 @@
         <field id="play" type="assocarray" alwaysNotify="true" />
         <field id="openItem" type="assocarray" alwaysNotify="true" />
         <field id="changed" type="boolean" alwaysNotify="true" />
+        <!-- (SC-1) set by MainScene after playback or a change elsewhere: reloads when it has the focus again -->
+        <field id="stale" type="boolean" value="false" />
+        <!-- (SC-11) a series page already open, asked for again with "Go to Season": that season -->
+        <field id="openSeason" type="string" alwaysNotify="true" onChange="onOpenSeason" />
     </interface>
     <children>
         <Poster id="backdrop" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" />

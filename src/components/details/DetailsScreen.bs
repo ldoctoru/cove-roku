@@ -75,6 +75,21 @@ end sub
 
 ' ---------------------------------------------------------------- loading
 
+' (SC-11) Back on this series page from "Go to Season": that season, the focus on its episodes
+sub onOpenSeason()
+    id = Util.toText(m.top.openSeason)
+    if id = "" or m.item = invalid then return
+    k = seasonIndexOf(id)
+    if k < 0 then return
+    m.focusEpisodes = true
+    if k = m.seasonIndex
+        enterRows()
+        m.focusEpisodes = false
+        return
+    end if
+    selectSeason(k, true)
+end sub
+
 function itemPath() as string
     return "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.itemId + "?Fields=Overview,People,Genres,MediaSources,MediaStreams,Chapters,Taglines,Studios,DateCreated,Path&EnableImageTypes=Primary,Backdrop,Thumb,Logo"
 end function
@@ -86,6 +101,7 @@ end sub
 
 ' After playback: reload so Resume and the episodes show the new position
 sub onRefresh()
+    m.top.stale = false
     if m.item = invalid then return
     get(itemPath(), { kind: "item" })
     if Util.toText(m.item.Type) = "Series"
@@ -1834,6 +1850,9 @@ end function
 
 sub onFocusChanged()
     if not m.top.hasFocus() then return
+    ' (SC-1) something was played or changed on a page above: Resume, Next Up, the episodes' progress and the
+    ' season counts again
+    if m.top.stale then onRefresh()
     ' (back on this page: say again where the focus is)
     m.spokenKey = ""
     if m.picker <> invalid

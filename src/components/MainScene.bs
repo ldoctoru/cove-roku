@@ -456,8 +456,8 @@ sub stopPlayers()
     t = top()
     if t = invalid then return
     t.visible = true
+    ' (SC-1: a details page reloads as it gets the focus, since markStale flagged it)
     t.setFocus(true)
-    if t.screenId = "details" then t.refresh = true
 end sub
 
 sub onDeepLinkItem(r as object)
@@ -540,7 +540,7 @@ sub onHomeAction(ev as object)
         fs.server = m.server
     else if a.id = "changed"
         ' (a favourite person on their page: Home and Favorites reload when shown again)
-        markStale()
+        markStale(sender)
     else if a.id = "recent"
         l = createObject("roSGNode", "LibraryScreen")
         l.server = m.server
@@ -599,6 +599,13 @@ sub openItem(a as object)
     end if
     ' an actor / director: their page
     if t = "Person"
+        ' (SC-11) their page is already open further down (Cast -> Person -> title -> Cast...): back to it
+        at = stackIndexOf("person", Util.toText(a.itemId))
+        if at >= 0
+            backTo(at)
+            return
+        end if
+        capStack()
         ps = createObject("roSGNode", "PersonScreen")
         ps.server = m.server
         ps.observeField("action", "onHomeAction")
@@ -606,6 +613,15 @@ sub openItem(a as object)
         ps.person = { id: a.itemId, name: a.title }
         return
     end if
+    ' (SC-11) the title is already open further down (Go to Series from an episode of it, More Like This
+    ' loops): back to that page, on the season asked for
+    at = stackIndexOf("details", Util.toText(a.itemId))
+    if at >= 0
+        backTo(at)
+        if Util.toText(a.seasonId) <> "" then m.stack[at].openSeason = Util.toText(a.seasonId)
+        return
+    end if
+    capStack()
     d = createObject("roSGNode", "DetailsScreen")
     d.server = m.server
     d.observeField("play", "onPlay")
@@ -614,6 +630,54 @@ sub openItem(a as object)
     push(d)
     if a.seasonId <> invalid then d.seasonId = a.seasonId
     d.itemId = a.itemId
+end sub
+
+' (SC-11) Where a details / person page for this id is in the stack, or -1
+function stackIndexOf(kind as string, id as string) as integer
+    if id = "" then return -1
+    for i = m.stack.count() - 1 to 0 step -1
+        s = m.stack[i]
+        if s.screenId = kind
+            shown = ""
+            if kind = "details" then shown = Util.toText(s.itemId)
+            if kind = "person" and Util.isAA(s.person) then shown = Util.toText(s.person.id)
+            if shown = id then return i
+        end if
+    end for
+    return -1
+end function
+
+' Closes the screens above index (no rebuild: they are pages opened from the one kept)
+sub backTo(index as integer)
+    if index < 0 or index >= m.stack.count() then return
+    if index = m.stack.count() - 1 then return
+    while m.stack.count() - 1 > index
+        dropTop()
+    end while
+    t = m.stack.peek()
+    t.visible = true
+    t.setFocus(true)
+end sub
+
+' (SC-11) At most maxScreens screens: the oldest page above Home goes first (it only costs a Back step)
+sub capStack()
+    maxScreens = 12
+    while m.stack.count() >= maxScreens
+        dropped = false
+        for i = 1 to m.stack.count() - 2
+            k = Util.toText(m.stack[i].screenId)
+            if k = "details" or k = "person" or k = "library" or k = "search" or k = "favorites" or k = "nowplaying"
+                old = m.stack[i]
+                m.stack.delete(i)
+                m.screens.removeChild(old)
+                detachScreen(old)
+                print "Cove: closed the oldest page ("; k; "), "; m.stack.count(); " screens open"
+                dropped = true
+                exit for
+            end if
+        end for
+        if not dropped then return
+    end while
 end sub
 
 ' More Like This: open that title on top
@@ -626,16 +690,21 @@ sub onDetailsOpen(ev as object)
 end sub
 
 ' A favourite changed: the home rows reload when we get back there
-sub onDetailsChanged()
-    markStale()
+sub onDetailsChanged(ev as object)
+    markStale(ev.getRoSGNode())
 end sub
 
 ' Something was played or changed on Details: Home and the library pages under it (Favorites, Recently Added,
 ' a library with its progress bars and watched checks) reload when they are shown again
-sub markStale()
+' (SC-1) Every page that shows progress or watched / favourite state, at any depth: details pages lower in
+' the stack, person and search results too. except: the page that made the change (it is up to date).
+sub markStale(except = invalid as dynamic)
     m.homeStale = true
     for each s in m.stack
-        if s.screenId = "library" or s.screenId = "favorites" then s.stale = true
+        k = s.screenId
+        if k = "library" or k = "favorites" or k = "details" or k = "person" or k = "search"
+            if except = invalid or not s.isSameNode(except) then s.stale = true
+        end if
     end for
 end sub
 
@@ -719,9 +788,9 @@ sub onPlayerDone(ev as object)
     ' (before pop: a Home or library page right under the player reloads as it is shown)
     markStale()
     seriesId = Util.toText(ev.getRoSGNode().openSeries)
+    ' (SC-1: the page under the player, and every page under it, reload as they are shown: "stale")
     pop()
     t = top()
-    if t <> invalid and t.screenId = "details" then t.refresh = true
     ' "Back to the series" (Are you still watching?): its page, unless it is the one under the player
     if seriesId <> "" and not (t <> invalid and t.screenId = "details" and Util.toText(t.itemId) = seriesId) then openItem({ itemId: seriesId, itemType: "Series", title: "" })
 end sub
