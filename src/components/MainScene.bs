@@ -5,6 +5,7 @@ import "pkg:/source/DeviceCaps.bs"
 import "pkg:/source/Theme.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Prefs.bs"
+import "pkg:/source/QuickPlay.bs"
 
 sub init()
     ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
@@ -69,6 +70,7 @@ sub init()
     m.reqSeq = 0
     m.introsPending = invalid   ' { id, screen, at } while Cinema Mode asks for the intros (a second Play waits)
     m.seasonPending = invalid   ' { id, screen } while a season card asks for its series
+    m.quickPending = invalid    ' (v1.1 U-1) { id, screen, at, title } while the Play key on a card looks up what to play
     ' (Instant Resume: the stop report and the end of a conversion still go out after the app is suspended)
     if m.top.hasField("allowBackgroundTask") then m.top.allowBackgroundTask = true
     start()
@@ -556,6 +558,8 @@ sub onHomeAction(ev as object)
         openSignIn(m.server, "Your sign-in has expired. Please sign in again.")
     else if a.id = "open"
         openItem(a)
+    else if a.id = "quickplay"
+        playFromCard(a)
     else if a.id = "play"
         playItem = { id: a.itemId, title: a.title, subtitle: Util.toText(a.subtitle), start: a.start }
         ' (library Shuffle: the titles to play after this one)
@@ -715,7 +719,13 @@ sub onDetailsOpen(ev as object)
         print "Cove: ignored a late page from a details page that is no longer on top"
         return
     end if
-    openItem(ev.getData())
+    a = ev.getData()
+    ' (v1.1 U-1: the Play key on a More Like This / collection card)
+    if Util.toText(a.id) = "quickplay"
+        playFromCard(a)
+        return
+    end if
+    openItem(a)
 end sub
 
 ' A favourite changed: the home rows reload when we get back there
@@ -763,6 +773,135 @@ sub startPlayer(item as object)
         return
     end if
     openPlayer(item)
+end sub
+
+' ---------------------------------------------------------------- Play key on a card (v1.1 U-1)
+
+' The Play key on a focused card anywhere: a movie / episode plays from its resume point, a series its next up
+' (else its first unwatched episode), a season its first unwatched episode, a collection its first unwatched
+' film. The title is asked for first, so the rating limit and the resume point are the server's current ones;
+' playback goes through startPlayer (Cinema Mode). The answer is dropped when the page that asked is covered.
+sub playFromCard(a as object)
+    if m.server = invalid then return
+    id = Util.toText(a.itemId)
+    if not Util.isSafeId(id, false) or QuickPlay.playKind(Util.toText(a.itemType)) = "" then return
+    ' (a second press while the first is looked up: wait for it, at most 10 s)
+    if m.quickPending <> invalid and nowSecs() - m.quickPending.at < 10
+        print "Cove: play key: still looking up the last one"
+        return
+    end if
+    rid = nextReqId()
+    m.quickPending = { id: rid, screen: top(), at: nowSecs(), title: Util.toText(a.title) }
+    print "Cove: play key on "; Util.toText(a.itemType); " "; id
+    request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + id, true, "", { kind: "qpItem", reqId: rid })
+end sub
+
+' The answer still belongs to the last Play press, from the page on top (else it is dropped)
+function quickCurrent(r as object) as boolean
+    p = m.quickPending
+    if p = invalid or Util.toNumber(Util.field(r.tag, "reqId")) <> p.id
+        print "Cove: ignored an old play key answer"
+        return false
+    end if
+    if not isTopScreen(p.screen)
+        m.quickPending = invalid
+        print "Cove: dropped the play key answer: the page that asked is no longer on top"
+        return false
+    end if
+    return true
+end function
+
+sub quickFailed(text as string)
+    m.quickPending = invalid
+    m.top.toast = { text: text, icon: "info" }
+end sub
+
+sub onQuickItem(r as object)
+    if not quickCurrent(r) then return
+    if r.code <> 200 or not Util.isAA(r.json)
+        quickFailed("Couldn't start this title. Please try again.")
+        return
+    end if
+    it = r.json
+    if Ratings.seriesUnknown(m.server, it)
+        ' (an unrated episode under a limit: its series' rating decides, as for deep links)
+        sid = Util.toText(it.SeriesId)
+        request("GET", m.server, Ratings.seriesPath(m.server, [sid]), true, "", { kind: "qpSeries", reqId: m.quickPending.id, seriesId: sid, item: it })
+        return
+    end if
+    quickRated(it)
+end sub
+
+sub quickRated(it as object)
+    if not Ratings.allowed(m.server, it)
+        quickFailed("This title is above this profile's rating limit")
+        return
+    end if
+    k = QuickPlay.playKind(Util.toText(it.Type))
+    uid = Util.toText(m.server.userId)
+    rid = m.quickPending.id
+    id = Util.toText(it.Id)
+    if k = "play"
+        quickStart(it)
+    else if k = "series"
+        ' (its unrated episodes inherit this rating: keep it for Ratings.keep below)
+        Ratings.rememberSeries(m.server, [id], [it])
+        request("GET", m.server, "/Shows/NextUp?SeriesId=" + id + "&UserId=" + uid + "&Limit=1&Fields=OfficialRating&EnableUserData=true", true, "", { kind: "qpList", phase: "nextUp", reqId: rid, seriesId: id })
+    else if k = "season"
+        sid = Util.toText(it.SeriesId)
+        if sid = ""
+            quickFailed("Couldn't find this season's episodes")
+            return
+        end if
+        if Ratings.limitOf(m.server) > 0 and Ratings.cachedSeries(m.server, sid) = invalid
+            ' (a season with its own rating: the series' rating, for its unrated episodes, first)
+            request("GET", m.server, Ratings.seriesPath(m.server, [sid]), true, "", { kind: "qpSeries", reqId: rid, seriesId: sid, item: it })
+            return
+        end if
+        request("GET", m.server, "/Shows/" + sid + "/Episodes?SeasonId=" + id + "&UserId=" + uid + "&Fields=OfficialRating&EnableUserData=true", true, "", { kind: "qpList", phase: "episodes", reqId: rid })
+    else if k = "box"
+        request("GET", m.server, Ratings.withLimit(m.server, "/Users/" + uid + "/Items?ParentId=" + id + "&SortBy=PremiereDate,ProductionYear,SortName&SortOrder=Ascending&Fields=OfficialRating&EnableUserData=true"), true, "", { kind: "qpList", phase: "box", reqId: rid })
+    else
+        quickFailed("Nothing to play here")
+    end if
+end sub
+
+' Next Up / a season's episodes / a collection's titles: pick one and play it
+sub onQuickList(r as object)
+    if not quickCurrent(r) then return
+    if r.code <> 200
+        quickFailed("Couldn't start this title. Please try again.")
+        return
+    end if
+    src = r.json
+    if Util.isAA(src) then src = src.Items
+    list = Ratings.keep(m.server, src)
+    phase = Util.toText(r.tag.phase)
+    pick = invalid
+    if phase = "nextUp"
+        if list.count() > 0 then pick = list[0]
+        if pick = invalid
+            ' (not started, or all watched: the first unwatched episode of the whole series)
+            request("GET", m.server, "/Shows/" + Util.toText(r.tag.seriesId) + "/Episodes?UserId=" + Util.toText(m.server.userId) + "&Fields=OfficialRating&EnableUserData=true", true, "", { kind: "qpList", phase: "episodes", reqId: m.quickPending.id })
+            return
+        end if
+    else if phase = "box"
+        pick = QuickPlay.pickTitle(list)
+    else
+        pick = QuickPlay.pickEpisode(list)
+    end if
+    if pick = invalid
+        quickFailed("Nothing to play here")
+        return
+    end if
+    quickStart(pick)
+end sub
+
+sub quickStart(it as object)
+    m.quickPending = invalid
+    item = QuickPlay.playerItem(it)
+    print "Cove: play key starts "; item.id; " at "; item.start
+    startPlayer(item)
 end sub
 
 ' The intros answer: the first intro plays with the rest and the film behind it (PlayerScreen.playAfterIntro)
@@ -1103,6 +1242,20 @@ sub dispatchResponse(r as object)
         onResumeCheck(r)
     else if kind = "intros"
         onIntros(r)
+    else if kind = "qpItem"
+        onQuickItem(r)
+    else if kind = "qpSeries"
+        ' (v1.1 U-1) the series' rating of an unrated episode, for the Play key
+        if quickCurrent(r)
+            if r.code = 200
+                Ratings.rememberSeries(m.server, [Util.toText(r.tag.seriesId)], r.json)
+                quickRated(r.tag.item)
+            else
+                quickFailed("Couldn't check this title's rating. Please try again.")
+            end if
+        end if
+    else if kind = "qpList"
+        onQuickList(r)
     else if kind = "logout"
         print "Cove: signed out of the removed server -> "; r.code
     end if

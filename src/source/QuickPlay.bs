@@ -1,0 +1,90 @@
+import "pkg:/source/Util.bs"
+
+' (v1.1 U-1) The Play key on a focused card: what it plays. Screens turn the card into an action with
+' QuickPlay.cardAction; MainScene fetches the title and picks what to start with the functions below.
+' Pure functions (no nodes besides reading a card, no requests), so they have unit tests.
+namespace QuickPlay
+
+    ' The action for MainScene from a card (a ContentNode with itemId / itemType / title), or invalid when the
+    ' card isn't a title (a person, a library folder)
+    function cardAction(card as dynamic) as dynamic
+        if type(card) <> "roSGNode" then return invalid
+        if not card.hasField("itemId") or not card.hasField("itemType") then return invalid
+        id = Util.toText(card.itemId)
+        k = playKind(Util.toText(card.itemType))
+        if id = "" or k = "" then return invalid
+        return { id: "quickplay", itemId: id, itemType: Util.toText(card.itemType), title: Util.toText(card.title) }
+    end function
+
+    ' "play" (the title itself), "series" (next up or the first episode), "season" (its first unwatched),
+    ' "box" (a collection: its first unwatched film), "" (nothing to play: people, libraries, folders)
+    function playKind(itemType as string) as string
+        t = itemType
+        if t = "Movie" or t = "Episode" or t = "Video" or t = "MusicVideo" or t = "Trailer" then return "play"
+        if t = "Series" then return "series"
+        if t = "Season" then return "season"
+        if t = "BoxSet" then return "box"
+        return ""
+    end function
+
+    ' Where playback starts: the saved position, or the beginning when less than 30 s were watched
+    function startSecs(it as dynamic) as float
+        if not Util.isAA(it) then return 0.0
+        ud = it.UserData
+        if not Util.isAA(ud) then return 0.0
+        secs = Util.toNumber(ud.PlaybackPositionTicks) / 10000000
+        if secs <= 30 then return 0.0
+        return secs
+    end function
+
+    ' A series or season: the first episode not watched yet (specials, season 0, only when there is nothing
+    ' else), else the first one; invalid for an empty list
+    function pickEpisode(list as dynamic) as dynamic
+        if type(list) <> "roArray" then return invalid
+        firstRegular = invalid
+        firstAny = invalid
+        for each e in list
+            if Util.isAA(e) and Util.toText(e.Id) <> "" and Util.toText(e.Type) <> "Season"
+                if firstAny = invalid then firstAny = e
+                special = Util.toNumber(e.ParentIndexNumber) = 0 and e.ParentIndexNumber <> invalid
+                if not special
+                    if firstRegular = invalid then firstRegular = e
+                    if not Util.flag(e.UserData, "Played") then return e
+                end if
+            end if
+        end for
+        if firstRegular <> invalid then return firstRegular
+        return firstAny
+    end function
+
+    ' A collection (in release order): the first playable title not watched yet, else the first playable one
+    ' (a series or a nested collection in it is skipped, as on its details page)
+    function pickTitle(list as dynamic) as dynamic
+        if type(list) <> "roArray" then return invalid
+        firstPlayable = invalid
+        for each c in list
+            if Util.isAA(c) and Util.toText(c.Id) <> "" and playKind(Util.toText(c.Type)) = "play" and Util.toText(c.Type) <> "Trailer"
+                if firstPlayable = invalid then firstPlayable = c
+                if not Util.flag(c.UserData, "Played") then return c
+            end if
+        end for
+        return firstPlayable
+    end function
+
+    ' The player's item for a movie / episode: { id, title, subtitle, start }
+    function playerItem(it as object) as object
+        title = Util.toText(it.Name)
+        subtitle = ""
+        if Util.toText(it.Type) = "Episode"
+            title = Util.toText(it.SeriesName)
+            s = ""
+            if it.ParentIndexNumber <> invalid then s = "S" + Util.toText(it.ParentIndexNumber)
+            if it.IndexNumber <> invalid then s = s + ":E" + Util.toText(it.IndexNumber)
+            n = Util.toText(it.Name)
+            subtitle = s + n
+            if s <> "" and n <> "" then subtitle = s + "  ·  " + n
+        end if
+        return { id: Util.toText(it.Id), title: title, subtitle: subtitle, start: startSecs(it) }
+    end function
+
+end namespace

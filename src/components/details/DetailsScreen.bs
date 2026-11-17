@@ -10,6 +10,7 @@ import "pkg:/source/Ratings.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Toasts.bs"
 import "pkg:/source/NavUtil.bs"
+import "pkg:/source/QuickPlay.bs"
 
 sub init()
     m.focusEpisodes = false
@@ -1821,6 +1822,11 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press or m.picker <> invalid or m.textPanel <> invalid then return false
+    ' (v1.1 U-1) Play: the focused card below, or this title's Play button anywhere else on the page
+    if key = "play"
+        playKey()
+        return true
+    end if
     if m.state = "overview"
         if key = "OK"
             openFullText()
@@ -1904,6 +1910,38 @@ function onKeyEvent(key as string, press as boolean) as boolean
     end if
     return false
 end function
+
+' (v1.1 U-1) The Play key: an episode or extra plays as with OK; a title in More Like This / In This Collection /
+' Included In plays without opening its page (MainScene picks the episode or film); elsewhere the Play button
+sub playKey()
+    if m.item = invalid or m.state = "error" then return
+    if m.state = "rows"
+        f = m.rows.rowItemFocused
+        if f = invalid or f.count() < 2 or m.rows.content = invalid then return
+        row = m.rows.content.getChild(f[0])
+        if row = invalid then return
+        k = row.rowKind
+        i = f[1]
+        if k = "episodes" and i < m.shownEps.count()
+            e = m.shownEps[i]
+            start = Items.resumeAt(e)
+            if start <= 30 then start = 0
+            requestPlay(e, start)
+        else if k = "extras"
+            playExtra(i)
+        else if k = "box" or k = "included" or k = "similar"
+            a = QuickPlay.cardAction(row.getChild(i))
+            if a <> invalid then m.top.openItem = a
+        end if
+        return
+    end if
+    if NavUtil.indexOfId(m.btns, "play") < 0 then return
+    target = playTarget()
+    if target = invalid then return
+    start = Items.resumeAt(target)
+    if start <= 30 then start = 0
+    requestPlay(target, start)
+end sub
 
 sub onFocusChanged()
     if not m.top.hasFocus() then return

@@ -303,7 +303,7 @@ function rowsFor(tabId as string) as object
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
         out.push(sectionHead("Other pages"))
-        for each k in [["Up", "Library: the Sort, Genre, A-Z and Show filters"], ["*", "Series page: options for the selected episode"], ["Back", "The page before"]]
+        for each k in [["Play", "On any card: play it right away (a series or season: its next episode; a collection: its next film)"], ["Up", "Library: the Sort, Order, Genre, A-Z and Show filters"], ["*", "Series page: options for the selected episode"], ["Back", "The page before"]]
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
         out.push(sectionHead("In Settings"))
