@@ -165,6 +165,23 @@ namespace Prefs
         return flagOn("showUpNextRow", true)
     end function
 
+    ' (v1.1) Settings → Home → Row options: Recently Added / Recently Released / Latest without watched titles
+    function hideWatchedLatest() as boolean
+        return flagOn("hideWatchedLatest", false)
+    end function
+
+    ' (v1.1, Jellyfin 10.9+) Next Up also offers a finished series you started again
+    function nextUpRewatch() as boolean
+        return flagOn("nextUpRewatch", false)
+    end function
+
+    ' (v1.1, Jellyfin) Next Up shows only series watched in the last N days; 0 = any time
+    function nextUpDays() as integer
+        v = text("nextUpDays", "0").toInt()
+        if v < 0 then return 0
+        return v
+    end function
+
     function castLarge() as boolean
         return text("castSize", "normal") = "large"
     end function

@@ -1,0 +1,88 @@
+import "pkg:/source/Util.bs"
+
+' Air-date labels for Home's Upcoming row (v1.1): "Today", "Tomorrow", "Yesterday", else "Fri 21 Nov"
+' (24 h Rokus) or "Fri Nov 21" (12 h Rokus, the US style), with the year when it's far off.
+' Servers keep an episode's air date as a date at midnight UTC, so the date part is used as it is (turning it
+' into local time would move it a day back west of UTC).
+namespace Dates
+
+    ' Days since 1970-01-01 for a calendar date (Howard Hinnant's days_from_civil, years >= 1)
+    function daysFrom1970(y as integer, mo as integer, d as integer) as integer
+        if mo <= 2 then y = y - 1
+        era = y \ 400
+        yoe = y - era * 400
+        mp = mo - 3
+        if mo <= 2 then mp = mo + 9
+        doy = (153 * mp + 2) \ 5 + d - 1
+        doe = yoe * 365 + yoe \ 4 - yoe \ 100 + doy
+        return era * 146097 + doe - 719468
+    end function
+
+    ' { y, m, d } from an ISO date ("2026-11-21T00:00:00.0000000Z", "2026-11-21"), or invalid
+    function ymdOf(iso as dynamic) as dynamic
+        s = Util.toText(iso)
+        if s.len() < 10 or s.mid(4, 1) <> "-" or s.mid(7, 1) <> "-" then return invalid
+        y = s.left(4).toInt()
+        mo = s.mid(5, 2).toInt()
+        d = s.mid(8, 2).toInt()
+        if y < 1900 or mo < 1 or mo > 12 or d < 1 or d > 31 then return invalid
+        return { y: y, m: mo, d: d }
+    end function
+
+    ' "Sun" .. "Sat" for a day number from daysFrom1970 (1970-01-01 was a Thursday)
+    function weekdayAbbr(dayNum as integer) as string
+        names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        i = (dayNum + 4) mod 7
+        if i < 0 then i = i + 7
+        return names[i]
+    end function
+
+    function monthAbbr(mo as integer) as string
+        names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        if mo < 1 or mo > 12 then return ""
+        return names[mo - 1]
+    end function
+
+    ' The label for an air date. today = { y, m, d } (local), monthFirst = the 12 h / US style.
+    ' "" when the date can't be read.
+    function airLabel(iso as dynamic, today as object, monthFirst as boolean) as string
+        a = ymdOf(iso)
+        if a = invalid or today = invalid then return ""
+        dayNum = daysFrom1970(a.y, a.m, a.d)
+        diff = dayNum - daysFrom1970(today.y, today.m, today.d)
+        if diff = 0 then return "Today"
+        if diff = 1 then return "Tomorrow"
+        if diff = -1 then return "Yesterday"
+        s = weekdayAbbr(dayNum) + " " + a.d.toStr() + " " + monthAbbr(a.m)
+        if monthFirst then s = weekdayAbbr(dayNum) + " " + monthAbbr(a.m) + " " + a.d.toStr()
+        if a.y <> today.y and Abs(diff) > 300 then s = s + " " + a.y.toStr()
+        return s
+    end function
+
+    ' (Tasks / main only) today's local date as { y, m, d }
+    function localToday() as object
+        dt = createObject("roDateTime")
+        dt.toLocalTime()
+        return { y: dt.getYear(), m: dt.getMonth(), d: dt.getDayOfMonth() }
+    end function
+
+    ' The Roku's clock setting: 12 h Rokus get US-style dates ("Fri Nov 21")
+    function usesMonthFirst() as boolean
+        di = createObject("roDeviceInfo")
+        return LCase(Util.toText(di.getClockFormat())) = "12h"
+    end function
+
+    ' An ISO UTC time N days ago, for nextUpDateCutoff ("2026-08-19T10:00:00Z")
+    function isoDaysAgo(days as integer) as string
+        dt = createObject("roDateTime")
+        dt.fromSeconds(dt.asSeconds() - days * 86400)
+        return dt.toISOString()
+    end function
+
+    ' Now as an ISO UTC time, for MaxPremiereDate
+    function isoNow() as string
+        dt = createObject("roDateTime")
+        return dt.toISOString()
+    end function
+
+end namespace

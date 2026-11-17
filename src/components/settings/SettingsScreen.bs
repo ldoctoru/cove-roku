@@ -144,7 +144,7 @@ function rowsFor(tabId as string) as object
         srvOn = HomeLayout.useServerLayout(sid)
         out.push(sectionHead("Layout"))
         out.push(toggle("homeServerLayout", "", "Use the server's Home layout", srvOn))
-        out.push(note("Home follows the Home sections set in the server's web app (Settings > Home): Continue Watching, Next Up, Latest per library and My Media. Sections Cove doesn't have are left out; a library's row still follows its switch below."))
+        out.push(note("Home follows the Home sections set in the server's web app (Settings > Home): Continue Watching, Next Up, Latest per library and My Media. Sections Cove doesn't have are left out, and Upcoming and Recently Released show only with Cove's layout; a library's row still follows its switch below."))
         out.push(sectionHead("Rows"))
         libs = homeLibs()
         for each id in HomeLayout.orderedIds(sid, libs)
@@ -161,6 +161,7 @@ function rowsFor(tabId as string) as object
         b = { kind: "button", id: "homeDefaultOrder", label: "", text: "Default Order" }
         b.dim = srvOn
         out.push(b)
+        homeOptionRows(out)
     else if tabId = "libraries"
         out.push(sectionHead("Your libraries"))
         out.push({ kind: "section", id: "showFavorites", label: "Favorites", icon: "heart", on: Prefs.showFavorites() })
@@ -385,6 +386,31 @@ function homeLibs() as object
     return Prefs.orderLibraries(m.libs, serverKey())
 end function
 
+' (v1.1) Settings → Home → Row options: watched titles in the Latest rows, and Next Up's Jellyfin options
+sub homeOptionRows(out as object)
+    out.push(sectionHead("Row options"))
+    out.push(toggle("hideWatchedLatest", "Recently Added", "Hide watched", Prefs.hideWatchedLatest()))
+    out.push(note("Leaves out what you've watched in Recently Added, Recently Released and each library's Latest row. Off: the server's own Hide played in latest setting still applies."))
+    isJf = m.top.server <> invalid and Servers.isJellyfin(m.top.server)
+    rw = toggle("nextUpRewatch", "Next Up", "Include rewatching", Prefs.nextUpRewatch() and isJf)
+    rw.dim = not isJf
+    out.push(rw)
+    days = []
+    for each d in [["0", "Any time"], ["30", "Last month"], ["90", "Last 3 months"], ["365", "Last year"]]
+        days.push({ id: d[0], label: d[1] })
+    end for
+    cur = Prefs.nextUpDays().toStr()
+    if not isJf then cur = "0"
+    c = choice("nextUpDays", "Next Up: shows watched", days, cur)
+    c.dim = not isJf
+    out.push(c)
+    if isJf
+        out.push(note("Include rewatching also offers the next episode of a series you finished and started again (Jellyfin 10.9 or later). Shows you haven't watched within the time chosen leave Next Up."))
+    else
+        out.push(note("Rewatching and the Next Up time limit need a Jellyfin server: Emby's Next Up has no such options."))
+    end if
+end sub
+
 function homeRowEntry(id as string, libs as object, srvOn as boolean) as object
     sid = serverKey()
     e = { kind: "homerow", id: id, label: id, icon: "folder", on: HomeLayout.isOn(sid, id), state: "" }
@@ -400,6 +426,14 @@ function homeRowEntry(id as string, libs as object, srvOn as boolean) as object
     else if id = "recent"
         e.label = "Recently Added"
         e.icon = "clock"
+    else if id = "upcoming"
+        e.label = "Upcoming"
+        e.icon = "tv"
+        if srvOn then e.state = "Cove's layout only"
+    else if id = "released"
+        e.label = "Recently Released"
+        e.icon = "film"
+        if srvOn then e.state = "Cove's layout only"
     else if id = "libraries"
         e.label = "My Libraries (tiles)"
         e.icon = "folder"
@@ -1096,7 +1130,7 @@ end sub
 
 ' Saves one setting and redraws; Home is rebuilt when Settings closes if it changed something there
 sub apply(id as string, value as string)
-    homeKeys = { navStyle: 1, topBarLabels: 1, showRecent: 1, showUpNextRow: 1, homeFavorites: 1, showFavorites: 1, showNowPlaying: 1, hideSpoilers: 1 }
+    homeKeys = { navStyle: 1, topBarLabels: 1, showRecent: 1, showUpNextRow: 1, homeFavorites: 1, showFavorites: 1, showNowPlaying: 1, hideSpoilers: 1, hideWatchedLatest: 1, nextUpRewatch: 1, nextUpDays: 1 }
     if id = "askWho"
         ' (kept with the server's profiles, not with the settings that Reset clears; a parent PIN first while a
         ' profile with a rating limit is watching)

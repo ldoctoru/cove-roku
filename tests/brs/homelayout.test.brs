@@ -4,7 +4,7 @@ function t_libs() as object
 end function
 
 sub test_defaultIds()
-    t_eq(HomeLayout_defaultIds(t_libs()), ["resume", "nextup", "favorites", "recent", "Lm1", "Lt1", "libraries"], "music has no row")
+    t_eq(HomeLayout_defaultIds(t_libs()), ["resume", "nextup", "upcoming", "favorites", "recent", "released", "Lm1", "Lt1", "libraries"], "music has no row")
 end sub
 
 sub test_state_roundTrip()
@@ -27,7 +27,7 @@ end sub
 sub test_orderedIds_saved()
     ' a saved order with a removed library (Lgone) and without the new library t1
     Util_writeText("homeRows:s3", "libraries,Lgone,Lm1,resume")
-    t_eq(HomeLayout_orderedIds("s3", t_libs()), ["libraries", "Lm1", "Lt1", "resume", "nextup", "favorites", "recent"], "dropped and inserted")
+    t_eq(HomeLayout_orderedIds("s3", t_libs()), ["libraries", "Lm1", "Lt1", "resume", "nextup", "upcoming", "favorites", "recent", "released"], "dropped and inserted")
 end sub
 
 sub test_move()
@@ -60,4 +60,40 @@ sub test_fromServer()
     t_eq(HomeLayout_fromServer({}, t_libs()), ["libraries", "resume", "nextup", "Lm1", "Lt1"], "web app defaults")
     dp = { CustomPrefs: { homesection0: "latestmedia", homesection1: "NextUp", homesection2: "livetv", homesection3: "librarybuttons", homesection4: "nextup" } }
     t_eq(HomeLayout_fromServer(dp, t_libs()), ["Lm1", "Lt1", "nextup", "libraries"], "custom order, Live TV skipped")
+end sub
+
+sub test_newRows_v110()
+    libs = t_libs()
+    ' an order saved before v1.1 gets Upcoming after Next Up and Recently Released after Recently Added
+    Util_writeText("homeRows:s6", "recent,nextup,-resume,Lm1,libraries")
+    t_eq(HomeLayout_orderedIds("s6", libs), ["recent", "released", "nextup", "upcoming", "favorites", "resume", "Lm1", "Lt1", "libraries"], "new rows placed")
+    t_ok(HomeLayout_isOn("s6", "upcoming"), "upcoming on by default (hidden when empty)")
+    t_ok(not HomeLayout_isOn("s6", "released"), "recently released off by default")
+    HomeLayout_setOn("s6", libs, "released", true)
+    HomeLayout_setOn("s6", libs, "upcoming", false)
+    t_ok(HomeLayout_isOn("s6", "released") and not HomeLayout_isOn("s6", "upcoming"), "switched")
+    HomeLayout_resetOrder("s6")
+    t_eq(HomeLayout_orderedIds("s6", libs), HomeLayout_defaultIds(libs), "default order")
+    t_ok(HomeLayout_isOn("s6", "released") and not HomeLayout_isOn("s6", "upcoming"), "new switches kept by reset")
+end sub
+
+sub test_fromServer_noNewRows()
+    dp = { CustomPrefs: { homesection0: "nextup", homesection1: "latestmedia" } }
+    out = HomeLayout_fromServer(dp, t_libs())
+    t_eq(out, ["nextup", "Lm1", "Lt1"], "server layout: no upcoming / released")
+end sub
+
+sub test_rowQueries()
+    t_eq(HomeLayout_unwatchedQuery(true), "&IsPlayed=false", "hide watched")
+    t_eq(HomeLayout_unwatchedQuery(false), "", "show watched")
+    t_eq(HomeLayout_nextUpQuery(false, true, "2026-01-01T00:00:00Z"), "", "Emby: nothing")
+    t_eq(HomeLayout_nextUpQuery(true, false, ""), "", "Jellyfin defaults")
+    t_eq(HomeLayout_nextUpQuery(true, true, ""), "&enableRewatching=true", "rewatching")
+    t_eq(HomeLayout_nextUpQuery(true, true, "2026-08-19T10:00:00Z"), "&enableRewatching=true&nextUpDateCutoff=2026-08-19T10%3A00%3A00Z", "cutoff encoded")
+    q = HomeLayout_releasedQuery("2026-11-17T10:00:00Z", true)
+    t_ok(q.instr("SortBy=PremiereDate") >= 0 and q.instr("SortOrder=Descending") >= 0, "by premiere date")
+    t_ok(q.instr("IncludeItemTypes=Movie,Episode") >= 0 and q.instr("IsMissing=false") >= 0, "movies and aired episodes")
+    t_ok(q.instr("MaxPremiereDate=2026-11-17T10%3A00%3A00Z") >= 0, "nothing in the future")
+    t_ok(q.instr("&IsPlayed=false") >= 0, "hide watched applies")
+    t_ok(HomeLayout_releasedQuery("", false).instr("IsPlayed") < 0, "watched kept")
 end sub

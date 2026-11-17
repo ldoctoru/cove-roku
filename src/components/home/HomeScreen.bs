@@ -331,7 +331,7 @@ sub buildHeroes(content as object)
         taken = 0
         for j = 0 to row.getChildCount() - 1
             it = row.getChild(j)
-            if taken < 2 and m.heroes.count() < 8 and it.backdrop <> "" and not isFolderKind(it.itemType) and not seen.doesExist(it.itemId)
+            if taken < 2 and m.heroes.count() < 8 and it.backdrop <> "" and not isFolderKind(it.itemType) and not isUpcomingCard(it) and not seen.doesExist(it.itemId)
                 seen[it.itemId] = true
                 m.heroes.push(it)
                 taken = taken + 1
@@ -715,8 +715,18 @@ end sub
 
 sub onItemSelected()
     it = focusedItem()
-    if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
+    if it <> invalid then m.top.action = openAction(it)
 end sub
+
+' (v1.1) Upcoming cards haven't aired: they open their series page, and have no Play or Mark as watched
+function isUpcomingCard(it as dynamic) as boolean
+    return it <> invalid and it.hasField("upcoming") and it.upcoming = true
+end function
+
+function openAction(it as object) as object
+    if isUpcomingCard(it) and Util.toText(it.seriesId) <> "" then return { id: "open", itemId: it.seriesId, itemType: "Series", collectionType: "", title: it.title }
+    return { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
+end function
 
 ' ---------------------------------------------------------------- keys
 
@@ -902,7 +912,7 @@ sub itemMenu(it as object)
     m.menuItem = it
     o = []
     kind = it.itemType
-    if kind <> "Series" and not isFolderKind(kind)
+    if kind <> "Series" and not isFolderKind(kind) and not isUpcomingCard(it)
         if it.resumeAt > 30
             o.push({ id: "resume", label: "Resume from " + Playback.clock(it.resumeAt) })
             o.push({ id: "start", label: "Play from the beginning" })
@@ -911,7 +921,9 @@ sub itemMenu(it as object)
         end if
     end if
     if not isFolderKind(kind)
-        if it.played
+        if isUpcomingCard(it)
+            ' (not aired yet: nothing to mark)
+        else if it.played
             o.push({ id: "unwatched", label: "Mark as unwatched" })
         else
             o.push({ id: "watched", label: "Mark as watched" })
@@ -968,7 +980,7 @@ sub onItemChosen(ev as object)
     else if id = "unresume"
         removeFromResume(it)
     else if id = "open"
-        m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
+        m.top.action = openAction(it)
     else if id = "more"
         showOptions()
     end if

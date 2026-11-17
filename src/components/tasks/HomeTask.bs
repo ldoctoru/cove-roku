@@ -3,6 +3,8 @@ import "pkg:/source/Items.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/HomeLayout.bs"
+import "pkg:/source/Dates.bs"
+import "pkg:/source/Servers.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -74,6 +76,11 @@ sub load()
         end if
     end if
     print "Cove: home rows order "; Util.join(ids, ",").len(); " chars, server layout "; serverMode
+    ' (v1.1) Settings → Home → Row options
+    unw = HomeLayout.unwatchedQuery(Prefs.hideWatchedLatest())
+    cutoff = ""
+    if Prefs.nextUpDays() > 0 then cutoff = Dates.isoDaysAgo(Prefs.nextUpDays())
+    nuq = HomeLayout.nextUpQuery(Servers.isJellyfin(srv), Prefs.nextUpRewatch(), cutoff)
     for each id in ids
         isShown = false
         if serverMode
@@ -91,17 +98,23 @@ sub load()
                 addRow(root, "Continue Watching", getList("/Users/" + uid + "/Items/Resume?Limit=20&MediaTypes=Video&" + f, "/UserItems/Resume?userId=" + uid + "&Limit=20&MediaTypes=Video&" + f), true)
                 if m.top.authFailed then return
             else if id = "nextup"
-                addRow(root, "Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20&" + f, ""), true)
+                addRow(root, "Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20" + nuq + "&" + f, ""), true)
+            else if id = "upcoming"
+                ' (v1.1) episodes not aired yet (both servers); no row when the server has none
+                addUpcomingRow(root, getList("/Shows/Upcoming?UserId=" + uid + "&Limit=20&" + f, ""))
+            else if id = "released"
+                rq = HomeLayout.releasedQuery(Dates.isoNow(), Prefs.hideWatchedLatest()) + "&" + f
+                addRow(root, "Recently Released", getList("/Users/" + uid + "/Items?" + rq, "/Items?userId=" + uid + "&" + rq), false)
             else if id = "favorites"
                 addRow(root, "Favorites", getList("/Users/" + uid + "/Items?Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f, "/Items?userId=" + uid + "&Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f), false)
             else if id = "recent"
-                addRow(root, "Recently Added", getList("/Users/" + uid + "/Items/Latest?Limit=20&" + f, "/Items/Latest?userId=" + uid + "&Limit=20&" + f), false)
+                addRow(root, "Recently Added", getList("/Users/" + uid + "/Items/Latest?Limit=20" + unw + "&" + f, "/Items/Latest?userId=" + uid + "&Limit=20" + unw + "&" + f), false)
             else if id = "libraries"
                 addRow(root, "Libraries", shown, true)
             else if byId.doesExist(id)
                 l = byId[id]
                 lp = Prefs.library(l.id)
-                if Prefs.hasHomeRow(l.collectionType) then addRow(root, rowTitle(lp.style, l.title), libraryRow(uid, l, lp.style, f), false)
+                if Prefs.hasHomeRow(l.collectionType) then addRow(root, rowTitle(lp.style, l.title), libraryRow(uid, l, lp.style, f, unw), false)
             end if
         end if
     end for
@@ -127,9 +140,9 @@ function rowTitle(style as string, name as string) as string
 end function
 
 ' A library's Home row: Latest (what the server added last), Top Rated, Random or A-Z
-function libraryRow(uid as string, l as object, style as string, f as string) as object
+function libraryRow(uid as string, l as object, style as string, f as string, unw as string) as object
     if style = "latest"
-        return getList("/Users/" + uid + "/Items/Latest?ParentId=" + l.id + "&Limit=20&" + f, "/Items/Latest?userId=" + uid + "&ParentId=" + l.id + "&Limit=20&" + f)
+        return getList("/Users/" + uid + "/Items/Latest?ParentId=" + l.id + "&Limit=20" + unw + "&" + f, "/Items/Latest?userId=" + uid + "&ParentId=" + l.id + "&Limit=20" + unw + "&" + f)
     end if
     sortQ = "SortBy=SortName&SortOrder=Ascending"
     if style = "top" then sortQ = "SortBy=CommunityRating,SortName&SortOrder=Descending"
@@ -189,5 +202,32 @@ sub addRow(root as object, title as string, list as object, isLandscape as boole
     row.addFields({ landscape: isLandscape })
     for each it in list
         row.appendChild(Items.node(m.srv, it, isLandscape))
+    end for
+end sub
+
+' (v1.1) Upcoming: 16:9 cards with the air date first ("Tomorrow  ·  S2:E5  ·  Name"). They can't be played
+' yet: the card carries upcoming = true and its series, so OK opens the series page and * has no Play.
+sub addUpcomingRow(root as object, list as object)
+    list = Ratings.keepChecked(m.srv, list)
+    if list.count() = 0 then return
+    today = Dates.localToday()
+    monthFirst = Dates.usesMonthFirst()
+    row = root.createChild("ContentNode")
+    row.title = "Upcoming"
+    row.addFields({ landscape: true })
+    for each it in list
+        c = Items.node(m.srv, it, true)
+        air = Dates.airLabel(it.PremiereDate, today, monthFirst)
+        if air = "" then air = "Coming soon"
+        c.addFields({ upcoming: true, seriesId: Util.toText(it.SeriesId), airLabel: air })
+        if c.episode <> ""
+            c.episode = air + "  ·  " + c.episode
+        else
+            c.episode = air
+        end if
+        c.progress = 0.0
+        c.timeLeft = ""
+        c.resumeAt = 0.0
+        row.appendChild(c)
     end for
 end sub
