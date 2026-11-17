@@ -44,6 +44,8 @@ sub init()
         print "Cove: device check failed: "; e.message
     end try
     m.pendingLink = invalid
+    m.pendingLinkAt = 0         ' (C2-16) when it was held, and the server it came for ("" = any)
+    m.pendingLinkServer = ""
     m.lastLinkId = ""           ' the last deep link and when it came (repeats within 2 s are dropped)
     m.lastLinkAt = 0
     m.homeReady = false         ' Home is on screen with a signed-in server: deep links can be opened
@@ -53,6 +55,13 @@ sub init()
     m.scanned = false
     ' (v0.9.0: saved sign-ins become profiles, several per server)
     Servers.migrate()
+    ' (C2-1) the profile with a rating limit that is or was last active ({ serverId, userId }): until a parent PIN
+    ' or a profile without a limit takes over, the server list asks for a parent PIN before it adds, removes or
+    ' opens another server, and a sign-in as someone else waits for one too
+    m.lock = invalid
+    m.heldAuth = invalid
+    noteLock(Servers.active())
+    m.probeGen = 0              ' (C2-10) the current server probe: answers of an earlier one are dropped
     m.suspendedAt = 0           ' (Instant Resume) when the app went to the background, in seconds
     m.homeLoadedAt = 0          ' when Home last loaded its rows
     m.toastOnHome = ""          ' a toast for the next Home (profile switch)
@@ -127,6 +136,8 @@ end sub
 ' Settings → Servers: connect to another server, sign out, or add one
 sub onSettingsAction(ev as object)
     a = ev.getData()
+    ' (C2-1: Settings asked for the parent PIN before these while a limited profile was on Home)
+    if a.id = "connect" or a.id = "signout" or a.id = "switch" or a.id = "addProfile" then m.lock = invalid
     if a.id = "connect"
         m.themeDirty = false
         openServer(Servers.find(Util.toText(a.serverId)))
@@ -216,6 +227,7 @@ sub showServers(status as string)
     end for
     sub_ = "Choose a server, or add one."
     if items.count() > 0 then sub_ = "Choose a server  ·  press * on a server to remove it"
+    if items.count() > 0 and lockServer() <> invalid then sub_ = "Choose a server  ·  a parent PIN is needed to add, remove or open another server"
     if items.count() = 0
         ' first launch: the servers found on the network above "Enter address" (U-2 / F-8)
         sub_ = "Pick a server found on your network, or enter its address."
@@ -312,7 +324,7 @@ sub pickFound(index as integer)
     cands = ["https://" + hostPort]
     if LCase(addr).startsWith("http://") then cands.push(addr)
     print "Cove: picked a discovered server"
-    probe(cands, 0, Util.toText(f.name))
+    startProbe(cands, Util.toText(f.name))
 end sub
 
 sub askAddress()
@@ -333,6 +345,9 @@ end function
 sub showHome(server as object)
     Servers.setActive(Util.toText(server.id))
     m.server = server
+    ' (C2-1: a limited profile locks the server list; any other profile on Home unlocks it)
+    m.lock = invalid
+    noteLock(server)
     h = createObject("roSGNode", "HomeScreen")
     h.observeField("action", "onHomeAction")
     reset(h)
@@ -349,8 +364,21 @@ sub showHome(server as object)
     if m.pendingLink <> invalid
         link = m.pendingLink
         m.pendingLink = invalid
-        openDeepLink(link)
+        ' (C2-16: a link held for long, or for another server, is no longer what the user asked for)
+        if nowSecs() - m.pendingLinkAt > 90 or (m.pendingLinkServer <> "" and m.pendingLinkServer <> Util.toText(server.id))
+            print "Cove: dropped a deep link that waited too long or was for another server"
+        else
+            openDeepLink(link)
+        end if
     end if
+end sub
+
+' (C2-16) Keeps a deep link until Home is ready, with when and for which server it came
+sub holdLink(link as object)
+    m.pendingLink = link
+    m.pendingLinkAt = nowSecs()
+    m.pendingLinkServer = ""
+    if m.server <> invalid then m.pendingLinkServer = Util.toText(m.server.id)
 end sub
 
 ' ---------------------------------------------------------------- deep links
@@ -376,7 +404,7 @@ sub onDeepLink()
     m.lastLinkId = cid
     m.lastLinkAt = nowSecs()
     if not m.homeReady or m.server = invalid or Util.toText(m.server.token) = ""
-        m.pendingLink = link
+        holdLink(link)
         return
     end if
     openDeepLink(link)
@@ -410,7 +438,7 @@ end sub
 sub onDeepLinkItem(r as object)
     if r.code = 401
         ' the saved sign-in has expired: sign in again, then the link opens from Home
-        m.pendingLink = { contentId: r.tag.contentId, mediaType: r.tag.linkType }
+        holdLink({ contentId: r.tag.contentId, mediaType: r.tag.linkType })
         m.server.token = ""
         Servers.upsert(m.server)
         openSignIn(m.server, "Your sign-in has expired. Please sign in again.")
@@ -652,19 +680,13 @@ sub onSelected(ev as object)
     s = ev.getRoSGNode()
     id = ev.getData().id
     if s.screenId = "servers" or s.screenId = "address"
-        if id = "enter" or (id = "add" and Servers.all().count() = 0)
-            askAddress()
-        else if id = "add"
-            showAddServer()
-        else if id = "rescan"
-            m.found = []
-            startDiscovery()
-            refreshFound()
-        else if id.startsWith("found:")
-            pickFound(id.mid(6).toInt())
-        else if id.startsWith("srv:")
-            openServer(Servers.find(id.mid(4)))
+        ' (C2-1) while a limited profile is or was active: a parent PIN before adding or opening another server
+        ' (its own server, and Search again, stay open, so a child can get back after "Couldn't reach")
+        if lockServer() <> invalid and id <> "rescan" and id <> "srv:" + Util.toText(m.lock.serverId)
+            guardedAct(invalid, { do: "listPick", id: id })
+            return
         end if
+        listPick(id)
     else if s.screenId = "signin"
         if id = "manual"
             askText("username", "Username", "Your username on " + Util.toText(m.server.name), "", false)
@@ -696,21 +718,47 @@ sub onSelected(ev as object)
     end if
 end sub
 
+' A choice on the server list or Add a server
+sub listPick(id as string)
+    if id = "enter" or (id = "add" and Servers.all().count() = 0)
+        askAddress()
+    else if id = "add"
+        showAddServer()
+    else if id = "rescan"
+        m.found = []
+        startDiscovery()
+        refreshFound()
+    else if id.startsWith("found:")
+        pickFound(id.mid(6).toInt())
+    else if id.startsWith("srv:")
+        openServer(Servers.find(id.mid(4)))
+    end if
+end sub
+
 sub onOptions(ev as object)
     s = ev.getRoSGNode()
     id = ev.getData().id
     if s.screenId = "servers" and id.startsWith("srv:")
-        srv = Servers.find(id.mid(4))
-        if srv = invalid then return
-        m.removeId = Util.toText(srv.id)
-        d = createObject("roSGNode", "StandardMessageDialog")
-        d.title = "Remove " + Util.toText(srv.name) + "?"
-        d.message = ["Cove forgets this server and its sign-in. You can add it again any time."]
-        d.buttons = ["Remove", "Cancel"]
-        d.observeField("buttonSelected", "onRemoveButton")
-        d.observeField("wasClosed", "onDialogClosed")
-        m.top.dialog = d
+        ' (C2-1: Remove forgets every profile, PIN and rating limit of that server: a parent PIN first)
+        if lockServer() <> invalid
+            guardedAct(invalid, { do: "askRemove", serverId: id.mid(4) })
+            return
+        end if
+        askRemove(id.mid(4))
     end if
+end sub
+
+sub askRemove(serverId as string)
+    srv = Servers.find(serverId)
+    if srv = invalid or not topIs("servers") then return
+    m.removeId = Util.toText(srv.id)
+    d = createObject("roSGNode", "StandardMessageDialog")
+    d.title = "Remove " + Util.toText(srv.name) + "?"
+    d.message = ["Cove forgets this server and its sign-in. You can add it again any time."]
+    d.buttons = ["Remove", "Cancel"]
+    d.observeField("buttonSelected", "onRemoveButton")
+    d.observeField("wasClosed", "onDialogClosed")
+    m.top.dialog = d
 end sub
 
 sub onRemoveButton()
@@ -776,7 +824,7 @@ sub onKeyboardButton()
     closeDialog()
     if not ok then return
     if m.keyboardFor = "address"
-        if text <> "" then probe(Util.urlCandidates(text), 0, text)
+        if text <> "" then startProbe(Util.urlCandidates(text), text)
     else if m.keyboardFor = "username"
         if text = "" then return
         m.pendingUser = text
@@ -850,6 +898,9 @@ sub dispatchResponse(r as object)
     else if kind = "qcEnabled"
         m.quickConnect = r.code = 200 and Util.flag({ v: r.value }, "v")
         showSignInItems("")
+    else if kind = "signin" and (m.server = invalid or Util.toText(r.tag.serverId) <> Util.toText(m.server.id) or not topIs("signin"))
+        ' (C2-5: Back and another server picked meanwhile: its token must not be saved under, or sent to, that one)
+        print "Cove: ignored a sign-in answer for another server or a closed sign-in"
     else if kind = "signin"
         onSignIn(r)
     else if kind = "validate"
@@ -881,6 +932,12 @@ end sub
 
 ' ---------------------------------------------------------------- add a server
 
+' (C2-10) A new probe: the answers of the one before are dropped
+sub startProbe(candidates as object, typed as string)
+    m.probeGen = m.probeGen + 1
+    probe(candidates, 0, typed)
+end sub
+
 ' Tries the typed address as https / http / :8096 until one answers like an Emby or Jellyfin server
 sub probe(candidates as object, index as integer, typed as string)
     if index >= candidates.count()
@@ -888,7 +945,7 @@ sub probe(candidates as object, index as integer, typed as string)
         return
     end if
     probeStatus("Looking for the server at " + candidates[index] + "...")
-    request("GET", { url: candidates[index], type: "emby" }, "/System/Info/Public", false, "", { kind: "probe", candidates: candidates, index: index, typed: typed })
+    request("GET", { url: candidates[index], type: "emby" }, "/System/Info/Public", false, "", { kind: "probe", candidates: candidates, index: index, typed: typed, gen: m.probeGen })
 end sub
 
 ' (the server list, or Add a server when the address was typed or picked there)
@@ -898,6 +955,11 @@ sub probeStatus(text as string)
 end sub
 
 sub onProbe(r as object)
+    ' (C2-10: a newer probe started, or the list it came from has gone: it must not open a server over another screen)
+    if Util.toNumber(r.tag.gen) <> m.probeGen or not (topIs("servers") or topIs("address"))
+        print "Cove: ignored the answer of an earlier server probe"
+        return
+    end if
     j = r.json
     if r.code = 200 and j <> invalid and GetInterface(j, "ifAssociativeArray") <> invalid and Util.toText(j.Id) <> ""
         url = r.tag.candidates[r.tag.index]
@@ -1017,7 +1079,7 @@ end sub
 
 sub signIn(name as string, password as string)
     setStatus("signin", "Signing in as " + name + "...")
-    request("POST", m.server, "/Users/AuthenticateByName", false, Api.credentialsBody(name, password), { kind: "signin" })
+    request("POST", m.server, "/Users/AuthenticateByName", false, Api.credentialsBody(name, password), { kind: "signin", serverId: Util.toText(m.server.id) })
 end sub
 
 sub onSignIn(r as object)
@@ -1038,6 +1100,19 @@ end sub
 
 ' Successful sign-in (password or Quick Connect): save it and go home
 sub signedIn(auth as object)
+    ' (C2-1) the sign-in screen under a limited profile (an expired sign-in): signing in as anyone else, or on
+    ' another server, could lift the limit, so it waits for a parent PIN
+    uid = Util.toText(Util.field(Util.field(auth, "User"), "Id"))
+    if m.server <> invalid and lockServer() <> invalid and not (Util.toText(m.server.id) = Util.toText(m.lock.serverId) and uid = Util.toText(m.lock.userId))
+        m.heldAuth = { auth: auth, serverId: Util.toText(m.server.id) }
+        setStatus("signin", "A parent PIN is needed to sign in as another profile.")
+        guardedAct(invalid, { do: "heldSignIn" })
+        return
+    end if
+    saveSignIn(auth)
+end sub
+
+sub saveSignIn(auth as object)
     s = m.server
     s.token = Util.toText(Util.field(auth, "AccessToken"))
     if Util.isAA(Util.field(auth, "User"))
@@ -1103,14 +1178,17 @@ sub validate(server as object)
     sc = newMenu("connecting", Util.toText(server.name), Servers.typeName(server) + "   ·   " + Util.toText(server.url), [])
     sc.status = "Connecting..."
     reset(sc)
-    request("GET", server, "/Users/" + Util.toText(server.userId), true, "", { kind: "validate" })
+    request("GET", server, "/Users/" + Util.toText(server.userId), true, "", { kind: "validate", serverId: Util.toText(server.id), userId: Util.toText(server.userId) })
 end sub
 
 sub onValidate(r as object)
-    if not topIs("connecting") then return
+    if not topIs("connecting") or m.server = invalid then return
+    ' (C2-10: the answer for an earlier profile or server, after two quick switches)
+    if Util.toText(r.tag.serverId) <> Util.toText(m.server.id) or Util.toText(r.tag.userId) <> Util.toText(m.server.userId) then return
     if r.code = 200
         showHome(m.server)
-    else if r.code = 401 or r.code = 403 or r.code = 404
+    else if r.code = 401 or r.code = 403
+        ' (C2-12: a 404 is a proxy path change or a server still starting: "Couldn't reach" below, the token stays)
         ' The saved sign-in no longer works (password changed, device removed on the server)
         m.server.token = ""
         Servers.upsert(m.server)
@@ -1219,10 +1297,11 @@ sub onWhoChosen(ev as object)
     end if
     ' (v0.9.1: adding a profile or leaving for another server, while the profile last used here has a rating
     ' limit: a parent PIN first)
+    ' (C2-6: whenever a profile on this server has a limit and a parent PIN exists, whoever was last used)
     if id = "add"
-        guardedAct(srv, { do: "addProfile", serverId: Util.toText(srv.id) })
+        pickerGuard(srv, { do: "addProfile", serverId: Util.toText(srv.id) })
     else if id = "servers"
-        guardedAct(srv, { do: "servers" })
+        pickerGuard(srv, { do: "servers" })
     else
         chooseProfile(srv, id)
     end if
@@ -1233,20 +1312,65 @@ sub chooseProfile(srv as object, userId as string)
     sid = Util.toText(srv.id)
     onHome = m.server <> invalid and m.homeReady and Util.toText(m.server.id) = sid and Util.toText(m.server.userId) = userId
     if Servers.pinOf(srv, userId) = "" or onHome
+        ' (C2-13) from a limited profile to one without a limit and without a PIN: a parent PIN first, otherwise
+        ' that profile lifts the limit with one press (only when a parent PIN exists to ask for)
+        if not onHome and (lockServer() <> invalid or Ratings.limitOf(srv) > 0) and not profileLimited(srv, userId) and Servers.parentIds(srv).count() > 0
+            askPin({ goal: "parent", serverId: sid, message: "This profile has no rating limit and no PIN. Enter a parent PIN to switch to it." }, { do: "switchProfile", serverId: sid, userId: userId, unlock: true })
+            return
+        end if
         switchProfile(srv, userId)
         return
     end if
     askPin({ goal: "verify", serverId: sid, userId: userId }, { do: "switchProfile", serverId: sid, userId: userId })
 end sub
 
-' (v0.9.1) Runs act now, or after a parent PIN when the server's profile on Home has a rating limit
+' (v0.9.1) Runs act now, or after a parent PIN when the server's profile on Home has a rating limit, or (C2-1)
+' while the server list is locked by a limited profile that is or was active
 sub guardedAct(srv as dynamic, act as object)
-    if srv <> invalid and Ratings.limitOf(srv) > 0
-        askPin({ goal: "parent", serverId: Util.toText(srv.id), message: "A profile with a rating limit is watching. Enter a parent PIN (the PIN of a profile without a limit) to continue." }, act)
+    ps = invalid
+    if srv <> invalid and Ratings.limitOf(srv) > 0 then ps = srv
+    if ps = invalid then ps = lockServer()
+    if ps <> invalid
+        act.unlock = true
+        askPin({ goal: "parent", serverId: Util.toText(ps.id), message: "A profile with a rating limit is watching. Enter a parent PIN (the PIN of a profile without a limit) to continue." }, act)
     else
         runAct(act)
     end if
 end sub
+
+' (C2-6) Who's watching?'s Servers / Add profile: a parent PIN whenever a profile on the server has a limit and a
+' parent PIN exists, whichever profile was used last
+sub pickerGuard(srv as object, act as object)
+    if Servers.anyLimited(srv) and Servers.parentIds(srv).count() > 0
+        act.unlock = true
+        askPin({ goal: "parent", serverId: Util.toText(srv.id), message: "A profile on this server has a rating limit. Enter a parent PIN (the PIN of a profile without a limit) to continue." }, act)
+    else
+        guardedAct(srv, act)
+    end if
+end sub
+
+' (C2-1) Remembers a profile with a rating limit as the lock of the server list
+sub noteLock(s as dynamic)
+    if s <> invalid and Ratings.limitOf(s) > 0 then m.lock = { serverId: Util.toText(s.id), userId: Util.toText(s.userId) }
+end sub
+
+' The server whose parent PIN unlocks the server list, or invalid when it isn't locked (no lock, the server is
+' gone, or the locking profile no longer has a limit)
+function lockServer() as dynamic
+    if m.lock = invalid then return invalid
+    ls = Servers.find(Util.toText(m.lock.serverId))
+    if ls = invalid or not profileLimited(ls, Util.toText(m.lock.userId)) then return invalid
+    ' (no parent PIN on it: there is nobody to ask, and the profiles without a limit can be picked anyway)
+    if Servers.parentIds(ls).count() = 0 then return invalid
+    return ls
+end function
+
+function profileLimited(srv as object, userId as string) as boolean
+    for each p in Servers.profiles(srv)
+        if p.id = userId then return p.maxRating <> ""
+    end for
+    return false
+end function
 
 ' The PIN steps (PinFlow); act runs when they succeed. On Who's watching? a wrong PIN shows in its status line.
 sub askPin(q as object, act as object)
@@ -1267,7 +1391,17 @@ end sub
 
 sub runAct(act as object)
     what = Util.toText(act.do)
-    if what = "switchProfile"
+    ' (C2-1: a parent PIN was given: the server list is open until a limited profile is on Home again)
+    if Util.flag(act, "unlock") then m.lock = invalid
+    if what = "listPick"
+        if topIs("servers") or topIs("address") then listPick(Util.toText(act.id))
+    else if what = "askRemove"
+        askRemove(Util.toText(act.serverId))
+    else if what = "heldSignIn"
+        h = m.heldAuth
+        m.heldAuth = invalid
+        if h <> invalid and m.server <> invalid and Util.toText(m.server.id) = h.serverId and topIs("signin") then saveSignIn(h.auth)
+    else if what = "switchProfile"
         srv = Servers.find(Util.toText(act.serverId))
         if srv <> invalid then switchProfile(srv, Util.toText(act.userId))
     else if what = "servers"
@@ -1362,6 +1496,9 @@ sub customResume(args as dynamic)
         else if topIs("connecting")
             ' (still checking the saved sign-in when the app was suspended: try again)
             validate(m.server)
+        else if topIs("signin") and Util.toText(top().code) <> ""
+            ' (C2-11: customSuspend stopped the Quick Connect polling, so the code on screen no longer works)
+            showSignInItems("The Quick Connect code was stopped. Choose Quick Connect again.")
         end if
         if Util.isAA(args) and Util.isAA(args.launchParams)
             lp = args.launchParams

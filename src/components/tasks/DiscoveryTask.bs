@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Servers.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -36,38 +37,19 @@ function broadcastAndListen(seconds as integer) as object
         waitMs = limitMs - clock.TotalMilliseconds()
         if waitMs < 1 then waitMs = 1
         msg = wait(waitMs, port)
-        if type(msg) = "roSocketEvent" and msg.getSocketID() = sock.getID() and sock.isReadable()
-            answer = sock.receiveStr(4096)
-            srv = parseAnswer(answer)
-            if srv <> invalid and not seen.doesExist(srv.id)
-                seen[srv.id] = true
-                out.push(srv)
-                print "Cove: discovered "; srv.name; " at "; srv.address
-            end if
+        if type(msg) = "roSocketEvent" and msg.getSocketID() = sock.getID()
+            ' (C2-9: two answers that arrive together come as one event: read every waiting one)
+            while sock.isReadable() and out.count() < 10
+                answer = sock.receiveStr(4096)
+                srv = Servers.parseDiscovery(answer)
+                if srv <> invalid and not seen.doesExist(srv.id)
+                    seen[srv.id] = true
+                    out.push(srv)
+                    print "Cove: discovered "; srv.name; " at "; srv.address
+                end if
+            end while
         end if
     end while
     sock.close()
     return out
-end function
-
-' { Address: "http://192.168.1.20:8096", Id, Name } → { id, name, address } or invalid. Any device on the
-' network can answer, so only a plain http(s)://host[:port] address with safe characters is kept.
-function parseAnswer(text as dynamic) as dynamic
-    if type(text) <> "roString" and type(text) <> "String" then return invalid
-    j = ParseJson(text)
-    if not Util.isAA(j) then return invalid
-    addr = Util.toText(j.Address).trim()
-    id = Util.toText(j.Id)
-    if addr = "" or id = "" or not Util.isSafeId(id, false) then return invalid
-    while addr.len() > 0 and addr.right(1) = "/"
-        addr = addr.left(addr.len() - 1)
-    end while
-    low = LCase(addr)
-    if not (low.startsWith("http://") or low.startsWith("https://")) then return invalid
-    rx = createObject("roRegex", "^https?://[A-Za-z0-9.\-\[\]:]+$", "")
-    if not rx.isMatch(addr) then return invalid
-    name = Util.toText(j.Name)
-    if name.len() > 40 then name = name.left(40)
-    if name = "" then name = Util.hostOf(addr)
-    return { id: id, name: name, address: addr }
 end function
