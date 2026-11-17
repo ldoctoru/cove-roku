@@ -290,6 +290,7 @@ sub showItem(it as object)
         m.versions = Tracks.versions(it)
         m.tracks = Tracks.fromItem(it, m.opts.sourceId)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
+        m.opts.startAudio = startAudioHere()
         s = Tracks.defaultSub(m.tracks, "")
         ' Settings → Always load my subtitle language (the CC menu then shows it)
         if Prefs.subAlways()
@@ -1059,7 +1060,15 @@ end sub
 
 function effectiveAudio() as integer
     if m.opts.audio >= 0 then return m.opts.audio
+    ' (v1.1) the track the player will start with (series language, account language, no commentary)
+    if m.opts.startAudio <> invalid and m.opts.startAudio >= 0 then return m.opts.startAudio
     return m.opts.defaultAudio
+end function
+
+' (v1.1) What the player picks when no audio is chosen here (PlayerScreen chooseStartAudio)
+function startAudioHere() as integer
+    seriesLang = Prefs.seriesAudioLang(Util.toText(m.item.SeriesId))
+    return Tracks.startAudio(m.tracks, Tracks.wantedAudio(m.tracks, seriesLang, Tracks.serverAudioPref(m.top.server)))
 end function
 
 sub showTracksMenu()
@@ -1145,6 +1154,7 @@ sub onPicked(ev as object)
         m.opts.sub = -1
         m.opts.burn = false
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
+        m.opts.startAudio = startAudioHere()
         s = Tracks.defaultSub(m.tracks, "")
         if s >= 0
             m.opts.sub = s

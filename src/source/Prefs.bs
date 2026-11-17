@@ -74,7 +74,7 @@ namespace Prefs
     ' (v1.0) Settings → Playback → Default speed: the speed every title starts at ("1" = normal)
     function defaultSpeed() as string
         v = text("defaultSpeed", "1")
-        for each c in ["0.5", "0.75", "1", "1.25", "1.5", "2"]
+        for each c in ["0.5", "0.75", "1", "1.25", "1.5", "1.75", "2"]
             if c = v then return v
         end for
         return "1"
@@ -326,25 +326,61 @@ namespace Prefs
         return v.toInt()
     end function
 
-    ' ---------------------------------------------------------------- subtitle language per series
+    ' ---------------------------------------------------------------- subtitle and audio language per series
 
-    ' "" = automatic, "off", or a language code. All series share one key ("seriesLangs", most recent last,
-    ' at most 50): one key per series grew the registry without limit, and it also holds the sign-ins.
+    ' Subtitles: "" = automatic, "off", or a language code. Audio (v1.1): "" = automatic or a language code.
+    ' All series share one key ("seriesLangs", most recent last, at most 50 entries { id, lang, a }): one key
+    ' per series grew the registry without limit, and it also holds the sign-ins.
     function seriesSubLang(seriesId as string) as string
+        return seriesLangField(seriesId, "lang")
+    end function
+
+    sub setSeriesSubLang(seriesId as string, lang as string)
+        setSeriesLangField(seriesId, "lang", lang)
+    end sub
+
+    ' (v1.1) The audio language last chosen for a series ("jpn"), "" = none
+    function seriesAudioLang(seriesId as string) as string
+        return seriesLangField(seriesId, "a")
+    end function
+
+    sub setSeriesAudioLang(seriesId as string, lang as string)
+        setSeriesLangField(seriesId, "a", lang)
+    end sub
+
+    function seriesLangField(seriesId as string, field as string) as string
         if seriesId = "" then return ""
         for each e in seriesLangList()
-            if Util.toText(e.id) = seriesId then return Util.toText(e.lang)
+            if Util.isAA(e) and Util.toText(e.id) = seriesId then return Util.toText(e[field])
         end for
         return ""
     end function
 
-    sub setSeriesSubLang(seriesId as string, lang as string)
+    ' Sets one field of a series' entry (keeping the other), moves it to the end (most recent); an entry with
+    ' neither field is dropped. Nothing is written when the value doesn't change.
+    sub setSeriesLangField(seriesId as string, field as string, value as string)
         if seriesId = "" then return
         kept = []
-        for each e in seriesLangList()
-            if Util.toText(e.id) <> seriesId then kept.push(e)
+        entry = { id: seriesId }
+        list = seriesLangList()
+        last = false
+        for i = 0 to list.count() - 1
+            e = list[i]
+            if Util.isAA(e) and Util.toText(e.id) = seriesId
+                entry = e
+                last = i = list.count() - 1
+            else
+                kept.push(e)
+            end if
         end for
-        if lang <> "" then kept.push({ id: seriesId, lang: lang })
+        ' (already the value and the most recent: no registry write)
+        if Util.toText(entry[field]) = value and (last or value = "") then return
+        if value = ""
+            entry.delete(field)
+        else
+            entry[field] = value
+        end if
+        if Util.toText(entry.lang) <> "" or Util.toText(entry.a) <> "" then kept.push(entry)
         while kept.count() > 50
             kept.shift()
         end while

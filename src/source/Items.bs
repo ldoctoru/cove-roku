@@ -1,5 +1,6 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Prefs.bs"
+import "pkg:/source/Clock.bs"
 
 ' Turns Emby / Jellyfin items into what the home rows show: title, a line under it, poster / landscape / backdrop
 ' image URLs sized for the screen (the Streambar has 1 GB of RAM, so never full-size artwork), resume progress.
@@ -162,15 +163,13 @@ namespace Items
         return ud.PlaybackPositionTicks / 10000000
     end function
 
-    ' "21:43": when the item ends if started now (from the resume point when there is one)
+    ' "9:43 PM" / "21:43" (the Roku's clock format, Clock.bs): when the item ends if started now (from the
+    ' resume point when there is one)
     function endsAt(it as object) as string
         if it.RunTimeTicks = invalid then return ""
         remainSec = Int((it.RunTimeTicks / 10000000) - resumeAt(it))
         if remainSec <= 0 then return ""
-        dt = createObject("roDateTime")
-        dt.toLocalTime()
-        dt.fromSeconds(dt.asSeconds() + remainSec)
-        return dt.getHours().toStr() + ":" + Right("0" + dt.getMinutes().toStr(), 2)
+        return Clock.timeIn(remainSec)
     end function
 
     ' "1979  ·  2h 4m  ·  Ends at 21:43  ·  4K  ·  CC"
