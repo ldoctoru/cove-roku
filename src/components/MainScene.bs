@@ -25,6 +25,7 @@ sub init()
     m.quickConnect = false      ' Jellyfin Quick Connect enabled on it
     m.qcTask = invalid
     m.pendingUser = ""
+    m.emptyTry = ""             ' user tile signed in without a password (Jellyfin 12: ask for one on 401)
     m.keyboardFor = ""
     m.nextAsk = invalid
     ' (v0.9.1) the profile PIN steps, shared with Settings (components/profiles/PinFlow)
@@ -676,9 +677,13 @@ sub onSelected(ev as object)
             u = m.users[id.mid(5).toInt()]
             if not Util.isAA(u) then return
             m.pendingUser = Util.toText(u.Name)
+            ' (Jellyfin 12 no longer fills in HasPassword: it is always true there, so the keyboard takes an empty
+            ' entry; when it says false and the empty password is refused, onSignIn asks for one)
+            m.emptyTry = ""
             if Util.flag(u, "HasPassword")
-                askText("password", "Password", "Password for " + m.pendingUser, "", true)
+                askText("password", "Password", "Password for " + m.pendingUser + " (leave empty if none)", "", true)
             else
+                m.emptyTry = m.pendingUser
                 signIn(m.pendingUser, "")
             end if
         end if
@@ -777,6 +782,7 @@ sub onKeyboardButton()
         m.pendingUser = text
         askTextLater("password", "Password", "Password for " + text + " (leave empty if none)", "", true)
     else if m.keyboardFor = "password"
+        m.emptyTry = ""
         signIn(m.pendingUser, text)
     end if
 end sub
@@ -1017,7 +1023,13 @@ end sub
 sub onSignIn(r as object)
     if r.code = 200 and Util.isAA(r.json) and Util.toText(r.json.AccessToken) <> ""
         signedIn(r.json)
+    else if r.code = 401 and Util.toText(m.emptyTry) <> "" and Util.toText(m.emptyTry) = Util.toText(m.pendingUser) and topIs("signin")
+        ' a user tile tried without a password and the server wants one: ask for it instead of failing
+        m.emptyTry = ""
+        setStatus("signin", "Enter the password for " + m.pendingUser + ".")
+        askTextLater("password", "Password", "Password for " + m.pendingUser, "", true)
     else if r.code = 401
+        m.emptyTry = ""
         setStatus("signin", "Wrong username or password.")
     else
         setStatus("signin", "Sign-in failed. " + Api.describeFailure(r))
