@@ -337,7 +337,8 @@ sub onStream(ev as object)
         m.loadBase = 15
         setLoadPct(15)
     end if
-    m.keys.setFocus(true)
+    ' (PL-2: a menu opened during loading keeps the remote)
+    focusPlayer()
 end sub
 
 ' The chosen text subtitle (if any): download it as SRT and draw it
@@ -609,14 +610,27 @@ sub showAction(kind as string, label as string)
     m.actionKind = kind
     m.actionLabel.text = label
     m.action.visible = true
-    m.action.setFocus(true)
-    Speak.say(Speak.button(label) + ", press OK")
+    ' (PL-2 / PL-4: not over a menu or the controls in use, where OK belongs to them; the button takes the
+    ' remote when the controls hide)
+    focusPlayer()
 end sub
 
 sub hideAction()
     m.actionKind = ""
     m.action.visible = false
-    if m.picker = invalid then m.keys.setFocus(true)
+    focusPlayer()
+end sub
+
+' The remote to the Skip intro / Next button when it shows over the bare video, else to the player's keys;
+' an open menu keeps it
+sub focusPlayer()
+    if m.picker <> invalid or m.still.visible or m.upNext.visible then return
+    if m.action.visible and not m.osdShown
+        if not m.action.isInFocusChain() then Speak.say(Speak.button(m.actionLabel.text) + ", press OK")
+        m.action.setFocus(true)
+    else
+        m.keys.setFocus(true)
+    end if
 end sub
 
 sub useAction()
@@ -839,7 +853,7 @@ sub onPickerCancelled()
         return
     end if
     closePicker()
-    m.keys.setFocus(true)
+    focusPlayer()
     resumeAfterPicker()
 end sub
 
@@ -925,13 +939,13 @@ sub onPicked(ev as object)
         return
     end if
     if c.purpose = "sleep"
-        m.keys.setFocus(true)
+        focusPlayer()
         setSleep(c.id)
         resumeAfterPicker()
         return
     end if
     if c.purpose = "speed"
-        m.keys.setFocus(true)
+        focusPlayer()
         setSpeed(c.id)
         drawControls()
         ' (resuming after the picker's pause also applies the new speed)
@@ -939,7 +953,7 @@ sub onPicked(ev as object)
         return
     end if
     if c.purpose = "version"
-        m.keys.setFocus(true)
+        focusPlayer()
         if c.id <> Util.toText(m.opts.sourceId) and c.id <> m.tracks.sourceId
             ' another file: its own tracks (defaults), same position
             m.opts.sourceId = c.id
@@ -956,7 +970,7 @@ sub onPicked(ev as object)
         return
     end if
     if c.purpose = "episode"
-        m.keys.setFocus(true)
+        focusPlayer()
         if c.id = m.top.item.id then resumeAfterPicker()
         for each e in m.episodes
             if Util.toText(e.Id) = c.id and c.id <> m.top.item.id then playEpisode(e)
@@ -990,7 +1004,7 @@ sub onPicked(ev as object)
             loadTextSub()
         end if
     end if
-    m.keys.setFocus(true)
+    focusPlayer()
     print "Cove: picked "; c.purpose; " "; c.id; " restart="; restart
     drawControls()
     if restart
@@ -1095,6 +1109,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
             m.osdShown = false
             m.spokenKey = ""
             fadeOsd(0.0)
+            focusPlayer()
         end if
     else if m.area = "bar" and (key = "left" or key = "right")
         ' the progress bar has the focus: Left / Right move along it (presses add up, thumbnail shows)
@@ -1395,6 +1410,8 @@ sub showOsd(autoHide as boolean)
         m.area = "bar"
         m.idx = 0
         fadeOsd(1.0)
+        ' (PL-4: the controls take the remote from the Skip intro / Next button, which stays on screen)
+        if m.action.isInFocusChain() then m.keys.setFocus(true)
     end if
     updateBar(currentPos())
     drawControls()
@@ -1407,6 +1424,7 @@ sub hideOsd()
     m.osdShown = false
     m.spokenKey = ""
     fadeOsd(0.0)
+    focusPlayer()
 end sub
 
 sub fadeOsd(target as float)
@@ -1791,7 +1809,7 @@ sub onFocusChanged()
         m.still.setFocus(true)
     else if m.upNext.visible
         m.upNext.setFocus(true)
-    else if m.action.visible
+    else if m.action.visible and not m.osdShown
         m.action.setFocus(true)
     else
         m.keys.setFocus(true)
@@ -1846,7 +1864,7 @@ sub showChapters()
 end sub
 
 sub seekToChapter(c as object)
-    m.keys.setFocus(true)
+    focusPlayer()
     print "Cove: chapter "; c.id; " at "; Int(c.start); " s"
     m.seekTarget = -1
     m.seekTimer.control = "stop"
@@ -1913,7 +1931,7 @@ sub useMenuExtra(id as string)
     else if id = "pbinfo"
         togglePlaybackInfo()
         closePicker()
-        m.keys.setFocus(true)
+        focusPlayer()
         resumeAfterPicker()
     end if
 end sub
@@ -2265,7 +2283,7 @@ sub useStill()
     kind = m.stillKind
     m.still.visible = false
     m.stillKind = ""
-    m.keys.setFocus(true)
+    focusPlayer()
     if m.stillBtn = 0
         print "Cove: still watching"
         if kind = "next"
@@ -2642,7 +2660,7 @@ sub onSubSearch(ev as object)
         loadTextSub()
         if waiting
             closePicker()
-            m.keys.setFocus(true)
+            focusPlayer()
             resumeAfterPicker()
         end if
         drawControls()
