@@ -137,8 +137,9 @@ sub onSettingsAction(ev as object)
         m.themeDirty = false
         signOut()
     else if a.id = "switch"
-        m.themeDirty = false
-        showServers("")
+        ' (SC-5) the server list over Settings: Back returns there; the stack is replaced only when another
+        ' server or profile is opened
+        showServers("", m.homeReady)
     else if a.id = "profiles"
         showWho(m.server, "", true)
     else if a.id = "profileChanged"
@@ -170,8 +171,9 @@ sub pop()
     s = m.stack.pop()
     m.screens.removeChild(s)
     detachScreen(s)
-    ' screens under Settings were drawn with the old colours: start again from a fresh home
-    if m.themeDirty = true and m.server <> invalid
+    ' screens under Settings were drawn with the old colours: start again from a fresh home (SC-14: only when
+    ' Settings itself closes, not a page opened from it such as Who's watching?)
+    if m.themeDirty = true and m.server <> invalid and Util.toText(s.screenId) = "settings"
         m.themeDirty = false
         showHome(m.server)
         return
@@ -204,9 +206,19 @@ sub reset(s as object)
     end for
     m.screens.removeChildrenIndex(m.screens.getChildCount(), 0)
     m.stack = []
+    ' (the screens drawn with the old colours are gone)
+    m.themeDirty = false
     ' (showHome sets it again; any other start-over screen is before or outside Home)
     m.homeReady = false
     push(s)
+end sub
+
+' Takes the top screen away without showing the one under it (it is replaced right after)
+sub dropTop()
+    s = m.stack.pop()
+    if s = invalid then return
+    m.screens.removeChild(s)
+    detachScreen(s)
 end sub
 
 function top() as dynamic
@@ -242,7 +254,8 @@ sub setStatus(id as string, text as string)
     if topIs(id) then top().status = text
 end sub
 
-sub showServers(status as string)
+' asPush (SC-5): over the current stack (opened from Home or Settings), so Back returns there
+sub showServers(status as string, asPush = false as boolean)
     items = []
     for each s in Servers.all()
         who = profileNames(s)
@@ -261,7 +274,11 @@ sub showServers(status as string)
     end if
     sc = newMenu("servers", "Servers", sub_, items)
     sc.status = status
-    reset(sc)
+    if asPush
+        push(sc)
+    else
+        reset(sc)
+    end if
     if status = "" and m.deviceLine <> "" then sc.status = m.deviceLine
     if Servers.all().count() = 0
         if not m.scanned then startDiscovery()
@@ -794,9 +811,16 @@ sub onRemoveButton()
         for each us in Servers.sessions(Servers.find(m.removeId))
             request("POST", us, "/Sessions/Logout", true, "", { kind: "logout" })
         end for
+        ' (SC-5) another server than the one on Home, from the list opened over Home: Home stays under it
+        keepStack = m.homeReady and m.server <> invalid and Util.toText(m.server.id) <> m.removeId and topIs("servers") and m.stack.count() > 1
         Servers.forgetAll(m.removeId)
         Servers.remove(m.removeId)
-        showServers("Server removed.")
+        if keepStack
+            dropTop()
+            showServers("Server removed.", true)
+        else
+            showServers("Server removed.")
+        end if
     end if
 end sub
 
@@ -1044,11 +1068,26 @@ sub openServer(server as dynamic)
     ' (several profiles, or the last one used has a PIN: Who's watching? asks for it)
     if Servers.profiles(server).count() >= 2 or Servers.pinOf(server, Util.toText(server.userId)) <> ""
         showWho(server, "", topIs("servers"))
+    else if isOnHome(server)
+        ' (SC-5) the server already on Home, picked from the list opened over it: just go back
+        backToHome()
     else if Util.toText(server.token) <> ""
         validate(server)
     else
         openSignIn(server, "")
     end if
+end sub
+
+' The server (and its profile) is the one on Home, signed in
+function isOnHome(server as object) as boolean
+    if not m.homeReady or m.server = invalid or Util.toText(m.server.token) = "" then return false
+    return Util.toText(m.server.id) = Util.toText(server.id) and Util.toText(m.server.userId) = Util.toText(server.userId)
+end function
+
+sub backToHome()
+    while m.stack.count() > 1 and not topIs("home")
+        pop()
+    end while
 end sub
 
 sub openSignIn(server as object, status as string)
@@ -1344,7 +1383,8 @@ sub runAct(act as object)
         srv = Servers.find(Util.toText(act.serverId))
         if srv <> invalid then switchProfile(srv, Util.toText(act.userId))
     else if what = "servers"
-        showServers("")
+        ' (SC-5: from Home or a Who's watching? opened over it, Back returns there)
+        showServers("", m.homeReady)
     else if what = "signout"
         signOut()
     else if what = "addProfile"
@@ -1357,9 +1397,7 @@ end sub
 sub switchProfile(srv as object, userId as string)
     ' (the profile already on Home, picked from the sidebar: just go back)
     if m.server <> invalid and m.homeReady and Util.toText(m.server.id) = Util.toText(srv.id) and Util.toText(m.server.userId) = userId and Util.toText(m.server.token) <> ""
-        while m.stack.count() > 1 and not topIs("home")
-            pop()
-        end while
+        backToHome()
         return
     end if
     s = Servers.useUser(Util.toText(srv.id), userId)
