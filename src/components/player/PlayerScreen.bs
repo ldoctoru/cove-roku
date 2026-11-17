@@ -140,6 +140,7 @@ sub resetState()
     m.creditsDismissed = false
     m.opts = Playback.options()
     m.startAt = 0.0
+    m.pauseOnStart = false  ' (PL-15) pause again on the first "playing" after a restart of a paused video
     m.action.visible = false
     m.upNext.visible = false
     m.countdown.control = "stop"
@@ -461,10 +462,18 @@ sub onState()
         m.status.visible = false
         hideLoading()
         m.watchdog.control = "stop"
+        first = not m.started
         if not m.started
             m.started = true
             report("/Sessions/Playing", false)
             m.progressTimer.control = "start"
+        end if
+        ' (PL-15) a restart of a paused video: paused again; (PL-2) a menu opened while loading: the video
+        ' waits under it, and closing it plays on
+        if first and (m.pauseOnStart or m.picker <> invalid)
+            if not m.pauseOnStart then m.pausedByPicker = true
+            m.pauseOnStart = false
+            m.video.control = "pause"
         end if
     else if st = "paused"
         report("/Sessions/Playing/Progress", true)
@@ -993,6 +1002,11 @@ end sub
 
 ' Same item, new settings, same position
 sub restartAt(atSec as float)
+    ' (PL-1: still loading, the Video node's position is 0 until PlayStart applies: keep the resume point)
+    if not m.started then atSec = m.startAt
+    ' (PL-15: a video the user had paused stays paused once the new stream plays)
+    m.pauseOnStart = m.started and m.video.state = "paused" and not m.pausedByPicker
+    m.pausedByPicker = false
     if m.started then report("/Sessions/Playing/Stopped", false, atSec)
     stopEncoding()
     m.video.control = "stop"
