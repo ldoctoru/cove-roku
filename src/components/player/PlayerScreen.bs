@@ -774,8 +774,9 @@ sub playEpisode(n as dynamic)
     if m.started
         report("/Sessions/Playing/Stopped", false)
         markIfWatched(m.video.position)
-        stopEncoding()
     end if
+    ' (PL-3: also a conversion still preparing the first picture; DirectPlay or no session: nothing sent)
+    stopEncoding()
     keep = Tracks.findSub(m.tracks, m.opts.sub)
     if keep <> invalid then m.subLang = keep.language
     if keep = invalid then m.subLang = ""
@@ -2281,6 +2282,8 @@ end sub
 
 sub useStill()
     kind = m.stillKind
+    stillAsked = 0
+    if m.stillClock <> invalid then stillAsked = m.stillClock.TotalSeconds()
     m.still.visible = false
     m.stillKind = ""
     focusPlayer()
@@ -2288,6 +2291,12 @@ sub useStill()
         print "Cove: still watching"
         if kind = "next"
             playNext()
+        else if kind = "idle" and m.session <> invalid and m.session.method <> "DirectPlay" and stillAsked >= 45
+            ' (PL-5: no ping while the question showed, so the server has ended its conversion: a new stream
+            ' at the same place; it plays, as Continue asks)
+            print "Cove: the conversion ended while asking, restarting at "; Int(m.video.position); " s"
+            restartAt(m.video.position)
+            m.pauseOnStart = false
         else if m.video.state = "paused"
             resumeVideo()
         end if
@@ -2523,10 +2532,9 @@ end sub
 ' An intro ended: the next one, or the film it was for (MainScene.onIntros put them in the item)
 sub playAfterIntro()
     it = m.top.item
-    if m.started
-        report("/Sessions/Playing/Stopped", false, m.video.duration)
-        stopEncoding()
-    end if
+    if m.started then report("/Sessions/Playing/Stopped", false, m.video.duration)
+    ' (PL-3: also before the intro started)
+    stopEncoding()
     m.video.control = "stop"
     rest = it.intros
     if type(rest) = "roArray" and rest.count() > 0
@@ -2649,19 +2657,28 @@ sub onSubSearch(ev as object)
         end if
         ' the new track list (the item's streams too, for the playback info), and the new subtitle on
         m.tracks = fresh
+        ' (PL-6: the Subtitles button too, for a title that had none)
+        buildTools()
         if m.info <> invalid
             m.info.MediaSources = r.json.MediaSources
             m.info.MediaStreams = r.json.MediaStreams
         end if
+        wasBurned = m.opts.burn
         m.opts.sub = added.index
         m.opts.burn = false
         m.subLang = added.language
         print "Cove: downloaded subtitle is track "; added.index
-        loadTextSub()
         if waiting
             closePicker()
             focusPlayer()
-            resumeAfterPicker()
+        end if
+        if wasBurned
+            ' (PL-6: an image subtitle is burned into this stream: a new one without it, same place)
+            clearSubs()
+            restartAt(m.video.position)
+        else
+            loadTextSub()
+            if waiting then resumeAfterPicker()
         end if
         drawControls()
     end if
