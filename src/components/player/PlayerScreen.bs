@@ -7,6 +7,7 @@ import "pkg:/source/Subs.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/MediaInfo.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/Ratings.bs"
 
 sub init()
     m.video = m.top.findNode("video")
@@ -134,6 +135,7 @@ sub resetState()
     m.next = invalid
     m.prev = invalid
     m.episodes = []
+    m.epWaiting = invalid
     m.epIndex = -1
     m.actionKind = ""
     m.introDismissed = false
@@ -233,7 +235,8 @@ sub onInfo(r as object)
         ' Jellyfin keeps intro / credits (and recaps, previews, commercials) as media segments
         if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial", { kind: "segments", itemId: m.top.item.id })
         if Util.toText(r.json.Type) = "Episode" and Util.toText(r.json.SeriesId) <> ""
-            get("/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields(), { kind: "episodes", itemId: m.top.item.id })
+            ' (C2-4: the profile's rating limit, as on Details)
+            get(Ratings.withLimit(m.top.server, "/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields()), { kind: "episodes", itemId: m.top.item.id })
         end if
     end if
     useQueue()
@@ -1713,29 +1716,52 @@ sub onResponse(ev as object)
         onBif(r)
     else if k = "subProbe"
         onSubProbe(r)
-    else if (k = "segments" or k = "episodes") and r.tag.itemId <> m.top.item.id
+    else if (k = "segments" or k = "episodes" or k = "epSeries") and r.tag.itemId <> m.top.item.id
         ' (the previous episode's answer after Next / Episodes)
         return
     else if k = "segments" and r.code = 200
         m.marks = Tracks.fromSegments(r.json, m.marks)
+    else if k = "epSeries"
+        ' (C2-4) the series' rating for its unrated episodes, then the list as below
+        if r.code = 200 then Ratings.rememberSeries(m.top.server, r.tag.ids, r.json)
+        list = m.epWaiting
+        m.epWaiting = invalid
+        if type(list) = "roArray" then useEpisodes(list)
     else if k = "episodes" and r.code = 200 and r.json <> invalid
         ' the series' episodes: previous / next and the Episodes panel
         list = r.json.Items
         if type(list) = "roArray"
-            m.episodes = list
-            for i = 0 to list.count() - 1
-                if Util.toText(list[i].Id) = m.top.item.id
-                    m.epIndex = i
-                    if i > 0 then m.prev = list[i - 1]
-                    if i + 1 < list.count() then m.next = list[i + 1]
-                end if
-            end for
-            useQueue()
-            ' (prev / next join the centre row: keep the focus on play)
-            if m.area = "center" then m.idx = playIndex()
-            buildTools()
+            ' (C2-4: only the episodes the profile's rating limit allows; an unrated one takes its series' rating)
+            ids = Ratings.missingSeries(m.top.server, list)
+            if ids.count() > 0
+                m.epWaiting = list
+                get(Ratings.seriesPath(m.top.server, ids), { kind: "epSeries", itemId: m.top.item.id, ids: ids })
+                return
+            end if
+            useEpisodes(list)
         end if
     end if
+end sub
+
+' The series' episodes the profile may see: previous / next and the Episodes panel (C2-4)
+sub useEpisodes(fullList as object)
+    ' (the episode playing stays in, so previous / next are still found around it)
+    list = []
+    for each ep in fullList
+        if Util.isAA(ep) and (Util.toText(ep.Id) = m.top.item.id or Ratings.allowed(m.top.server, ep)) then list.push(ep)
+    end for
+    m.episodes = list
+    for i = 0 to list.count() - 1
+        if Util.toText(list[i].Id) = m.top.item.id
+            m.epIndex = i
+            if i > 0 then m.prev = list[i - 1]
+            if i + 1 < list.count() then m.next = list[i + 1]
+        end if
+    end for
+    useQueue()
+    ' (prev / next join the centre row: keep the focus on play)
+    if m.area = "center" then m.idx = playIndex()
+    buildTools()
 end sub
 
 ' A request whose answer nobody waits for. The task is parked in the scene's "tasks" group so it keeps running

@@ -111,14 +111,14 @@ namespace Ratings
         return needsSeries(server, it) and cachedSeries(server, Util.toText(it.SeriesId)) = invalid
     end function
 
-    function seriesKey(server as dynamic, seriesId as string) as string
+    function seriesCacheKey(server as dynamic, seriesId as string) as string
         return Util.toText(server.id).left(12) + ":" + seriesId
     end function
 
     ' The series' rating ("" = the series has none), or invalid when it hasn't been asked yet. (The copy of
     ' m.global's field is kept in m and read again only on a miss, so a list costs one read.)
     function cachedSeries(server as dynamic, seriesId as string) as dynamic
-        k = seriesKey(server, seriesId)
+        k = seriesCacheKey(server, seriesId)
         if Util.isAA(m.seriesMemo) and m.seriesMemo.doesExist(k) then return m.seriesMemo[k]
         if m.global = invalid or not m.global.hasField("seriesRatings") then return invalid
         m.seriesMemo = m.global.seriesRatings
@@ -145,13 +145,13 @@ namespace Ratings
             for each it in list
                 if Util.isAA(it) and Util.toText(it.Id) <> ""
                     found[Util.toText(it.Id)] = true
-                    cache[seriesKey(server, Util.toText(it.Id))] = Util.toText(it.OfficialRating)
+                    cache[seriesCacheKey(server, Util.toText(it.Id))] = Util.toText(it.OfficialRating)
                 end if
             end for
         end if
         for each sid in ids
             ' (not visible to this user on the server)
-            if not found.doesExist(sid) then cache[seriesKey(server, sid)] = "XXX"
+            if not found.doesExist(sid) then cache[seriesCacheKey(server, sid)] = "XXX"
         end for
         m.global.seriesRatings = cache
         m.seriesMemo = cache
