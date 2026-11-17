@@ -50,6 +50,7 @@ sub init()
     m.video.notificationInterval = 1
     m.top.observeField("focusedChild", "onFocusChanged")
     m.pending = []
+    m.hasQueue = false      ' (PL-13) the title came with a Shuffle queue
     m.orphans = []          ' superseded PlayTasks, kept until they answer so their server conversion can be ended
     m.tasksHolder = invalid
     tasksHolder()
@@ -157,7 +158,9 @@ sub begin()
     it = m.top.item
     ' library Shuffle: the titles still to play (Up next takes them before the series' next episode)
     m.queue = []
-    if type(it.queue) = "roArray" then m.queue = it.queue
+    ' (PL-13: started as a queue, even an empty one now)
+    m.hasQueue = type(it.queue) = "roArray"
+    if m.hasQueue then m.queue = it.queue
     m.startAt = it.start
     ' Settings → Playback → Rewind on resume: a title resuming from its saved position starts a little earlier
     rw = m.pf.rewind
@@ -242,8 +245,13 @@ sub onInfo(r as object)
 end sub
 
 ' Shuffle queue hook: the next title is the queue's first
+' (PL-13: after the queue's last title nothing follows, not that series' next episodes; Previous stays)
 sub useQueue()
-    if m.queue <> invalid and m.queue.count() > 0 then m.next = m.queue[0]
+    if m.queue <> invalid and m.queue.count() > 0
+        m.next = m.queue[0]
+    else if m.hasQueue
+        m.next = invalid
+    end if
 end sub
 
 function seriesKey() as string
@@ -457,7 +465,8 @@ sub onState()
         m.pauseClock = invalid
         if m.subsOn then m.subTimer.control = "start"
     end if
-    if st = "paused" then showOsd(false)
+    ' (PL-9: not under the "Are you still watching?" card, whose pause comes first)
+    if st = "paused" and not m.still.visible then showOsd(false)
     if st = "playing" and m.osdShown then m.hideTimer.control = "start"
     if st = "playing"
         m.status.visible = false
@@ -596,7 +605,12 @@ sub onPosition()
         m.actionSeg = seg
         showAction("seg:" + seg.key, Tracks.segmentLabel(seg.kind))
     else if inCredits and not m.creditsDismissed and m.next <> invalid
-        showAction("next", "Next episode")
+        ' (PL-8: a film next in a Shuffle queue isn't an episode)
+        if nextIsEpisodeItem()
+            showAction("next", "Next episode")
+        else
+            showAction("next", "Up Next")
+        end if
     else if inCredits and not m.creditsDismissed
         ' a film or the last episode: no Up next, so the credits get their own button
         showAction("credits", "Skip credits")
@@ -752,17 +766,26 @@ sub onCountdown()
     if m.count <= 0
         m.countdown.control = "stop"
         ' Settings → Playback → Are you still watching?: this many episodes in a row without a key press
+        ' (PL-8: episodes only, like the idle question: a film from a Shuffle queue is never interrupted)
         lim = m.pf.stillAfter
-        if lim > 0 and m.autoCount >= lim
+        nextIsEpisode = nextIsEpisodeItem()
+        if lim > 0 and m.autoCount >= lim and nextIsEpisode
             askStill("next")
             return
         end if
-        m.autoCount = m.autoCount + 1
+        if nextIsEpisode then m.autoCount = m.autoCount + 1
         playNext()
     else
         m.top.findNode("upNextCount").text = "Play now  (" + m.count.toStr() + ")"
     end if
 end sub
+
+' The next title is an episode (an unknown type counts as one, as the series' own list)
+function nextIsEpisodeItem() as boolean
+    if m.next = invalid then return false
+    ty = Util.toText(m.next.Type)
+    return ty = "Episode" or ty = ""
+end function
 
 ' The next episode in the same player, keeping the subtitle language
 sub playNext()
@@ -843,6 +866,8 @@ sub closePicker()
         m.top.removeChild(m.picker)
         m.picker = invalid
         m.subLayer.sample = ""
+        ' (PL-14: hidden again for an Instant replay subtitle)
+        m.subLayer.visible = not m.replayReady or m.opts.sub >= 0
         ' (Audio Guide: the focused control is said again)
         m.spokenKey = ""
         refreshPrefs()
@@ -2194,7 +2219,9 @@ sub openSubsMenu()
     m.top.appendChild(p)
     m.picker = p
     p.setFocus(true)
-    ' (no subtitle on screen while paused: a sample line shows the style)
+    ' (no subtitle on screen while paused: a sample line shows the style; PL-14: also with Roku captions on
+    ' Instant replay, which keep the layer hidden)
+    m.subLayer.visible = true
     m.subLayer.sample = "This is how subtitles will look"
 end sub
 
