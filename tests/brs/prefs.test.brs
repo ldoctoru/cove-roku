@@ -1,0 +1,13 @@
+' Prefs (source/Prefs.bs): the per-library filters (one compact registry key)
+sub test_libFiltersOrder()
+    Prefs_setLibFilters("lib1", { s: "year", o: "a", w: "", g: "Comedy", l: "" })
+    e = Prefs_libFilters("lib1")
+    t_eq(e.s, "year", "sort kept")
+    t_eq(e.o, "a", "order kept (v1.1)")
+    t_eq(e.g, "Comedy", "genre kept")
+    t_ok(e.w = invalid and e.l = invalid, "empty fields aren't stored")
+    Prefs_forgetLibFilter("lib1", "o")
+    t_ok(Prefs_libFilters("lib1").o = invalid, "order forgotten")
+    Prefs_setLibFilters("lib1", { s: "", o: "" })
+    t_ok(Prefs_libFilters("lib1") = invalid, "nothing left: the entry goes")
+end sub
