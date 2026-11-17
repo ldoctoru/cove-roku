@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- "About" below the rows of the details page (Cove for macOS: DetailView aboutSection / mediaInfo).
      Left: tagline, genres, studios, dates; right: Media Info (file, video, audio, subtitles).
-     Set info = { left: [{ k, v }], right: [{ k, v }] } (v: text, wrapped, or an array: one line each). Takes no keys. -->
+     Set info = { left: [{ k, v }], right: [{ k, v }] } (v: text, wrapped, or an array: one line each; or pills: an
+     array of names drawn as pills, v1.1 genres / studios). focusIndex: the white pill, counted across all pill rows
+     (-1: none). Takes no keys: DetailsScreen moves focusIndex. -->
 <component name="AboutPanel" extends="Group">
     <script type="text/brightscript" uri="AboutPanel.bs" />
     <interface>
         <field id="info" type="assocarray" onChange="onInfo" />
+        <field id="focusIndex" type="integer" value="-1" onChange="onInfo" />
     </interface>
     <children>
         <Label text="About" width="800" height="50" color="0xFFFFFFFF">

@@ -609,6 +609,16 @@ sub openItem(a as object)
         showNotice(a.title, "Playlists come in a later update.")
         return
     end if
+    ' (v1.1) a genre or studio pill on a details page: its titles across the libraries, as a library page
+    if t = "Genre" or t = "Studio"
+        capStack()
+        l = createObject("roSGNode", "LibraryScreen")
+        l.server = m.server
+        l.observeField("action", "onHomeAction")
+        push(l)
+        l.library = { id: "", title: Util.toText(a.title), itemType: t, collectionType: "", feed: "tag", tagKind: t, tagId: Util.toText(a.itemId), tagName: Util.toText(a.title), tagTypes: Util.toText(a.tagTypes) }
+        return
+    end if
     ' A library or folder: its titles as a grid (a collection / BoxSet has its own details page, as on the Mac)
     if t = "CollectionFolder" or t = "UserView" or t = "Folder"
         l = createObject("roSGNode", "LibraryScreen")

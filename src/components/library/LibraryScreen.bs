@@ -70,7 +70,8 @@ sub onLibrary()
     end if
     drawBar()
     reload()
-    loadGenres()
+    ' (a genre / studio page: no Genre pill of its own)
+    if feed() <> "tag" then loadGenres()
 end sub
 
 ' The page's choices for the next visit (only what differs from the Settings → Libraries defaults)
@@ -180,6 +181,25 @@ function filterQuery() as string
         q = q + "&NameStartsWith=" + m.letter
     end if
     return q
+end function
+
+' (v1.1) A genre / studio page (from the pills on a details page): GenreIds / StudioIds on both Emby and
+' Jellyfin; without an id the name (Genres= / Studios=, "|" separates several names, so it is dropped)
+function tagQuery(lib as object) as string
+    id = Util.toText(lib.tagId)
+    name = Util.toText(lib.tagName).replace("|", " ")
+    if Util.toText(lib.tagKind) = "Studio"
+        if Util.isSafeId(id, false) then return "&StudioIds=" + id
+        return "&Studios=" + name.encodeUriComponent()
+    end if
+    if Util.isSafeId(id, false) then return "&GenreIds=" + id
+    return "&Genres=" + name.encodeUriComponent()
+end function
+
+function tagTypesOf(lib as object) as string
+    t = Util.toText(lib.tagTypes)
+    if t = "Movie" or t = "Series" then return t
+    return "Movie,Series"
 end function
 
 ' A filter the user picked (the Favorites page's own IsFavorite doesn't count)
@@ -453,7 +473,9 @@ sub loadPage(startIndex as integer, limit as integer)
     q = sortQuery() + "&StartIndex=" + startIndex.toStr() + "&Limit=" + limit.toStr() + "&" + Items.fields()
     if Util.toText(lib.id) <> "" then q = "ParentId=" + Util.toText(lib.id) + "&" + q
     ' A library: everything of its kind inside it; a folder / collection: just what it contains
-    if feed() = "favorites"
+    if feed() = "tag"
+        q = q + "&Recursive=true&IncludeItemTypes=" + tagTypesOf(lib) + tagQuery(lib)
+    else if feed() = "favorites"
         q = q + "&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video,BoxSet"
     else if feed() = "recent"
         q = q + "&Recursive=true&IncludeItemTypes=Movie,Series"
