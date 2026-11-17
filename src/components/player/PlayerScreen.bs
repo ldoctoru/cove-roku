@@ -7,6 +7,7 @@ import "pkg:/source/Subs.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/MediaInfo.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/Ratings.bs"
 
 sub init()
     m.video = m.top.findNode("video")
@@ -50,6 +51,7 @@ sub init()
     m.video.notificationInterval = 1
     m.top.observeField("focusedChild", "onFocusChanged")
     m.pending = []
+    m.hasQueue = false      ' (PL-13) the title came with a Shuffle queue
     m.orphans = []          ' superseded PlayTasks, kept until they answer so their server conversion can be ended
     m.tasksHolder = invalid
     tasksHolder()
@@ -134,12 +136,14 @@ sub resetState()
     m.next = invalid
     m.prev = invalid
     m.episodes = []
+    m.epWaiting = invalid
     m.epIndex = -1
     m.actionKind = ""
     m.introDismissed = false
     m.creditsDismissed = false
     m.opts = Playback.options()
     m.startAt = 0.0
+    m.pauseOnStart = false  ' (PL-15) pause again on the first "playing" after a restart of a paused video
     m.action.visible = false
     m.upNext.visible = false
     m.countdown.control = "stop"
@@ -156,7 +160,9 @@ sub begin()
     it = m.top.item
     ' library Shuffle: the titles still to play (Up next takes them before the series' next episode)
     m.queue = []
-    if type(it.queue) = "roArray" then m.queue = it.queue
+    ' (PL-13: started as a queue, even an empty one now)
+    m.hasQueue = type(it.queue) = "roArray"
+    if m.hasQueue then m.queue = it.queue
     m.startAt = it.start
     ' Settings → Playback → Rewind on resume: a title resuming from its saved position starts a little earlier
     rw = m.pf.rewind
@@ -233,7 +239,8 @@ sub onInfo(r as object)
         ' Jellyfin keeps intro / credits (and recaps, previews, commercials) as media segments
         if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial", { kind: "segments", itemId: m.top.item.id })
         if Util.toText(r.json.Type) = "Episode" and Util.toText(r.json.SeriesId) <> ""
-            get("/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields(), { kind: "episodes", itemId: m.top.item.id })
+            ' (C2-4: the profile's rating limit, as on Details)
+            get(Ratings.withLimit(m.top.server, "/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields()), { kind: "episodes", itemId: m.top.item.id })
         end if
     end if
     useQueue()
@@ -241,8 +248,13 @@ sub onInfo(r as object)
 end sub
 
 ' Shuffle queue hook: the next title is the queue's first
+' (PL-13: after the queue's last title nothing follows, not that series' next episodes; Previous stays)
 sub useQueue()
-    if m.queue <> invalid and m.queue.count() > 0 then m.next = m.queue[0]
+    if m.queue <> invalid and m.queue.count() > 0
+        m.next = m.queue[0]
+    else if m.hasQueue
+        m.next = invalid
+    end if
 end sub
 
 function seriesKey() as string
@@ -319,6 +331,8 @@ sub onStream(ev as object)
     if m.thumbs = invalid then loadThumbs(s)
     c = createObject("roSGNode", "ContentNode")
     c.url = s.url
+    ' (Jellyfin: the sign-in travels as a header, not in the URL; Playback.videoHeaders)
+    if type(s.headers) = "roArray" and s.headers.count() > 0 then c.HttpHeaders = s.headers
     c.streamFormat = s.streamFormat
     c.title = Util.toText(m.top.item.title)
     c.secondaryTitle = Util.toText(m.top.item.subtitle)
@@ -336,7 +350,8 @@ sub onStream(ev as object)
         m.loadBase = 15
         setLoadPct(15)
     end if
-    m.keys.setFocus(true)
+    ' (PL-2: a menu opened during loading keeps the remote)
+    focusPlayer()
 end sub
 
 ' The chosen text subtitle (if any): download it as SRT and draw it
@@ -455,16 +470,25 @@ sub onState()
         m.pauseClock = invalid
         if m.subsOn then m.subTimer.control = "start"
     end if
-    if st = "paused" then showOsd(false)
+    ' (PL-9: not under the "Are you still watching?" card, whose pause comes first)
+    if st = "paused" and not m.still.visible then showOsd(false)
     if st = "playing" and m.osdShown then m.hideTimer.control = "start"
     if st = "playing"
         m.status.visible = false
         hideLoading()
         m.watchdog.control = "stop"
+        first = not m.started
         if not m.started
             m.started = true
             report("/Sessions/Playing", false)
             m.progressTimer.control = "start"
+        end if
+        ' (PL-15) a restart of a paused video: paused again; (PL-2) a menu opened while loading: the video
+        ' waits under it, and closing it plays on
+        if first and (m.pauseOnStart or m.picker <> invalid)
+            if not m.pauseOnStart then m.pausedByPicker = true
+            m.pauseOnStart = false
+            m.video.control = "pause"
         end if
     else if st = "paused"
         report("/Sessions/Playing/Progress", true)
@@ -586,7 +610,12 @@ sub onPosition()
         m.actionSeg = seg
         showAction("seg:" + seg.key, Tracks.segmentLabel(seg.kind))
     else if inCredits and not m.creditsDismissed and m.next <> invalid
-        showAction("next", "Next episode")
+        ' (PL-8: a film next in a Shuffle queue isn't an episode)
+        if nextIsEpisodeItem()
+            showAction("next", "Next episode")
+        else
+            showAction("next", "Up Next")
+        end if
     else if inCredits and not m.creditsDismissed
         ' a film or the last episode: no Up next, so the credits get their own button
         showAction("credits", "Skip credits")
@@ -600,14 +629,27 @@ sub showAction(kind as string, label as string)
     m.actionKind = kind
     m.actionLabel.text = label
     m.action.visible = true
-    m.action.setFocus(true)
-    Speak.say(Speak.button(label) + ", press OK")
+    ' (PL-2 / PL-4: not over a menu or the controls in use, where OK belongs to them; the button takes the
+    ' remote when the controls hide)
+    focusPlayer()
 end sub
 
 sub hideAction()
     m.actionKind = ""
     m.action.visible = false
-    if m.picker = invalid then m.keys.setFocus(true)
+    focusPlayer()
+end sub
+
+' The remote to the Skip intro / Next button when it shows over the bare video, else to the player's keys;
+' an open menu keeps it
+sub focusPlayer()
+    if m.picker <> invalid or m.still.visible or m.upNext.visible then return
+    if m.action.visible and not m.osdShown
+        if not m.action.isInFocusChain() then Speak.say(Speak.button(m.actionLabel.text) + ", press OK")
+        m.action.setFocus(true)
+    else
+        m.keys.setFocus(true)
+    end if
 end sub
 
 sub useAction()
@@ -656,7 +698,7 @@ sub skipTo(t as float)
             m.video.control = "stop"
             onFinished()
         else
-            close()
+            close(t)
         end if
         return
     end if
@@ -676,14 +718,16 @@ sub skipCredits()
 end sub
 
 sub onFinished()
-    ' (v1.0 F-12) sleep timer on "End of episode": the player closes here
-    if Util.toText(m.sleepMode) = "episode"
-        sleepExpire()
-        return
-    end if
-    ' (v1.0 F-10) Cinema Mode: the next intro, then the film
+    ' (v1.0 F-10) Cinema Mode: the next intro, then the film (PL-7: before the sleep timer, whose "End of
+    ' episode" means the film's end)
     if m.top.item.after <> invalid
         playAfterIntro()
+        return
+    end if
+    ' (v1.0 F-12) sleep timer on "End of episode": the player closes here (PL-10: at the end, since the
+    ' Video node's position after stop / finished can read 0)
+    if Util.toText(m.sleepMode) = "episode"
+        sleepExpire(m.video.duration)
         return
     end if
     ' Settings → Play the next episode automatically (off: the player closes at the end)
@@ -718,7 +762,7 @@ sub onFinished()
         m.countdown.control = "start"
         Speak.say(Speak.clean("Up next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play now, button, plays in " + secs.toStr() + " seconds")
     else
-        close()
+        close(m.video.duration)
     end if
 end sub
 
@@ -727,17 +771,26 @@ sub onCountdown()
     if m.count <= 0
         m.countdown.control = "stop"
         ' Settings → Playback → Are you still watching?: this many episodes in a row without a key press
+        ' (PL-8: episodes only, like the idle question: a film from a Shuffle queue is never interrupted)
         lim = m.pf.stillAfter
-        if lim > 0 and m.autoCount >= lim
+        nextIsEpisode = nextIsEpisodeItem()
+        if lim > 0 and m.autoCount >= lim and nextIsEpisode
             askStill("next")
             return
         end if
-        m.autoCount = m.autoCount + 1
+        if nextIsEpisode then m.autoCount = m.autoCount + 1
         playNext()
     else
         m.top.findNode("upNextCount").text = "Play now  (" + m.count.toStr() + ")"
     end if
 end sub
+
+' The next title is an episode (an unknown type counts as one, as the series' own list)
+function nextIsEpisodeItem() as boolean
+    if m.next = invalid then return false
+    ty = Util.toText(m.next.Type)
+    return ty = "Episode" or ty = ""
+end function
 
 ' The next episode in the same player, keeping the subtitle language
 sub playNext()
@@ -751,8 +804,9 @@ sub playEpisode(n as dynamic)
     if m.started
         report("/Sessions/Playing/Stopped", false)
         markIfWatched(m.video.position)
-        stopEncoding()
     end if
+    ' (PL-3: also a conversion still preparing the first picture; DirectPlay or no session: nothing sent)
+    stopEncoding()
     keep = Tracks.findSub(m.tracks, m.opts.sub)
     if keep <> invalid then m.subLang = keep.language
     if keep = invalid then m.subLang = ""
@@ -817,6 +871,8 @@ sub closePicker()
         m.top.removeChild(m.picker)
         m.picker = invalid
         m.subLayer.sample = ""
+        ' (PL-14: hidden again for an Instant replay subtitle)
+        m.subLayer.visible = not m.replayReady or m.opts.sub >= 0
         ' (Audio Guide: the focused control is said again)
         m.spokenKey = ""
         refreshPrefs()
@@ -830,7 +886,7 @@ sub onPickerCancelled()
         return
     end if
     closePicker()
-    m.keys.setFocus(true)
+    focusPlayer()
     resumeAfterPicker()
 end sub
 
@@ -916,13 +972,13 @@ sub onPicked(ev as object)
         return
     end if
     if c.purpose = "sleep"
-        m.keys.setFocus(true)
+        focusPlayer()
         setSleep(c.id)
         resumeAfterPicker()
         return
     end if
     if c.purpose = "speed"
-        m.keys.setFocus(true)
+        focusPlayer()
         setSpeed(c.id)
         drawControls()
         ' (resuming after the picker's pause also applies the new speed)
@@ -930,7 +986,7 @@ sub onPicked(ev as object)
         return
     end if
     if c.purpose = "version"
-        m.keys.setFocus(true)
+        focusPlayer()
         if c.id <> Util.toText(m.opts.sourceId) and c.id <> m.tracks.sourceId
             ' another file: its own tracks (defaults), same position
             m.opts.sourceId = c.id
@@ -947,7 +1003,7 @@ sub onPicked(ev as object)
         return
     end if
     if c.purpose = "episode"
-        m.keys.setFocus(true)
+        focusPlayer()
         if c.id = m.top.item.id then resumeAfterPicker()
         for each e in m.episodes
             if Util.toText(e.Id) = c.id and c.id <> m.top.item.id then playEpisode(e)
@@ -981,7 +1037,7 @@ sub onPicked(ev as object)
             loadTextSub()
         end if
     end if
-    m.keys.setFocus(true)
+    focusPlayer()
     print "Cove: picked "; c.purpose; " "; c.id; " restart="; restart
     drawControls()
     if restart
@@ -993,6 +1049,11 @@ end sub
 
 ' Same item, new settings, same position
 sub restartAt(atSec as float)
+    ' (PL-1: still loading, the Video node's position is 0 until PlayStart applies: keep the resume point)
+    if not m.started then atSec = m.startAt
+    ' (PL-15: a video the user had paused stays paused once the new stream plays)
+    m.pauseOnStart = m.started and m.video.state = "paused" and not m.pausedByPicker
+    m.pausedByPicker = false
     if m.started then report("/Sessions/Playing/Stopped", false, atSec)
     stopEncoding()
     m.video.control = "stop"
@@ -1055,7 +1116,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if not m.osdShown
         ' controls hidden: quick keys
         if key = "back"
-            close()
+            leavePlayer()
         else if key = "OK"
             togglePause()
         else if key = "left"
@@ -1076,11 +1137,12 @@ function onKeyEvent(key as string, press as boolean) as boolean
             m.seekTarget = -1
             updateBar(m.video.position)
         else if m.video.state = "paused"
-            close()
+            leavePlayer()
         else
             m.osdShown = false
             m.spokenKey = ""
             fadeOsd(0.0)
+            focusPlayer()
         end if
     else if m.area = "bar" and (key = "left" or key = "right")
         ' the progress bar has the focus: Left / Right move along it (presses add up, thumbnail shows)
@@ -1381,6 +1443,8 @@ sub showOsd(autoHide as boolean)
         m.area = "bar"
         m.idx = 0
         fadeOsd(1.0)
+        ' (PL-4: the controls take the remote from the Skip intro / Next button, which stays on screen)
+        if m.action.isInFocusChain() then m.keys.setFocus(true)
     end if
     updateBar(currentPos())
     drawControls()
@@ -1393,6 +1457,7 @@ sub hideOsd()
     m.osdShown = false
     m.spokenKey = ""
     fadeOsd(0.0)
+    focusPlayer()
 end sub
 
 sub fadeOsd(target as float)
@@ -1614,7 +1679,8 @@ sub clearThumbFiles()
     m.bifPath = ""
 end sub
 
-sub close()
+' atSec: where the title was left (PL-10: given at the end, when the Video node may already read 0)
+sub close(atSec = -1.0 as float)
     if m.closing then return
     m.closing = true
     m.subTimer.control = "stop"
@@ -1623,7 +1689,7 @@ sub close()
     m.watchdog.control = "stop"
     m.hideTimer.control = "stop"
     m.seekTimer.control = "stop"
-    atSec = m.video.position
+    if atSec <= 0 then atSec = m.video.position
     m.video.control = "stop"
     if m.started then report("/Sessions/Playing/Stopped", false, atSec)
     markIfWatched(atSec)
@@ -1662,6 +1728,7 @@ end sub
 
 ' Closing past 90 % (or in the credits) counts as watched, like on the Mac
 sub markIfWatched(atSec as float)
+    if isIntro() then return
     d = m.video.duration
     if m.info = invalid or d <= 0 or Util.flag(m.info.UserData, "Played") then return
     inCredits = m.marks.credits > 0 and atSec >= m.marks.credits
@@ -1679,6 +1746,8 @@ end sub
 sub report(path as string, paused as boolean, atSec = -1 as float)
     s = m.session
     if s = invalid then return
+    ' (PL-7: a Cinema Mode intro isn't reported, so the server doesn't mark it played or list it in the history)
+    if isIntro() then return
     if atSec < 0 then atSec = m.video.position
     if atSec > 0 then m.lastPos = atSec
     fire("POST", path, Playback.reportBody(s, m.lastPos, paused))
@@ -1713,29 +1782,52 @@ sub onResponse(ev as object)
         onBif(r)
     else if k = "subProbe"
         onSubProbe(r)
-    else if (k = "segments" or k = "episodes") and r.tag.itemId <> m.top.item.id
+    else if (k = "segments" or k = "episodes" or k = "epSeries") and r.tag.itemId <> m.top.item.id
         ' (the previous episode's answer after Next / Episodes)
         return
     else if k = "segments" and r.code = 200
         m.marks = Tracks.fromSegments(r.json, m.marks)
+    else if k = "epSeries"
+        ' (C2-4) the series' rating for its unrated episodes, then the list as below
+        if r.code = 200 then Ratings.rememberSeries(m.top.server, r.tag.ids, r.json)
+        list = m.epWaiting
+        m.epWaiting = invalid
+        if type(list) = "roArray" then useEpisodes(list)
     else if k = "episodes" and r.code = 200 and r.json <> invalid
         ' the series' episodes: previous / next and the Episodes panel
         list = r.json.Items
         if type(list) = "roArray"
-            m.episodes = list
-            for i = 0 to list.count() - 1
-                if Util.toText(list[i].Id) = m.top.item.id
-                    m.epIndex = i
-                    if i > 0 then m.prev = list[i - 1]
-                    if i + 1 < list.count() then m.next = list[i + 1]
-                end if
-            end for
-            useQueue()
-            ' (prev / next join the centre row: keep the focus on play)
-            if m.area = "center" then m.idx = playIndex()
-            buildTools()
+            ' (C2-4: only the episodes the profile's rating limit allows; an unrated one takes its series' rating)
+            ids = Ratings.missingSeries(m.top.server, list)
+            if ids.count() > 0
+                m.epWaiting = list
+                get(Ratings.seriesPath(m.top.server, ids), { kind: "epSeries", itemId: m.top.item.id, ids: ids })
+                return
+            end if
+            useEpisodes(list)
         end if
     end if
+end sub
+
+' The series' episodes the profile may see: previous / next and the Episodes panel (C2-4)
+sub useEpisodes(fullList as object)
+    ' (the episode playing stays in, so previous / next are still found around it)
+    list = []
+    for each ep in fullList
+        if Util.isAA(ep) and (Util.toText(ep.Id) = m.top.item.id or Ratings.allowed(m.top.server, ep)) then list.push(ep)
+    end for
+    m.episodes = list
+    for i = 0 to list.count() - 1
+        if Util.toText(list[i].Id) = m.top.item.id
+            m.epIndex = i
+            if i > 0 then m.prev = list[i - 1]
+            if i + 1 < list.count() then m.next = list[i + 1]
+        end if
+    end for
+    useQueue()
+    ' (prev / next join the centre row: keep the focus on play)
+    if m.area = "center" then m.idx = playIndex()
+    buildTools()
 end sub
 
 ' A request whose answer nobody waits for. The task is parked in the scene's "tasks" group so it keeps running
@@ -1777,7 +1869,7 @@ sub onFocusChanged()
         m.still.setFocus(true)
     else if m.upNext.visible
         m.upNext.setFocus(true)
-    else if m.action.visible
+    else if m.action.visible and not m.osdShown
         m.action.setFocus(true)
     else
         m.keys.setFocus(true)
@@ -1832,7 +1924,7 @@ sub showChapters()
 end sub
 
 sub seekToChapter(c as object)
-    m.keys.setFocus(true)
+    focusPlayer()
     print "Cove: chapter "; c.id; " at "; Int(c.start); " s"
     m.seekTarget = -1
     m.seekTimer.control = "stop"
@@ -1899,7 +1991,7 @@ sub useMenuExtra(id as string)
     else if id = "pbinfo"
         togglePlaybackInfo()
         closePicker()
-        m.keys.setFocus(true)
+        focusPlayer()
         resumeAfterPicker()
     end if
 end sub
@@ -2155,7 +2247,9 @@ sub openSubsMenu()
     m.top.appendChild(p)
     m.picker = p
     p.setFocus(true)
-    ' (no subtitle on screen while paused: a sample line shows the style)
+    ' (no subtitle on screen while paused: a sample line shows the style; PL-14: also with Roku captions on
+    ' Instant replay, which keep the layer hidden)
+    m.subLayer.visible = true
     m.subLayer.sample = "This is how subtitles will look"
 end sub
 
@@ -2249,13 +2343,21 @@ end sub
 
 sub useStill()
     kind = m.stillKind
+    stillAsked = 0
+    if m.stillClock <> invalid then stillAsked = m.stillClock.TotalSeconds()
     m.still.visible = false
     m.stillKind = ""
-    m.keys.setFocus(true)
+    focusPlayer()
     if m.stillBtn = 0
         print "Cove: still watching"
         if kind = "next"
             playNext()
+        else if kind = "idle" and m.session <> invalid and m.session.method <> "DirectPlay" and stillAsked >= 45
+            ' (PL-5: no ping while the question showed, so the server has ended its conversion: a new stream
+            ' at the same place; it plays, as Continue asks)
+            print "Cove: the conversion ended while asking, restarting at "; Int(m.video.position); " s"
+            restartAt(m.video.position)
+            m.pauseOnStart = false
         else if m.video.state = "paused"
             resumeVideo()
         end if
@@ -2476,27 +2578,44 @@ sub onSleepTick()
 end sub
 
 ' Time is up (or the episode ended): pause, then close the player as Back does (stop report, watched mark)
-sub sleepExpire()
+sub sleepExpire(atSec = -1.0 as float)
     print "Cove: sleep timer ended, closing the player"
     m.sleepMode = ""
     m.sleepId = "off"
     if m.sleepTimer <> invalid then m.sleepTimer.control = "stop"
     if m.video.state = "playing" then m.video.control = "pause"
     closePicker()
-    close()
+    close(atSec)
 end sub
 
 ' ---------------------------------------------------------------- Cinema Mode (v1.0 F-10)
 
-' An intro ended: the next one, or the film it was for (MainScene.onIntros put them in the item)
-sub playAfterIntro()
+' A Cinema Mode intro playing before its film (not a trailer opened from a details page)
+function isIntro() as boolean
     it = m.top.item
-    if m.started
-        report("/Sessions/Playing/Stopped", false, m.video.duration)
-        stopEncoding()
+    return it <> invalid and Util.flag(it, "trailer") and it.after <> invalid
+end function
+
+' Back: during an intro, the film starts (PL-7); otherwise the player closes
+sub leavePlayer()
+    if isIntro()
+        print "Cove: Back during an intro, starting the film"
+        playAfterIntro(true)
+        return
     end if
+    close()
+end sub
+
+' An intro ended: the next one, or the film it was for (MainScene.onIntros put them in the item)
+' skipRest: the remaining intros too (Back during one)
+sub playAfterIntro(skipRest = false as boolean)
+    it = m.top.item
+    if m.started then report("/Sessions/Playing/Stopped", false, m.video.duration)
+    ' (PL-3: also before the intro started)
+    stopEncoding()
     m.video.control = "stop"
     rest = it.intros
+    if skipRest then rest = []
     if type(rest) = "roArray" and rest.count() > 0
         nx = rest[0]
         more = []
@@ -2617,19 +2736,28 @@ sub onSubSearch(ev as object)
         end if
         ' the new track list (the item's streams too, for the playback info), and the new subtitle on
         m.tracks = fresh
+        ' (PL-6: the Subtitles button too, for a title that had none)
+        buildTools()
         if m.info <> invalid
             m.info.MediaSources = r.json.MediaSources
             m.info.MediaStreams = r.json.MediaStreams
         end if
+        wasBurned = m.opts.burn
         m.opts.sub = added.index
         m.opts.burn = false
         m.subLang = added.language
         print "Cove: downloaded subtitle is track "; added.index
-        loadTextSub()
         if waiting
             closePicker()
-            m.keys.setFocus(true)
-            resumeAfterPicker()
+            focusPlayer()
+        end if
+        if wasBurned
+            ' (PL-6: an image subtitle is burned into this stream: a new one without it, same place)
+            clearSubs()
+            restartAt(m.video.position)
+        else
+            loadTextSub()
+            if waiting then resumeAfterPicker()
         end if
         drawControls()
     end if

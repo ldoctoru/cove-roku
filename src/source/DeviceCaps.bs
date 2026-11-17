@@ -17,16 +17,49 @@ namespace DeviceCaps
             hdr10: Util.flag(display, "hdr10"),
             hlg: Util.flag(display, "hlg"),
             dolbyVision: Util.flag(display, "dolbyVision"),
-            hevc: canDecode(di, "hevc", "main", "5.1"),
-            hevc10: canDecode(di, "hevc", "main 10", "5.1"),
+            ' (PL-12: level 5.1 is 4K; HD models decode HEVC up to level 4.1, Roku's streaming specifications)
+            hevc4k: canDecode(di, "hevc", "main", "5.1"),
+            hevc10: canDecode(di, "hevc", "main 10", "5.1") or canDecode(di, "hevc", "main 10", "4.1"),
             h264: canDecode(di, "mpeg4 avc", "high", "4.2"),
             ac3: canDecodeAudio(di, "ac3"),
             eac3: canDecodeAudio(di, "eac3"),
             ' (DTS only passes through to a receiver or TV that decodes it)
             dts: canDecodeAudio(di, "dts")
         }
+        caps.hevc = caps.hevc4k or canDecode(di, "hevc", "main", "4.1")
         caps.fourK = Instr(1, caps.videoMode, "2160") > 0
         return caps
+    end function
+
+    ' The HEVC conditions of the device profile (PL-12): 8-bit only without Main 10; within 1080p when only
+    ' level 4.1 decodes; on Jellyfin (10.9+ VideoRangeType) no HDR the display can't show: HDR10 needs an
+    ' HDR10 display (Roku's streaming specifications, getDisplayProperties().hdr10), HLG an HLG one, Dolby
+    ' Vision a DV one (a DV file with an HDR10 / HLG base layer plays where that base layer does)
+    function hevcConditions(caps as object, jellyfin as boolean) as object
+        out = []
+        if not Util.flag(caps, "hevc") then return out
+        if not Util.flag(caps, "hevc10") then out.push(profileCondition("LessThanEqual", "VideoBitDepth", "8"))
+        if not Util.flag(caps, "hevc4k") then out.push(profileCondition("LessThanEqual", "Width", "1920"))
+        if not jellyfin then return out
+        dv = Util.flag(caps, "dolbyVision")
+        bad = []
+        if not dv then bad.push("DOVI")
+        if not Util.flag(caps, "hdr10")
+            bad.append(["HDR10", "HDR10Plus"])
+            if not dv then bad.append(["DOVIWithHDR10", "DOVIWithHDR10Plus"])
+        end if
+        if not Util.flag(caps, "hlg")
+            bad.push("HLG")
+            if not dv then bad.push("DOVIWithHLG")
+        end if
+        for each v in bad
+            out.push(profileCondition("NotEquals", "VideoRangeType", v))
+        end for
+        return out
+    end function
+
+    function profileCondition(cond as string, prop as string, value as string) as object
+        return { "Condition": cond, "Property": prop, "Value": value, "IsRequired": false }
     end function
 
     ' "Roku Streambar (9102X)  ·  Roku OS 15.0.4  ·  2160p60b10"
@@ -42,11 +75,14 @@ namespace DeviceCaps
         if caps.dolbyVision then hdr.push("Dolby Vision")
         if hdr.count() = 0 then hdr.push("no HDR on this TV")
         codecs = []
+        hevcName = ""
         if caps.hevc10
-            codecs.push("HEVC 10-bit")
+            hevcName = "HEVC 10-bit"
         else if caps.hevc
-            codecs.push("HEVC")
+            hevcName = "HEVC"
         end if
+        if hevcName <> "" and caps.hevc and not Util.flag(caps, "hevc4k") then hevcName = hevcName + " (1080p)"
+        if hevcName <> "" then codecs.push(hevcName)
         if caps.h264 then codecs.push("H.264")
         if caps.eac3 then codecs.push("E-AC3")
         if caps.ac3 then codecs.push("AC3")

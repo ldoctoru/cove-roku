@@ -33,6 +33,7 @@ sub init()
     m.libTask = invalid
     m.renameFor = ""
     m.libError = ""
+    m.tasksHolder = invalid     ' (SC-13) the scene's "tasks" group, for sign-out requests
     info = createObject("roAppInfo")
     m.version = info.getVersion()
     m.device = ""
@@ -1223,6 +1224,8 @@ sub homeRowMenu(id as string)
         if r.kind = "homerow" and r.id = id then title = r.label
     end for
     openPicker("homerow", title, o, "")
+    ' (SC-16: "Show on Home: Off (On also shows it in the sidebar)" needs the wide panel)
+    m.picker.wide = true
 end sub
 
 sub serverMenu(id as string)
@@ -1415,6 +1418,34 @@ sub profileChanged(userId as string)
     draw()
 end sub
 
+' (SC-13) POST /Sessions/Logout for one sign-in. The task is parked in the scene's "tasks" group, so Back right
+' after Remove / Sign Out doesn't take the request with this screen (finished ones are cleared each time).
+sub sendLogout(us as object)
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "POST", url: Util.toText(us.url) + "/Sessions/Logout", headers: Api.headers(us, true), body: "", tag: { kind: "logout" }, timeout: 10000 }
+    holder = logoutHolder()
+    if holder = invalid
+        if m.logoutTasks = invalid then m.logoutTasks = []
+        m.logoutTasks.push(t)
+    else
+        for i = holder.getChildCount() - 1 to 0 step -1
+            st = holder.getChild(i).state
+            if st = "done" or st = "stop" then holder.removeChildIndex(i)
+        end for
+        holder.appendChild(t)
+    end if
+    t.control = "RUN"
+end sub
+
+' The scene's "tasks" group, looked up while Settings is on screen (getScene() is invalid once it has gone)
+function logoutHolder() as dynamic
+    if m.tasksHolder = invalid
+        sc = m.top.getScene()
+        if sc <> invalid then m.tasksHolder = sc.findNode("tasks")
+    end if
+    return m.tasksHolder
+end function
+
 ' Signs one profile out: its session on the server, then it's forgotten here
 sub signOutProfile(userId as string)
     srv = currentServer()
@@ -1425,13 +1456,7 @@ sub signOutProfile(userId as string)
     end if
     us = Servers.asUser(srv, userId)
     if us = invalid then return
-    if Util.toText(us.token) <> ""
-        if m.logoutTasks = invalid then m.logoutTasks = []
-        t = createObject("roSGNode", "ApiTask")
-        t.request = { method: "POST", url: Util.toText(us.url) + "/Sessions/Logout", headers: Api.headers(us, true), body: "", tag: { kind: "logout" }, timeout: 10000 }
-        m.logoutTasks.push(t)
-        t.control = "RUN"
-    end if
+    if Util.toText(us.token) <> "" then sendLogout(us)
     Servers.removeUser(Util.toText(srv.id), userId)
     draw()
 end sub
@@ -1462,8 +1487,12 @@ sub closePicker()
 end sub
 
 sub onPickerCancelled()
+    purpose = ""
+    if m.picker <> invalid then purpose = Util.toText(m.picker.purpose)
     closePicker()
     draw()
+    ' (SC-10) Back in a library's value list: its menu again, as after a choice
+    if purpose.startsWith("libset:") then libraryMenu(m.menuLib)
 end sub
 
 sub onPicked(ev as object)
@@ -1545,13 +1574,9 @@ end sub
 sub removeServer(id as string)
     s = Servers.find(id)
     if s = invalid then return
-    ' (every profile's session; the tasks are kept until they finish)
-    if m.logoutTasks = invalid then m.logoutTasks = []
+    ' (every profile's session; the tasks outlive this screen, see sendLogout)
     for each us in Servers.sessions(s)
-        t = createObject("roSGNode", "ApiTask")
-        t.request = { method: "POST", url: Util.toText(us.url) + "/Sessions/Logout", headers: Api.headers(us, true), body: "", tag: { kind: "logout" }, timeout: 10000 }
-        m.logoutTasks.push(t)
-        t.control = "RUN"
+        sendLogout(us)
     end for
     Servers.forgetAll(id)
     Servers.remove(id)

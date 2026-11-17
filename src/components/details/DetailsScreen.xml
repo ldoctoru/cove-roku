@@ -18,6 +18,10 @@
         <field id="play" type="assocarray" alwaysNotify="true" />
         <field id="openItem" type="assocarray" alwaysNotify="true" />
         <field id="changed" type="boolean" alwaysNotify="true" />
+        <!-- (SC-1) set by MainScene after playback or a change elsewhere: reloads when it has the focus again -->
+        <field id="stale" type="boolean" value="false" />
+        <!-- (SC-11) a series page already open, asked for again with "Go to Season": that season -->
+        <field id="openSeason" type="string" alwaysNotify="true" onChange="onOpenSeason" />
     </interface>
     <children>
         <Poster id="backdrop" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" />
@@ -106,6 +110,8 @@
         <Label id="status" width="1728" height="44" translation="[96,1010]" color="0xFFFFFFCC">
             <Font role="font" uri="font:MediumSystemFontFile" size="28" />
         </Label>
+        <!-- (SC-9) a failed page load: the message and Try Again -->
+        <ErrorPanel id="errorPanel" translation="[100,420]" width="1720" visible="false" />
         <Animation id="slide" duration="0.3" easeFunction="outCubic">
             <Vector2DFieldInterpolator id="rowsMove" key="[0.0, 1.0]" fieldToInterp="lower.translation" />
             <FloatFieldInterpolator id="headerFade" key="[0.0, 1.0]" fieldToInterp="header.opacity" />

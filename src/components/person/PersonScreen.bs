@@ -21,6 +21,8 @@ sub init()
     m.pending = []
     m.lists = {}
     m.waiting = 0
+    m.gen = 0               ' (SC-15) the title requests of the last load; older answers are dropped
+    m.keepFocus = invalid   ' (SC-1) the card to focus again after a reload
     m.isFav = false
     m.favKnown = false
     m.inHead = false
@@ -45,8 +47,10 @@ sub load()
     sendRequest("GET", "/Users/" + uid + "/Items/" + p.id + "?Fields=Overview,ProductionLocations,PremiereDate", { kind: "person" })
     ' their titles on this server, newest first (one request per row)
     base = "/Users/" + uid + "/Items?PersonIds=" + p.id + "&Recursive=true&SortBy=ProductionYear,SortName&SortOrder=Descending&Limit=100&" + Items.fields()
+    m.gen = m.gen + 1
     m.waiting = 2
-    m.skeleton.active = true
+    ' (placeholders only while there are no rows: a reload keeps the cards on screen)
+    if not m.rows.visible then m.skeleton.active = true
     m.titlesFailed = 0
     m.lists = {}
     for each row in [{ key: "movies", types: "Movie" }, { key: "shows", types: "Series" }]
@@ -55,7 +59,7 @@ sub load()
         t.path = base + "&IncludeItemTypes=" + row.types
         t.fallback = ""
         t.kind = ""
-        t.gen = 0
+        t.gen = m.gen
         t.addFields({ rowKey: row.key })
         t.observeField("result", "onTitles")
         t.observeField("error", "onTitlesError")
@@ -116,6 +120,7 @@ end sub
 
 sub onTitles(ev as object)
     t = ev.getRoSGNode()
+    if t.gen <> m.gen then return
     m.lists[t.rowKey] = ev.getData().nodes
     m.waiting = m.waiting - 1
     print "Cove: person "; t.rowKey; " "; ev.getData().nodes.getChildCount()
@@ -123,6 +128,7 @@ sub onTitles(ev as object)
 end sub
 
 sub onTitlesError(ev as object)
+    if ev.getRoSGNode().gen <> m.gen then return
     m.titlesFailed = m.titlesFailed + 1
     m.titlesError = Util.toText(ev.getData())
     m.waiting = m.waiting - 1
@@ -161,8 +167,17 @@ sub buildRows()
     end if
     m.status.visible = false
     m.errorPanel.visible = false
+    ' (replacing the content moves the focus to the first card: back to the one that had it)
+    keep = m.keepFocus
+    m.keepFocus = invalid
     m.rows.content = root
     m.rows.visible = true
+    if keep <> invalid and keep[0] < root.getChildCount()
+        col = keep[1]
+        n = root.getChild(keep[0]).getChildCount()
+        if col > n - 1 then col = n - 1
+        if col >= 0 then m.rows.jumpToRowItem = [keep[0], col]
+    end if
     if m.top.isInFocusChain() and not m.inHead then m.rows.setFocus(true)
 end sub
 
@@ -177,6 +192,13 @@ end sub
 
 sub onFocusChanged()
     if not m.top.hasFocus() then return
+    ' (SC-1) back after playback or a change: progress bars and watched checks again, on the same card
+    if m.top.stale
+        m.top.stale = false
+        f = m.rows.rowItemFocused
+        if m.rows.visible and f <> invalid and f.count() >= 2 then m.keepFocus = [f[0], f[1]]
+        load()
+    end if
     if not m.inHead and m.errorPanel.visible
         m.errorPanel.setFocus(true)
     else if m.inHead or m.rows.content = invalid or m.rows.content.getChildCount() = 0
