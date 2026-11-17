@@ -98,7 +98,14 @@ end sub
 ' (the Roku's caption font set to Small Caps: drawn as capitals)
 sub caseText()
     m.text = m.shown
-    if m.style.upper then m.text = UCase(m.shown)
+    ' (the Subtitles menu's preview while no cue is on screen)
+    if m.text = "" then m.text = m.top.sample
+    if m.style.upper then m.text = UCase(m.text)
+end sub
+
+sub onSample()
+    caseText()
+    draw()
 end sub
 
 ' Lines centred at the bottom, word-wrapped to 84 % of the width, with the shadow (copies of the text, offset)

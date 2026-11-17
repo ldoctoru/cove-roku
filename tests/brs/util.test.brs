@@ -70,3 +70,16 @@ sub test_toNumber_and_field()
     t_ok(not Util_flag({ a: "yes" }, "a"), "flag needs a boolean")
     t_ok(Util_flag({ a: true }, "a"), "flag true")
 end sub
+
+' (C2-8) the :8096 candidate puts the port after the host, also with a path
+sub test_urlCandidates_path()
+    c = Util_urlCandidates("emby.example.com/emby")
+    t_eq(c.count(), 3, "three candidates")
+    t_eq(c[0], "https://emby.example.com/emby", "https first")
+    t_eq(c[2], "http://emby.example.com:8096/emby", "port after the host")
+    t_eq(Util_urlCandidates("host:8920/emby").count(), 2, "a port given: no :8096")
+    t_eq(Util_urlCandidates("[fd00::1]").count(), 2, "IPv6 literal: no :8096")
+    t_eq(Util_urlCandidates("HTTP://X/"), ["HTTP://X"], "scheme kept, slash dropped")
+    t_eq(Util_urlCandidates("  "), [], "empty")
+    t_eq(Util_urlCandidates("nas")[2], "http://nas:8096", "bare host")
+end sub

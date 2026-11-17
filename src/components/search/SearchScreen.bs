@@ -21,6 +21,7 @@ sub init()
     m.failed = 0
     m.lastError = ""
     m.inGrid = false        ' the results had the focus (Back from a result returns there)
+    m.keepFocus = invalid   ' (SC-1) the result to focus again after the search ran again
     ' Audio Guide: Roku says the keyboard keys; Cove says the result cards and the result count
     m.speakRow = -1
     m.grid.observeField("rowItemFocused", "onResultFocused")
@@ -114,6 +115,8 @@ sub showResults()
         end if
     end for
     if total = 0
+        m.keepFocus = invalid
+        if m.grid.isInFocusChain() then m.keyboard.setFocus(true)
         m.grid.content = invalid
         m.inGrid = false
         ' (every request failed: say so, "No results" would be wrong)
@@ -131,7 +134,15 @@ sub showResults()
     end if
     m.grid.rowItemSize = sizes
     m.grid.rowHeights = heights
+    keep = m.keepFocus
+    m.keepFocus = invalid
     m.grid.content = root
+    if keep <> invalid and keep[0] < root.getChildCount()
+        col = keep[1]
+        n = root.getChild(keep[0]).getChildCount()
+        if col > n - 1 then col = n - 1
+        if col >= 0 then m.grid.jumpToRowItem = [keep[0], col]
+    end if
     m.status.text = total.toStr() + " results   ·   press Right to choose"
     if total = 1 then m.status.text = "1 result   ·   press Right to choose"
     Speak.say(Speak.clean(m.status.text), false)
@@ -188,6 +199,16 @@ end sub
 ' Back from a result: the focus goes back to the results, on the card that was opened
 sub onFocusChanged()
     if not m.top.hasFocus() then return
+    ' (SC-1) back after playback or a change: the results again (progress bars, watched checks), same card
+    if m.top.stale
+        m.top.stale = false
+        if m.keyboard.text.trim().len() >= 2
+            f = m.grid.rowItemFocused
+            if m.inGrid and f <> invalid and f.count() >= 2 then m.keepFocus = [f[0], f[1]]
+            m.debounce.control = "stop"
+            search()
+        end if
+    end if
     if m.inGrid and m.grid.content <> invalid and m.grid.content.getChildCount() > 0
         m.grid.setFocus(true)
         m.speakRow = -1

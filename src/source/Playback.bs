@@ -56,11 +56,8 @@ namespace Playback
                 ]
             }
         ]
-        hevcConds = []
-        if caps.hevc and not caps.hevc10 then hevcConds.push({ "Condition": "LessThanEqual", "Property": "VideoBitDepth", "Value": "8", "IsRequired": false })
-        ' A TV without Dolby Vision shows a DV-only file (profile 5, no HDR10 / SDR base layer) in wrong colours:
-        ' let Jellyfin (10.9+ range types) convert those. Emby names this property differently, so not sent there.
-        if caps.hevc and jellyfin and not caps.dolbyVision then hevcConds.push({ "Condition": "NotEquals", "Property": "VideoRangeType", "Value": "DOVI", "IsRequired": false })
+        ' (bit depth, a 1080p-only decoder, HDR / Dolby Vision the display lacks: DeviceCaps, PL-12)
+        hevcConds = DeviceCaps.hevcConditions(caps, jellyfin)
         if hevcConds.count() > 0 then codecProfiles.push({ "Type": "Video", "Codec": "hevc", "Conditions": hevcConds })
         ' Settings → Playback → Audio → Maximum channels: a track with more is converted (downmixed) by the server
         if maxCh > 0 then codecProfiles.push({ "Type": "VideoAudio", "Conditions": [{ "Condition": "LessThanEqual", "Property": "AudioChannels", "Value": maxCh.toStr(), "IsRequired": false }] })
@@ -158,14 +155,18 @@ namespace Playback
             sourceVideoCodec: videoCodec(src)
         }
         base = Util.toText(server.url)
-        key = "api_key=" + Util.toText(server.token)
+        key = tokenParam(server)
         container = LCase(Util.toText(src.Container))
         noDirect = forceTranscode or (opts.burn and opts.sub >= 0) or (opts.audio >= 0 and opts.audio <> opts.defaultAudio)
         if not noDirect and Util.flag(src, "SupportsDirectPlay") and container <> ""
             fmt = "mp4"
             if container.instr("mkv") >= 0 or container.instr("matroska") >= 0 then fmt = "mkv"
             if container = "ts" or container = "mpegts" then fmt = "ts"
-            r.url = base + "/Videos/" + itemId + "/stream?static=true&MediaSourceId=" + r.mediaSourceId + "&PlaySessionId=" + r.playSessionId + "&DeviceId=" + Util.deviceId() + "&" + key
+            r.url = base + "/Videos/" + itemId + "/stream?static=true&MediaSourceId=" + r.mediaSourceId + "&PlaySessionId=" + r.playSessionId + "&DeviceId=" + Util.deviceId()
+            ' Jellyfin: the token goes in the Video node's HttpHeaders, not in the URL (server / proxy logs).
+            ' Emby: api_key in the URL, as before.
+            r.headers = videoHeaders(server, r.url)
+            if r.headers.count() = 0 then r.url = r.url + "&" + key
             r.streamFormat = fmt
             r.method = "DirectPlay"
             return r
@@ -194,10 +195,32 @@ namespace Playback
         end if
         if opts.audio >= 0 then t = Util.setQuery(t, "AudioStreamIndex", opts.audio.toStr())
         r.url = t
+        ' (Jellyfin also gets the sign-in header, for a playlist whose own URL has no key; nothing for another host)
+        r.headers = []
+        if safe then r.headers = videoHeaders(server, t)
         r.streamFormat = "hls"
         r.method = "Transcode"
         if r.sourceVideoCodec = "hevc" and not forceTranscode and not (opts.burn and opts.sub >= 0) then r.method = "DirectStream"
         return r
+    end function
+
+    ' The access token as a query parameter, for a URL handed to a node that can't send headers (Poster) or to
+    ' Emby. Jellyfin 10.8 and later read "ApiKey"; Jellyfin 12 turns legacy authorization off, so "api_key"
+    ' (like the X-Emby-Token / X-Emby-Authorization headers) answers 401 there. Emby only knows "api_key".
+    function tokenParam(server as object) as string
+        name = "api_key"
+        if Servers.isJellyfin(server) then name = "ApiKey"
+        return name + "=" + Util.toText(server.token)
+    end function
+
+    ' HttpHeaders for a Video ContentNode ("Name:value" strings): Jellyfin's sign-in header
+    ' (Authorization: MediaBrowser ..., Token="..."), the form every Jellyfin from 10.8 to 12 accepts. Empty for
+    ' Emby (it keeps api_key in the URL), without a token, or for a URL on another host than the server's.
+    function videoHeaders(server as object, url as string) as object
+        if not Servers.isJellyfin(server) or Util.toText(server.token) = "" then return []
+        if not Util.tokenSafeTarget(Util.toText(server.url), url) then return []
+        h = Api.headers(server, true)
+        return ["Authorization:" + Util.toText(h["Authorization"])]
     end function
 
     function videoCodec(src as object) as string
@@ -340,7 +363,8 @@ namespace Playback
         r.interval = best.Interval
         if r.interval = invalid or r.interval <= 0 then r.interval = 10000
         r.url = Util.toText(server.url) + "/Videos/" + Util.toText(item.Id) + "/Trickplay/" + bestW.toStr() + "/"
-        r.query = ".jpg?MediaSourceId=" + sourceId + "&api_key=" + Util.toText(server.token)
+        ' (a Poster can't send headers, so the token stays in the URL: ApiKey for Jellyfin 12, see tokenParam)
+        r.query = ".jpg?MediaSourceId=" + sourceId + "&" + tokenParam(server)
         return r
     end function
 

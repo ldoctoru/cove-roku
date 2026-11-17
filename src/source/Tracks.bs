@@ -225,4 +225,19 @@ namespace Tracks
         return "Skip"
     end function
 
+    ' PL-11: a quality cap below the chosen file's bitrate makes the server encode the video (no copy), so
+    ' the stream is handled as a conversion: H.264 within 1080p, reported as Transcode. info: PlaybackInfo.
+    function capForcesEncode(info as dynamic, sourceId as string, maxBitrate as dynamic) as boolean
+        cap = Util.toNumber(maxBitrate)
+        if cap <= 0 or not Util.isAA(info) then return false
+        sources = info.MediaSources
+        if type(sources) <> "roArray" or sources.count() = 0 then return false
+        src = sources[0]
+        for each cand in sources
+            if sourceId <> "" and Util.isAA(cand) and Util.toText(cand.Id) = sourceId then src = cand
+        end for
+        if not Util.isAA(src) then return false
+        return Util.toNumber(src.Bitrate) > cap
+    end function
+
 end namespace

@@ -120,8 +120,16 @@ namespace Util
         if t = "" then return []
         low = LCase(t)
         if low.startsWith("http://") or low.startsWith("https://") then return [t]
-        if t.instr(":") >= 0 then return ["https://" + t, "http://" + t]
-        return ["https://" + t, "http://" + t, "http://" + t + ":8096"]
+        ' (C2-8: the port goes after the host, not after a path: "host/emby" → "http://host:8096/emby")
+        hostPart = t
+        pathPart = ""
+        cut = t.instr("/")
+        if cut >= 0
+            hostPart = t.left(cut)
+            pathPart = t.mid(cut)
+        end if
+        if hostPart.instr(":") >= 0 then return ["https://" + t, "http://" + t]
+        return ["https://" + t, "http://" + t, "http://" + hostPart + ":8096" + pathPart]
     end function
 
     ' ---------------------------------------------------------------- addresses and connection security
