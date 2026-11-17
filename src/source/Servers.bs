@@ -362,4 +362,27 @@ namespace Servers
         print "Cove: forgot the settings of a removed server ("; libIds.count(); " libraries)"
     end sub
 
+    ' (LAN discovery, DiscoveryTask) { Address: "http://192.168.1.20:8096", Id, Name } → { id, name, address } or
+    ' invalid. Any device on the network can answer, so only a plain http(s)://host[:port] address with safe
+    ' characters is kept, with an optional base path (C2-9: Jellyfin's Address includes its BaseUrl, "/jellyfin").
+    function parseDiscovery(text as dynamic) as dynamic
+        if type(text) <> "roString" and type(text) <> "String" then return invalid
+        j = ParseJson(text)
+        if not Util.isAA(j) then return invalid
+        addr = Util.toText(j.Address).trim()
+        id = Util.toText(j.Id)
+        if addr = "" or id = "" or not Util.isSafeId(id, false) then return invalid
+        while addr.len() > 0 and addr.right(1) = "/"
+            addr = addr.left(addr.len() - 1)
+        end while
+        low = LCase(addr)
+        if not (low.startsWith("http://") or low.startsWith("https://")) then return invalid
+        rx = createObject("roRegex", "^https?://[A-Za-z0-9.\-\[\]:]+(/[A-Za-z0-9._~\-/]*)?$", "")
+        if not rx.isMatch(addr) then return invalid
+        name = Util.toText(j.Name)
+        if name.len() > 40 then name = name.left(40)
+        if name = "" then name = Util.hostOf(addr)
+        return { id: id, name: name, address: addr }
+    end function
+
 end namespace

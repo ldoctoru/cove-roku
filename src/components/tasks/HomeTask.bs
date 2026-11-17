@@ -36,7 +36,8 @@ sub load()
 
     ' The libraries first (the rows depend on them); Jellyfin 10.9+ also has /UserItems, /UserViews, while the
     ' /Users/{id}/... routes work on Emby and Jellyfin
-    views = getList("/Users/" + uid + "/Views", "/UserViews?userId=" + uid)
+    ' (C2-12: Jellyfin answers 403 for a revoked token too: the libraries request then asks for the sign-in)
+    views = getList("/Users/" + uid + "/Views", "/UserViews?userId=" + uid, true)
     if m.top.authFailed then return
     ' Settings → Libraries: their order and names, which are in the sidebar / on Home, and what the row shows
     libs = []
@@ -150,7 +151,7 @@ function displayPrefs(uid as string) as dynamic
 end function
 
 ' GET a list (an array, or { Items: [...] }); on 404 try the newer Jellyfin route
-function getList(rawPath as string, rawFallback as string) as object
+function getList(rawPath as string, rawFallback as string, authOn403 = false as boolean) as object
     ' (the profile's rating limit, v0.9.0)
     path = Ratings.withLimit(m.srv, rawPath)
     fallback = Ratings.withLimit(m.srv, rawFallback)
@@ -158,7 +159,7 @@ function getList(rawPath as string, rawFallback as string) as object
     r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + path, headers: m.h, timeout: 20000 })
     print "Cove:   -> "; r.code
     if r.code = 404 and fallback <> "" then r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + fallback, headers: m.h, timeout: 20000 })
-    if r.code = 401
+    if r.code = 401 or (r.code = 403 and authOn403)
         m.top.authFailed = true
         return []
     end if
