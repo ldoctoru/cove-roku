@@ -32,22 +32,38 @@ namespace Ratings
         return levelOf(Util.toText(server.maxRating))
     end function
 
-    ' A rating's level on the same scale (US film and TV ratings, and the common European age ratings);
-    ' 0 = no rating or not known
+    ' A rating's level on the same scale (US film and TV ratings, and the common European, Russian,
+    ' Australian, Korean and Japanese age ratings); 0 = no rating or not known
     function levelOf(rating as string) as integer
-        r = UCase(rating.trim()).replace(" ", "-")
+        r = UCase(rating.trim())
+        ' (C2-3: "18+", "RU-18+", "AU-MA 15+", "JP-R15+": the trailing "+" doesn't change the level)
+        while r.len() > 0 and r.right(1) = "+"
+            r = r.left(r.len() - 1).trim()
+        end while
         if r = "" then return 0
         table = scale()
-        if table.doesExist(r) then return table[r]
-        ' "DE-12", "GB-15", "FSK-16", "US/PG-13": the part after the country or system
-        for each sep in ["/", ":", "-"]
-            at = r.instr(sep)
-            if at > 0
-                rest = r.mid(at + 1)
+        ' "PG 13" → "PG-13", and "MA 15" / "AU-R 18" → "MA15" / "AU-R18"
+        for each form in [r.replace(" ", "-"), r.replace(" ", "")]
+            ' then the part after the country or system: "DE-12", "GB-15", "US/PG-13", "DE-FSK-16", "KR-19"
+            rest = form
+            while rest <> ""
                 if table.doesExist(rest) then return table[rest]
-            end if
+                at = ratingCut(rest)
+                if at <= 0 then exit while
+                rest = rest.mid(at + 1)
+            end while
         end for
         return 0
+    end function
+
+    ' The position of the first "/", ":" or "-" in a rating (-1 without one)
+    function ratingCut(r as string) as integer
+        best = -1
+        for each sep in ["/", ":", "-"]
+            at = r.instr(sep)
+            if at >= 0 and (best < 0 or at < best) then best = at
+        end for
+        return best
     end function
 
     function scale() as object
@@ -55,8 +71,8 @@ namespace Ratings
             "G": 1, "TV-Y": 1, "TV-G": 1, "U": 1, "0": 1, "ALL": 1, "AL": 1, "APPROVED": 1, "E": 1,
             "PG": 2, "TV-Y7": 2, "TV-Y7-FV": 2, "TV-PG": 2, "6": 2, "7": 2, "8": 2, "9": 2, "10": 2,
             "PG-13": 3, "TV-14": 3, "11": 3, "12": 3, "12A": 3, "13": 3, "14": 3,
-            "R": 4, "TV-MA": 4, "15": 4, "16": 4, "17": 4, "M": 4, "MA15+": 4,
-            "NC-17": 5, "18": 5, "R18": 5, "X": 5, "XXX": 5, "AO": 5, "R18+": 5
+            "R": 4, "TV-MA": 4, "15": 4, "16": 4, "17": 4, "M": 4, "MA15": 4, "R15": 4,
+            "NC-17": 5, "18": 5, "R18": 5, "X": 5, "XXX": 5, "AO": 5, "19": 5, "R19": 5, "21": 5, "R21": 5
         }
     end function
 

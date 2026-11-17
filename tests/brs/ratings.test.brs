@@ -64,3 +64,33 @@ sub test_withLimit()
     t_eq(Ratings_withLimit({ maxRating: "PG" }, "/Items"), "/Items?MaxOfficialRating=PG", "first parameter")
     t_eq(Ratings_withLimit({ maxRating: "PG" }, ""), "", "empty path")
 end sub
+
+' (C2-3) ratings with "+", spaces after the system and Korean / Japanese / Russian / Australian spellings
+sub test_levelOf_plusAndAges()
+    t_eq(Ratings_levelOf("18+"), 5, "18+")
+    t_eq(Ratings_levelOf("16+"), 4, "16+")
+    t_eq(Ratings_levelOf("12+"), 3, "12+")
+    t_eq(Ratings_levelOf("6+"), 2, "6+")
+    t_eq(Ratings_levelOf("0+"), 1, "0+")
+    t_eq(Ratings_levelOf("RU-18+"), 5, "RU-18+")
+    t_eq(Ratings_levelOf("RU-12+"), 3, "RU-12+")
+    t_eq(Ratings_levelOf("AU-MA 15+"), 4, "AU-MA 15+")
+    t_eq(Ratings_levelOf("MA 15+"), 4, "MA 15+")
+    t_eq(Ratings_levelOf("MA15+"), 4, "MA15+")
+    t_eq(Ratings_levelOf("AU-R 18+"), 5, "AU-R 18+")
+    t_eq(Ratings_levelOf("R18+"), 5, "R18+")
+    t_eq(Ratings_levelOf("JP-R15+"), 4, "JP-R15+")
+    t_eq(Ratings_levelOf("R15+"), 4, "R15+")
+    t_eq(Ratings_levelOf("KR-19"), 5, "KR-19")
+    t_eq(Ratings_levelOf("19"), 5, "19")
+    t_eq(Ratings_levelOf("DE-FSK 16"), 4, "DE-FSK 16")
+    t_eq(Ratings_levelOf("+"), 0, "a lone plus")
+    t_eq(Ratings_levelOf("Not Rated+"), 0, "unknown with plus")
+end sub
+
+sub test_allowed_plus()
+    kid = { maxRating: "PG" }
+    t_ok(not Ratings_allowed(kid, { OfficialRating: "18+" }), "18+ over PG")
+    t_ok(not Ratings_allowed(kid, { OfficialRating: "KR-19" }), "KR-19 over PG")
+    t_ok(Ratings_allowed(kid, { OfficialRating: "6+" }), "6+ under PG")
+end sub
