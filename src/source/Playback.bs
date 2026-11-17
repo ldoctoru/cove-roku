@@ -56,11 +56,8 @@ namespace Playback
                 ]
             }
         ]
-        hevcConds = []
-        if caps.hevc and not caps.hevc10 then hevcConds.push({ "Condition": "LessThanEqual", "Property": "VideoBitDepth", "Value": "8", "IsRequired": false })
-        ' A TV without Dolby Vision shows a DV-only file (profile 5, no HDR10 / SDR base layer) in wrong colours:
-        ' let Jellyfin (10.9+ range types) convert those. Emby names this property differently, so not sent there.
-        if caps.hevc and jellyfin and not caps.dolbyVision then hevcConds.push({ "Condition": "NotEquals", "Property": "VideoRangeType", "Value": "DOVI", "IsRequired": false })
+        ' (bit depth, a 1080p-only decoder, HDR / Dolby Vision the display lacks: DeviceCaps, PL-12)
+        hevcConds = DeviceCaps.hevcConditions(caps, jellyfin)
         if hevcConds.count() > 0 then codecProfiles.push({ "Type": "Video", "Codec": "hevc", "Conditions": hevcConds })
         ' Settings → Playback → Audio → Maximum channels: a track with more is converted (downmixed) by the server
         if maxCh > 0 then codecProfiles.push({ "Type": "VideoAudio", "Conditions": [{ "Condition": "LessThanEqual", "Property": "AudioChannels", "Value": maxCh.toStr(), "IsRequired": false }] })
