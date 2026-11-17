@@ -1,5 +1,6 @@
 import "pkg:/source/Api.bs"
 import "pkg:/source/Playback.bs"
+import "pkg:/source/Tracks.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -18,7 +19,13 @@ sub work()
             m.top.error = "The server couldn't prepare this video. " + Api.describeFailure(r)
             return
         end if
-        s = Playback.streamFrom(srv, m.top.itemId, r.json, m.top.forceTranscode, opts)
+        force = m.top.forceTranscode
+        ' (PL-11: the quality cap is below the file's bitrate: the server encodes, as for a conversion)
+        if not force and Tracks.capForcesEncode(r.json, Util.toText(opts.sourceId), opts.maxBitrate)
+            print "Cove: quality cap below the file's bitrate, converting"
+            force = true
+        end if
+        s = Playback.streamFrom(srv, m.top.itemId, r.json, force, opts)
         if s = invalid
             m.top.error = "The server offered no way to play this video on this Roku."
             return
