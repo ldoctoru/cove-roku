@@ -1395,19 +1395,28 @@ function toolIcon(id as string) as string
     return id
 end function
 
-' (v1.1 U-2) The caption over the focused tool
+' (v1.1 U-2) The caption over the focused tool: its name, and the current value for subtitles / audio /
+' quality ("Subtitles · English"). It sits above the capsule: the scrubber is right under it.
 function toolCaption(id as string) as string
     j = m.pf.jump.toStr()
     if id = "jumpBack" then return "Back " + j + " s"
     if id = "jumpFwd" then return "Forward " + j + " s"
     if id = "episodes" then return "Episodes"
-    if id = "subs" then return "Subtitles"
-    if id = "audio" then return "Audio"
-    if id = "quality" then return "Quality"
+    if id = "subs" then return captionWithValue("Subtitles", Tracks.subLabel(m.tracks, m.opts.sub))
+    if id = "audio" then return captionWithValue("Audio", Tracks.audioLabel(m.tracks, effectiveAudio()))
+    if id = "quality" then return captionWithValue("Quality", Tracks.qualityLabel(m.opts.maxBitrate))
     if id = "chapters" then return "Chapters"
     if id = "chapPrev" then return "Previous Chapter"
     if id = "chapNext" then return "Next Chapter"
     return ""
+end function
+
+' "Audio · English 5.1" (the current value, cut to fit one short line)
+function captionWithValue(name as string, value as string) as string
+    if value = "" then return name
+    t = name + " · " + value
+    if t.len() > 44 then t = Left(t, 42).trim() + "..."
+    return t
 end function
 
 sub drawControls()

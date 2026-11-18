@@ -5,10 +5,14 @@ import "pkg:/source/Util.bs"
 namespace Clock
 
     ' The Roku's clock format is 24 hours ("24h"); 12 hours otherwise, the Roku's default ("12h")
+    ' (read once per component: the player's bar redraws it twice a second)
     function uses24h() as boolean
+        if m.clockIs24h <> invalid then return m.clockIs24h
+        is24 = false
         di = createObject("roDeviceInfo")
-        if di = invalid or GetInterface(di, "ifDeviceInfo") = invalid then return false
-        return LCase(Util.toText(di.GetClockFormat())) = "24h"
+        if di <> invalid and GetInterface(di, "ifDeviceInfo") <> invalid then is24 = LCase(Util.toText(di.GetClockFormat())) = "24h"
+        m.clockIs24h = is24
+        return is24
     end function
 
     ' hours 0..23, minutes 0..59 → "22:41" (24 h) or "10:41 PM" (12 h; 0:05 is "12:05 AM")
