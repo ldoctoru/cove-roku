@@ -147,7 +147,7 @@ sub toggleOrder()
 end sub
 
 function sortLabel() as string
-    if m.sort = "added" then return "Date added"
+    if m.sort = "added" then return "Date Added"
     if m.sort = "year" then return "Year"
     if m.sort = "rating" then return "Rating"
     return "Name"
@@ -262,7 +262,7 @@ sub drawBar()
     ids.push("letter")
     l = "All"
     if m.letter <> "" then l = m.letter
-    texts.push("A–Z: " + l)
+    texts.push("A-Z: " + l)
     ids.push("show")
     texts.push("Show: " + showLabel())
     m.barIds = ids
@@ -394,9 +394,9 @@ sub useBar()
     else if id = "order"
         toggleOrder()
     else if id = "sort"
-        openPicker("sort", "Sort by", [{ id: "name", label: "Name" }, { id: "added", label: "Date added" }, { id: "year", label: "Year" }, { id: "rating", label: "Rating" }], m.sort)
+        openPicker("sort", "Sort by", [{ id: "name", label: "Name" }, { id: "added", label: "Date Added" }, { id: "year", label: "Year" }, { id: "rating", label: "Rating" }], m.sort)
     else if id = "genre"
-        o = [{ id: "", label: "All genres" }]
+        o = [{ id: "", label: "All Genres" }]
         for each g in m.genres
             o.push({ id: g, label: g })
         end for

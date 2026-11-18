@@ -285,7 +285,7 @@ sub showServers(status as string, asPush = false as boolean)
         sub_ = "Pick a server found on your network, or enter its address."
         items = foundItems("add")
     else
-        items.push({ id: "add", label: "Add a server" })
+        items.push({ id: "add", label: "Add Server..." })
     end if
     sc = newMenu("servers", "Servers", sub_, items)
     sc.status = status
@@ -310,8 +310,8 @@ function foundItems(enterId as string) as object
         f = m.found[i]
         items.push({ id: "found:" + i.toStr(), label: Util.toText(f.name) + "   ·   " + foundAddress(f) + "   ·   Found on your network" })
     end for
-    items.push({ id: enterId, label: "Enter address" })
-    if m.discovery = invalid then items.push({ id: "rescan", label: "Search again" })
+    items.push({ id: enterId, label: "Enter Address..." })
+    if m.discovery = invalid then items.push({ id: "rescan", label: "Search Again" })
     return items
 end function
 
@@ -364,7 +364,7 @@ end sub
 
 ' Add a server: the servers found on the network, Enter address, Search again
 sub showAddServer()
-    sc = newMenu("address", "Add a server", "Pick a server found on your network, or enter its address.", [])
+    sc = newMenu("address", "Add Server", "Pick a server found on your network, or enter its address.", [])
     push(sc)
     startDiscovery()
     sc.items = foundItems("enter")
@@ -384,7 +384,7 @@ sub pickFound(index as integer)
 end sub
 
 sub askAddress()
-    askText("address", "Add a server", "The server's address, e.g. 192.168.1.20:8096 or https://emby.example.com", "", false)
+    askText("address", "Add Server", "The server's address, e.g. 192.168.1.20:8096 or https://emby.example.com", "", false)
 end sub
 
 ' "Liviu", "Liviu, Ana", "3 profiles" or "not signed in" for the server list
@@ -1401,7 +1401,7 @@ sub openSignIn(server as object, status as string)
     m.quickConnect = false
     line = Servers.typeName(server) + " " + Util.toText(server.version) + "   ·   " + Util.toText(server.url)
     if Util.isPlainHttp(Util.toText(server.url)) then line = line + "   ·   Not encrypted"
-    sc = newMenu("signin", "Sign in to " + Util.toText(server.name), line, [{ id: "manual", label: "Enter username and password" }])
+    sc = newMenu("signin", "Sign in to " + Util.toText(server.name), line, [{ id: "manual", label: "Enter Username and Password..." }])
     if status = "" and Util.isPlainRemote(Util.toText(server.url)) then status = "This connection isn't encrypted: your password can be read on the networks in between."
     sc.status = status
     if topIs("servers") or topIs("profiles") or topIs("settings")
@@ -1430,7 +1430,7 @@ sub showSignInItems(status as string)
     for i = 0 to m.users.count() - 1
         if Util.isAA(m.users[i]) then items.push({ id: "user:" + i.toStr(), label: Util.toText(m.users[i].Name) })
     end for
-    items.push({ id: "manual", label: "Enter username and password" })
+    items.push({ id: "manual", label: "Enter Username and Password..." })
     if m.quickConnect then items.push({ id: "quick", label: "Quick Connect (approve from another Jellyfin app)" })
     t = top()
     t.code = ""
@@ -1557,8 +1557,8 @@ sub onValidate(r as object)
     else
         t = top()
         t.items = [
-            { id: "retry", label: "Try again" },
-            { id: "servers", label: "Choose another server" }
+            { id: "retry", label: "Try Again" },
+            { id: "servers", label: "Choose Another Server" }
         ]
         t.status = "Couldn't reach " + Util.toText(m.server.name) + ". " + Api.describeFailure(r)
         ' (R-10: the user has to choose here, so Roku's launch timing gets a dialog)

@@ -446,7 +446,7 @@ sub drawOverviewFocus()
     m.top.findNode("ovFocus").visible = on
     if on and m.spokenKey <> "overview"
         m.spokenKey = "overview"
-        Speak.say(Speak.button("Read the full description"))
+        Speak.say(Speak.button("Read More"))
     end if
     more = m.top.findNode("ovMore")
     if on
@@ -694,13 +694,13 @@ function buttonSpeech(b as object) as string
     id = b.id
     if b.label <> invalid then return b.label
     if b.text <> invalid then return b.text
-    if id = "restart" then return "Play from the beginning"
+    if id = "restart" then return "Play from the Beginning"
     if id = "fav" and m.isFav then return "Remove from Favorites"
     if id = "fav" then return "Add to Favorites"
-    if id = "watched" and Util.flag(m.item.UserData, "Played") then return "Mark as unwatched"
-    if id = "watched" then return "Mark as watched"
+    if id = "watched" and Util.flag(m.item.UserData, "Played") then return "Mark as Unwatched"
+    if id = "watched" then return "Mark as Watched"
     if id = "trailer" then return "Trailer"
-    if id = "tracks" then return "Audio and subtitles"
+    if id = "tracks" then return "Audio & Subtitles"
     return id
 end function
 
@@ -1024,13 +1024,13 @@ sub episodeMenu()
     o = []
     at = Items.resumeAt(e)
     if at > 30 then o.push({ id: "resume", label: "Resume from " + Playback.clock(at) })
-    o.push({ id: "start", label: "Play from the beginning" })
+    o.push({ id: "start", label: "Play from the Beginning" })
     if Util.flag(e.UserData, "Played")
-        o.push({ id: "unwatched", label: "Mark as unwatched" })
+        o.push({ id: "unwatched", label: "Mark as Unwatched" })
     else
-        o.push({ id: "watched", label: "Mark as watched" })
+        o.push({ id: "watched", label: "Mark as Watched" })
     end if
-    o.push({ id: "page", label: "Episode details" })
+    o.push({ id: "page", label: "Episode Details" })
     openPicker("epmenu", Items.episodeLabel(e), o, "")
 end sub
 
@@ -1486,9 +1486,9 @@ sub drawSeasonBar()
     if canFilterWatched()
         ids.push("filter")
         if m.showAllEps
-            texts.push("Hide watched")
+            texts.push("Hide Watched")
         else
-            texts.push("Show all")
+            texts.push("Show All")
         end if
     end if
     if m.subLangs.count() > 0
@@ -1713,9 +1713,9 @@ sub seasonMenu()
     if m.seasonIndex < 0 or m.seasonIndex >= m.seasonList.count() then return
     n = unwatchedIn(m.seasonIndex)
     o = []
-    if n <> 0 then o.push({ id: "swatched", label: "Mark season as watched" })
+    if n <> 0 then o.push({ id: "swatched", label: "Mark Season as Watched" })
     total = m.episodeList.count()
-    if n < 0 or total = 0 or n < total then o.push({ id: "sunwatched", label: "Mark season as unwatched" })
+    if n < 0 or total = 0 or n < total then o.push({ id: "sunwatched", label: "Mark Season as Unwatched" })
     openPicker("seasonmenu", seasonName(), o, "")
 end sub
 
