@@ -9,6 +9,7 @@ import "pkg:/source/MediaInfo.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Clock.bs"
+import "pkg:/source/Toasts.bs"
 
 sub init()
     m.video = m.top.findNode("video")
@@ -673,6 +674,12 @@ end sub
 ' (v1.1) After an automatic skip: the notice with a button back to the part's start, for 5 s
 sub showSkipNotice(backTo as float, label as string)
     if backTo < 0 then return
+    ' (BG-13) a second automatic skip while the first notice shows (a recap right after the intro): one notice
+    ' that goes back to the earliest start, so the intro isn't lost
+    if m.actionKind = "watch" and m.watchAt >= 0
+        if m.watchAt < backTo then backTo = m.watchAt
+        label = "Intro and recap skipped · Watch"
+    end if
     m.watchAt = backTo
     m.actionKind = ""
     showAction("watch", label)
@@ -2107,7 +2114,8 @@ sub jumpChapter(dir as integer)
         if p - list[cur].start < 3 and cur > 0 then target = cur - 1
     end if
     if target < 0
-        Speak.say("Last chapter")
+        ' (BG-12) visible with the Audio Guide off too (the toast also speaks it)
+        Toasts.notify("Last chapter", "info")
         return
     end if
     t = list[target].start

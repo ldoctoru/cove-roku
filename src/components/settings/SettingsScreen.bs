@@ -915,6 +915,8 @@ sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as
             stateText = "Hidden"
             if r.on then stateText = "On Home"
             if r.dim = true then stateText = "Set by the server"
+            ' (BG-9) Upcoming / Recently Released can't come from the server's layout: say so instead
+            if r.dim = true and r.state <> "" and (r.id = "upcoming" or r.id = "released") then stateText = r.state
             if r.state <> "" and r.dim <> true then stateText = r.state + "   ·   " + stateText
             s1 = addLabel(c, stateText, x + w - 470, y, 440, h, 24, false, second)
             s1.horizAlign = "right"
