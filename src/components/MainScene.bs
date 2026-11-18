@@ -6,6 +6,7 @@ import "pkg:/source/Theme.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/QuickPlay.bs"
+import "pkg:/source/HomeLayout.bs"
 
 sub init()
     ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
@@ -861,7 +862,9 @@ sub quickRated(it as object)
     else if k = "series"
         ' (its unrated episodes inherit this rating: keep it for Ratings.keep below)
         Ratings.rememberSeries(m.server, [id], [it])
-        request("GET", m.server, "/Shows/NextUp?SeriesId=" + id + "&UserId=" + uid + "&Limit=1&Fields=OfficialRating&EnableUserData=true", true, "", { kind: "qpList", phase: "nextUp", reqId: rid, seriesId: id })
+        ' (BG-5) Include rewatching (Jellyfin), as Home's Next Up row; no date cutoff here
+        nuq = HomeLayout.nextUpQuery(Servers.isJellyfin(m.server), Prefs.nextUpRewatch(), "")
+        request("GET", m.server, "/Shows/NextUp?SeriesId=" + id + "&UserId=" + uid + "&Limit=1" + nuq + "&Fields=OfficialRating&EnableUserData=true", true, "", { kind: "qpList", phase: "nextUp", reqId: rid, seriesId: id })
     else if k = "season"
         sid = Util.toText(it.SeriesId)
         if sid = ""

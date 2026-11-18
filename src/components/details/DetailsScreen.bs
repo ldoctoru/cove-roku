@@ -11,9 +11,12 @@ import "pkg:/source/Speak.bs"
 import "pkg:/source/Toasts.bs"
 import "pkg:/source/NavUtil.bs"
 import "pkg:/source/QuickPlay.bs"
+import "pkg:/source/HomeLayout.bs"
+import "pkg:/source/Servers.bs"
 
 sub init()
     m.focusEpisodes = false
+    m.userAudioAsked = false
     t = m.global.theme
     m.rows = m.top.findNode("rows")
     m.lower = m.top.findNode("lower")
@@ -160,6 +163,9 @@ sub onResponse(ev as object)
         return
     else if k = "seriesPlay"
         onSeriesPlay(r)
+        return
+    else if k = "userAudio"
+        onUserAudio(r)
         return
     end if
     if r.code <> 200 or r.json = invalid
@@ -309,6 +315,12 @@ sub showItem(it as object)
             m.opts.sub = s
             m.opts.burn = not Tracks.findSub(m.tracks, s).isText
         end if
+    end if
+    ' (BG-4) the account's audio language (once per session, as the player asks for it), so the Audio entry
+    ' shows the track the player will start with even before the first playback
+    if t <> "Series" and t <> "BoxSet" and m.tracks <> invalid and m.tracks.audio.count() > 1 and Tracks.serverAudioPref(m.top.server) = invalid and not m.userAudioAsked
+        m.userAudioAsked = true
+        get("/Users/" + Util.toText(m.top.server.userId), { kind: "userAudio" })
     end if
     if first
         m.castList = []
@@ -1073,6 +1085,19 @@ function effectiveAudio() as integer
     return m.opts.defaultAudio
 end function
 
+' (BG-4) GET /Users/{id}: the account's audio preference for the session (a failure counts as "none", as in the
+' player), then the start track again
+sub onUserAudio(r as object)
+    json = invalid
+    if r.code = 200 then json = r.json
+    if r.code <> 200 then print "Cove: user settings -> "; r.code
+    if Tracks.serverAudioPref(m.top.server) = invalid then Tracks.rememberServerAudio(m.top.server, json)
+    if m.item = invalid or m.tracks = invalid then return
+    t = Util.toText(m.item.Type)
+    if t = "Series" or t = "BoxSet" then return
+    m.opts.startAudio = startAudioHere()
+end sub
+
 ' (v1.1) What the player picks when no audio is chosen here (PlayerScreen chooseStartAudio)
 function startAudioHere() as integer
     seriesLang = Prefs.seriesAudioLang(Util.toText(m.item.SeriesId))
@@ -1244,7 +1269,9 @@ end sub
 
 sub loadNextUp()
     srv = m.top.server
-    get("/Shows/NextUp?SeriesId=" + Util.toText(m.item.Id) + "&UserId=" + Util.toText(srv.userId) + "&Limit=1&" + Items.fields(), { kind: "nextUp" })
+    ' (BG-5) Settings → Home → Include rewatching (Jellyfin), as Home's Next Up row; no date cutoff here
+    nuq = HomeLayout.nextUpQuery(Servers.isJellyfin(srv), Prefs.nextUpRewatch(), "")
+    get("/Shows/NextUp?SeriesId=" + Util.toText(m.item.Id) + "&UserId=" + Util.toText(srv.userId) + "&Limit=1" + nuq + "&" + Items.fields(), { kind: "nextUp" })
 end sub
 
 sub onNextUp(json as object)
