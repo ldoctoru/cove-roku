@@ -251,6 +251,19 @@ def next_track(d, n):
     d.rectangle([n * 0.7, n * 0.22, n * 0.8, n * 0.78], fill=WHITE)
 
 
+def chapter_prev(d, n):
+    # backward.end.alt: a bar and two triangles pointing left (previous chapter; prev_track is the episode)
+    d.rectangle([n * 0.12, n * 0.26, n * 0.2, n * 0.74], fill=WHITE)
+    d.polygon([(n * 0.54, n * 0.26), (n * 0.54, n * 0.74), (n * 0.22, n * 0.5)], fill=WHITE)
+    d.polygon([(n * 0.88, n * 0.26), (n * 0.88, n * 0.74), (n * 0.56, n * 0.5)], fill=WHITE)
+
+
+def chapter_next(d, n):
+    d.polygon([(n * 0.12, n * 0.26), (n * 0.12, n * 0.74), (n * 0.44, n * 0.5)], fill=WHITE)
+    d.polygon([(n * 0.46, n * 0.26), (n * 0.46, n * 0.74), (n * 0.78, n * 0.5)], fill=WHITE)
+    d.rectangle([n * 0.8, n * 0.26, n * 0.88, n * 0.74], fill=WHITE)
+
+
 def episodes(d, n):
     w = int(n * 0.07)
     d.rounded_rectangle([n * 0.14, n * 0.36, n * 0.86, n * 0.86], n * 0.08, outline=WHITE, width=w)
@@ -480,7 +493,7 @@ def draw_all():
             icon(name, size, fn)
     for name, fn in (("back30", skip30(False)), ("fwd30", skip30(True)), ("prev", prev_track), ("next", next_track),
                      ("episodes", episodes), ("subtitles", subtitles), ("audio", waveform), ("quality", quality),
-                     ("chapters", chapters_icon)):
+                     ("chapters", chapters_icon), ("chapprev", chapter_prev), ("chapnext", chapter_next)):
         icon(name, 36, fn)
     # the other jump lengths (Settings → Playback → Jump buttons); 30 is above
     for secs in (10, 15, 60):

@@ -1,0 +1,42 @@
+import "pkg:/source/Util.bs"
+
+' Times of day in the Roku's own format (Settings → System → Time → Clock format: 12 hour / 24 hour):
+' "10:41 PM" or "22:41". Used for the player's and the details page's "Ends at".
+namespace Clock
+
+    ' The Roku's clock format is 24 hours ("24h"); 12 hours otherwise, the Roku's default ("12h")
+    ' (read once per component: the player's bar redraws it twice a second)
+    function uses24h() as boolean
+        if m.clockIs24h <> invalid then return m.clockIs24h
+        is24 = false
+        di = createObject("roDeviceInfo")
+        if di <> invalid and GetInterface(di, "ifDeviceInfo") <> invalid then is24 = LCase(Util.toText(di.GetClockFormat())) = "24h"
+        m.clockIs24h = is24
+        return is24
+    end function
+
+    ' hours 0..23, minutes 0..59 → "22:41" (24 h) or "10:41 PM" (12 h; 0:05 is "12:05 AM")
+    function formatHm(hours as integer, minutes as integer, use24 as boolean) as string
+        mm = Right("0" + minutes.toStr(), 2)
+        if use24 then return Right("0" + hours.toStr(), 2) + ":" + mm
+        suffix = " AM"
+        if hours >= 12 then suffix = " PM"
+        h12 = hours mod 12
+        if h12 = 0 then h12 = 12
+        return h12.toStr() + ":" + mm + suffix
+    end function
+
+    ' The local time secondsFromNow from now, in the Roku's format: "10:41 PM"
+    function timeIn(secondsFromNow as integer) as string
+        dt = createObject("roDateTime")
+        dt.ToLocalTime()
+        dt.FromSeconds(dt.AsSeconds() + secondsFromNow)
+        return formatHm(dt.GetHours(), dt.GetMinutes(), uses24h())
+    end function
+
+    ' "Ends at 10:41 PM"
+    function endsAtText(secondsFromNow as integer) as string
+        return "Ends at " + timeIn(secondsFromNow)
+    end function
+
+end namespace

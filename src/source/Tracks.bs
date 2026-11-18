@@ -48,12 +48,111 @@ namespace Tracks
         return t
     end function
 
+    ' The file's default audio track (what the Roku plays without the server: direct play)
     function defaultAudio(t as object) as integer
         for each a in t.audio
             if a.isDefault then return a.index
         end for
         if t.audio.count() > 0 then return t.audio[0].index
         return -1
+    end function
+
+    ' (v1.1) A commentary track, by its name (the servers have no flag for it): "Director's Commentary",
+    ' "Kommentar", "Commentaire", "Comentario", "Commento"
+    function isCommentary(label as string) as boolean
+        l = LCase(label)
+        for each w in ["commentary", "kommentar", "commentaire", "comentario", "commento"]
+            if l.instr(w) >= 0 then return true
+        end for
+        return false
+    end function
+
+    ' The codes of the language a code belongs to ("jpn" → ["jpn", "ja"]; "ro" → ["rum", "ron", ...]), by
+    ' Prefs.languages; [code] for one that isn't in that list, [] for ""
+    function codesOfLanguage(code as string) as object
+        c = LCase(code.trim())
+        if c = "" then return []
+        for each l in Prefs.languages()
+            for each k in l.codes
+                if k = c then return l.codes
+            end for
+        end for
+        return [c]
+    end function
+
+    ' (v1.1) The audio track to start with. wanted: language codes in order (the series' last choice, the
+    ' server account's preferred audio language); the first one with a track wins (its default-flagged
+    ' track first). Without a match: the file's default. Commentary tracks are never picked on their own:
+    ' the next non-commentary track is taken instead (the user can still choose one in the Audio menu).
+    function startAudio(t as object, wanted as object) as integer
+        if t.audio.count() = 0 then return -1
+        for each w in wanted
+            codes = codesOfLanguage(Util.toText(w))
+            hit = -1
+            for each a in t.audio
+                if not isCommentary(a.label)
+                    for each c in codes
+                        if a.language = c and (hit < 0 or a.isDefault) then hit = a.index
+                    end for
+                end if
+            end for
+            if hit >= 0 then return hit
+        end for
+        d = defaultAudio(t)
+        da = findAudio(t, d)
+        if da = invalid or not isCommentary(da.label) then return d
+        ' the default is a commentary: its language's first other track, else the first other track
+        for each a in t.audio
+            if not isCommentary(a.label) and a.language = da.language and da.language <> "" then return a.index
+        end for
+        for each a in t.audio
+            if not isCommentary(a.label) then return a.index
+        end for
+        return d
+    end function
+
+    ' (v1.1) The server account's audio preference (Jellyfin and Emby UserConfiguration:
+    ' AudioLanguagePreference, PlayDefaultAudioTrack), kept for the session in m.global.userAudio after one
+    ' GET /Users/{id} per user: { lang, playDefault }, or invalid when it wasn't asked for yet
+    function serverAudioPref(server as dynamic) as dynamic
+        if m.global = invalid or not m.global.hasField("userAudio") then return invalid
+        cache = m.global.userAudio
+        if not Util.isAA(cache) then return invalid
+        return cache[audioCacheKey(server)]
+    end function
+
+    ' json: the GET /Users/{id} answer (invalid after a failure: kept as "no preference" for the session)
+    sub rememberServerAudio(server as dynamic, json as dynamic)
+        if m.global = invalid then return
+        if not m.global.hasField("userAudio") then m.global.addFields({ userAudio: {} })
+        cache = m.global.userAudio
+        if not Util.isAA(cache) or cache.count() > 20 then cache = {}
+        cfg = Util.field(json, "Configuration")
+        e = { lang: LCase(Util.toText(Util.field(cfg, "AudioLanguagePreference")).trim()), playDefault: true }
+        ' (missing: true, the servers' default)
+        if Util.isAA(cfg) and cfg.doesExist("PlayDefaultAudioTrack") then e.playDefault = Util.flag(cfg, "PlayDefaultAudioTrack")
+        cache[audioCacheKey(server)] = e
+        m.global.userAudio = cache
+    end sub
+
+    function audioCacheKey(server as dynamic) as string
+        return Util.toText(Util.field(server, "id")) + ":" + Util.toText(Util.field(server, "userId"))
+    end function
+
+    ' The languages startAudio looks for, in order: the series' last choice (Prefs.seriesAudioLang), then the
+    ' server account's preferred audio language. As on the servers, "Play default audio track regardless of
+    ' language" (on by default) keeps a file's default-flagged track instead of that preferred language.
+    function wantedAudio(t as object, seriesLang as string, pref as dynamic) as object
+        out = []
+        if seriesLang <> "" then out.push(seriesLang)
+        if Util.isAA(pref) and Util.toText(pref.lang) <> ""
+            flagged = false
+            for each a in t.audio
+                if a.isDefault then flagged = true
+            end for
+            if not (Util.flag(pref, "playDefault") and flagged) then out.push(Util.toText(pref.lang))
+        end if
+        return out
     end function
 
     ' The versions of a title (two or more MediaSources): [{ id, label }], else []

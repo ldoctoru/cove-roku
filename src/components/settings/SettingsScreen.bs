@@ -228,7 +228,7 @@ function rowsFor(tabId as string) as object
         out.push(note("Goes back a little when a title resumes where you left it, or after a pause of 5 minutes or more."))
         ' (v1.0 F-3) the speed every title starts at (the player's * menu still changes it for one title)
         sp = []
-        for each v in ["0.5", "0.75", "1", "1.25", "1.5", "2"]
+        for each v in ["0.5", "0.75", "1", "1.25", "1.5", "1.75", "2"]
             lb = v + "×"
             if v = "1" then lb = "Normal (1×)"
             sp.push({ id: v, label: lb })
