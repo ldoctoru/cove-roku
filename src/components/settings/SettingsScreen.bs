@@ -129,13 +129,13 @@ function rowsFor(tabId as string) as object
             tl.push({ id: name, label: capital(name), color: Theme.backgrounds()[name] })
         end for
         out.push({ kind: "tiles", id: "background", label: "Background", options: tl, cur: t.bgName })
-        out.push(note("Cove for Roku uses the Glass theme. The accent colour marks buttons, switches and the page you're on."))
+        out.push(note("Cove for Roku uses the Glass theme. The accent color marks buttons, switches and the page you're on."))
         out.push(sectionHead("Navigation"))
-        out.push(choice("navStyle", "Style", [{ id: "sidebar", label: "Sidebar" }, { id: "topbar", label: "Top bar" }], Prefs.navStyle()))
+        out.push(choice("navStyle", "Style", [{ id: "sidebar", label: "Sidebar" }, { id: "topbar", label: "Top Bar" }], Prefs.navStyle()))
         c = choice("topBarLabels", "Top bar shows", [{ id: "both", label: "Icons and Names" }, { id: "names", label: "Names" }, { id: "icons", label: "Icons" }], Prefs.topBarLabels())
         c.dim = Prefs.navStyle() <> "topbar"
         out.push(c)
-        out.push(note("Top bar replaces the sidebar with a bar across the top of Home (Up from the banner reaches it)."))
+        out.push(note("Top Bar replaces the sidebar with a bar across the top of Home (Up from the banner reaches it)."))
         out.push(toggle("showRecent", "Also show", "Recently Added", Prefs.showRecent()))
         out.push(note("Home is always there. Libraries, Favorites and Now Playing are chosen in Libraries."))
     else if tabId = "home"
@@ -304,11 +304,11 @@ function rowsFor(tabId as string) as object
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
         out.push(sectionHead("Other pages"))
-        for each k in [["Up", "Library: the Sort, Genre, A-Z and Show filters"], ["*", "Series page: options for the selected episode"], ["Back", "The page before"]]
+        for each k in [["Play", "On any card: play it right away (a series or season: its next episode; a collection: its next film)"], ["Up", "Library: the Sort, Order, Genre, A-Z and Show filters"], ["*", "Series page: options for the selected episode"], ["Back", "The page before"]]
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
         out.push(sectionHead("In Settings"))
-        for each k in [["Left / Right", "Change tab; on colours and backgrounds, pick one"], ["OK", "Change the selected setting"], ["Back", "Close Settings (changes are kept)"]]
+        for each k in [["Left / Right", "Change tab; on colors and backgrounds, pick one"], ["OK", "Change the selected setting"], ["Back", "Close Settings (changes are kept)"]]
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
     else if tabId = "about"
@@ -1207,8 +1207,8 @@ sub libraryMenu(id as string)
     o.push({ id: "sort", label: "Sort by: " + labelOf(sortOptions(), lp.sort) })
     o.push({ id: "show", label: "Show: " + labelOf(showOptions(), lp.show) })
     o.push({ id: "rename", label: "Rename..." })
-    o.push({ id: "up", label: "Move up" })
-    o.push({ id: "down", label: "Move down" })
+    o.push({ id: "up", label: "Move Up" })
+    o.push({ id: "down", label: "Move Down" })
     m.menuLib = id
     openPicker("lib", libTitle(id), o, "")
 end sub
@@ -1250,8 +1250,8 @@ sub homeRowMenu(id as string)
     o.push({ id: "toggle", label: label })
     ids = HomeLayout.orderedIds(sid, libs)
     at = HomeLayout.indexIn(ids, id)
-    if at > 0 then o.push({ id: "up", label: "Move up" })
-    if at >= 0 and at < ids.count() - 1 then o.push({ id: "down", label: "Move down" })
+    if at > 0 then o.push({ id: "up", label: "Move Up" })
+    if at >= 0 and at < ids.count() - 1 then o.push({ id: "down", label: "Move Down" })
     m.menuHomeRow = id
     title = id
     for each r in m.rows

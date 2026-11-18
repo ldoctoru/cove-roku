@@ -50,7 +50,7 @@ function entries() as object
             out.push(p)
         end for
     end if
-    out.push({ id: "add", name: "Add profile", avatar: "", hasPin: false, signedIn: true, note: "" })
+    out.push({ id: "add", name: "Add Profile", avatar: "", hasPin: false, signedIn: true, note: "" })
     return out
 end function
 
@@ -163,13 +163,13 @@ sub speakFocus(list as object, flush as boolean)
     if not Speak.isOn() then return
     if m.area = "other"
         key = "other"
-        text = Speak.button("Choose another server")
+        text = Speak.button("Choose Another Server")
     else
         if m.index < 0 or m.index >= list.count() then return
         p = list[m.index]
         key = "tile:" + Util.toText(p.id)
         if p.id = "add"
-            text = Speak.button("Add profile") + Speak.position(m.index, list.count())
+            text = Speak.button("Add Profile") + Speak.position(m.index, list.count())
         else
             parts = [Util.toText(p.name), "profile"]
             if Util.toText(p.note) <> "" then parts.push(Util.toText(p.note))
@@ -189,7 +189,7 @@ sub paintOther()
     bgp = m.other.createChild("Poster")
     lab = m.other.createChild("Label")
     lab.font = mkFont(isFocus, 26)
-    lab.text = "Choose another server"
+    lab.text = "Choose Another Server"
     tw = lab.boundingRect().width
     w = tw + 56
     x = Int((1920 - w) / 2)

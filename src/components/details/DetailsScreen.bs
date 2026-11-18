@@ -10,6 +10,7 @@ import "pkg:/source/Ratings.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Toasts.bs"
 import "pkg:/source/NavUtil.bs"
+import "pkg:/source/QuickPlay.bs"
 
 sub init()
     m.focusEpisodes = false
@@ -70,6 +71,8 @@ sub init()
     m.seriesPlay = invalid  ' (v1.0 F-17) the Play All / Shuffle request waiting for its episodes
     m.boxList = []          ' a collection's titles, in release order
     m.includedList = []     ' the collections this title is in ("Included In")
+    m.tags = []             ' (v1.1) the genre / studio pills in About: [{ kind, id, name }]
+    m.tagIdx = 0
     ' Audio Guide: what was said last (a redraw that doesn't move the focus says nothing), the title it was for
     m.spokenKey = ""
     m.spokenItem = ""
@@ -444,7 +447,7 @@ sub drawOverviewFocus()
     m.top.findNode("ovFocus").visible = on
     if on and m.spokenKey <> "overview"
         m.spokenKey = "overview"
-        Speak.say(Speak.button("Read the full description"))
+        Speak.say(Speak.button("Read More"))
     end if
     more = m.top.findNode("ovMore")
     if on
@@ -692,13 +695,13 @@ function buttonSpeech(b as object) as string
     id = b.id
     if b.label <> invalid then return b.label
     if b.text <> invalid then return b.text
-    if id = "restart" then return "Play from the beginning"
+    if id = "restart" then return "Play from the Beginning"
     if id = "fav" and m.isFav then return "Remove from Favorites"
     if id = "fav" then return "Add to Favorites"
-    if id = "watched" and Util.flag(m.item.UserData, "Played") then return "Mark as unwatched"
-    if id = "watched" then return "Mark as watched"
+    if id = "watched" and Util.flag(m.item.UserData, "Played") then return "Mark as Unwatched"
+    if id = "watched" then return "Mark as Watched"
     if id = "trailer" then return "Trailer"
-    if id = "tracks" then return "Audio and subtitles"
+    if id = "tracks" then return "Audio & Subtitles"
     return id
 end function
 
@@ -779,6 +782,11 @@ sub useButton()
 end sub
 
 sub requestPlay(it as object, start as float)
+    ' (v1.1) an episode that hasn't aired yet: nothing to play
+    if QuickPlay.isUnaired(it, QuickPlay.nowStamp())
+        Toasts.notify("This episode hasn't aired yet", "info")
+        return
+    end if
     sub_ = ""
     if Util.toText(it.Type) = "Episode" then sub_ = Items.episodeLabel(it)
     title = Util.toText(it.Name)
@@ -1017,13 +1025,13 @@ sub episodeMenu()
     o = []
     at = Items.resumeAt(e)
     if at > 30 then o.push({ id: "resume", label: "Resume from " + Playback.clock(at) })
-    o.push({ id: "start", label: "Play from the beginning" })
+    o.push({ id: "start", label: "Play from the Beginning" })
     if Util.flag(e.UserData, "Played")
-        o.push({ id: "unwatched", label: "Mark as unwatched" })
+        o.push({ id: "unwatched", label: "Mark as Unwatched" })
     else
-        o.push({ id: "watched", label: "Mark as watched" })
+        o.push({ id: "watched", label: "Mark as Watched" })
     end if
-    o.push({ id: "page", label: "Episode details" })
+    o.push({ id: "page", label: "Episode Details" })
     openPicker("epmenu", Items.episodeLabel(e), o, "")
 end sub
 
@@ -1488,9 +1496,9 @@ sub drawSeasonBar()
     if canFilterWatched()
         ids.push("filter")
         if m.showAllEps
-            texts.push("Hide watched")
+            texts.push("Hide Watched")
         else
-            texts.push("Show all")
+            texts.push("Show All")
         end if
     end if
     if m.subLangs.count() > 0
@@ -1715,9 +1723,9 @@ sub seasonMenu()
     if m.seasonIndex < 0 or m.seasonIndex >= m.seasonList.count() then return
     n = unwatchedIn(m.seasonIndex)
     o = []
-    if n <> 0 then o.push({ id: "swatched", label: "Mark season as watched" })
+    if n <> 0 then o.push({ id: "swatched", label: "Mark Season as Watched" })
     total = m.episodeList.count()
-    if n < 0 or total = 0 or n < total then o.push({ id: "sunwatched", label: "Mark season as unwatched" })
+    if n < 0 or total = 0 or n < total then o.push({ id: "sunwatched", label: "Mark Season as Unwatched" })
     openPicker("seasonmenu", seasonName(), o, "")
 end sub
 
@@ -1831,6 +1839,11 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press or m.picker <> invalid or m.textPanel <> invalid then return false
+    ' (v1.1 U-1) Play: the focused card below, or this title's Play button anywhere else on the page
+    if key = "play"
+        playKey()
+        return true
+    end if
     if m.state = "overview"
         if key = "OK"
             openFullText()
@@ -1889,7 +1902,21 @@ function onKeyEvent(key as string, press as boolean) as boolean
         end if
         return true
     else if m.state = "about"
-        if key = "up"
+        if key = "left" and m.tagIdx > 0
+            m.tagIdx = m.tagIdx - 1
+            drawTags()
+        else if key = "right" and m.tagIdx < m.tags.count() - 1
+            m.tagIdx = m.tagIdx + 1
+            drawTags()
+        else if key = "OK"
+            openTag()
+        else if key = "down" and tagGroupStart(1) >= 0
+            m.tagIdx = tagGroupStart(1)
+            drawTags()
+        else if key = "up" and tagGroupStart(-1) >= 0
+            m.tagIdx = tagGroupStart(-1)
+            drawTags()
+        else if key = "up"
             leaveAbout()
         else if key = "back"
             enterButtons()
@@ -1914,6 +1941,38 @@ function onKeyEvent(key as string, press as boolean) as boolean
     end if
     return false
 end function
+
+' (v1.1 U-1) The Play key: an episode or extra plays as with OK; a title in More Like This / In This Collection /
+' Included In plays without opening its page (MainScene picks the episode or film); elsewhere the Play button
+sub playKey()
+    if m.item = invalid or m.state = "error" then return
+    if m.state = "rows"
+        f = m.rows.rowItemFocused
+        if f = invalid or f.count() < 2 or m.rows.content = invalid then return
+        row = m.rows.content.getChild(f[0])
+        if row = invalid then return
+        k = row.rowKind
+        i = f[1]
+        if k = "episodes" and i < m.shownEps.count()
+            e = m.shownEps[i]
+            start = Items.resumeAt(e)
+            if start <= 30 then start = 0
+            requestPlay(e, start)
+        else if k = "extras"
+            playExtra(i)
+        else if k = "box" or k = "included" or k = "similar"
+            a = QuickPlay.cardAction(row.getChild(i))
+            if a <> invalid then m.top.openItem = a
+        end if
+        return
+    end if
+    if NavUtil.indexOfId(m.btns, "play") < 0 then return
+    target = playTarget()
+    if target = invalid then return
+    start = Items.resumeAt(target)
+    if start <= 30 then start = 0
+    requestPlay(target, start)
+end sub
 
 sub onFocusChanged()
     if not m.top.hasFocus() then return
@@ -1951,14 +2010,17 @@ sub showAbout(it as object)
     left_ = []
     tg = it.Taglines
     if type(tg) = "roArray" and tg.count() > 0 and Util.toText(tg[0]) <> "" then left_.push({ k: "Tagline", v: Util.toText(tg[0]) })
-    if type(it.Genres) = "roArray" and it.Genres.count() > 0 then left_.push({ k: "Genres", v: Util.join(it.Genres, ", ") })
-    if type(it.Studios) = "roArray" and it.Studios.count() > 0
-        names = []
-        for each st in it.Studios
-            if Util.toText(st.Name) <> "" then names.push(Util.toText(st.Name))
-        end for
-        if names.count() > 0 then left_.push({ k: "Studios", v: Util.join(names, ", ") })
-    end if
+    ' (v1.1) genres and studios / networks as pills: OK opens their titles (MainScene → LibraryScreen)
+    m.tags = aboutTags(it)
+    genreNames = []
+    studioNames = []
+    for each tg_ in m.tags
+        if tg_.kind = "Genre" then genreNames.push(tg_.name)
+        if tg_.kind = "Studio" then studioNames.push(tg_.name)
+    end for
+    if genreNames.count() > 0 then left_.push({ k: "Genres", pills: genreNames })
+    if studioNames.count() > 0 then left_.push({ k: "Studios", pills: studioNames })
+    if m.tagIdx >= m.tags.count() then m.tagIdx = 0
     rd = MediaInfo.dateText(it.PremiereDate, false)
     if rd <> "" then left_.push({ k: "Release Date", v: rd })
     if it.UserData <> invalid
@@ -1993,6 +2055,99 @@ sub showAbout(it as object)
     m.about.info = { left: left_, right: right_ }
 end sub
 
+' The genre and studio pills: [{ kind: "Genre" / "Studio", id, name }], genres first (at most 8 each). The id is
+' the server's (GenreItems / Studios[].Id); without one the name is the filter.
+function aboutTags(it as object) as object
+    out = []
+    seen = {}
+    gi = it.GenreItems
+    if type(gi) = "roArray"
+        for each g in gi
+            n = Util.toText(Util.field(g, "Name"))
+            if n <> "" and not seen.doesExist("g" + n) and out.count() < 8
+                seen["g" + n] = true
+                out.push({ kind: "Genre", id: Util.toText(Util.field(g, "Id")), name: n })
+            end if
+        end for
+    end if
+    if type(it.Genres) = "roArray"
+        for each g in it.Genres
+            n = Util.toText(g)
+            if n <> "" and not seen.doesExist("g" + n) and out.count() < 8
+                seen["g" + n] = true
+                out.push({ kind: "Genre", id: "", name: n })
+            end if
+        end for
+    end if
+    studios = 0
+    if type(it.Studios) = "roArray"
+        for each st in it.Studios
+            n = Util.toText(Util.field(st, "Name"))
+            if n <> "" and not seen.doesExist("s" + n) and studios < 8
+                seen["s" + n] = true
+                studios = studios + 1
+                out.push({ kind: "Studio", id: Util.toText(Util.field(st, "Id")), name: n })
+            end if
+        end for
+    end if
+    return out
+end function
+
+' What a genre / studio page lists: this title's kind (films for a film, shows for a show or episode)
+function tagTypes() as string
+    t = Util.toText(m.item.Type)
+    if t = "Movie" or t = "BoxSet" then return "Movie"
+    if t = "Series" or t = "Season" or t = "Episode" then return "Series"
+    return "Movie,Series"
+end function
+
+' The focused pill in About (white) and its speech: "Comedy, genre, button, 1 of 4"
+sub drawTags(queued = false as boolean)
+    focused = m.state = "about" and m.picker = invalid and m.tags.count() > 0
+    idx = -1
+    if focused then idx = m.tagIdx
+    if m.about.focusIndex <> idx then m.about.focusIndex = idx
+    if not focused or not Speak.isOn() then return
+    tg_ = m.tags[m.tagIdx]
+    kindWord = "genre"
+    if tg_.kind = "Studio" then kindWord = "studio"
+    key = "t" + m.tagIdx.toStr()
+    if key = m.spokenKey then return
+    m.spokenKey = key
+    Speak.say(Speak.button(Speak.clean(tg_.name) + ", " + kindWord) + Speak.position(m.tagIdx, m.tags.count()), not queued)
+end sub
+
+' Down / Up in About: the first pill of the next / previous group (genres, studios)
+function tagGroupStart(dirn as integer) as integer
+    if m.tags.count() = 0 then return -1
+    cur = m.tags[m.tagIdx].kind
+    if dirn > 0
+        for i = m.tagIdx + 1 to m.tags.count() - 1
+            if m.tags[i].kind <> cur then return i
+        end for
+    else
+        for i = m.tagIdx - 1 to 0 step -1
+            if m.tags[i].kind <> cur
+                ' (the first pill of that group)
+                k = m.tags[i].kind
+                while i > 0 and m.tags[i - 1].kind = k
+                    i = i - 1
+                end while
+                return i
+            end if
+        end for
+    end if
+    return -1
+end function
+
+' OK on a pill: that genre's / studio's titles across the libraries, as a library page
+sub openTag()
+    if m.tagIdx < 0 or m.tagIdx >= m.tags.count() then return
+    tg_ = m.tags[m.tagIdx]
+    print "Cove: open "; tg_.kind; " "; tg_.name
+    m.top.openItem = { id: "open", itemId: tg_.id, itemType: tg_.kind, collectionType: "", title: tg_.name, tagTypes: tagTypes() }
+end sub
+
 ' One line per track, at most max (the last one says how many more)
 function trackLines(list as object, max as integer) as object
     out = []
@@ -2015,10 +2170,13 @@ sub enterAbout()
     fadeAbout(1.0)
     drawButtons()
     if m.seasonBar.visible then drawSeasonBar()
+    m.tagIdx = 0
     if Speak.isOn()
         m.spokenKey = "about"
         Speak.say("About. " + Speak.labelsOf(m.about))
     end if
+    ' (the first genre pill takes the focus; its speech follows the About text)
+    drawTags(true)
 end sub
 
 sub leaveAbout()
@@ -2032,6 +2190,7 @@ sub leaveAbout()
 end sub
 
 sub hideAbout()
+    if m.about.focusIndex <> -1 then m.about.focusIndex = -1
     if m.about.opacity > 0 then fadeAbout(0.0)
 end sub
 

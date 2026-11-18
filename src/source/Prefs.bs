@@ -244,7 +244,7 @@ namespace Prefs
     ' ---------------------------------------------------------------- filters chosen on a library page
 
     ' The Mac keeps them per library (LibraryView save() → "lf-<id>"). Here all libraries share one key
-    ' ("libFilters", most recent last, at most 25), with short fields s (sort), w (show), g (genre), l (A–Z),
+    ' ("libFilters", most recent last, at most 25), with short fields s (sort), o (order: a / d), w (show), g (genre), l (A–Z),
     ' only the ones that differ from the defaults: the registry also holds the sign-ins.
     function libFilters(libId as string) as dynamic
         if libId = "" then return invalid
@@ -254,11 +254,11 @@ namespace Prefs
         return invalid
     end function
 
-    ' f = { s, w, g, l } (missing or "" = the default)
+    ' f = { s, o, w, g, l } (missing or "" = the default)
     sub setLibFilters(libId as string, f as object)
         if libId = "" then return
         e = { id: libId }
-        for each k in ["s", "w", "g", "l"]
+        for each k in ["s", "o", "w", "g", "l"]
             v = Util.toText(f[k])
             if v <> "" then e[k] = v
         end for
