@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Dates.bs"
 
 ' (v1.1 U-1) The Play key on a focused card: what it plays. Screens turn the card into an action with
 ' QuickPlay.cardAction; MainScene fetches the title and picks what to start with the functions below.
@@ -13,7 +14,7 @@ namespace QuickPlay
         id = Util.toText(card.itemId)
         k = playKind(Util.toText(card.itemType))
         if id = "" or k = "" then return invalid
-        ' (v1.1) an Upcoming card on Home (feat/v110-home sets upcoming = true): not aired yet, nothing to play
+        ' (v1.1) an Upcoming card on Home that hasn't aired (HomeTask sets upcoming = true only then, BG-6)
         if card.hasField("upcoming") and card.upcoming = true then return invalid
         return { id: "quickplay", itemId: id, itemType: Util.toText(card.itemType), title: Util.toText(card.title) }
     end function
@@ -45,36 +46,50 @@ namespace QuickPlay
         return d.ToISOString().left(19)
     end function
 
-    ' An episode whose PremiereDate is still in the future (UTC) hasn't aired: no Play for it anywhere.
+    ' (BG-1) The server has no file for this item: LocationType "Virtual", IsMissing, or an empty MediaSources list.
+    ' Without those fields the item counts as on disk (the server didn't say otherwise).
+    function hasNoMedia(it as dynamic) as boolean
+        if not Util.isAA(it) then return false
+        if Util.toText(it.LocationType) = "Virtual" then return true
+        if Util.flag(it, "IsMissing") then return true
+        return type(it.MediaSources) = "roArray" and it.MediaSources.count() = 0
+    end function
+
+    ' An episode that hasn't aired: its PremiereDate is still in the future AND the server has no file for it
+    ' (BG-1: a file that is already there plays, whatever its date says). No Play for it anywhere.
     ' nowIso: QuickPlay.nowStamp(); a missing date or another type is never unaired.
     function isUnaired(it as dynamic, nowIso as string) as boolean
         if not Util.isAA(it) or Util.toText(it.Type) <> "Episode" then return false
-        d = Util.toText(it.PremiereDate)
-        if d.len() < 10 or nowIso.len() < 10 then return false
-        d = d.left(19)
-        n = nowIso.left(19)
-        if d.len() < n.len() then d = d + "T00:00:00".right(n.len() - d.len())
-        return d > n
+        if not hasNoMedia(it) then return false
+        aired = Dates.utcSecsOf(it.PremiereDate)
+        now = Dates.utcSecsOf(nowIso)
+        if aired = invalid or now = invalid then return false
+        return aired > now
     end function
 
     ' A series or season: the first episode not watched yet (specials, season 0, only when there is nothing
-    ' else), else the first one; invalid for an empty list
+    ' else), else the first regular one; a list of specials only (a Specials season): its first unwatched special,
+    ' else the first one (BG-7); invalid for an empty list
     ' (nowIso given: episodes that haven't aired yet are skipped)
     function pickEpisode(list as dynamic, nowIso = "" as string) as dynamic
         if type(list) <> "roArray" then return invalid
         firstRegular = invalid
         firstAny = invalid
+        firstUnwatchedAny = invalid
         for each e in list
             if Util.isAA(e) and Util.toText(e.Id) <> "" and Util.toText(e.Type) <> "Season" and not isUnaired(e, nowIso)
                 if firstAny = invalid then firstAny = e
+                played = Util.flag(e.UserData, "Played")
+                if firstUnwatchedAny = invalid and not played then firstUnwatchedAny = e
                 special = Util.toNumber(e.ParentIndexNumber) = 0 and e.ParentIndexNumber <> invalid
                 if not special
                     if firstRegular = invalid then firstRegular = e
-                    if not Util.flag(e.UserData, "Played") then return e
+                    if not played then return e
                 end if
             end if
         end for
         if firstRegular <> invalid then return firstRegular
+        if firstUnwatchedAny <> invalid then return firstUnwatchedAny
         return firstAny
     end function
 
@@ -92,7 +107,8 @@ namespace QuickPlay
         return firstPlayable
     end function
 
-    ' The player's item for a movie / episode: { id, title, subtitle, start }
+    ' The player's item for a movie / episode: { id, title, subtitle, start }; a trailer also gets trailer: true
+    ' (BG-11: no Cinema Mode intros, no resume point or watched marking, as from the details page)
     function playerItem(it as object) as object
         title = Util.toText(it.Name)
         subtitle = ""
@@ -105,6 +121,7 @@ namespace QuickPlay
             subtitle = s + n
             if s <> "" and n <> "" then subtitle = s + "  ·  " + n
         end if
+        if Util.toText(it.Type) = "Trailer" then return { id: Util.toText(it.Id), title: title, subtitle: "Trailer", start: 0.0, trailer: true }
         return { id: Util.toText(it.Id), title: title, subtitle: subtitle, start: startSecs(it) }
     end function
 

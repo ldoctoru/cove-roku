@@ -816,7 +816,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
         if m.state = "hero" and m.heroes.count() > 0 then card = m.heroes[m.heroIndex]
         a = QuickPlay.cardAction(card)
         if a <> invalid then m.top.action = a
-        return a <> invalid
+        ' (BG-6) an Upcoming card that hasn't aired: say why nothing plays, as the details page does
+        if a = invalid and isUpcomingCard(card) then Toasts.notify("This episode hasn't aired yet", "info")
+        return a <> invalid or isUpcomingCard(card)
     end if
     if m.state = "hero"
         m.heroTimer.control = "stop"

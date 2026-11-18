@@ -4,6 +4,7 @@ import "pkg:/source/Prefs.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/HomeLayout.bs"
 import "pkg:/source/Dates.bs"
+import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/Servers.bs"
 
 sub init()
@@ -205,21 +206,25 @@ sub addRow(root as object, title as string, list as object, isLandscape as boole
     end for
 end sub
 
-' (v1.1) Upcoming: 16:9 cards with the air date first ("Tomorrow  ·  S2:E5  ·  Name"). They can't be played
-' yet: the card carries upcoming = true and its series, so OK opens the series page and * has no Play.
+' (v1.1) Upcoming: 16:9 cards with the air date first ("Tomorrow  ·  S2:E5  ·  Name"). One that hasn't aired
+' and has no file yet (BG-6: QuickPlay.isUnaired) carries upcoming = true and its series, so OK opens the series
+' page and * has no Play; the server also lists yesterday's and today's episodes, and those play as usual.
+' (BG-3) The dates are in the Roku's own time zone.
 sub addUpcomingRow(root as object, list as object)
     list = Ratings.keepChecked(m.srv, list)
     if list.count() = 0 then return
     today = Dates.localToday()
     monthFirst = Dates.usesMonthFirst()
+    tz = Dates.localOffsetSecs()
+    nowIso = QuickPlay.nowStamp()
     row = root.createChild("ContentNode")
     row.title = "Upcoming"
     row.addFields({ landscape: true })
     for each it in list
         c = Items.node(m.srv, it, true)
-        air = Dates.airLabel(it.PremiereDate, today, monthFirst)
+        air = Dates.airLabel(it.PremiereDate, today, monthFirst, tz)
         if air = "" then air = "Coming soon"
-        c.addFields({ upcoming: true, seriesId: Util.toText(it.SeriesId), airLabel: air })
+        c.addFields({ upcoming: QuickPlay.isUnaired(it, nowIso), seriesId: Util.toText(it.SeriesId), airLabel: air })
         if c.episode <> ""
             c.episode = air + "  ·  " + c.episode
         else
