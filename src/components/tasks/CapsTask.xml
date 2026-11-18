@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.1.1 SP-24) The decoder and display probes for the device line ("Roku 9102X · 4K HDR10 ..."), on a Task
+     thread instead of the render thread at start-up. "line" = DeviceCaps.deviceLine. -->
+<component name="CapsTask" extends="Task">
+    <script type="text/brightscript" uri="CapsTask.bs" />
+    <interface>
+        <field id="line" type="string" />
+    </interface>
+</component>

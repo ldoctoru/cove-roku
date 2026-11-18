@@ -8,6 +8,7 @@ import "pkg:/source/Speak.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Toasts.bs"
 import "pkg:/source/Hints.bs"
+import "pkg:/source/NavUtil.bs"
 
 sub init()
     m.readySent = false     ' Home told MainScene it is ready (AppLaunchComplete)
@@ -76,6 +77,8 @@ sub init()
     m.picker = invalid
     m.menuItem = invalid
     m.timersPaused = false
+    ' (v1.1.1 NV-5) the hero stops rotating once a key is pressed on Home, until Home is left and reached again
+    m.heroHeld = false
     m.spokenRow = -1
     ' (Cove speaks the cards and the hero itself, see speakHero / onItemFocused)
     Speak.mute([m.rows, m.top.findNode("heroKeys")])
@@ -100,6 +103,9 @@ sub load()
     m.task = createObject("roSGNode", "HomeTask")
     m.libsPending = true
     m.task.server = s
+    ' (v1.1.1) the launch timing lines, for the first load only
+    m.task.timing = m.timedLoad <> true
+    m.timedLoad = true
     m.task.observeField("content", "onContent")
     m.task.observeField("error", "onError")
     m.task.observeField("authFailed", "onAuthFailed")
@@ -462,19 +468,33 @@ sub paintCircle(name as string, isFocused as boolean)
     icon = m.top.findNode(name + "Icon")
     g = m.top.findNode("btn" + UCase(name.left(1)) + name.mid(1))
     g.scaleRotateCenter = [34, 34]
+    ' (v1.1.1 VD-6) one focus rule: the white ring shows the focus; the circle keeps its glass fill, so it never
+    ' looks like a second Play button
+    bg.uri = "pkg:/images/ui/glass_circle_69.png"
+    icon.blendColor = "0xFFFFFFFF"
+    m.top.findNode(name + "Ring").visible = isFocused
     if isFocused
-        bg.uri = "pkg:/images/ui/white_circle_69.png"
-        icon.blendColor = "0x000000FF"
         g.scale = [1.06, 1.06]
     else
-        bg.uri = "pkg:/images/ui/glass_circle_69.png"
-        icon.blendColor = "0xFFFFFFFF"
         g.scale = [1.0, 1.0]
     end if
 end sub
 
 sub onHeroTimer()
+    if m.heroHeld then return
     if (m.state = "hero" or m.state = "nav") and m.heroes.count() > 1 then showHero(m.heroIndex + 1)
+end sub
+
+' (NV-5) the 9 s rotation, unless a key was pressed on Home since it was last reached
+sub startHeroTimer()
+    m.heroTimer.control = "stop"
+    if not m.heroHeld then m.heroTimer.control = "start"
+end sub
+
+' (NV-5) a key on Home: OK must act on the title on screen, so the hero holds still from now on
+sub holdHero()
+    m.heroHeld = true
+    m.heroTimer.control = "stop"
 end sub
 
 sub useButton()
@@ -553,7 +573,7 @@ sub enterHero(animate = true as boolean)
     m.top.findNode("heroKeys").setFocus(true)
     goTop(animate)
     showBackdrop(m.heroes[m.heroIndex].backdrop)
-    m.heroTimer.control = "start"
+    startHeroTimer()
     paintButtons()
     speakHero(true)
 end sub
@@ -604,7 +624,7 @@ sub leaveNav()
     else
         m.state = "hero"
         m.top.findNode("heroKeys").setFocus(true)
-        m.heroTimer.control = "start"
+        startHeroTimer()
         speakHero(true)
     end if
     paintButtons()
@@ -650,6 +670,8 @@ end sub
 sub onNavChosen(ev as object)
     id = ev.getData().id
     if id = "home"
+        ' (NV-5) Home chosen again: the hero rotates again
+        m.heroHeld = false
         if m.heroes.count() > 0
             enterHero()
         else
@@ -745,11 +767,13 @@ sub onFocusChanged()
     end if
     if m.timersPaused
         m.timersPaused = false
+        ' (NV-5) back on Home from another page: the hero rotates again
+        m.heroHeld = false
         if m.rows.visible
             loadSessions()
             m.sessionsTimer.control = "start"
         end if
-        if m.state = "hero" then m.heroTimer.control = "start"
+        if m.state = "hero" then startHeroTimer()
     end if
     if not m.top.hasFocus() then return
     if m.picker <> invalid
@@ -794,6 +818,8 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
+    ' (NV-5) any key that reaches Home (the hero, the end of a row, the sidebar edge) stops the rotation
+    if m.state = "hero" or m.state = "rows" then holdHero()
     if key = "options"
         ' (* used once: no more hint for this profile)
         if m.wantHint = invalid or m.wantHint = true
@@ -816,11 +842,11 @@ function onKeyEvent(key as string, press as boolean) as boolean
         if m.state = "hero" and m.heroes.count() > 0 then card = m.heroes[m.heroIndex]
         a = QuickPlay.cardAction(card)
         if a <> invalid then m.top.action = a
-        return a <> invalid
+        ' (BG-6) an Upcoming card that hasn't aired: say why nothing plays, as the details page does
+        if a = invalid and isUpcomingCard(card) then Toasts.notify("This episode hasn't aired yet", "info")
+        return a <> invalid or isUpcomingCard(card)
     end if
     if m.state = "hero"
-        m.heroTimer.control = "stop"
-        m.heroTimer.control = "start"
         if key = "left"
             if m.btn > 0
                 m.btn = m.btn - 1
@@ -871,6 +897,11 @@ function onKeyEvent(key as string, press as boolean) as boolean
             return true
         end if
     else if m.state = "rows"
+        ' (NV-13) Rewind / Fast Forward: one screen of cards back / on along the row
+        if key = "rewind" or key = "fastforward"
+            pageRow(key = "fastforward")
+            return true
+        end if
         if key = "left" and m.side
             ' (only reaches here at the first card of a row)
             enterNav()
@@ -899,6 +930,18 @@ function onKeyEvent(key as string, press as boolean) as boolean
     end if
     return false
 end function
+
+' (NV-13) Jump one screen of cards along the focused row (the RowList keeps Left / Right one card at a time)
+sub pageRow(forward as boolean)
+    f = m.rows.rowItemFocused
+    if f = invalid or f.count() < 2 or m.rows.content = invalid then return
+    row = m.rows.content.getChild(f[0])
+    if row = invalid then return
+    dir = -1
+    if forward then dir = 1
+    col = NavUtil.pageColumn(f[1], row.getChildCount(), Int(m.rows.itemSize[0]), NavUtil.rowCardWidth(m.rows.rowItemSize, f[0]), dir)
+    if col >= 0 and col <> f[1] then m.rows.jumpToRowItem = [f[0], col]
+end sub
 
 ' ---------------------------------------------------------------- favourite (hero +)
 

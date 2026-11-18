@@ -38,7 +38,7 @@ sub loadFavorites()
     m.lists = {}
     m.pending = []
     uid = Util.toText(srv.userId)
-    q = "Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,BoxSet,Video,MusicVideo&SortBy=SortName&SortOrder=Ascending&Limit=300&" + Items.fields()
+    q = "Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,BoxSet,Video,MusicVideo&SortBy=SortName&SortOrder=Ascending&Limit=300" + Items.noCount() + "&" + Items.slimFields(false)
     startList("items", "/Users/" + uid + "/Items?" + q, "/Items?userId=" + uid + "&" + q, "")
     ' /Persons takes IsFavorite on Emby and Jellyfin (Filters too, for servers that only read that)
     startList("people", "/Persons?UserId=" + uid + "&IsFavorite=true&Filters=IsFavorite&Recursive=true&SortBy=SortName&SortOrder=Ascending&Limit=100&EnableUserData=true", "", "person")

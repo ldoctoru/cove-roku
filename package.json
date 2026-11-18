@@ -1,11 +1,11 @@
 {
   "name": "cove-roku",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "Cove for Roku: Emby and Jellyfin client",
   "license": "GPL-3.0",
   "scripts": {
-    "build": "bsc && node scripts/check-shadowing.js",
+    "build": "bsc && node scripts/check-shadowing.js && node scripts/check-firmware-syntax.js",
     "lint": "bsc --create-package false --retain-staging-dir false",
     "test": "node tests/run.js && node --test tests/scripts/*.test.js",
     "assets": "python3 scripts/make-ui-assets.py",

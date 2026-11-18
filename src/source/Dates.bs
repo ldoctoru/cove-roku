@@ -2,8 +2,10 @@ import "pkg:/source/Util.bs"
 
 ' Air-date labels for Home's Upcoming row (v1.1): "Today", "Tomorrow", "Yesterday", else "Fri 21 Nov"
 ' (24 h Rokus) or "Fri Nov 21" (12 h Rokus, the US style), with the year when it's far off.
-' Servers keep an episode's air date as a date at midnight UTC, so the date part is used as it is (turning it
-' into local time would move it a day back west of UTC).
+' Most servers keep an episode's air date as a date at midnight UTC, so that date part is used as it is (turning
+' it into local time would move it a day back west of UTC). (BG-3) Servers that store the server's local midnight
+' converted to UTC ("2026-11-20T22:00:00Z" for a Nov 21 episode on a UTC+2 server) give a time that is not
+' midnight: that one is turned into the Roku's local date.
 namespace Dates
 
     ' Days since 1970-01-01 for a calendar date (Howard Hinnant's days_from_civil, years >= 1)
@@ -18,15 +20,75 @@ namespace Dates
         return era * 146097 + doe - 719468
     end function
 
-    ' { y, m, d } from an ISO date ("2026-11-21T00:00:00.0000000Z", "2026-11-21"), or invalid
-    function ymdOf(iso as dynamic) as dynamic
+    ' The calendar date of a day number from daysFrom1970 (Howard Hinnant's civil_from_days): { y, m, d }
+    function civilFromDays(dayNum as integer) as object
+        z = dayNum + 719468
+        era = Int(z / 146097)
+        doe = z - era * 146097
+        yoe = (doe - doe \ 1460 + doe \ 36524 - doe \ 146096) \ 365
+        doy = doe - (365 * yoe + yoe \ 4 - yoe \ 100)
+        mp = (5 * doy + 2) \ 153
+        d = doy - (153 * mp + 2) \ 5 + 1
+        mo = mp + 3
+        if mp >= 10 then mo = mp - 9
+        y = yoe + era * 400
+        if mo <= 2 then y = y + 1
+        return { y: y, m: mo, d: d }
+    end function
+
+    ' The parts of an ISO date / time: { y, m, d, hasTime, tod (seconds into the day), offset (seconds east of
+    ' UTC from a "+02:00" suffix; 0 for "Z" or none) }, or invalid. Fractional seconds are ignored.
+    function isoParts(iso as dynamic) as dynamic
         s = Util.toText(iso)
         if s.len() < 10 or s.mid(4, 1) <> "-" or s.mid(7, 1) <> "-" then return invalid
         y = s.left(4).toInt()
         mo = s.mid(5, 2).toInt()
         d = s.mid(8, 2).toInt()
         if y < 1900 or mo < 1 or mo > 12 or d < 1 or d > 31 then return invalid
-        return { y: y, m: mo, d: d }
+        r = { y: y, m: mo, d: d, hasTime: false, tod: 0, offset: 0 }
+        if s.len() < 16 or (s.mid(10, 1) <> "T" and s.mid(10, 1) <> " ") or s.mid(13, 1) <> ":" then return r
+        r.hasTime = true
+        secs = 0
+        rest = s.mid(16)
+        if s.len() >= 19 and s.mid(16, 1) = ":"
+            secs = s.mid(17, 2).toInt()
+            rest = s.mid(19)
+        end if
+        r.tod = s.mid(11, 2).toInt() * 3600 + s.mid(14, 2).toInt() * 60 + secs
+        ' (skip ".0000000", then read "Z" / "+HH:MM" / "-HHMM")
+        i = 0
+        if rest.left(1) = "."
+            i = 1
+            while i < rest.len() and Instr(1, "0123456789", rest.mid(i, 1)) > 0
+                i = i + 1
+            end while
+        end if
+        sign = rest.mid(i, 1)
+        if (sign = "+" or sign = "-") and rest.len() >= i + 3
+            z = rest.mid(i + 1).replace(":", "")
+            off = z.left(2).toInt() * 3600 + z.mid(2, 2).toInt() * 60
+            if sign = "-" then off = -off
+            r.offset = off
+        end if
+        return r
+    end function
+
+    ' Seconds since 1970-01-01 UTC for an ISO date / time (a value without a zone counts as UTC), or invalid
+    function utcSecsOf(iso as dynamic) as dynamic
+        p = isoParts(iso)
+        if p = invalid then return invalid
+        return daysFrom1970(p.y, p.m, p.d) * 86400# + p.tod - p.offset
+    end function
+
+    ' { y, m, d } from an ISO date ("2026-11-21T00:00:00.0000000Z", "2026-11-21"), or invalid.
+    ' tzOffset = the Roku's seconds east of UTC (Dates.localOffsetSecs()): a date at exactly midnight UTC (or a
+    ' date alone) keeps its date part; any other time is turned into the local date (BG-3).
+    function ymdOf(iso as dynamic, tzOffset = 0 as integer) as dynamic
+        p = isoParts(iso)
+        if p = invalid then return invalid
+        if not p.hasTime or (p.tod - p.offset) = 0 then return { y: p.y, m: p.m, d: p.d }
+        secs = utcSecsOf(iso) + tzOffset
+        return civilFromDays(Int(secs / 86400))
     end function
 
     ' "Sun" .. "Sat" for a day number from daysFrom1970 (1970-01-01 was a Thursday)
@@ -43,10 +105,10 @@ namespace Dates
         return names[mo - 1]
     end function
 
-    ' The label for an air date. today = { y, m, d } (local), monthFirst = the 12 h / US style.
-    ' "" when the date can't be read.
-    function airLabel(iso as dynamic, today as object, monthFirst as boolean) as string
-        a = ymdOf(iso)
+    ' The label for an air date. today = { y, m, d } (local), monthFirst = the 12 h / US style,
+    ' tzOffset = the Roku's seconds east of UTC (see ymdOf). "" when the date can't be read.
+    function airLabel(iso as dynamic, today as object, monthFirst as boolean, tzOffset = 0 as integer) as string
+        a = ymdOf(iso, tzOffset)
         if a = invalid or today = invalid then return ""
         dayNum = daysFrom1970(a.y, a.m, a.d)
         diff = dayNum - daysFrom1970(today.y, today.m, today.d)
@@ -64,6 +126,14 @@ namespace Dates
         dt = createObject("roDateTime")
         dt.toLocalTime()
         return { y: dt.getYear(), m: dt.getMonth(), d: dt.getDayOfMonth() }
+    end function
+
+    ' (Tasks / main only) the Roku's time zone as seconds east of UTC (Settings → System → Time → Time zone)
+    function localOffsetSecs() as integer
+        dt = createObject("roDateTime")
+        utc = dt.asSeconds()
+        dt.toLocalTime()
+        return dt.asSeconds() - utc
     end function
 
     ' The Roku's clock setting: 12 h Rokus get US-style dates ("Fri Nov 21")
