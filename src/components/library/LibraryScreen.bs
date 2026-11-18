@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/Speak.bs"
@@ -14,6 +15,7 @@ sub init()
     m.grid.observeField("itemSelected", "onSelected")
     m.top.observeField("focusedChild", "onFocusChanged")
     m.sort = "name"
+    m.order = ""          ' (v1.1 P-4) "" = the sort's own direction (Name A to Z, the others newest / highest first), "asc" / "desc"
     m.show = "all"          ' all / unwatched / watched / favourites
     m.genre = ""
     m.letter = ""
@@ -56,16 +58,20 @@ sub onLibrary()
         if saved <> invalid
             sv = Util.toText(saved.s)
             if sv = "name" or sv = "added" or sv = "year" or sv = "rating" then m.sort = sv
+            sv = Util.toText(saved.o)
+            if sv = "a" then m.order = "asc"
+            if sv = "d" then m.order = "desc"
             sv = Util.toText(saved.w)
             if sv = "all" or sv = "unwatched" or sv = "watched" or sv = "favourites" then m.show = sv
             m.genre = Util.toText(saved.g)
             m.letter = Util.toText(saved.l)
-            print "Cove: library filters kept: "; m.sort; " / "; m.show; " / "; m.genre; " / "; m.letter
+            print "Cove: library filters kept: "; m.sort; " "; m.order; " / "; m.show; " / "; m.genre; " / "; m.letter
         end if
     end if
     drawBar()
     reload()
-    loadGenres()
+    ' (a genre / studio page: no Genre pill of its own)
+    if feed() <> "tag" then loadGenres()
 end sub
 
 ' The page's choices for the next visit (only what differs from the Settings → Libraries defaults)
@@ -75,6 +81,8 @@ sub saveFilters()
     f = { g: m.genre, l: m.letter }
     if m.sort <> m.defSort then f.s = m.sort
     if m.show <> m.defShow then f.w = m.show
+    if m.order = "asc" then f.o = "a"
+    if m.order = "desc" then f.o = "d"
     Prefs.setLibFilters(libId, f)
 end sub
 
@@ -104,14 +112,42 @@ sub onRefresh()
 end sub
 
 function sortQuery() as string
-    if m.sort = "added" then return "SortBy=DateCreated,SortName&SortOrder=Descending"
-    if m.sort = "year" then return "SortBy=ProductionYear,PremiereDate,SortName&SortOrder=Descending"
-    if m.sort = "rating" then return "SortBy=CommunityRating,SortName&SortOrder=Descending"
-    return "SortBy=SortName&SortOrder=Ascending"
+    dir = "Ascending"
+    if sortDescending() then dir = "Descending"
+    if m.sort = "added" then return "SortBy=DateCreated,SortName&SortOrder=" + dir
+    if m.sort = "year" then return "SortBy=ProductionYear,PremiereDate,SortName&SortOrder=" + dir
+    if m.sort = "rating" then return "SortBy=CommunityRating,SortName&SortOrder=" + dir
+    return "SortBy=SortName&SortOrder=" + dir
 end function
 
+' (v1.1 P-4, Mac "Order") The direction: the chosen one, else the sort's own (Name A to Z, the others descending)
+function sortDescending() as boolean
+    if m.order = "asc" then return false
+    if m.order = "desc" then return true
+    return m.sort <> "name"
+end function
+
+' The Order pill: "Ascending" / "Descending", as on the Mac
+function orderLabel() as string
+    if sortDescending() then return "Descending"
+    return "Ascending"
+end function
+
+' OK on the Order pill: the other direction ("" again when that is the sort's own, so nothing extra is saved)
+sub toggleOrder()
+    wantDesc = not sortDescending()
+    m.order = "asc"
+    if wantDesc then m.order = "desc"
+    if wantDesc = (m.sort <> "name") then m.order = ""
+    print "Cove: library order "; orderLabel()
+    m.spokenKey = ""
+    saveFilters()
+    drawBar()
+    reload()
+end sub
+
 function sortLabel() as string
-    if m.sort = "added" then return "Date added"
+    if m.sort = "added" then return "Date Added"
     if m.sort = "year" then return "Year"
     if m.sort = "rating" then return "Rating"
     return "Name"
@@ -145,6 +181,25 @@ function filterQuery() as string
         q = q + "&NameStartsWith=" + m.letter
     end if
     return q
+end function
+
+' (v1.1) A genre / studio page (from the pills on a details page): GenreIds / StudioIds on both Emby and
+' Jellyfin; without an id the name (Genres= / Studios=, "|" separates several names, so it is dropped)
+function tagQuery(lib as object) as string
+    id = Util.toText(lib.tagId)
+    name = Util.toText(lib.tagName).replace("|", " ")
+    if Util.toText(lib.tagKind) = "Studio"
+        if Util.isSafeId(id, false) then return "&StudioIds=" + id
+        return "&Studios=" + name.encodeUriComponent()
+    end if
+    if Util.isSafeId(id, false) then return "&GenreIds=" + id
+    return "&Genres=" + name.encodeUriComponent()
+end function
+
+function tagTypesOf(lib as object) as string
+    t = Util.toText(lib.tagTypes)
+    if t = "Movie" or t = "Series" then return t
+    return "Movie,Series"
 end function
 
 ' A filter the user picked (the Favorites page's own IsFavorite doesn't count)
@@ -196,6 +251,8 @@ sub drawBar()
     end if
     ids.push("sort")
     texts.push("Sort: " + sortLabel())
+    ids.push("order")
+    texts.push("Order: " + orderLabel())
     if m.genres.count() > 0
         ids.push("genre")
         g = "All"
@@ -205,7 +262,7 @@ sub drawBar()
     ids.push("letter")
     l = "All"
     if m.letter <> "" then l = m.letter
-    texts.push("A–Z: " + l)
+    texts.push("A-Z: " + l)
     ids.push("show")
     texts.push("Show: " + showLabel())
     m.barIds = ids
@@ -214,7 +271,7 @@ sub drawBar()
     focused = m.inBar and m.picker = invalid
     for i = 0 to ids.count() - 1
         isFocus = focused and i = m.barIdx
-        active = (ids[i] = "genre" and m.genre <> "") or (ids[i] = "letter" and m.letter <> "") or (ids[i] = "show" and m.show <> "all") or (ids[i] = "sort" and m.sort <> "name")
+        active = (ids[i] = "genre" and m.genre <> "") or (ids[i] = "letter" and m.letter <> "") or (ids[i] = "show" and m.show <> "all") or (ids[i] = "sort" and m.sort <> "name") or (ids[i] = "order" and m.order <> "")
         g = b.createChild("Group")
         bg = g.createChild("Poster")
         lab = g.createChild("Label")
@@ -229,7 +286,7 @@ sub drawBar()
         isTab = ids[i].startsWith("tab:")
         w = lab.boundingRect().width + 84
         ' (an action or a tab, not a choice: no chevron)
-        if ids[i] = "shuffle" or isTab then w = lab.boundingRect().width + 48
+        if ids[i] = "shuffle" or ids[i] = "order" or isTab then w = lab.boundingRect().width + 48
         bg.width = w
         bg.height = 52
         ch = g.createChild("Poster")
@@ -237,7 +294,7 @@ sub drawBar()
         ch.width = 22
         ch.height = 22
         ch.translation = [w - 44, 15]
-        ch.visible = ids[i] <> "shuffle" and not isTab
+        ch.visible = ids[i] <> "shuffle" and ids[i] <> "order" and not isTab
         if isFocus
             bg.uri = "pkg:/images/ui/white_pill.9.png"
             lab.color = "0x000000FF"
@@ -285,6 +342,8 @@ sub speakBar(texts as object)
     else if id.startsWith("tab:")
         text = text + ", tab"
         if id = "tab:" + m.tab then text = text + ", selected"
+    else if id = "order"
+        text = "Sort order: " + orderLabel() + ", press OK to reverse"
     else if id <> "shuffle"
         text = text + ", menu"
     end if
@@ -332,10 +391,12 @@ sub useBar()
         end if
     else if id = "shuffle"
         startShuffle()
+    else if id = "order"
+        toggleOrder()
     else if id = "sort"
-        openPicker("sort", "Sort by", [{ id: "name", label: "Name" }, { id: "added", label: "Date added" }, { id: "year", label: "Year" }, { id: "rating", label: "Rating" }], m.sort)
+        openPicker("sort", "Sort by", [{ id: "name", label: "Name" }, { id: "added", label: "Date Added" }, { id: "year", label: "Year" }, { id: "rating", label: "Rating" }], m.sort)
     else if id = "genre"
-        o = [{ id: "", label: "All genres" }]
+        o = [{ id: "", label: "All Genres" }]
         for each g in m.genres
             o.push({ id: g, label: g })
         end for
@@ -412,7 +473,9 @@ sub loadPage(startIndex as integer, limit as integer)
     q = sortQuery() + "&StartIndex=" + startIndex.toStr() + "&Limit=" + limit.toStr() + "&" + Items.fields()
     if Util.toText(lib.id) <> "" then q = "ParentId=" + Util.toText(lib.id) + "&" + q
     ' A library: everything of its kind inside it; a folder / collection: just what it contains
-    if feed() = "favorites"
+    if feed() = "tag"
+        q = q + "&Recursive=true&IncludeItemTypes=" + tagTypesOf(lib) + tagQuery(lib)
+    else if feed() = "favorites"
         q = q + "&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video,BoxSet"
     else if feed() = "recent"
         q = q + "&Recursive=true&IncludeItemTypes=Movie,Series"
@@ -583,6 +646,13 @@ function onKeyEvent(key as string, press as boolean) as boolean
         end if
         return true
     end if
+    ' (v1.1 U-1) Play on a card: play it (a series its next episode) without opening its page
+    if key = "play"
+        a = invalid
+        if m.grid.isInFocusChain() and m.grid.content <> invalid then a = QuickPlay.cardAction(m.grid.content.getChild(m.grid.itemFocused))
+        if a <> invalid then m.top.action = a
+        return a <> invalid
+    end if
     ' Up from the top row of the grid, or *: the filter pills
     if key = "up" or key = "options"
         enterBar()
@@ -625,6 +695,8 @@ sub onPicked(ev as object)
     purpose = m.picker.purpose
     closePicker()
     if purpose = "sort"
+        ' (another sort: its own direction again)
+        if id <> m.sort then m.order = ""
         m.sort = id
     else if purpose = "genre"
         m.genre = id

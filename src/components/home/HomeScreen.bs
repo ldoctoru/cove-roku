@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Prefs.bs"
@@ -331,7 +332,7 @@ sub buildHeroes(content as object)
         taken = 0
         for j = 0 to row.getChildCount() - 1
             it = row.getChild(j)
-            if taken < 2 and m.heroes.count() < 8 and it.backdrop <> "" and not isFolderKind(it.itemType) and not seen.doesExist(it.itemId)
+            if taken < 2 and m.heroes.count() < 8 and it.backdrop <> "" and not isFolderKind(it.itemType) and not isUpcomingCard(it) and not seen.doesExist(it.itemId)
                 seen[it.itemId] = true
                 m.heroes.push(it)
                 taken = taken + 1
@@ -561,7 +562,7 @@ end sub
 sub speakHero(withTitle as boolean)
     if not Speak.isOn() or m.heroes.count() = 0 then return
     it = m.heroes[m.heroIndex]
-    names = ["Play", "Add to Favorites", "More information"]
+    names = ["Play", "Add to Favorites", "More Information"]
     if it.itemType = "Series" then names[0] = "Open"
     if it.favorite then names[1] = "Remove from Favorites"
     text = Speak.button(names[m.btn]) + Speak.position(m.btn, 3)
@@ -715,8 +716,18 @@ end sub
 
 sub onItemSelected()
     it = focusedItem()
-    if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
+    if it <> invalid then m.top.action = openAction(it)
 end sub
+
+' (v1.1) Upcoming cards haven't aired: they open their series page, and have no Play or Mark as watched
+function isUpcomingCard(it as dynamic) as boolean
+    return it <> invalid and it.hasField("upcoming") and it.upcoming = true
+end function
+
+function openAction(it as object) as object
+    if isUpcomingCard(it) and Util.toText(it.seriesId) <> "" then return { id: "open", itemId: it.seriesId, itemType: "Series", collectionType: "", title: it.title }
+    return { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
+end function
 
 ' ---------------------------------------------------------------- keys
 
@@ -797,6 +808,15 @@ function onKeyEvent(key as string, press as boolean) as boolean
             showOptions()
         end if
         return true
+    end if
+    ' (v1.1 U-1) Play on a card or the hero: play it (a series its next episode) without opening its page
+    if key = "play"
+        card = invalid
+        if m.state = "rows" then card = focusedItem()
+        if m.state = "hero" and m.heroes.count() > 0 then card = m.heroes[m.heroIndex]
+        a = QuickPlay.cardAction(card)
+        if a <> invalid then m.top.action = a
+        return a <> invalid
     end if
     if m.state = "hero"
         m.heroTimer.control = "stop"
@@ -902,19 +922,21 @@ sub itemMenu(it as object)
     m.menuItem = it
     o = []
     kind = it.itemType
-    if kind <> "Series" and not isFolderKind(kind)
+    if kind <> "Series" and not isFolderKind(kind) and not isUpcomingCard(it)
         if it.resumeAt > 30
             o.push({ id: "resume", label: "Resume from " + Playback.clock(it.resumeAt) })
-            o.push({ id: "start", label: "Play from the beginning" })
+            o.push({ id: "start", label: "Play from the Beginning" })
         else
             o.push({ id: "start", label: "Play" })
         end if
     end if
     if not isFolderKind(kind)
-        if it.played
-            o.push({ id: "unwatched", label: "Mark as unwatched" })
+        if isUpcomingCard(it)
+            ' (not aired yet: nothing to mark)
+        else if it.played
+            o.push({ id: "unwatched", label: "Mark as Unwatched" })
         else
-            o.push({ id: "watched", label: "Mark as watched" })
+            o.push({ id: "watched", label: "Mark as Watched" })
         end if
         ' (only the row's own cards: the same title elsewhere on Home keeps the plain menu)
         if it.resumeAt > 0 and focusedRowTitle() = "Continue Watching" then o.push({ id: "unresume", label: "Remove from Continue Watching" })
@@ -925,7 +947,7 @@ sub itemMenu(it as object)
         end if
     end if
     o.push({ id: "open", label: "Details" })
-    o.push({ id: "more", label: "More options..." })
+    o.push({ id: "more", label: "More Options..." })
     title = it.title
     if it.episode <> "" then title = it.title + "  ·  " + it.episode
     p = createObject("roSGNode", "Picker")
@@ -968,7 +990,7 @@ sub onItemChosen(ev as object)
     else if id = "unresume"
         removeFromResume(it)
     else if id = "open"
-        m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
+        m.top.action = openAction(it)
     else if id = "more"
         showOptions()
     end if
@@ -1073,7 +1095,7 @@ sub showOptions()
     d = createObject("roSGNode", "StandardMessageDialog")
     d.title = Util.toText(m.top.server.name)
     d.message = ["Signed in as " + Util.toText(m.top.server.userName) + "  ·  " + Servers.typeName(m.top.server) + " " + Util.toText(m.top.server.version)]
-    d.buttons = ["Search", "Reload", "Switch server", "Sign out", "Settings", "Cancel"]
+    d.buttons = ["Search", "Reload", "Switch Server", "Sign Out", "Settings", "Cancel"]
     d.observeField("buttonSelected", "onOptionsButton")
     d.observeField("wasClosed", "onOptionsClosed")
     m.top.getScene().dialog = d

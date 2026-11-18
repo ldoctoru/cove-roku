@@ -8,6 +8,7 @@ import "pkg:/source/Items.bs"
 import "pkg:/source/MediaInfo.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Ratings.bs"
+import "pkg:/source/Clock.bs"
 
 sub init()
     m.video = m.top.findNode("video")
@@ -35,6 +36,9 @@ sub init()
     m.countdown.observeField("fire", "onCountdown")
     m.watchdog = m.top.findNode("watchdog")
     m.watchdog.observeField("fire", "onWatchdog")
+    ' (v1.1) "Intro skipped · Watch Intro" shows for 5 s after an automatic skip
+    m.noticeTimer = m.top.findNode("noticeTimer")
+    m.noticeTimer.observeField("fire", "onNoticeTimer")
     m.thumbFiles = {}
     m.osd = m.top.findNode("osd")
     m.hideTimer = m.top.findNode("hideTimer")
@@ -139,6 +143,10 @@ sub resetState()
     m.epWaiting = invalid
     m.epIndex = -1
     m.actionKind = ""
+    m.watchAt = -1.0        ' (v1.1) where Watch Intro / Watch Recap goes back to
+    m.noticeTimer.control = "stop"
+    m.tickDur = -1.0        ' (v1.1) the duration the chapter ticks on the bar were drawn for
+    m.top.findNode("ticks").removeChildrenIndex(m.top.findNode("ticks").getChildCount(), 0)
     m.introDismissed = false
     m.creditsDismissed = false
     m.opts = Playback.options()
@@ -177,7 +185,40 @@ sub begin()
     if it.options <> invalid and it.options.audio <> invalid then m.opts = it.options
     showLoading(0, "")
     Speak.say(Speak.clean("Loading " + Util.toText(it.title) + ", " + Util.toText(it.subtitle)))
+    ' (v1.1) the account's preferred audio language first, once per session (Tracks.serverAudioPref)
+    if Tracks.serverAudioPref(m.top.server) = invalid
+        get("/Users/" + Util.toText(m.top.server.userId), { kind: "user", itemId: it.id })
+    else
+        requestInfo()
+    end if
+end sub
+
+sub requestInfo()
+    it = m.top.item
     get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + it.id + "?Fields=MediaSources,MediaStreams,Chapters,Trickplay", { kind: "info", itemId: it.id })
+end sub
+
+' (v1.1) The audio to start with when none was picked by hand: the series' last choice, the server account's
+' audio language, else the file's default, never a commentary track (Tracks.startAudio). A pick on the
+' details page is remembered for the series.
+sub chooseStartAudio()
+    picked = m.top.item.options <> invalid and m.opts.audio >= 0
+    if picked
+        rememberAudio(m.opts.audio)
+        return
+    end if
+    seriesLang = ""
+    if seriesKey() <> "" then seriesLang = Prefs.seriesAudioLang(seriesKey())
+    wanted = Tracks.wantedAudio(m.tracks, seriesLang, Tracks.serverAudioPref(m.top.server))
+    a = Tracks.startAudio(m.tracks, wanted)
+    print "Cove: audio wanted ["; Util.join(wanted, ","); "] -> track "; a; " (file default "; m.opts.defaultAudio; ")"
+    if a >= 0 and a <> m.opts.defaultAudio then m.opts.audio = a
+end sub
+
+' The audio language chosen by hand, kept for the series (Prefs.seriesLangs)
+sub rememberAudio(index as integer)
+    a = Tracks.findAudio(m.tracks, index)
+    if a <> invalid and seriesKey() <> "" and a.language <> "" then Prefs.setSeriesAudioLang(seriesKey(), a.language)
 end sub
 
 sub onInfo(r as object)
@@ -187,6 +228,7 @@ sub onInfo(r as object)
         m.tracks = Tracks.fromItem(r.json, Util.toText(m.opts.sourceId))
         m.marks = Tracks.markers(r.json)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
+        chooseStartAudio()
         buildTools()
         ' Not chosen on the details page: forced subtitles, or the language chosen for the previous episode
         ' The series' subtitle language (series page pill, or the last choice made in the player for it):
@@ -599,6 +641,8 @@ sub onPosition()
         m.introDismissed = true
         print "Cove: skipping the intro to "; Int(mk.introEnd); " s"
         m.video.seek = mk.introEnd
+        ' (v1.1 P-2, as on the Mac: a notice to go back)
+        showSkipNotice(mk.introStart, "Intro skipped · Watch Intro")
     else if inIntro and not m.introDismissed
         showAction("intro", "Skip intro")
     else if seg <> invalid and seg.kind = "recap" and m.pf.skipRecap
@@ -606,6 +650,7 @@ sub onPosition()
         m.segsDone[seg.key] = true
         print "Cove: skipping the recap to "; Int(seg.e); " s"
         skipTo(seg.e)
+        showSkipNotice(seg.s, "Recap skipped · Watch Recap")
     else if seg <> invalid
         m.actionSeg = seg
         showAction("seg:" + seg.key, Tracks.segmentLabel(seg.kind))
@@ -619,15 +664,37 @@ sub onPosition()
     else if inCredits and not m.creditsDismissed
         ' a film or the last episode: no Up next, so the credits get their own button
         showAction("credits", "Skip credits")
-    else if m.actionKind <> ""
+    else if m.actionKind <> "" and m.actionKind <> "watch"
+        ' (the Watch Intro notice goes by its own 5 s timer)
         hideAction()
     end if
+end sub
+
+' (v1.1) After an automatic skip: the notice with a button back to the part's start, for 5 s
+sub showSkipNotice(backTo as float, label as string)
+    if backTo < 0 then return
+    m.watchAt = backTo
+    m.actionKind = ""
+    showAction("watch", label)
+    m.noticeTimer.control = "stop"
+    m.noticeTimer.control = "start"
+end sub
+
+sub onNoticeTimer()
+    if m.actionKind = "watch" then hideAction()
 end sub
 
 sub showAction(kind as string, label as string)
     if m.actionKind = kind then return
     m.actionKind = kind
     m.actionLabel.text = label
+    ' (the button grows for a longer label, keeping its right edge)
+    w = 270
+    est = label.len() * 16 + 64
+    if est > w then w = est
+    m.actionLabel.width = w
+    m.top.findNode("actionBg").width = w
+    m.action.translation = [1824 - w, 840]
     m.action.visible = true
     ' (PL-2 / PL-4: not over a menu or the controls in use, where OK belongs to them; the button takes the
     ' remote when the controls hide)
@@ -658,6 +725,13 @@ sub useAction()
     if k = "intro"
         m.introDismissed = true
         m.video.seek = m.marks.introEnd
+    else if k = "watch" and m.watchAt >= 0
+        ' (v1.1) Watch Intro / Watch Recap: back to its start; it isn't skipped again in this play
+        print "Cove: watch the skipped part from "; Int(m.watchAt); " s"
+        m.noticeTimer.control = "stop"
+        m.video.seek = m.watchAt
+        syncSubClock(m.watchAt)
+        m.subLayer.position = m.watchAt
     else if k = "next"
         playNext()
     else if k = "credits"
@@ -673,6 +747,7 @@ end sub
 sub dismissAction()
     k = m.actionKind
     if k = "intro" then m.introDismissed = true
+    if k = "watch" then m.noticeTimer.control = "stop"
     if k = "next" or k = "credits" then m.creditsDismissed = true
     if Left(k, 4) = "seg:" and m.actionSeg <> invalid then m.segsDone[m.actionSeg.key] = true
     hideAction()
@@ -995,6 +1070,7 @@ sub onPicked(ev as object)
             m.opts.sub = -1
             m.opts.burn = false
             m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
+            chooseStartAudio()
             buildTools()
             restartAt(m.video.position)
         else
@@ -1015,6 +1091,8 @@ sub onPicked(ev as object)
     restart = false
     if c.purpose = "audio" and v <> effectiveAudio()
         m.opts.audio = v
+        ' (v1.1) the language is kept for the series' next episodes
+        rememberAudio(v)
         restart = true
     else if c.purpose = "quality" and v <> m.opts.maxBitrate
         m.opts.maxBitrate = v
@@ -1160,7 +1238,8 @@ function onKeyEvent(key as string, press as boolean) as boolean
     else if key = "down" and m.area = "center"
         setArea("bar", 0)
     else if key = "down" and m.area = "bar" and m.toolIds.count() > 0
-        setArea("tools", m.toolIds.count() - 1)
+        ' (v1.1 U-3: the first tool, back, not the rightmost)
+        setArea("tools", 0)
     else if key = "up" and m.area = "tools"
         setArea("bar", 0)
     else if key = "up" and m.area = "bar"
@@ -1255,6 +1334,10 @@ sub useControl()
         openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
     else if id = "chapters"
         showChapters()
+    else if id = "chapPrev"
+        jumpChapter(-1)
+    else if id = "chapNext"
+        jumpChapter(1)
     end if
 end sub
 
@@ -1284,7 +1367,14 @@ sub buildTools()
     if m.tracks.subs.count() > 0 then ids.push("subs")
     if m.tracks.audio.count() > 1 then ids.push("audio")
     ids.push("quality")
-    if chapterEntries().count() > 0 then ids.push("chapters")
+    if chapterEntries().count() > 0
+        ids.push("chapters")
+        ' (v1.1) previous / next chapter
+        if chapterEntries().count() > 1
+            ids.push("chapPrev")
+            ids.push("chapNext")
+        end if
+    end if
     m.toolIds = ids
     if keep <> ""
         for i = 0 to ids.count() - 1
@@ -1300,7 +1390,33 @@ function toolIcon(id as string) as string
     ' (the icon shows the jump length from Settings → Playback → Jump buttons: back10 ... fwd60)
     if id = "jumpBack" then return "back" + m.pf.jump.toStr()
     if id = "jumpFwd" then return "fwd" + m.pf.jump.toStr()
+    if id = "chapPrev" then return "chapprev"
+    if id = "chapNext" then return "chapnext"
     return id
+end function
+
+' (v1.1 U-2) The caption over the focused tool: its name, and the current value for subtitles / audio /
+' quality ("Subtitles · English"). It sits above the capsule: the scrubber is right under it.
+function toolCaption(id as string) as string
+    j = m.pf.jump.toStr()
+    if id = "jumpBack" then return "Back " + j + " s"
+    if id = "jumpFwd" then return "Forward " + j + " s"
+    if id = "episodes" then return "Episodes"
+    if id = "subs" then return captionWithValue("Subtitles", Tracks.subLabel(m.tracks, m.opts.sub))
+    if id = "audio" then return captionWithValue("Audio", Tracks.audioLabel(m.tracks, effectiveAudio()))
+    if id = "quality" then return captionWithValue("Quality", Tracks.qualityLabel(m.opts.maxBitrate))
+    if id = "chapters" then return "Chapters"
+    if id = "chapPrev" then return "Previous Chapter"
+    if id = "chapNext" then return "Next Chapter"
+    return ""
+end function
+
+' "Audio · English 5.1" (the current value, cut to fit one short line)
+function captionWithValue(name as string, value as string) as string
+    if value = "" then return name
+    t = name + " · " + value
+    if t.len() > 44 then t = Left(t, 42).trim() + "..."
+    return t
 end function
 
 sub drawControls()
@@ -1378,8 +1494,35 @@ sub drawControls()
         if id = "subs" and m.opts.sub >= 0 then col = accent
         if isFocus then col = "0x000000FF"
         ic.blendColor = col
+        if isFocus then drawToolCaption(tl, toolCaption(id), x + 28, w)
     end for
     if focused then speakControl()
+end sub
+
+' (v1.1 U-2) A small caption above the focused tool icon (cx: the icon's centre in the capsule, capW: the
+' capsule's width; the caption stays inside the screen)
+sub drawToolCaption(tl as object, text as string, cx as integer, capW as integer)
+    if text = "" then return
+    w = text.len() * 13 + 32
+    x = cx - w \ 2
+    if x + w > capW then x = capW - w
+    g = tl.createChild("Group")
+    g.translation = [x, -50]
+    bg = g.createChild("Poster")
+    bg.uri = "pkg:/images/ui/panel_dark_r18.9.png"
+    bg.width = w
+    bg.height = 40
+    lb = g.createChild("Label")
+    lb.width = w
+    lb.height = 40
+    lb.horizAlign = "center"
+    lb.vertAlign = "center"
+    lb.color = "0xFFFFFFFF"
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    f.size = 24
+    lb.font = f
+    lb.text = text
 end sub
 
 ' ---------------------------------------------------------------- Audio Guide
@@ -1433,6 +1576,8 @@ function toolSpeech(id as string) as string
     if id = "audio" then return "Audio: " + Tracks.audioLabel(m.tracks, effectiveAudio())
     if id = "quality" then return "Quality: " + Tracks.qualityLabel(m.opts.maxBitrate)
     if id = "chapters" then return "Chapters"
+    if id = "chapPrev" then return "Previous chapter"
+    if id = "chapNext" then return "Next chapter"
     return id
 end function
 
@@ -1501,6 +1646,7 @@ end sub
 
 sub updateBar(atSec as float)
     d = m.video.duration
+    drawChapterTicks(d)
     frac = 0.0
     if d > 0 then frac = atSec / d
     if frac > 1 then frac = 1
@@ -1531,21 +1677,19 @@ sub updateBar(atSec as float)
     if remain < 0 then remain = 0
     if d > 0
         m.top.findNode("remaining").text = "-" + Playback.clock(remain)
-        m.top.findNode("endsAt").text = "Ends at " + endsAtClock(remain)
+        m.top.findNode("endsAt").text = endsAtClock(remain)
     else
         m.top.findNode("remaining").text = ""
         m.top.findNode("endsAt").text = ""
     end if
 end sub
 
-' The Roku's local time (24 h) after remain seconds of video at the current playback speed: "22:41"
+' "Ends at 10:41 PM": the Roku's local time, in its clock format (v1.1 Clock.bs), after remain seconds of
+' video at the current playback speed
 function endsAtClock(remain as float) as string
     rate = m.speed
     if rate <= 0 then rate = 1.0
-    dt = createObject("roDateTime")
-    dt.ToLocalTime()
-    dt.FromSeconds(dt.AsSeconds() + Int(remain / rate + 0.5))
-    return Right("0" + dt.GetHours().toStr(), 2) + ":" + Right("0" + dt.GetMinutes().toStr(), 2)
+    return Clock.endsAtText(Int(remain / rate + 0.5))
 end function
 
 ' Play / pause symbol follows the state
@@ -1775,7 +1919,15 @@ sub onResponse(ev as object)
     k = r.tag.kind
     ' (left, or removed for a deep link: late answers would start a new stream)
     if m.closing then return
-    if k = "info"
+    if k = "user"
+        ' (v1.1) the account's audio preference (kept for the session), then the item
+        if r.tag.itemId <> m.top.item.id then return
+        json = invalid
+        if r.code = 200 then json = r.json
+        if r.code <> 200 then print "Cove: user settings -> "; r.code
+        Tracks.rememberServerAudio(m.top.server, json)
+        requestInfo()
+    else if k = "info"
         if r.tag.itemId <> m.top.item.id then return
         onInfo(r)
     else if k = "bif"
@@ -1935,6 +2087,58 @@ sub seekToChapter(c as object)
     drawControls()
 end sub
 
+' (v1.1) Previous / next chapter tools: like a scrub (the bar and thumbnail show the target, presses add
+' up, the jump follows 0.8 s later). Previous goes to the current chapter's start, or the one before when
+' that start is less than 3 s back.
+sub jumpChapter(dir as integer)
+    list = chapterEntries()
+    if list.count() = 0 or m.session = invalid then return
+    p = currentPos()
+    cur = 0
+    for i = 0 to list.count() - 1
+        if list[i].start <= p + 1 then cur = i
+    end for
+    target = -1
+    if dir > 0
+        if cur + 1 < list.count() and list[cur + 1].start > p + 1 then target = cur + 1
+        if list[0].start > p + 1 then target = 0
+    else
+        target = cur
+        if p - list[cur].start < 3 and cur > 0 then target = cur - 1
+    end if
+    if target < 0
+        Speak.say("Last chapter")
+        return
+    end if
+    t = list[target].start
+    d = m.video.duration
+    if d > 0 and t > d - 5 then t = d - 5
+    if t < 0 then t = 0
+    print "Cove: chapter "; target + 1; " of "; list.count(); " at "; Int(t); " s"
+    m.seekTarget = t
+    showOsd(false)
+    m.seekTimer.control = "stop"
+    m.seekTimer.control = "start"
+    Speak.say(Speak.clean(list[target].name + ", " + positionSpeech(t)))
+end sub
+
+' (v1.1 U-5) Chapter starts as small gaps in the progress bar, drawn once the duration is known
+sub drawChapterTicks(d as float)
+    if d <= 0 or d = m.tickDur then return
+    m.tickDur = d
+    g = m.top.findNode("ticks")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    for each ch in chapterEntries()
+        if ch.start > 1 and ch.start < d - 1
+            r = g.createChild("Rectangle")
+            r.width = 4
+            r.height = 12
+            r.color = "0x000000B3"
+            r.translation = [130 + Int(1380 * ch.start / d) - 2, 27]
+        end if
+    end for
+end sub
+
 ' ---------------------------------------------------------------- playback speed (Cove for macOS: Speed)
 
 ' The Video node's playbackSpeed field isn't in Roku's documentation and not every model has it: the
@@ -1944,7 +2148,7 @@ function speedSupported() as boolean
 end function
 
 function speedChoices() as object
-    return ["0.5", "0.75", "1", "1.25", "1.5", "2"]
+    return ["0.5", "0.75", "1", "1.25", "1.5", "1.75", "2"]
 end function
 
 ' The new speed takes effect on the next resume (the Video node applies it after a pause / resume): the
