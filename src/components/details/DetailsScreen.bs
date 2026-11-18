@@ -781,6 +781,11 @@ sub useButton()
 end sub
 
 sub requestPlay(it as object, start as float)
+    ' (v1.1) an episode that hasn't aired yet: nothing to play
+    if QuickPlay.isUnaired(it, QuickPlay.nowStamp())
+        Toasts.notify("This episode hasn't aired yet", "info")
+        return
+    end if
     sub_ = ""
     if Util.toText(it.Type) = "Episode" then sub_ = Items.episodeLabel(it)
     title = Util.toText(it.Name)

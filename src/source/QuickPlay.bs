@@ -13,6 +13,8 @@ namespace QuickPlay
         id = Util.toText(card.itemId)
         k = playKind(Util.toText(card.itemType))
         if id = "" or k = "" then return invalid
+        ' (v1.1) an Upcoming card on Home (feat/v110-home sets upcoming = true): not aired yet, nothing to play
+        if card.hasField("upcoming") and card.upcoming = true then return invalid
         return { id: "quickplay", itemId: id, itemType: Util.toText(card.itemType), title: Util.toText(card.title) }
     end function
 
@@ -37,14 +39,33 @@ namespace QuickPlay
         return secs
     end function
 
+    ' Now as "YYYY-MM-DDTHH:MM:SS" (UTC), the form isUnaired compares
+    function nowStamp() as string
+        d = createObject("roDateTime")
+        return d.ToISOString().left(19)
+    end function
+
+    ' An episode whose PremiereDate is still in the future (UTC) hasn't aired: no Play for it anywhere.
+    ' nowIso: QuickPlay.nowStamp(); a missing date or another type is never unaired.
+    function isUnaired(it as dynamic, nowIso as string) as boolean
+        if not Util.isAA(it) or Util.toText(it.Type) <> "Episode" then return false
+        d = Util.toText(it.PremiereDate)
+        if d.len() < 10 or nowIso.len() < 10 then return false
+        d = d.left(19)
+        n = nowIso.left(19)
+        if d.len() < n.len() then d = d + "T00:00:00".right(n.len() - d.len())
+        return d > n
+    end function
+
     ' A series or season: the first episode not watched yet (specials, season 0, only when there is nothing
     ' else), else the first one; invalid for an empty list
-    function pickEpisode(list as dynamic) as dynamic
+    ' (nowIso given: episodes that haven't aired yet are skipped)
+    function pickEpisode(list as dynamic, nowIso = "" as string) as dynamic
         if type(list) <> "roArray" then return invalid
         firstRegular = invalid
         firstAny = invalid
         for each e in list
-            if Util.isAA(e) and Util.toText(e.Id) <> "" and Util.toText(e.Type) <> "Season"
+            if Util.isAA(e) and Util.toText(e.Id) <> "" and Util.toText(e.Type) <> "Season" and not isUnaired(e, nowIso)
                 if firstAny = invalid then firstAny = e
                 special = Util.toNumber(e.ParentIndexNumber) = 0 and e.ParentIndexNumber <> invalid
                 if not special

@@ -55,3 +55,21 @@ sub test_playerItem()
     t_eq(mv.subtitle, "", "no subtitle")
     t_eq(mv.start, 1200.0, "resume")
 end sub
+
+sub test_isUnaired()
+    now = "2026-11-18T12:00:00"
+    t_ok(QuickPlay_isUnaired({ Type: "Episode", PremiereDate: "2026-11-20T00:00:00.0000000Z" }, now), "future episode")
+    t_ok(not QuickPlay_isUnaired({ Type: "Episode", PremiereDate: "2026-11-01T00:00:00.0000000Z" }, now), "aired episode")
+    t_ok(QuickPlay_isUnaired({ Type: "Episode", PremiereDate: "2026-11-19" }, now), "date only, tomorrow")
+    t_ok(not QuickPlay_isUnaired({ Type: "Episode" }, now), "no date")
+    t_ok(not QuickPlay_isUnaired({ Type: "Movie", PremiereDate: "2027-01-01T00:00:00Z" }, now), "a movie is never unaired")
+    t_ok(not QuickPlay_isUnaired(invalid, now), "nothing")
+    t_eq(QuickPlay_nowStamp().len(), 19, "now stamp length")
+end sub
+
+sub test_pickEpisodeSkipsUnaired()
+    e1 = { Id: "e1", Type: "Episode", ParentIndexNumber: 1, IndexNumber: 1, UserData: { Played: true }, PremiereDate: "2026-10-01T00:00:00Z" }
+    e2 = { Id: "e2", Type: "Episode", ParentIndexNumber: 1, IndexNumber: 2, UserData: { Played: false }, PremiereDate: "2026-12-01T00:00:00Z" }
+    t_eq(QuickPlay_pickEpisode([e1, e2], "2026-11-18T12:00:00").Id, "e1", "unaired skipped: first aired")
+    t_eq(QuickPlay_pickEpisode([e1, e2]).Id, "e2", "no time given: as before")
+end sub
