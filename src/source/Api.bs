@@ -107,6 +107,64 @@ namespace Api
         return res
     end function
 
+    ' (v1.1.1) The timing line of one request: "http GET /Users/x/Items 200 143" (the path without its query,
+    ' so no api_key or search term; ids are not secrets)
+    function timingLine(method as string, url as string, code as integer, ms as integer) as string
+        return "http " + UCase(method) + " " + pathOf(url) + " " + code.toStr() + " " + ms.toStr()
+    end function
+
+    ' The path of a URL without scheme, host and query: "https://h:8096/emby/Items?x=1" → "/emby/Items"
+    function pathOf(url as string) as string
+        p = url.split("?")[0]
+        at = p.instr("://")
+        if at >= 0
+            p = p.mid(at + 3)
+            slash = p.instr("/")
+            if slash < 0 then return "/"
+            p = p.mid(slash)
+        end if
+        return p
+    end function
+
+    ' (v1.1.1 SP-11) Which of two routes (the old /Users/{id}/... one or the newer Jellyfin one) answered on this
+    ' server: remembered for the session, so the 404 + retry happens once. kind names the route ("trailers",
+    ' "intros", or a routeKind path). Returns "old", "new" or "" (not known yet).
+    function knownRoute(server as dynamic, kind as string) as string
+        if m.global = invalid or not m.global.hasField("apiRoutes") then return ""
+        cache = m.global.apiRoutes
+        if not Util.isAA(cache) then return ""
+        return Util.toText(cache[routeKey(server, kind)])
+    end function
+
+    sub rememberRoute(server as dynamic, kind as string, isNew as boolean)
+        if m.global = invalid then return
+        v = "old"
+        if isNew then v = "new"
+        if knownRoute(server, kind) = v then return
+        if not m.global.hasField("apiRoutes") then m.global.addFields({ apiRoutes: {} })
+        cache = m.global.apiRoutes
+        if not Util.isAA(cache) or cache.count() > 60 then cache = {}
+        cache[routeKey(server, kind)] = v
+        m.global.apiRoutes = cache
+    end sub
+
+    function routeKey(server as dynamic, kind as string) as string
+        return Util.toText(Util.field(server, "id")).left(12) + ":" + kind
+    end function
+
+    ' A request path as a route name: no query, no user id ("/Users/abc/Items/Latest?x" → "Items/Latest")
+    function routeKind(path as string) as string
+        p = path.split("?")[0]
+        if p.left(7) = "/Users/"
+            rest = p.mid(7)
+            slash = rest.instr("/")
+            if slash < 0 then return "Users"
+            return rest.mid(slash + 1)
+        end if
+        if p.left(1) = "/" then p = p.mid(1)
+        return p
+    end function
+
     ' JSON text for {"Username": name, "Pw": password} (built by hand so the key case is kept exactly)
     function credentialsBody(name as string, password as string) as string
         return "{" + chr(34) + "Username" + chr(34) + ":" + formatJson(name) + "," + chr(34) + "Pw" + chr(34) + ":" + formatJson(password) + "}"

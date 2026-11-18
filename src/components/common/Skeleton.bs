@@ -1,6 +1,8 @@
 sub init()
     m.cards = m.top.findNode("cards")
     m.pulse = m.top.findNode("pulse")
+    m.wait = m.top.findNode("wait")
+    m.wait.observeField("fire", "onWait")
     m.top.visible = false
     m.drawn = ""
 end sub
@@ -8,12 +10,27 @@ end sub
 sub onActive()
     if m.top.active
         draw()
-        m.top.visible = true
-        m.pulse.control = "start"
+        ' (VD-2: only for a load slower than the delay)
+        if m.top.delay > 0
+            m.wait.duration = m.top.delay
+            m.wait.control = "start"
+        else
+            showCards()
+        end if
     else
+        m.wait.control = "stop"
         m.pulse.control = "stop"
         m.top.visible = false
     end if
+end sub
+
+sub onWait()
+    if m.top.active then showCards()
+end sub
+
+sub showCards()
+    m.top.visible = true
+    m.pulse.control = "start"
 end sub
 
 sub draw()
@@ -21,24 +38,31 @@ sub draw()
     if key = m.drawn then return
     m.drawn = key
     m.cards.removeChildrenIndex(m.cards.getChildCount(), 0)
+    w = m.top.cardW
     for r = 0 to m.top.rows - 1
         for c = 0 to m.top.cols - 1
             x = c * m.top.stepX
             y = r * m.top.stepY
+            ' (the same r18 corners as the cards, so nothing changes shape when they arrive)
             card = m.cards.createChild("Poster")
-            card.uri = "pkg:/images/ui/white_rr12.9.png"
+            card.uri = "pkg:/images/ui/white_r18.9.png"
             card.blendColor = "0xFFFFFF1F"
-            card.width = m.top.cardW
+            card.width = w
             card.height = m.top.cardH
             card.translation = [x, y]
             if m.top.titleBars
-                bar = m.cards.createChild("Poster")
-                bar.uri = "pkg:/images/ui/white_rr12.9.png"
-                bar.blendColor = "0xFFFFFF1A"
-                bar.width = Int(m.top.cardW * 0.7)
-                bar.height = 22
-                bar.translation = [x + Int(m.top.cardW * 0.15), y + m.top.cardH + 18]
+                addBar(x + Int(w * 0.15), y + m.top.cardH + 18, Int(w * 0.7), 22)
+                if m.top.yearBars then addBar(x + Int(w * 0.3), y + m.top.cardH + 52, Int(w * 0.4), 18)
             end if
         end for
     end for
+end sub
+
+sub addBar(x as integer, y as integer, w as integer, h as integer)
+    bar = m.cards.createChild("Poster")
+    bar.uri = "pkg:/images/ui/white_pill.9.png"
+    bar.blendColor = "0xFFFFFF1A"
+    bar.width = w
+    bar.height = h
+    bar.translation = [x, y]
 end sub

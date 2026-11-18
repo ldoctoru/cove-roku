@@ -25,23 +25,24 @@ sub fillColumn(col as object, rows as dynamic, w as integer)
         y = y + 34
         if type(r.pills) = "roArray"
             ' (v1.1) genres / studios as pills: OK opens a page with that genre's or studio's titles
+            ' (BG-2: an if/else, not `continue for`, which needs Roku OS 11.5+)
             y = addPills(col, r.pills, y, w) + 18
-            continue for
-        end if
-        lines = []
-        if type(r.v) = "roArray"
-            for each one in r.v
-                cut = Util.wrapLines(Util.toText(one), chars, 1)
-                if cut.count() > 0 then lines.push(cut[0])
-            end for
         else
-            lines = Util.wrapLines(Util.toText(r.v), chars, 2)
+            lines = []
+            if type(r.v) = "roArray"
+                for each one in r.v
+                    cut = Util.wrapLines(Util.toText(one), chars, 1)
+                    if cut.count() > 0 then lines.push(cut[0])
+                end for
+            else
+                lines = Util.wrapLines(Util.toText(r.v), chars, 2)
+            end if
+            for each line in lines
+                addText(col, line, 0, y, w, "0xFFFFFFCC", false)
+                y = y + 32
+            end for
+            y = y + 18
         end if
-        for each line in lines
-            addText(col, line, 0, y, w, "0xFFFFFFCC", false)
-            y = y + 32
-        end for
-        y = y + 18
     end for
 end sub
 

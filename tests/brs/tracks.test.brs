@@ -81,3 +81,11 @@ sub test_codesOfLanguage()
     t_eq(Tracks_codesOfLanguage("xyz")[0], "xyz", "an unknown code")
     t_eq(Tracks_codesOfLanguage("").count(), 0, "none")
 end sub
+
+' (review3 test 8) the series' language has only a commentary: the next wanted language, else the default
+sub test_startAudio_commentaryOnlyLanguage()
+    t_eq(Tracks_startAudio(t_audioTracks(), ["ger", "jpn"]), 3, "falls to the next wanted language")
+    t_eq(Tracks_startAudio(t_audioTracks(), ["ger", "fre"]), 2, "no other match: the default's language, not the commentary")
+    w = Tracks_wantedAudio(t_audioTracks(), "ger", { lang: "jpn", playDefault: false })
+    t_eq(Tracks_startAudio(t_audioTracks(), w), 3, "playDefault off with a flagged default: the account language")
+end sub

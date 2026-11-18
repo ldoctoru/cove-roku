@@ -9,6 +9,7 @@ import "pkg:/source/MediaInfo.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Clock.bs"
+import "pkg:/source/Toasts.bs"
 
 sub init()
     m.video = m.top.findNode("video")
@@ -36,6 +37,8 @@ sub init()
     m.countdown.observeField("fire", "onCountdown")
     m.watchdog = m.top.findNode("watchdog")
     m.watchdog.observeField("fire", "onWatchdog")
+    m.thumbTimer = m.top.findNode("thumbTimer")
+    m.thumbTimer.observeField("fire", "startDeferredThumbs")
     ' (v1.1) "Intro skipped · Watch Intro" shows for 5 s after an automatic skip
     m.noticeTimer = m.top.findNode("noticeTimer")
     m.noticeTimer.observeField("fire", "onNoticeTimer")
@@ -158,6 +161,9 @@ sub resetState()
     m.watchdog.control = "stop"
     m.thumbs = invalid       ' { kind: "bif", ... } or { kind: "tiles", ... } for seek thumbnails
     m.thumbShown = -1
+    ' (v1.1.1 SP-15) Emby's BIF waits for the video: the stream it belongs to, until playback has started
+    m.thumbStream = invalid
+    m.thumbTimer.control = "stop"
     m.top.findNode("preview").visible = false
     clearThumbFiles()
 end sub
@@ -165,6 +171,8 @@ end sub
 ' A new item (also the next episode): load its details first (tracks, markers), then ask for a stream
 sub begin()
     resetState()
+    ' (v1.1.1) "Cove: player first frame <ms>": from here to the first "playing"
+    m.startClock = createObject("roTimespan")
     it = m.top.item
     ' library Shuffle: the titles still to play (Up next takes them before the series' next episode)
     m.queue = []
@@ -370,7 +378,14 @@ sub onStream(ev as object)
     print "Cove: play "; s.method; " ("; s.streamFormat; ")"
     m.watchdog.control = "stop"
     m.watchdog.control = "start"
-    if m.thumbs = invalid then loadThumbs(s)
+    if m.thumbs = invalid
+        ' (SP-15) Jellyfin's tiles load one by one while seeking; Emby's BIF (a few MB) starts after the video
+        if Util.toText(m.top.server.type) = "jellyfin"
+            loadThumbs(s)
+        else
+            m.thumbStream = s
+        end if
+    end if
     c = createObject("roSGNode", "ContentNode")
     c.url = s.url
     ' (Jellyfin: the sign-in travels as a header, not in the URL; Playback.videoHeaders)
@@ -522,6 +537,12 @@ sub onState()
         first = not m.started
         if not m.started
             m.started = true
+            if m.startClock <> invalid
+                print "Cove: player first frame "; m.startClock.totalMilliseconds()
+                m.startClock = invalid
+            end if
+            ' (SP-15) the thumbnails 8 s into playback, or at the first seek if that comes sooner
+            if m.thumbStream <> invalid then m.thumbTimer.control = "start"
             report("/Sessions/Playing", false)
             m.progressTimer.control = "start"
         end if
@@ -673,6 +694,12 @@ end sub
 ' (v1.1) After an automatic skip: the notice with a button back to the part's start, for 5 s
 sub showSkipNotice(backTo as float, label as string)
     if backTo < 0 then return
+    ' (BG-13) a second automatic skip while the first notice shows (a recap right after the intro): one notice
+    ' that goes back to the earliest start, so the intro isn't lost
+    if m.actionKind = "watch" and m.watchAt >= 0
+        if m.watchAt < backTo then backTo = m.watchAt
+        label = "Intro and recap skipped · Watch"
+    end if
     m.watchAt = backTo
     m.actionKind = ""
     showAction("watch", label)
@@ -1700,6 +1727,15 @@ end sub
 ' Report the stop (the server saves the position / marks it watched), end the server's conversion, then leave
 ' ---------------------------------------------------------------- seek thumbnails
 
+' (SP-15) The deferred BIF download (the timer, or the first seek)
+sub startDeferredThumbs()
+    s = m.thumbStream
+    if s = invalid or m.thumbs <> invalid then return
+    m.thumbStream = invalid
+    m.thumbTimer.control = "stop"
+    loadThumbs(s)
+end sub
+
 sub loadThumbs(s as object)
     m.thumbs = { kind: "none" }
     srv = m.top.server
@@ -1751,6 +1787,7 @@ end sub
 ' The frame for atSec above the scrubber at x (only while seeking)
 sub showPreview(atSec as float, x as integer)
     pv = m.top.findNode("preview")
+    if m.thumbs = invalid and m.thumbStream <> invalid then startDeferredThumbs()
     th = m.thumbs
     if m.seekTarget < 0 or th = invalid or th.kind = "none"
         pv.visible = false
@@ -2107,7 +2144,8 @@ sub jumpChapter(dir as integer)
         if p - list[cur].start < 3 and cur > 0 then target = cur - 1
     end if
     if target < 0
-        Speak.say("Last chapter")
+        ' (BG-12) visible with the Audio Guide off too (the toast also speaks it)
+        Toasts.notify("Last chapter", "info")
         return
     end if
     t = list[target].start

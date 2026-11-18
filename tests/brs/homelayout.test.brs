@@ -97,3 +97,10 @@ sub test_rowQueries()
     t_ok(q.instr("&IsPlayed=false") >= 0, "hide watched applies")
     t_ok(HomeLayout_releasedQuery("", false).instr("IsPlayed") < 0, "watched kept")
 end sub
+
+' (BG-5) the series Play paths (MainScene Play key, DetailsScreen loadNextUp) send no date cutoff
+sub test_nextUpQuerySeriesPlay()
+    t_eq(HomeLayout_nextUpQuery(false, true, ""), "", "Emby: nothing")
+    t_eq(HomeLayout_nextUpQuery(true, true, ""), "&enableRewatching=true", "Jellyfin + rewatch, no cutoff")
+    t_eq(HomeLayout_nextUpQuery(true, false, ""), "", "Jellyfin without rewatch")
+end sub

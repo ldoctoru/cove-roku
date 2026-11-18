@@ -65,13 +65,14 @@
             </Label>
             <Poster id="ring" uri="pkg:/images/ui/focus_ring_r26.9.png" opacity="0" />
         </Group>
+        <!-- (v1.1.1 VD-8) title 26 Bold over a smaller, dimmer year (24 Medium at 60 %) -->
         <Label id="title" horizAlign="center" color="0xFFFFFFD9">
-            <Font role="font" uri="font:BoldSystemFontFile" size="24" />
+            <Font role="font" uri="font:BoldSystemFontFile" size="26" />
         </Label>
         <Label id="name2" horizAlign="center" color="0xFFFFFFD9" visible="false">
             <Font role="font" uri="font:BoldSystemFontFile" size="24" />
         </Label>
-        <Label id="year" horizAlign="center" color="0xFFFFFFCC">
+        <Label id="year" horizAlign="center" color="0xFFFFFF99">
             <Font role="font" uri="font:MediumSystemFontFile" size="24" />
         </Label>
     </children>

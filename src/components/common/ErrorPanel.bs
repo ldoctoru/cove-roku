@@ -39,6 +39,51 @@ sub draw()
     if w <= 0 then w = 1600
     focused = m.top.hasFocus()
     y = 0
+    if Util.toText(m.top.glyph) <> "" and m.top.icon <> "error"
+        y = drawEmpty(w)
+    else
+        y = drawMessage(w)
+    end if
+    y = y + 28
+    drawButtons(w, y, focused)
+end sub
+
+' (VD-20) An empty page, unlike an error: glyph, title line, a dimmer hint under it
+function drawEmpty(w as integer) as integer
+    g = m.body.createChild("Poster")
+    g.uri = "pkg:/images/ui/icon_" + Util.toText(m.top.glyph) + "_96.png"
+    g.width = 96
+    g.height = 96
+    g.blendColor = "0xFFFFFF66"
+    g.translation = [Int((w - 96) / 2), 0]
+    y = 120
+    for each line in Util.wrapLines(Util.toText(m.top.message), 60, 2)
+        l = m.body.createChild("Label")
+        l.font = panelFont(true, 32)
+        l.text = line
+        l.color = "0xFFFFFFFF"
+        l.width = w
+        l.height = 44
+        l.horizAlign = "center"
+        l.translation = [0, y]
+        y = y + 44
+    end for
+    y = y + 6
+    for each line in Util.wrapLines(Util.toText(m.top.detail), 70, 2)
+        l = m.body.createChild("Label")
+        l.font = panelFont(false, 26)
+        l.text = line
+        l.color = "0xFFFFFFCC"
+        l.width = w
+        l.height = 38
+        l.horizAlign = "center"
+        l.translation = [0, y]
+        y = y + 38
+    end for
+    return y
+end function
+
+function drawMessage(w as integer) as integer
     ic = m.body.createChild("Poster")
     ic.uri = "pkg:/images/ui/icon_info_48.png"
     ic.width = 48
@@ -59,7 +104,10 @@ sub draw()
         l.translation = [0, y]
         y = y + 42
     end for
-    y = y + 28
+    return y
+end function
+
+sub drawButtons(w as integer, y as integer, focused as boolean)
     ' the buttons, measured first so the row can be centred
     labels = []
     total = 0
@@ -77,6 +125,14 @@ sub draw()
     end for
     x = Int((w - total) / 2)
     for each b in labels
+        ' (v1.1.1 VD-6) the white focus ring, as on the other button rows
+        if b.focus
+            ring = m.body.createChild("Poster")
+            ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
+            ring.width = b.w + 16
+            ring.height = 76
+            ring.translation = [x - 8, y - 8]
+        end if
         bg = m.body.createChild("Poster")
         bg.width = b.w
         bg.height = 60
@@ -112,7 +168,11 @@ sub speakPanel(withMessage as boolean)
     if not Speak.isOn() or m.list.count() = 0 then return
     i = m.top.index
     text = Speak.button(Util.toText(m.list[i].label)) + Speak.position(i, m.list.count())
-    if withMessage then text = Speak.clean(Util.toText(m.top.message)) + ". " + text
+    if withMessage
+        msg = Util.toText(m.top.message)
+        if Util.toText(m.top.detail) <> "" then msg = msg + ". " + Util.toText(m.top.detail)
+        text = Speak.clean(msg) + ". " + text
+    end if
     Speak.say(text)
 end sub
 

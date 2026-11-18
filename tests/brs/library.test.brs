@@ -1,0 +1,45 @@
+' Library grid (source/LibGrid.bs) and the slim list fields / sort letter (source/Items.bs), v1.1.1
+sub test_slimFields()
+    f = Items_slimFields(false)
+    t_ok(f.instr("Overview") < 0, "no Overview")
+    t_ok(f.instr("Genres") < 0, "no Genres")
+    t_ok(f.instr("OfficialRating") >= 0, "rating limit field kept")
+    t_ok(f.instr("ProductionYear") >= 0, "year kept")
+    t_ok(f.instr("EnableUserData=true") >= 0, "user data kept (watched, favorite, progress)")
+    t_ok(f.instr("EnableImageTypes=Primary&") >= 0, "posters only")
+    t_ok(Items_slimFields(true).instr("EnableImageTypes=Primary,Thumb,Backdrop") >= 0, "wide cards: thumb and backdrop")
+    t_eq(Items_noCount(), "&EnableTotalRecordCount=false", "no count")
+end sub
+
+sub test_letterOf()
+    t_eq(Items_letterOf("matrix", "The Matrix"), "M", "sort name, upper-cased")
+    t_eq(Items_letterOf("", "Alien"), "A", "title without a sort name")
+    t_eq(Items_letterOf("  zodiac", ""), "Z", "trimmed")
+    t_eq(Items_letterOf("2001: a space odyssey", ""), "#", "digit")
+    t_eq(Items_letterOf("", ""), "", "nothing")
+end sub
+
+sub test_paging()
+    t_eq(LibGrid_firstPage(), 36, "first page")
+    t_eq(LibGrid_nextPage(), 96, "next pages")
+    t_ok(LibGrid_needsMore(0, 36, 7), "36 cards are less than the 8-row lead: load on")
+    t_ok(not LibGrid_needsMore(0, 132, 7), "first row of 132: not yet")
+    t_ok(not LibGrid_needsMore(75, 132, 7), "just over 8 rows from the end")
+    t_ok(LibGrid_needsMore(76, 132, 7), "within 8 rows of the end")
+    t_ok(not LibGrid_needsMore(0, 0, 7), "nothing loaded")
+    t_eq(LibGrid_placeholderCount(36, 7), 13, "rest of the row (6) + one row")
+    t_eq(LibGrid_placeholderCount(35, 7), 7, "full row: one row")
+end sub
+
+sub test_jumps()
+    t_eq(LibGrid_jumpSize(0, 14), 14, "one screen")
+    t_eq(LibGrid_jumpSize(1, 14), 14, "second press")
+    t_eq(LibGrid_jumpSize(2, 14), 28, "held: two screens")
+    t_eq(LibGrid_jumpSize(6, 14), 56, "held longer: four screens")
+    t_eq(LibGrid_jumpTarget(3, 100, 14, true), 17, "forward, same column")
+    t_eq(LibGrid_jumpTarget(20, 100, 14, false), 6, "back")
+    t_eq(LibGrid_jumpTarget(5, 100, 14, false), 0, "back past the start: first card")
+    t_eq(LibGrid_jumpTarget(90, 100, 14, true), 99, "forward past the end: last loaded")
+    t_eq(LibGrid_jumpTarget(99, 100, 14, true), -1, "already at the end")
+    t_eq(LibGrid_jumpTarget(0, 0, 14, true), -1, "empty")
+end sub
