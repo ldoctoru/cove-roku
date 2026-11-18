@@ -28,6 +28,6 @@
         </RowList>
         <!-- every search request failed: Try Again / Switch Server / Settings (Right from the keyboard) -->
         <ErrorPanel id="errorPanel" translation="[720,300]" width="1100" visible="false" />
-        <Timer id="debounce" duration="0.6" repeat="false" />
+        <Timer id="debounce" duration="0.45" repeat="false" />
     </children>
 </component>

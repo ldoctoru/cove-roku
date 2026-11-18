@@ -139,6 +139,8 @@
 
         <Timer id="progressTimer" duration="10" repeat="true" />
         <Timer id="watchdog" duration="45" repeat="false" />
+        <!-- (v1.1.1 SP-15) Emby's seek thumbnails start downloading 8 s into playback -->
+        <Timer id="thumbTimer" duration="8" repeat="false" />
         <Timer id="noticeTimer" duration="5" repeat="false" />
         <Timer id="closeTimer" duration="0.3" repeat="false" />
         <Timer id="countdown" duration="1" repeat="true" />

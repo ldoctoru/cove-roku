@@ -60,10 +60,12 @@
                     </Label>
                 </Group>
                 <Group id="btnFav" translation="[276,0]">
+                    <Poster id="favRing" uri="pkg:/images/ui/focus_ring_circle_85.png" width="85" height="85" translation="[-8,-8]" visible="false" />
                     <Poster id="favBg" uri="pkg:/images/ui/glass_circle_69.png" width="69" height="69" />
                     <Poster id="favIcon" uri="pkg:/images/ui/icon_plus_28.png" width="28" height="28" translation="[20,20]" />
                 </Group>
                 <Group id="btnInfo" translation="[366,0]">
+                    <Poster id="infoRing" uri="pkg:/images/ui/focus_ring_circle_85.png" width="85" height="85" translation="[-8,-8]" visible="false" />
                     <Poster id="infoBg" uri="pkg:/images/ui/glass_circle_69.png" width="69" height="69" />
                     <Poster id="infoIcon" uri="pkg:/images/ui/icon_info_28.png" width="28" height="28" translation="[20,20]" />
                 </Group>

@@ -10,14 +10,14 @@ sub work()
     reqTag = invalid
     if Util.isAA(req) then reqTag = req.tag
     try
-        r = Api.execute(req)
+        r = timedExecute(req)
         ' a route that only newer servers have (or only older ones): the same request on the other route
         if r.code = 404 and Util.toText(req.fallbackUrl) <> ""
             alt = {}
             alt.append(req)
             alt.url = req.fallbackUrl
             alt.delay = 0
-            r = Api.execute(alt)
+            r = timedExecute(alt)
         end if
         ' a download nobody wants any more (the player closed): don't leave it in tmp:
         if req.saveTo <> invalid and m.top.discard then DeleteFile(req.saveTo)
@@ -39,3 +39,13 @@ sub work()
         m.top.response = { code: -1, json: invalid, value: invalid, error: "The request failed: " + msg, tag: reqTag }
     end try
 end sub
+
+' (v1.1.1) Api.execute with one timing line: "Cove: http GET /Users/x/Items 200 143" (ms, without a delay)
+function timedExecute(req as object) as object
+    stopwatch = createObject("roTimespan")
+    r = Api.execute(req)
+    ms = stopwatch.totalMilliseconds()
+    if req.delay <> invalid and req.delay > 0 then ms = ms - req.delay
+    print "Cove: "; Util.redact(Api.timingLine(Util.toText(req.method), Util.toText(req.url), r.code, ms))
+    return r
+end function

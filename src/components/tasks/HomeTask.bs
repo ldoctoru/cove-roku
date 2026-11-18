@@ -82,6 +82,10 @@ sub load()
     cutoff = ""
     if Prefs.nextUpDays() > 0 then cutoff = Dates.isoDaysAgo(Prefs.nextUpDays())
     nuq = HomeLayout.nextUpQuery(Servers.isJellyfin(srv), Prefs.nextUpRewatch(), cutoff)
+    ' (v1.1.1 SP-4) the lists are fetched first and the rows built after, so a kids limit asks for the series
+    ' ratings of all rows in one request instead of one per row
+    m.pendingRows = []
+    m.firstLogged = not m.top.timing
     for each id in ids
         isShown = false
         if serverMode
@@ -96,29 +100,30 @@ sub load()
         end if
         if isShown
             if id = "resume"
-                addRow(root, "Continue Watching", getList("/Users/" + uid + "/Items/Resume?Limit=20&MediaTypes=Video&" + f, "/UserItems/Resume?userId=" + uid + "&Limit=20&MediaTypes=Video&" + f), true)
+                queueRow("Continue Watching", getList("/Users/" + uid + "/Items/Resume?Limit=20&MediaTypes=Video&" + f, "/UserItems/Resume?userId=" + uid + "&Limit=20&MediaTypes=Video&" + f), true)
                 if m.top.authFailed then return
             else if id = "nextup"
-                addRow(root, "Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20" + nuq + "&" + f, ""), true)
+                queueRow("Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20" + nuq + "&" + f, ""), true)
             else if id = "upcoming"
                 ' (v1.1) episodes not aired yet (both servers); no row when the server has none
-                addUpcomingRow(root, getList("/Shows/Upcoming?UserId=" + uid + "&Limit=20&" + f, ""))
+                m.pendingRows.push({ title: "Upcoming", list: getList("/Shows/Upcoming?UserId=" + uid + "&Limit=20&" + f, ""), landscape: true, upcoming: true })
             else if id = "released"
                 rq = HomeLayout.releasedQuery(Dates.isoNow(), Prefs.hideWatchedLatest()) + "&" + f
-                addRow(root, "Recently Released", getList("/Users/" + uid + "/Items?" + rq, "/Items?userId=" + uid + "&" + rq), false)
+                queueRow("Recently Released", getList("/Users/" + uid + "/Items?" + rq, "/Items?userId=" + uid + "&" + rq), false)
             else if id = "favorites"
-                addRow(root, "Favorites", getList("/Users/" + uid + "/Items?Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f, "/Items?userId=" + uid + "&Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f), false)
+                queueRow("Favorites", getList("/Users/" + uid + "/Items?Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f, "/Items?userId=" + uid + "&Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f), false)
             else if id = "recent"
-                addRow(root, "Recently Added", getList("/Users/" + uid + "/Items/Latest?Limit=20" + unw + "&" + f, "/Items/Latest?userId=" + uid + "&Limit=20" + unw + "&" + f), false)
+                queueRow("Recently Added", getList("/Users/" + uid + "/Items/Latest?Limit=20" + unw + "&" + f, "/Items/Latest?userId=" + uid + "&Limit=20" + unw + "&" + f), false)
             else if id = "libraries"
-                addRow(root, "Libraries", shown, true)
+                queueRow("Libraries", shown, true)
             else if byId.doesExist(id)
                 l = byId[id]
                 lp = Prefs.library(l.id)
-                if Prefs.hasHomeRow(l.collectionType) then addRow(root, rowTitle(lp.style, l.title), libraryRow(uid, l, lp.style, f, unw), false)
+                if Prefs.hasHomeRow(l.collectionType) then queueRow(rowTitle(lp.style, l.title), libraryRow(uid, l, lp.style, f, unw), false)
             end if
         end if
     end for
+    buildRows(root)
 
     if root.getChildCount() = 0
         if m.failures > 0
@@ -129,7 +134,36 @@ sub load()
         return
     end if
     print "Cove: home rows "; root.getChildCount()
+    if m.top.timing then print "Cove: home all rows "; Int(UpTime(0) * 1000)
     m.top.content = root
+end sub
+
+sub queueRow(title as string, list as object, isLandscape as boolean)
+    m.pendingRows.push({ title: title, list: list, landscape: isLandscape, upcoming: false })
+    ' (v1.1.1) the moment the first row could show: for the device test's timing
+    if not m.firstLogged and list.count() > 0
+        m.firstLogged = true
+        print "Cove: home first rows "; Int(UpTime(0) * 1000)
+    end if
+end sub
+
+' (SP-4) One series-ratings request for every row's unrated episodes, then the rows
+sub buildRows(root as object)
+    if Ratings.limitOf(m.srv) > 0
+        everything = []
+        for each p in m.pendingRows
+            everything.append(p.list)
+        end for
+        Ratings.prefetchSeries(m.srv, everything)
+    end if
+    for each p in m.pendingRows
+        if p.upcoming
+            addUpcomingRow(root, p.list)
+        else
+            addRow(root, p.title, p.list, p.landscape)
+        end if
+    end for
+    m.pendingRows = []
 end sub
 
 ' "New in Movies", "Top Rated in Movies", ...
@@ -164,15 +198,33 @@ function displayPrefs(uid as string) as dynamic
     return r.json
 end function
 
+' One GET with its timing line ("Cove: http GET /Users/x/Items/Resume 200 143")
+function timedGet(path as string) as object
+    stopwatch = createObject("roTimespan")
+    r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + path, headers: m.h, timeout: 20000 })
+    print "Cove: "; Util.redact(Api.timingLine("GET", path, r.code, stopwatch.totalMilliseconds()))
+    return r
+end function
+
 ' GET a list (an array, or { Items: [...] }); on 404 try the newer Jellyfin route
 function getList(rawPath as string, rawFallback as string, authOn403 = false as boolean) as object
     ' (the profile's rating limit, v0.9.0)
     path = Ratings.withLimit(m.srv, rawPath)
     fallback = Ratings.withLimit(m.srv, rawFallback)
-    print "Cove: GET "; path.split("?")[0]
-    r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + path, headers: m.h, timeout: 20000 })
-    print "Cove:   -> "; r.code
-    if r.code = 404 and fallback <> "" then r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + fallback, headers: m.h, timeout: 20000 })
+    ' (v1.1.1 SP-11) a server where only the newer route answered: straight to it
+    kind = "home:" + Api.routeKind(rawPath)
+    usedNew = false
+    if fallback <> "" and Api.knownRoute(m.srv, kind) = "new"
+        path = fallback
+        fallback = ""
+        usedNew = true
+    end if
+    r = timedGet(path)
+    if r.code = 404 and fallback <> ""
+        r = timedGet(fallback)
+        usedNew = true
+    end if
+    if r.code = 200 and rawFallback <> "" then Api.rememberRoute(m.srv, kind, usedNew)
     if r.code = 401 or (r.code = 403 and authOn403)
         m.top.authFailed = true
         return []

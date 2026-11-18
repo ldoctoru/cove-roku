@@ -121,5 +121,7 @@
         <Animation id="aboutAnim" duration="0.3" easeFunction="linear">
             <FloatFieldInterpolator id="aboutFade" key="[0.0, 1.0]" fieldToInterp="about.opacity" />
         </Animation>
+        <!-- (v1.1.1 SP-10) how long a series page waits for Next Up before opening the first season -->
+        <Timer id="seasonWait" duration="0.8" repeat="false" />
     </children>
 </component>

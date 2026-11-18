@@ -66,9 +66,17 @@ sub onSize()
     sh.width = w + 48
     sh.height = h + 48
     ring = m.top.findNode("ring")
+    ring.uri = "pkg:/images/ui/focus_ring_r26.9.png"
     ring.translation = [-8, -8]
     ring.width = w + 16
     ring.height = h + 16
+    if m.person
+        ' (v1.1.1 VD-7) a round ring around the photo (zoom 6 + ring 10 stays inside the 18 px pad)
+        ring.uri = "pkg:/images/ui/ring_circle_256.png"
+        ring.translation = [-10, -10]
+        ring.width = w + 20
+        ring.height = h + 20
+    end if
     m.top.findNode("heart").translation = [14, 14]
     ' poster: progress inside the bottom of the image
     m.top.findNode("barTrack").translation = [12, h - 18]
@@ -132,7 +140,7 @@ sub onContent()
         onSize()
         return
     end if
-    ' people (cast): round photo, no border or ring
+    ' people (cast): round photo, no border; a round focus ring (VD-7)
     t = m.global.theme
     mk = m.top.findNode("mask")
     if m.person
@@ -336,7 +344,6 @@ sub onFocus()
     ' a chosen season keeps its ring
     ringOp = f
     if m.selected and ringOp < 1 then ringOp = 1
-    if m.person then ringOp = 0
     m.top.findNode("ring").opacity = ringOp
     m.top.findNode("shadow").opacity = f
     ' (VD-9) poster title and year step down with the zoom, so the ring never sits on the title
