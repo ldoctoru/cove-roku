@@ -3,6 +3,35 @@ import "pkg:/source/Util.bs"
 ' Small pure helpers for screen layout and focus (v1.0.1 SC-8, SC-12, SC-17); unit-tested in tests/brs/navutil.test.brs
 namespace NavUtil
 
+    ' (BG-8) The key a page is found by in MainScene's stack (stackIndexOf): a details page its item id, a person
+    ' page the person's id, a genre / studio page "Genre:<id or name>"; "" for other pages
+    function pageKey(kind as string, itemId as dynamic, person as dynamic, library as dynamic) as string
+        if kind = "details" then return Util.toText(itemId)
+        if kind = "person" and Util.isAA(person) then return Util.toText(person.id)
+        if kind = "library" and Util.isAA(library) and Util.toText(library.feed) = "tag" then return tagPageKey(Util.toText(library.tagKind), Util.toText(library.tagId), Util.toText(library.tagName))
+        return ""
+    end function
+
+    ' A genre / studio page's key: its kind and id (its name when it has no id)
+    function tagPageKey(tagKind as string, tagId as string, tagName as string) as string
+        if tagKind = "" then return ""
+        if tagId <> "" then return tagKind + ":" + tagId
+        if tagName = "" then return ""
+        return tagKind + ":" + tagName
+    end function
+
+    ' (SC-11 / BG-8) The stack's screen kinds, bottom (Home) first: which one to close so a new screen fits under
+    ' maxScreens. The oldest page above Home (details, person, library, search, favorites, now playing); never
+    ' Home, the top screen, menus or the player. -1 when the stack fits or nothing can go.
+    function capDropIndex(kinds as object, maxScreens as integer) as integer
+        if type(kinds) <> "roArray" or kinds.count() < maxScreens then return -1
+        for i = 1 to kinds.count() - 2
+            k = Util.toText(kinds[i])
+            if k = "details" or k = "person" or k = "library" or k = "search" or k = "favorites" or k = "nowplaying" then return i
+        end for
+        return -1
+    end function
+
     ' The index of the entry with this id ([{ id, ... }]), or -1
     function indexOfId(list as object, id as string) as integer
         if id = "" or type(list) <> "roArray" then return -1

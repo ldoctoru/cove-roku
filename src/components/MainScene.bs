@@ -7,6 +7,7 @@ import "pkg:/source/Ratings.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/HomeLayout.bs"
+import "pkg:/source/NavUtil.bs"
 
 sub init()
     ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
@@ -111,6 +112,9 @@ function newMenu(id as string, title as string, subtitle as string, items as obj
 end function
 
 sub push(s as object)
+    ' (BG-8) every page and the player count toward the cap, not only the ones that called capStack
+    sid0 = Util.toText(s.screenId)
+    if not (sid0 = "servers" or sid0 = "signin" or sid0 = "address" or sid0 = "profiles") then capStack()
     if m.stack.count() > 0 then m.stack.peek().visible = false
     m.screens.appendChild(s)
     m.stack.push(s)
@@ -612,7 +616,12 @@ sub openItem(a as object)
     end if
     ' (v1.1) a genre or studio pill on a details page: its titles across the libraries, as a library page
     if t = "Genre" or t = "Studio"
-        capStack()
+        ' (BG-8) that genre's / studio's page is already open further down: back to it
+        at = stackIndexOf("library", NavUtil.tagPageKey(t, Util.toText(a.itemId), Util.toText(a.title)))
+        if at >= 0
+            backTo(at)
+            return
+        end if
         l = createObject("roSGNode", "LibraryScreen")
         l.server = m.server
         l.observeField("action", "onHomeAction")
@@ -649,7 +658,6 @@ sub openItem(a as object)
             backTo(at)
             return
         end if
-        capStack()
         ps = createObject("roSGNode", "PersonScreen")
         ps.server = m.server
         ps.observeField("action", "onHomeAction")
@@ -665,7 +673,6 @@ sub openItem(a as object)
         if Util.toText(a.seasonId) <> "" then m.stack[at].openSeason = Util.toText(a.seasonId)
         return
     end if
-    capStack()
     d = createObject("roSGNode", "DetailsScreen")
     d.server = m.server
     d.observeField("play", "onPlay")
@@ -682,10 +689,13 @@ function stackIndexOf(kind as string, id as string) as integer
     for i = m.stack.count() - 1 to 0 step -1
         s = m.stack[i]
         if s.screenId = kind
-            shown = ""
-            if kind = "details" then shown = Util.toText(s.itemId)
-            if kind = "person" and Util.isAA(s.person) then shown = Util.toText(s.person.id)
-            if shown = id then return i
+            lib = invalid
+            if kind = "library" then lib = s.library
+            per = invalid
+            if kind = "person" then per = s.person
+            itemKey = invalid
+            if kind = "details" then itemKey = s.itemId
+            if NavUtil.pageKey(kind, itemKey, per, lib) = id then return i
         end if
     end for
     return -1
@@ -707,20 +717,17 @@ end sub
 sub capStack()
     maxScreens = 12
     while m.stack.count() >= maxScreens
-        dropped = false
-        for i = 1 to m.stack.count() - 2
-            k = Util.toText(m.stack[i].screenId)
-            if k = "details" or k = "person" or k = "library" or k = "search" or k = "favorites" or k = "nowplaying"
-                old = m.stack[i]
-                m.stack.delete(i)
-                m.screens.removeChild(old)
-                detachScreen(old)
-                print "Cove: closed the oldest page ("; k; "), "; m.stack.count(); " screens open"
-                dropped = true
-                exit for
-            end if
+        kinds = []
+        for each sc in m.stack
+            kinds.push(Util.toText(sc.screenId))
         end for
-        if not dropped then return
+        i = NavUtil.capDropIndex(kinds, maxScreens)
+        if i < 0 then return
+        old = m.stack[i]
+        m.stack.delete(i)
+        m.screens.removeChild(old)
+        detachScreen(old)
+        print "Cove: closed the oldest page ("; kinds[i]; "), "; m.stack.count(); " screens open"
     end while
 end sub
 

@@ -29,3 +29,26 @@ sub test_buttonShift()
     t_eq(NavUtil_buttonShift(1600, 1900, 1728), -172, "moves left until the right edge fits")
     t_eq(NavUtil_buttonShift(100, 2000, 1728), -100, "never past the row start")
 end sub
+
+' (BG-8 / review3 test 7) the stack cap and page reuse, over plain arrays
+sub test_capDropIndex()
+    k = ["home", "details", "person", "details", "library", "details", "details", "person", "details", "library", "details"]
+    t_eq(NavUtil_capDropIndex(k, 12), -1, "11 screens: fits")
+    k.push("details")
+    t_eq(NavUtil_capDropIndex(k, 12), 1, "12 screens: the oldest page above Home")
+    t_eq(NavUtil_capDropIndex(["home", "settings", "details", "player"], 4), 2, "settings is kept, the page goes")
+    t_eq(NavUtil_capDropIndex(["home", "settings", "player"], 3), -1, "nothing droppable, the top kept")
+    t_eq(NavUtil_capDropIndex(["home", "details"], 2), -1, "the top page is never dropped")
+    t_eq(NavUtil_capDropIndex(invalid, 12), -1, "no stack")
+end sub
+
+sub test_pageKey()
+    t_eq(NavUtil_pageKey("details", "abc", invalid, invalid), "abc", "details: item id")
+    t_eq(NavUtil_pageKey("person", invalid, { id: "p1", name: "Ann" }, invalid), "p1", "person: id")
+    t_eq(NavUtil_pageKey("library", invalid, invalid, { feed: "tag", tagKind: "Genre", tagId: "g7", tagName: "Comedy" }), "Genre:g7", "genre page: id")
+    t_eq(NavUtil_pageKey("library", invalid, invalid, { feed: "tag", tagKind: "Studio", tagId: "", tagName: "A24" }), "Studio:A24", "studio without id: name")
+    t_eq(NavUtil_pageKey("library", invalid, invalid, { feed: "", id: "lib1" }), "", "a normal library is never reused")
+    t_eq(NavUtil_pageKey("search", invalid, invalid, invalid), "", "other pages")
+    t_eq(NavUtil_tagPageKey("Genre", "g7", "Comedy"), "Genre:g7", "same key as the pill opens")
+    t_eq(NavUtil_tagPageKey("Genre", "", ""), "", "nothing to match")
+end sub
