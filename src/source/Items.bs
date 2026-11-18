@@ -41,7 +41,20 @@ namespace Items
     ' no description (every card, the home banner, the episode's page and the player's Up Next card)
     function hidesSpoilers(it as object) as boolean
         if Util.toText(it.Type) <> "Episode" or Util.flag(it.UserData, "Played") then return false
-        return Prefs.hideSpoilers()
+        return spoilersSetting()
+    end function
+
+    ' (v1.1.1 SP-25) Prefs.hideSpoilers, read from the registry at most every 3 s (it was read twice for every
+    ' unwatched episode node, on the render thread in Details)
+    function spoilersSetting() as boolean
+        if m.spoilerClock = invalid
+            m.spoilerClock = createObject("roTimespan")
+            m.spoilerFlag = Prefs.hideSpoilers()
+        else if m.spoilerClock.totalMilliseconds() > 3000
+            m.spoilerClock.mark()
+            m.spoilerFlag = Prefs.hideSpoilers()
+        end if
+        return m.spoilerFlag = true
     end function
 
     ' A hidden episode's picture: the series' thumb, then its backdrop, then its poster

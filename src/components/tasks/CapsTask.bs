@@ -1,0 +1,14 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/DeviceCaps.bs"
+
+sub init()
+    m.top.functionName = "work"
+end sub
+
+sub work()
+    try
+        m.top.line = DeviceCaps.deviceLine(DeviceCaps.get())
+    catch e
+        print "Cove: device check failed: "; Util.redact(Util.toText(e.message))
+    end try
+end sub
