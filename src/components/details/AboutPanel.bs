@@ -8,6 +8,7 @@ end sub
 sub onInfo()
     inf = m.top.info
     if inf = invalid then return
+    m.pillAt = 0
     fillColumn(m.leftCol, inf.left, 820)
     fillColumn(m.rightCol, inf.right, 824)
     m.top.findNode("mediaTitle").visible = type(inf.right) = "roArray" and inf.right.count() > 0
@@ -22,6 +23,11 @@ sub fillColumn(col as object, rows as dynamic, w as integer)
     for each r in rows
         addText(col, Util.toText(r.k), 0, y, w, "0xFFFFFFFF", true)
         y = y + 34
+        if type(r.pills) = "roArray"
+            ' (v1.1) genres / studios as pills: OK opens a page with that genre's or studio's titles
+            y = addPills(col, r.pills, y, w) + 18
+            continue for
+        end if
         lines = []
         if type(r.v) = "roArray"
             for each one in r.v
@@ -52,3 +58,41 @@ sub addText(col as object, text as string, x as integer, y as integer, w as inte
     lab.translation = [x, y]
     lab.text = text
 end sub
+
+' A row of pills that wraps at w; the one at focusIndex (counted across all pill rows) is white. Returns the
+' y under the last line.
+function addPills(col as object, names as object, y as integer, w as integer) as integer
+    x = 0
+    focusAt = Util.toNumber(m.top.focusIndex)
+    for each n in names
+        g = col.createChild("Group")
+        bg = g.createChild("Poster")
+        lab = g.createChild("Label")
+        f = createObject("roSGNode", "Font")
+        f.uri = "font:MediumSystemFontFile"
+        f.size = 24
+        lab.font = f
+        lab.text = Util.toText(n)
+        lab.height = 46
+        lab.vertAlign = "center"
+        lab.translation = [20, 0]
+        pw = lab.boundingRect().width + 40
+        if x > 0 and x + pw > w
+            x = 0
+            y = y + 58
+        end if
+        bg.width = pw
+        bg.height = 46
+        if m.pillAt = focusAt
+            bg.uri = "pkg:/images/ui/white_pill.9.png"
+            lab.color = "0x000000FF"
+        else
+            bg.uri = "pkg:/images/ui/glass_pill.9.png"
+            lab.color = "0xFFFFFFE6"
+        end if
+        g.translation = [x, y]
+        x = x + pw + 12
+        m.pillAt = m.pillAt + 1
+    end for
+    return y + 46
+end function

@@ -2,11 +2,13 @@ import "pkg:/source/Util.bs"
 import "pkg:/source/Prefs.bs"
 
 ' Settings → Home → Rows: which Home rows show and in what order, per server.
-' Row ids: "resume" (Continue Watching), "nextup", "favorites", "recent" (Recently Added, all libraries),
+' Row ids: "resume" (Continue Watching), "nextup", "upcoming" (v1.1: episodes not aired yet), "favorites",
+' "recent" (Recently Added, all libraries), "released" (v1.1: Recently Released, by premiere date),
 ' "L<libraryId>" (a library's row) and "libraries" (the library tiles).
 ' One registry key per server, "homeRows:<serverId>": an optional "@" (use the server's Home layout), then the
-' ids in order, comma separated; "+" / "-" before resume / recent / libraries = switched on / off (no sign: the
-' default, on for resume and libraries, off for the new Recently Added row). The other switches keep their
+' ids in order, comma separated; "+" / "-" before resume / upcoming / recent / released / libraries = switched
+' on / off (no sign: the default, on for resume, upcoming and libraries, off for Recently Added and Recently
+' Released; Upcoming shows only when the server has upcoming episodes). The other switches keep their
 ' existing keys, so Settings → Libraries and Home → Rows can't disagree: Next Up = "showUpNextRow",
 ' Favorites = "homeFavorites", a library's row = its "Row on Home" (lib:<id>.home, with the library shown).
 namespace HomeLayout
@@ -76,7 +78,7 @@ namespace HomeLayout
     ' The rows Cove can show, in the default order. libs: the server's libraries in the Libraries order
     ' ([{ id, title, collectionType }]); only the kinds that have a Home row get one.
     function defaultIds(libs as object) as object
-        ids = ["resume", "nextup", "favorites", "recent"]
+        ids = ["resume", "nextup", "upcoming", "favorites", "recent", "released"]
         for each l in libs
             if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType))) then ids.push(libRowId(Util.toText(l.id)))
         end for
@@ -145,8 +147,8 @@ namespace HomeLayout
         end if
         st = readState(serverId)
         if st.flags.doesExist(id) then return st.flags[id] = true
-        ' (Recently Added is new: off until switched on, so Home looks as before)
-        return id <> "recent"
+        ' (Recently Added and Recently Released are off until switched on, so Home looks as before)
+        return id <> "recent" and id <> "released"
     end function
 
     sub setOn(serverId as string, libs as object, id as string, on as boolean)
@@ -183,7 +185,7 @@ namespace HomeLayout
     sub resetOrder(serverId as string)
         st = readState(serverId)
         kept = []
-        for each id in ["resume", "recent", "libraries"]
+        for each id in ["resume", "upcoming", "recent", "released", "libraries"]
             if st.flags.doesExist(id) then kept.push(id)
         end for
         st.order = kept
@@ -194,7 +196,9 @@ namespace HomeLayout
 
     ' The web app's Home sections (DisplayPreferences "usersettings", client "emby": CustomPrefs homesection0..n)
     ' → Cove row ids in that order. latestmedia = every library's row; sections Cove doesn't have (Live TV,
-    ' audio / book resume, recordings) are skipped. dp = the DisplayPreferences JSON, or invalid when the
+    ' audio / book resume, recordings) are skipped. The web apps have no Upcoming or Recently Released section
+    ' (Jellyfin web: smalllibrarytiles, librarybuttons, activerecordings, resume, resumeaudio, resumebook, livetv,
+    ' nextup, latestmedia), so those two rows show only with Cove's own layout. dp = the DisplayPreferences JSON, or invalid when the
     ' request failed (→ invalid: use Cove's own order).
     function fromServer(dp as dynamic, libs as object) as dynamic
         if not Util.isAA(dp) then return invalid
@@ -229,5 +233,33 @@ namespace HomeLayout
     sub addOnce(list as object, id as string)
         if indexIn(list, id) < 0 then list.push(id)
     end sub
+
+    ' ---------------------------------------------------------------- row queries (v1.1)
+
+    ' Settings → Home → Hide watched in Recently Added: "&IsPlayed=false" for Recently Added, Recently Released
+    ' and each library's Latest row (switch off: nothing added, so the server's own "Hide played in latest"
+    ' still applies)
+    function unwatchedQuery(hideWatched as boolean) as string
+        if hideWatched then return "&IsPlayed=false"
+        return ""
+    end function
+
+    ' The Next Up options Jellyfin has (enableRewatching 10.9+, nextUpDateCutoff); Emby has neither, so nothing is
+    ' added there. cutoffIso: "" = any time.
+    function nextUpQuery(isJellyfin as boolean, rewatch as boolean, cutoffIso as string) as string
+        if not isJellyfin then return ""
+        q = ""
+        if rewatch then q = q + "&enableRewatching=true"
+        if cutoffIso <> "" then q = q + "&nextUpDateCutoff=" + cutoffIso.encodeUriComponent()
+        return q
+    end function
+
+    ' Recently Released: movies and episodes by premiere date, newest first, nothing that hasn't aired yet
+    ' (missing / virtual episodes left out). nowIso: the current UTC time.
+    function releasedQuery(nowIso as string, hideWatched as boolean) as string
+        q = "Recursive=true&IncludeItemTypes=Movie,Episode&SortBy=PremiereDate,SortName&SortOrder=Descending&IsMissing=false"
+        if nowIso <> "" then q = q + "&MaxPremiereDate=" + nowIso.encodeUriComponent()
+        return q + unwatchedQuery(hideWatched) + "&Limit=20"
+    end function
 
 end namespace

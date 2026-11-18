@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/Speak.bs"
@@ -218,3 +219,20 @@ sub onErrorChosen(ev as object)
         m.top.action = { id: id }
     end if
 end sub
+
+' (v1.1 U-1) The focused card of a RowList, or invalid
+function focusedCard(list as object) as dynamic
+    f = list.rowItemFocused
+    if f = invalid or f.count() < 2 or list.content = invalid then return invalid
+    row = list.content.getChild(f[0])
+    if row = invalid then return invalid
+    return row.getChild(f[1])
+end function
+
+' (v1.1 U-1) Play on a card: play it (a series its next episode) without opening its page
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press or key <> "play" or not m.rows.isInFocusChain() then return false
+    a = QuickPlay.cardAction(focusedCard(m.rows))
+    if a <> invalid then m.top.action = a
+    return a <> invalid
+end function
