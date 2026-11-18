@@ -89,11 +89,10 @@ end sub
 sub layoutHeader()
     t = m.top.findNode("title")
     t.width = 0
-    w = t.boundingRect().width
-    if w > 1000
-        w = 1000
-        t.width = w
-    end if
+    w = Int(t.boundingRect().width) + 4
+    if w > 1000 then w = 1000
+    ' (a fixed width and height, so vertAlign="bottom" lines the title up with the info line)
+    t.width = w
     m.top.findNode("info").translation = [172 + Int(w) + 28, 30]
 end sub
 
