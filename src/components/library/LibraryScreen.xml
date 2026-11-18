@@ -26,16 +26,17 @@
         <Group id="bar" translation="[96,116]" />
         <!-- holds the focus while the pills are active (the grid then drops its focus ring) -->
         <Group id="barKeys" focusable="true" />
-        <!-- (VD-1) cards 216 x 324 in 252 x 432 tiles (18 px pad for the focus zoom): x 96 to 1824, the second
-             row's year ends at y 1014, inside action-safe -->
-        <MarkupGrid id="grid" translation="[78,168]" itemComponentName="PosterItem" itemSize="[252,432]"
-                    itemSpacing="[0,0]" numColumns="7" numRows="2" vertFocusAnimationStyle="fixedFocus"
+        <!-- (VD-1, v1.1.2) cards 196 x 294 in 232 x 432 tiles (18 px pad for the focus zoom) 22 px apart: x 96
+             to 1816. Titles take up to two lines (PosterItem.placeText); the second row's year ends at y 1024 at
+             most (focused, two-line title), inside action-safe (1026) -->
+        <MarkupGrid id="grid" translation="[78,168]" itemComponentName="PosterItem" itemSize="[232,432]"
+                    itemSpacing="[22,0]" numColumns="7" numRows="2" vertFocusAnimationStyle="fixedFocus"
                     drawFocusFeedback="false" />
         <Label id="status" width="1720" height="44" translation="[100,520]" color="0xFFFFFFCC" text="Loading...">
             <Font role="font" uri="font:MediumSystemFontFile" size="32" />
         </Label>
         <!-- placeholder cards while the first page loads -->
-        <Skeleton id="skeleton" translation="[96,186]" rows="2" cols="7" cardW="216" cardH="324" stepX="252" stepY="432" />
+        <Skeleton id="skeleton" translation="[96,186]" rows="2" cols="7" cardW="196" cardH="294" stepX="254" stepY="432" />
         <!-- (NV page keys) the first letter of the focused title after a page jump with the Name sort, for 1 s -->
         <Group id="letterBox" translation="[840,480]" visible="false">
             <Poster uri="pkg:/images/ui/panel_dark_r18.9.png" width="240" height="240" />

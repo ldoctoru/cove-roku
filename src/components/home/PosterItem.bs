@@ -37,6 +37,9 @@ sub onSize()
     ' (VD-8: the year 30 px under the title; VD-9: both move down with the focus ring, see onFocus)
     m.title.translation = [pad, pad + h + 14]
     m.year.translation = [pad, pad + h + 44]
+    ' (v1.1.2) poster titles take up to two lines where the tile leaves room under the card (the library
+    ' grid: 294-high cards in 432-high tiles); rows on Home, Details, Search, Person and Favorites keep one
+    m.twoLine = not m.person and not m.landscape and (m.top.height - 2 * pad - h) >= 120
     m.year.color = "0xFFFFFF99"
     if m.person then m.year.color = "0xFFFFFFCC"
     ' people: the name on up to two lines across the whole tile, the role under it
@@ -116,6 +119,12 @@ sub onSize()
     m.top.findNode("miniFill").translation = [21, h - 26]
     m.top.findNode("miniLeft").translation = [100, h - 40]
     m.title.width = w
+    m.title.wrap = m.twoLine
+    m.title.maxLines = 1
+    if m.twoLine
+        m.title.maxLines = 2
+        m.title.lineSpacing = 0
+    end if
     m.year.width = w
     m.year.wrap = m.person
     m.year.maxLines = 1
@@ -166,6 +175,7 @@ sub onContent()
     if m.person then m.year.visible = true
     m.title.text = c.title
     m.year.text = c.shortDescriptionLine2
+    placeText()
     if m.person
         lines = Util.wrapLines(c.title, 13, 2)
         first = ""
@@ -264,12 +274,23 @@ sub onContent()
     if m.small then bs = 32
     icon.width = bs - 14
     icon.height = bs - 14
+    ' (v1.1.2) 2:3 posters: the check / count in the top-left corner, because many posters carry rating
+    ' badges (IMDb, RT, Metacritic) baked into their top-right corner; the heart moves under it.
+    ' Wide cards keep them top-right (their heart is top-left).
+    leftSide = not m.landscape
+    heart = m.top.findNode("heart")
+    heart.translation = [14, 14]
+    if leftSide and (played or unplayed > 0) then heart.translation = [12 + Int((bs - 28) / 2), 12 + bs + 8]
     if played
         badge.uri = "pkg:/images/ui/badge_circle.png"
         badge.width = bs
         badge.height = bs
         badge.translation = [m.w - 12 - bs, 12]
         icon.translation = [m.w - 5 - bs, 19]
+        if leftSide
+            badge.translation = [12, 12]
+            icon.translation = [19, 19]
+        end if
         badge.visible = true
         icon.visible = true
         bt.visible = false
@@ -280,11 +301,13 @@ sub onContent()
         badge.uri = "pkg:/images/ui/badge_capsule.9.png"
         badge.width = bw
         badge.height = bs
-        badge.translation = [m.w - 12 - bw, 12]
+        bx = m.w - 12 - bw
+        if leftSide then bx = 12
+        badge.translation = [bx, 12]
         bt.text = s
         bt.width = bw
         bt.height = bs
-        bt.translation = [m.w - 12 - bw, 12]
+        bt.translation = [bx, 12]
         badge.visible = true
         bt.visible = true
         icon.visible = false
@@ -332,6 +355,32 @@ sub onLoad()
     m.initials.visible = m.image.loadStatus <> "ready" and m.initials.text <> ""
 end sub
 
+' Poster title and year under the card. (VD-9) Both step down with the focus zoom, so the ring never sits
+' on the title. (v1.1.2) The year follows the title's one or two lines: the wrapped title's height is
+' measured (one line: the year 30 px under the title, as before; two lines: 60 to 64 px).
+sub placeText()
+    if m.person or m.landscape or m.h = invalid then return
+    f = 0.0
+    if m.focusF <> invalid then f = m.focusF
+    gap = 14
+    drop = Int(10 * f)
+    yearAt = 30
+    if m.twoLine
+        ' (the zoomed card and its ring end 17 px under the card at most; the title starts at 12 + 8)
+        gap = 12
+        drop = Int(8 * f)
+        tall = m.title.localBoundingRect().height
+        if tall > 45
+            yearAt = Int(tall)
+            if yearAt < 60 then yearAt = 60
+            if yearAt > 64 then yearAt = 64
+        end if
+    end if
+    top = 18 + m.h + gap + drop
+    m.title.translation = [18, top]
+    m.year.translation = [18, top + yearAt]
+end sub
+
 ' Focus: zoom x1.06, white ring and shadow (Mac HoverLift), title fully white
 sub onFocus()
     listFocus = m.top.rowListHasFocus or m.top.gridHasFocus
@@ -346,12 +395,8 @@ sub onFocus()
     if m.selected and ringOp < 1 then ringOp = 1
     m.top.findNode("ring").opacity = ringOp
     m.top.findNode("shadow").opacity = f
-    ' (VD-9) poster title and year step down with the zoom, so the ring never sits on the title
-    if not m.person and not m.landscape and m.h <> invalid
-        drop = Int(10 * f)
-        m.title.translation = [18, 18 + m.h + 14 + drop]
-        m.year.translation = [18, 18 + m.h + 44 + drop]
-    end if
+    m.focusF = f
+    placeText()
     if f > 0.5
         m.title.color = "0xFFFFFFFF"
     else

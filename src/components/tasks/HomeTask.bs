@@ -6,6 +6,7 @@ import "pkg:/source/HomeLayout.bs"
 import "pkg:/source/Dates.bs"
 import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/Servers.bs"
+import "pkg:/source/Clock.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -134,7 +135,7 @@ sub load()
         return
     end if
     print "Cove: home rows "; root.getChildCount()
-    if m.top.timing then print "Cove: home all rows "; Int(UpTime(0) * 1000)
+    if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch"
     m.top.content = root
 end sub
 
@@ -143,7 +144,7 @@ sub queueRow(title as string, list as object, isLandscape as boolean)
     ' (v1.1.1) the moment the first row could show: for the device test's timing
     if not m.firstLogged and list.count() > 0
         m.firstLogged = true
-        print "Cove: home first rows "; Int(UpTime(0) * 1000)
+        print "Cove: home first rows "; Clock.msSinceLaunch(); " ms after launch"
     end if
 end sub
 

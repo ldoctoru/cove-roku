@@ -21,3 +21,12 @@ sub test_formatHm_edges()
     t_eq(Clock_formatHm(23, 59, true), "23:59", "last minute, 24 h")
     t_eq(Clock_formatHm(13, 0, false), "1:00 PM", "one in the afternoon")
 end sub
+
+' (v1.1.2) the launch timing lines: milliseconds between two { secs, ms } stamps
+sub test_msBetween()
+    t_eq(Clock_msBetween({ secs: 100, ms: 250 }, { secs: 102, ms: 750 }), 2500, "whole and part seconds")
+    t_eq(Clock_msBetween({ secs: 100, ms: 900 }, { secs: 101, ms: 100 }), 200, "across a second")
+    t_eq(Clock_msBetween({ secs: 1795000000, ms: 0 }, { secs: 1795000000, ms: 0 }), 0, "same moment")
+    t_eq(Clock_msBetween(invalid, { secs: 1, ms: 0 }), -1, "no launch stamp")
+    t_eq(Clock_msBetween({ secs: 1 }, { secs: 2, ms: 0 }), -1, "half a stamp")
+end sub
