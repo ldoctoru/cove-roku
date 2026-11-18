@@ -78,6 +78,11 @@ sub init()
     m.spokenItem = ""
     m.spokenRow = -1
     m.rows.observeField("rowItemFocused", "onRowFocusedSpeak")
+    ' (v1.1.1 SP-10) a series page waits a moment for Next Up before loading a season's episodes
+    m.nextUpPending = false
+    m.seasonWaiting = false
+    m.seasonWait = m.top.findNode("seasonWait")
+    m.seasonWait.observeField("fire", "onSeasonWait")
     Speak.mute([m.rows, m.btnKeys])
 end sub
 
@@ -104,6 +109,8 @@ end function
 
 sub load()
     m.status.text = "Loading..."
+    ' (v1.1.1) "Cove: details ready <ms>": from here to the header drawn
+    m.readyClock = createObject("roTimespan")
     get(itemPath(), { kind: "item" })
 end sub
 
@@ -163,6 +170,8 @@ sub onResponse(ev as object)
         return
     end if
     if r.code <> 200 or r.json = invalid
+        ' (SP-10) no Next Up: a season waiting for it loads now
+        if k = "nextUp" then onNextUp(invalid)
         if k = "item"
             if m.item = invalid
                 showLoadError("Couldn't load this title. " + Api.describeFailure(r))
@@ -246,6 +255,10 @@ end function
 sub showItem(it as object)
     first = m.item = invalid
     m.item = it
+    if first and m.readyClock <> invalid
+        print "Cove: details ready "; m.readyClock.totalMilliseconds()
+        m.readyClock = invalid
+    end if
     srv = m.top.server
     m.status.text = ""
     if m.errorPanel.visible
@@ -1253,14 +1266,23 @@ end sub
 
 sub loadNextUp()
     srv = m.top.server
+    m.nextUpPending = true
     get("/Shows/NextUp?SeriesId=" + Util.toText(m.item.Id) + "&UserId=" + Util.toText(srv.userId) + "&Limit=1&" + Items.fields(), { kind: "nextUp" })
 end sub
 
-sub onNextUp(json as object)
+sub onNextUp(json as dynamic)
+    m.nextUpPending = false
     list = listOf(json)
     m.nextUp = invalid
     if list.count() > 0 then m.nextUp = list[0]
     buildButtons()
+    ' (SP-10) the seasons came first and waited: one season load, on the Next Up season
+    if m.seasonWaiting
+        m.seasonWaiting = false
+        m.seasonWait.control = "stop"
+        if not m.seasonByUser then selectSeason(defaultSeasonIndex(), false)
+        return
+    end if
     ' open on the season of the next episode, unless the user picked one
     if m.nextUp <> invalid and not m.seasonByUser and m.seasonList.count() > 0
         i = seasonIndexOf(Util.toText(m.nextUp.SeasonId))
@@ -1278,11 +1300,7 @@ end function
 sub onSeasons(json as object)
     m.seasonList = listOf(json)
     if m.seasonList.count() = 0 then return
-    i = 0
-    if m.nextUp <> invalid
-        k = seasonIndexOf(Util.toText(m.nextUp.SeasonId))
-        if k >= 0 then i = k
-    end if
+    i = defaultSeasonIndex()
     ' opened with "Go to Season": that season, with the focus on its episodes
     if m.top.seasonId <> ""
         k = seasonIndexOf(m.top.seasonId)
@@ -1292,7 +1310,29 @@ sub onSeasons(json as object)
             return
         end if
     end if
+    ' (v1.1.1 SP-10) Next Up still on its way: wait for it (at most 0.8 s) instead of loading season 1 first
+    if m.nextUpPending and m.nextUp = invalid and not m.seasonByUser
+        m.seasonWaiting = true
+        m.seasonWait.control = "start"
+        return
+    end if
     selectSeason(i, false)
+end sub
+
+' The season to open: the Next Up episode's, else the first
+function defaultSeasonIndex() as integer
+    if m.nextUp <> invalid
+        k = seasonIndexOf(Util.toText(m.nextUp.SeasonId))
+        if k >= 0 then return k
+    end if
+    return 0
+end function
+
+' (SP-10) Next Up didn't answer in time: the first season now (onNextUp still moves to its season later)
+sub onSeasonWait()
+    if not m.seasonWaiting then return
+    m.seasonWaiting = false
+    if not m.seasonByUser and m.seasonList.count() > 0 then selectSeason(defaultSeasonIndex(), false)
 end sub
 
 sub selectSeason(i as integer, byUser as boolean)
