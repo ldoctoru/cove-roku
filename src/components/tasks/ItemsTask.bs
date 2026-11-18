@@ -10,10 +10,12 @@ sub work()
     try
         srv = m.top.server
         h = Api.headers(srv, true)
+        spent = createObject("roTimespan")
         ' (the profile's rating limit, v0.9.0: asked of the server, and checked again below)
         r = Api.execute({ method: "GET", url: Util.toText(srv.url) + Ratings.withLimit(srv, m.top.path), headers: h, timeout: 20000 })
         if r.code = 404 and m.top.fallback <> "" then r = Api.execute({ method: "GET", url: Util.toText(srv.url) + Ratings.withLimit(srv, m.top.fallback), headers: h, timeout: 20000 })
-        print "Cove: items "; m.top.path.split("?")[0]; " -> "; r.code
+        ' (v1.1.1: the time per request, so a device test gives real numbers)
+        print "Cove: items "; m.top.path.split("?")[0]; " -> "; r.code; " ("; spent.TotalMilliseconds(); " ms)"
         if r.code <> 200 or r.json = invalid
             m.top.error = "Couldn't load the list. " + Api.describeFailure(r)
             return

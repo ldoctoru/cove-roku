@@ -207,14 +207,24 @@ function userFiltered() as boolean
     return m.show <> "all" or m.genre <> "" or m.letter <> ""
 end function
 
-' The library's genres for the Genre pill
+' The library's genres for the Genre pill (v1.1.1 SP-20: names only, no images / user data / count, and kept
+' for the session per server, user and library, so opening the library again asks nothing)
 sub loadGenres()
     lib = m.top.library
     uid = Util.toText(m.top.server.userId)
-    q = "UserId=" + uid + "&SortBy=SortName&Recursive=true"
+    q = "UserId=" + uid + "&SortBy=SortName&Recursive=true&EnableImages=false&EnableUserData=false" + Items.noCount()
     if Util.toText(lib.id) <> "" then q = q + "&ParentId=" + Util.toText(lib.id)
     types = Items.typesFor(Util.toText(lib.collectionType))
     if types <> "" then q = q + "&IncludeItemTypes=" + types
+    m.genreKey = Util.toText(m.top.server.url) + "|" + uid + "|" + Util.toText(lib.id) + "|" + types
+    cache = invalid
+    if m.global.hasField("genreCache") then cache = m.global.genreCache
+    if Util.isAA(cache) and type(cache[m.genreKey]) = "roArray"
+        m.genres = cache[m.genreKey]
+        print "Cove: library genres from the session cache ("; m.genres.count(); ")"
+        drawBar()
+        return
+    end if
     t = createObject("roSGNode", "ItemsTask")
     t.server = m.top.server
     t.path = "/Genres?" + q
@@ -227,6 +237,13 @@ end sub
 
 sub onGenres(ev as object)
     m.genres = ev.getData().names
+    if type(m.genres) <> "roArray" then m.genres = []
+    ' (kept small: a few libraries per server, cleared when it grows past 24)
+    if not m.global.hasField("genreCache") then m.global.addFields({ genreCache: {} })
+    cache = m.global.genreCache
+    if not Util.isAA(cache) or cache.count() >= 24 then cache = {}
+    cache[m.genreKey] = m.genres
+    m.global.genreCache = cache
     drawBar()
 end sub
 
@@ -470,7 +487,9 @@ sub loadPage(startIndex as integer, limit as integer)
     types = Items.typesFor(Util.toText(lib.collectionType))
     ' the Collections tab: the box sets with titles from this library (as the Mac asks for them)
     if m.tab = "collections" then types = "BoxSet"
-    q = sortQuery() + "&StartIndex=" + startIndex.toStr() + "&Limit=" + limit.toStr() + "&" + Items.fields()
+    ' (v1.1.1 SP-7: the slim card fields; the total only with the first page, the next pages keep it)
+    q = sortQuery() + "&StartIndex=" + startIndex.toStr() + "&Limit=" + limit.toStr() + "&" + Items.slimFields(false)
+    if startIndex > 0 then q = q + Items.noCount()
     if Util.toText(lib.id) <> "" then q = "ParentId=" + Util.toText(lib.id) + "&" + q
     ' A library: everything of its kind inside it; a folder / collection: just what it contains
     if feed() = "tag"
@@ -503,7 +522,8 @@ sub onPage(ev as object)
     if r.gen <> m.gen then return
     m.loading = false
     m.skeleton.active = false
-    m.total = r.total
+    ' (later pages are asked without the count: the first page's total stays)
+    if r.startIndex = 0 then m.total = r.total
     ' (R-3: the next page starts at the server's offset; the rating limit may have dropped titles from this one)
     served = Util.toNumber(r.served)
     m.nextStart = r.startIndex + served

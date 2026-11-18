@@ -11,6 +11,32 @@ namespace Items
         return "Fields=Overview,ProductionYear,PrimaryImageAspectRatio,OfficialRating,CommunityRating,Genres&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb,Logo&EnableUserData=true"
     end function
 
+    ' (v1.1.1 SP-7) The slim set for poster grids and lists (library pages, search, favorites): only what the
+    ' cards, the Play key, the Audio Guide and the rating limit read (no Overview / Genres / Backdrop / Logo,
+    ' which only Home's hero and focus text use). wide: landscape cards (search episodes) also need the
+    ' Thumb / Backdrop tags for their 16:9 picture. SortName: the letter shown on a page jump (Name sort).
+    function slimFields(wide as boolean) as string
+        types = "Primary"
+        if wide then types = "Primary,Thumb,Backdrop"
+        return "Fields=ProductionYear,PrimaryImageAspectRatio,OfficialRating,SortName&ImageTypeLimit=1&EnableImageTypes=" + types + "&EnableUserData=true"
+    end function
+
+    ' (SP-7) For a list whose caller never reads TotalRecordCount (Jellyfin counts it with a second query)
+    function noCount() as string
+        return "&EnableTotalRecordCount=false"
+    end function
+
+    ' (NV page keys) The letter a title is filed under: its SortName's first character ("The Matrix" → "M"),
+    ' "#" for digits and symbols, "" without a name
+    function letterOf(sortName as string, title as string) as string
+        s = sortName.trim()
+        if s = "" then s = title.trim()
+        if s = "" then return ""
+        ch = UCase(s.left(1))
+        if ch >= "A" and ch <= "Z" then return ch
+        return "#"
+    end function
+
     ' (the tag parameter must not be called "tag": BrighterScript would read it as the tag() function below)
     function imageUrl(server as object, id as string, kind as string, imageTag as string, maxWidth as integer) as string
         if id = "" or imageTag = "" then return ""
@@ -339,6 +365,8 @@ namespace Items
         c.timeLeft = timeLeft(it)
         c.resumeAt = resumeAt(it)
         if t = "Episode" then c.episode = episodeLabel(it)
+        ' (slim lists ask for SortName: the library's letter bubble on a page jump)
+        if it.SortName <> invalid then c.addFields({ letter: letterOf(Util.toText(it.SortName), title) })
         return c
     end function
 
