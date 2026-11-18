@@ -1927,6 +1927,11 @@ function onKeyEvent(key as string, press as boolean) as boolean
             episodeMenu()
             return true
         end if
+        ' (v1.1.1 NV-13) Rewind / Fast Forward: one screen of cards back / on along the row
+        if key = "rewind" or key = "fastforward"
+            pageRow(key = "fastforward")
+            return true
+        end if
         if key = "down"
             ' (reaches here only from the last row)
             enterAbout()
@@ -1941,6 +1946,18 @@ function onKeyEvent(key as string, press as boolean) as boolean
     end if
     return false
 end function
+
+' (NV-13) Jump one screen of cards along the focused row
+sub pageRow(forward as boolean)
+    f = m.rows.rowItemFocused
+    if f = invalid or f.count() < 2 or m.rows.content = invalid then return
+    row = m.rows.content.getChild(f[0])
+    if row = invalid then return
+    dir = -1
+    if forward then dir = 1
+    col = NavUtil.pageColumn(f[1], row.getChildCount(), Int(m.rows.itemSize[0]), NavUtil.rowCardWidth(m.rows.rowItemSize, f[0]), dir)
+    if col >= 0 and col <> f[1] then m.rows.jumpToRowItem = [f[0], col]
+end sub
 
 ' (v1.1 U-1) The Play key: an episode or extra plays as with OK; a title in More Like This / In This Collection /
 ' Included In plays without opening its page (MainScene picks the episode or film); elsewhere the Play button

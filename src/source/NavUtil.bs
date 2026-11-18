@@ -40,4 +40,27 @@ namespace NavUtil
         return shift
     end function
 
+    ' (v1.1.1 NV-13) Rewind / Fast Forward in a row of cards: the column one screen of cards back or on
+    ' (dir -1 / 1), kept inside the row. rowWidth / cardWidth = how many cards one screen shows.
+    function pageColumn(col as integer, count as integer, rowWidth as integer, cardWidth as integer, dir as integer) as integer
+        if count <= 0 then return -1
+        perScreen = 1
+        if cardWidth > 0 and rowWidth > cardWidth then perScreen = Int(rowWidth / cardWidth)
+        nextCol = col + dir * perScreen
+        if nextCol >= count then nextCol = count - 1
+        if nextCol < 0 then nextCol = 0
+        return nextCol
+    end function
+
+    ' The card width of row i in a RowList's rowItemSize ([[w, h], ...]; the last entry covers the rest)
+    function rowCardWidth(sizes as dynamic, i as integer) as integer
+        if type(sizes) <> "roArray" or sizes.count() = 0 then return 0
+        k = i
+        if k >= sizes.count() then k = sizes.count() - 1
+        if k < 0 then k = 0
+        e = sizes[k]
+        if type(e) <> "roArray" or e.count() < 1 then return 0
+        return Int(e[0])
+    end function
+
 end namespace
