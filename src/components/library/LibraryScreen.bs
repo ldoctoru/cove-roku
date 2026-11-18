@@ -45,6 +45,7 @@ end sub
 
 sub onLibrary()
     m.top.findNode("title").text = Util.toText(m.top.library.title)
+    layoutHeader()
     ' Recently Added: newest first (as on the Mac); a library opens with its Settings → Libraries sort and filter
     if feed() = "recent"
         m.sort = "added"
@@ -74,6 +75,18 @@ sub onLibrary()
     reload()
     ' (a genre / studio page: no Genre pill of its own)
     if feed() <> "tag" then loadGenres()
+end sub
+
+' (VD-1) The info line right after the title, on the same line (the title is cut at 1000 px)
+sub layoutHeader()
+    t = m.top.findNode("title")
+    t.width = 0
+    w = t.boundingRect().width
+    if w > 1000
+        w = 1000
+        t.width = w
+    end if
+    m.top.findNode("info").translation = [172 + Int(w) + 28, 30]
 end sub
 
 ' The page's choices for the next visit (only what differs from the Settings → Libraries defaults)

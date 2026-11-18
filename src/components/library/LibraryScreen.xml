@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- A whole library (or a collection / folder) as a poster grid, loaded 60 at a time as you scroll.
+<!-- A whole library (or a collection / folder) as a poster grid, 7 x 2 cards on screen (v1.1.1 VD-1), loaded
+     36 first and then 96 at a time as you scroll (SP-6). Rewind / Fast Forward jump a screen (NV page keys).
      A bar of pills above it (Up from the top row, or *): Sort, Genre, A-Z, Show (all / unwatched / watched /
      favourites); OK opens the choices in the side panel. "action" = { id: "open", ... } like the home. -->
 <component name="LibraryScreen" extends="Group">
@@ -14,24 +15,27 @@
         <field id="stale" type="boolean" value="false" />
     </interface>
     <children>
-        <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="64" translation="[100,48]" />
-        <Label id="title" width="1200" height="60" translation="[180,40]" color="0xFFFFFFFF">
+        <!-- (VD-1) header in one line: logo, title, and the info line after the title on its baseline -->
+        <Poster id="logo" uri="pkg:/images/logo.png" width="56" height="56" translation="[96,36]" />
+        <Label id="title" height="60" translation="[172,34]" vertAlign="bottom" color="0xFFFFFFFF">
             <Font role="font" uri="font:BoldSystemFontFile" size="44" />
         </Label>
-        <Label id="info" width="1200" height="40" translation="[180,96]" color="0xFFFFFFCC">
+        <Label id="info" width="900" height="60" translation="[600,30]" vertAlign="bottom" color="0xFFFFFFCC">
             <Font role="font" uri="font:MediumSystemFontFile" size="26" />
         </Label>
-        <Group id="bar" translation="[96,160]" />
+        <Group id="bar" translation="[96,116]" />
         <!-- holds the focus while the pills are active (the grid then drops its focus ring) -->
         <Group id="barKeys" focusable="true" />
-        <MarkupGrid id="grid" translation="[78,224]" itemComponentName="PosterItem" itemSize="[276,466]"
-                    itemSpacing="[0,4]" numColumns="6" numRows="2" vertFocusAnimationStyle="fixedFocus"
+        <!-- (VD-1) cards 216 x 324 in 252 x 432 tiles (18 px pad for the focus zoom): x 96 to 1824, the second
+             row's year ends at y 1014, inside action-safe -->
+        <MarkupGrid id="grid" translation="[78,168]" itemComponentName="PosterItem" itemSize="[252,432]"
+                    itemSpacing="[0,0]" numColumns="7" numRows="2" vertFocusAnimationStyle="fixedFocus"
                     drawFocusFeedback="false" />
         <Label id="status" width="1720" height="44" translation="[100,520]" color="0xFFFFFFCC" text="Loading...">
             <Font role="font" uri="font:MediumSystemFontFile" size="32" />
         </Label>
         <!-- placeholder cards while the first page loads -->
-        <Skeleton id="skeleton" translation="[96,242]" rows="2" cols="6" stepX="276" stepY="470" />
+        <Skeleton id="skeleton" translation="[96,186]" rows="2" cols="7" cardW="216" cardH="324" stepX="252" stepY="432" />
         <!-- the load failed or nothing to show: Try Again / Clear Filters / ... (Up still reaches the pills) -->
         <ErrorPanel id="errorPanel" translation="[100,400]" width="1720" visible="false" />
     </children>

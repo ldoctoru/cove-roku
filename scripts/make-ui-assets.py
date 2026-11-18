@@ -516,6 +516,11 @@ def draw_all():
     # Settings: a section card (white 4 % with an 8 % edge, as on the Mac) and the switch
     save(nine(shape(48, 48, 18, (255, 255, 255, 12), (255, 255, 255, 26), 2)), "card_r18.9.png")
     save(nine(shape(44, 44, 22, WHITE)), "switch_track.9.png")
+    # library (v1.1.1): skeleton / placeholder cards with the poster's r18 corners (white, tinted faint at
+    # runtime, VD-2) and the 96 px glyphs of an empty page (VD-20)
+    save(nine(shape(48, 48, 18, WHITE)), "white_r18.9.png")
+    for name, fn in (("film", film_icon), ("tv", tv_icon), ("heart", heart), ("folder", folder_icon)):
+        icon(name, 96, fn)
     save(circle(36, WHITE), "switch_knob.png")
     save(circle(70, WHITE), "white_circle_70.png")
     icon("play", 72, play)

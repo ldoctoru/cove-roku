@@ -34,8 +34,11 @@ sub onSize()
     if m.person then h = w
     if h > m.top.height - 2 * pad then h = m.top.height - 2 * pad
     m.card.translation = [pad, pad]
+    ' (VD-8: the year 30 px under the title; VD-9: both move down with the focus ring, see onFocus)
     m.title.translation = [pad, pad + h + 14]
-    m.year.translation = [pad, pad + h + 46]
+    m.year.translation = [pad, pad + h + 44]
+    m.year.color = "0xFFFFFF99"
+    if m.person then m.year.color = "0xFFFFFFCC"
     ' people: the name on up to two lines across the whole tile, the role under it
     n2 = m.top.findNode("name2")
     n2.visible = m.person
@@ -46,6 +49,10 @@ sub onSize()
     end if
     m.w = w
     m.h = h
+    ' (VD-1) the 216-wide library cards: smaller initials and badges
+    m.small = w < 230
+    m.initials.font.size = 48
+    if m.small then m.initials.font.size = 40
     m.card.scaleRotateCenter = [w / 2, h / 2]
     for each id in ["ph", "image", "mask", "border", "initials"]
         n = m.top.findNode(id)
@@ -245,26 +252,30 @@ sub onContent()
         played = false
         unplayed = 0
     end if
+    bs = 36
+    if m.small then bs = 32
+    icon.width = bs - 14
+    icon.height = bs - 14
     if played
         badge.uri = "pkg:/images/ui/badge_circle.png"
-        badge.width = 36
-        badge.height = 36
-        badge.translation = [m.w - 48, 12]
-        icon.translation = [m.w - 41, 19]
+        badge.width = bs
+        badge.height = bs
+        badge.translation = [m.w - 12 - bs, 12]
+        icon.translation = [m.w - 5 - bs, 19]
         badge.visible = true
         icon.visible = true
         bt.visible = false
     else if unplayed > 0
         s = unplayed.toStr()
         if unplayed > 99 then s = "99+"
-        bw = 36 + (s.len() - 1) * 15
+        bw = bs + (s.len() - 1) * 15
         badge.uri = "pkg:/images/ui/badge_capsule.9.png"
         badge.width = bw
-        badge.height = 36
+        badge.height = bs
         badge.translation = [m.w - 12 - bw, 12]
         bt.text = s
         bt.width = bw
-        bt.height = 36
+        bt.height = bs
         bt.translation = [m.w - 12 - bw, 12]
         badge.visible = true
         bt.visible = true
@@ -328,6 +339,12 @@ sub onFocus()
     if m.person then ringOp = 0
     m.top.findNode("ring").opacity = ringOp
     m.top.findNode("shadow").opacity = f
+    ' (VD-9) poster title and year step down with the zoom, so the ring never sits on the title
+    if not m.person and not m.landscape and m.h <> invalid
+        drop = Int(10 * f)
+        m.title.translation = [18, 18 + m.h + 14 + drop]
+        m.year.translation = [18, 18 + m.h + 44 + drop]
+    end if
     if f > 0.5
         m.title.color = "0xFFFFFFFF"
     else
