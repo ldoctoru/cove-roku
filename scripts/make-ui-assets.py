@@ -470,6 +470,8 @@ def draw_all():
     save(nine(shape(48, 48, 21, (38, 38, 38, 235))), "panel_r21.9.png")
     save(circle(69, GLASS_FILL, GLASS_STROKE, 2), "glass_circle_69.png")
     save(circle(69, WHITE), "white_circle_69.png")
+    # (v1.1.1 VD-6) the focus ring of a 69 px circle button: 4 px stroke, 4 px gap, drawn at [-8, -8]
+    save(ring_circle(85, 4), "focus_ring_circle_85.png")
     save(circle(10, WHITE), "dot_10.png")
     save(nine(ring(60, 60, 26, 4, WHITE)), "focus_ring_r26.9.png")
     save(nine(ring(40, 40, 18, 2, (255, 255, 255, 31))), "card_border_r18.9.png")

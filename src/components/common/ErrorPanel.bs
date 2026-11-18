@@ -77,6 +77,14 @@ sub draw()
     end for
     x = Int((w - total) / 2)
     for each b in labels
+        ' (v1.1.1 VD-6) the white focus ring, as on the other button rows
+        if b.focus
+            ring = m.body.createChild("Poster")
+            ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
+            ring.width = b.w + 16
+            ring.height = 76
+            ring.translation = [x - 8, y - 8]
+        end if
         bg = m.body.createChild("Poster")
         bg.width = b.w
         bg.height = 60

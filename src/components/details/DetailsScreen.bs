@@ -607,11 +607,7 @@ sub drawButtons()
             if w < 255 then w = 255
             g.scaleRotateCenter = [w / 2, 34]
             if isFocus
-                ring = g.createChild("Poster")
-                ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
-                ring.translation = [-8, -8]
-                ring.width = w + 16
-                ring.height = 85
+                addFocusRing(g, "pkg:/images/ui/focus_ring_pill.9.png", w + 16, 85)
                 g.scale = [1.06, 1.06]
             end if
             bg = g.createChild("Poster")
@@ -637,9 +633,10 @@ sub drawButtons()
             l.font = f
             x = x + w + 21
         else if b.text <> invalid
-            ' a text button: glass pill, white when focused
+            ' a text button: glass pill, with the white focus ring when focused (VD-6)
             w = b.text.len() * 15 + 64
             g.scaleRotateCenter = [w / 2, 34]
+            if isFocus then addFocusRing(g, "pkg:/images/ui/focus_ring_pill.9.png", w + 16, 85)
             bg = g.createChild("Poster")
             bg.width = w
             bg.height = 69
@@ -653,17 +650,14 @@ sub drawButtons()
             f.uri = "font:MediumSystemFontFile"
             f.size = 26
             l.font = f
-            if isFocus
-                bg.uri = "pkg:/images/ui/white_pill.9.png"
-                l.color = "0x000000FF"
-                g.scale = [1.06, 1.06]
-            else
-                bg.uri = "pkg:/images/ui/glass_pill.9.png"
-                l.color = "0xFFFFFFFF"
-            end if
+            bg.uri = "pkg:/images/ui/glass_pill.9.png"
+            l.color = "0xFFFFFFFF"
+            if isFocus then g.scale = [1.06, 1.06]
             x = x + w + 18
         else
             g.scaleRotateCenter = [34, 34]
+            ' (VD-6) a circle keeps its glass fill; the white ring shows the focus
+            if isFocus then addFocusRing(g, "pkg:/images/ui/focus_ring_circle_85.png", 85, 85)
             bg = g.createChild("Poster")
             bg.width = 69
             bg.height = 69
@@ -672,14 +666,9 @@ sub drawButtons()
             ic.width = 28
             ic.height = 28
             ic.translation = [20, 20]
-            if isFocus
-                bg.uri = "pkg:/images/ui/white_circle_69.png"
-                ic.blendColor = "0x000000FF"
-                g.scale = [1.06, 1.06]
-            else
-                bg.uri = "pkg:/images/ui/glass_circle_69.png"
-                ic.blendColor = "0xFFFFFFFF"
-            end if
+            bg.uri = "pkg:/images/ui/glass_circle_69.png"
+            ic.blendColor = "0xFFFFFFFF"
+            if isFocus then g.scale = [1.06, 1.06]
             x = x + 69 + 18
         end if
         if i = m.btn then focusRight = x
@@ -688,6 +677,15 @@ sub drawButtons()
     m.btnGroup.translation = [96 + NavUtil.buttonShift(focusLeft, focusRight, 1728), 830]
     drawOverviewFocus()
     if focused then speakButton()
+end sub
+
+' (VD-6) The white focus ring around a header button: 4 px stroke, 4 px gap, under the button
+sub addFocusRing(g as object, uri as string, w as integer, h as integer)
+    ring = g.createChild("Poster")
+    ring.uri = uri
+    ring.translation = [-8, -8]
+    ring.width = w
+    ring.height = h
 end sub
 
 ' Audio Guide: the spoken name of a header button
@@ -1531,19 +1529,24 @@ sub drawSeasonBar()
         bg = createObject("roSGNode", "Poster")
         bg.width = w
         bg.height = 60
-        if isFocus
-            bg.uri = "pkg:/images/ui/white_pill.9.png"
-            l.color = "0x000000FF"
-        else
-            bg.uri = "pkg:/images/ui/glass_pill.9.png"
-            l.color = "0xFFFFFFFF"
-            if not bold then l.color = "0xFFFFFFD9"
-            ' "Show all" / "Hide watched" in the accent colour, like the Mac's tinted button
-            if isFilter then l.color = m.global.theme.accent
-        end if
+        ' (v1.1.1 VD-6) glass pill; the white ring shows the focus
+        bg.uri = "pkg:/images/ui/glass_pill.9.png"
+        l.color = "0xFFFFFFFF"
+        if not bold and not isFocus then l.color = "0xFFFFFFD9"
+        ' "Show all" / "Hide watched" in the accent colour, like the Mac's tinted button
+        if isFilter then l.color = m.global.theme.accent
         g.insertChild(bg, 0)
         l.translation = [26, 0]
         if ids[i] = "season" then w = addSeasonBadge(g, tw, w)
+        bg.width = w
+        if isFocus
+            ring = createObject("roSGNode", "Poster")
+            ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
+            ring.translation = [-8, -8]
+            ring.width = w + 16
+            ring.height = 76
+            g.insertChild(ring, 0)
+        end if
         if not isFilter
             ch = g.createChild("Poster")
             ch.uri = "pkg:/images/ui/icon_chevron_28.png"

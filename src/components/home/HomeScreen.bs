@@ -465,13 +465,14 @@ sub paintCircle(name as string, isFocused as boolean)
     icon = m.top.findNode(name + "Icon")
     g = m.top.findNode("btn" + UCase(name.left(1)) + name.mid(1))
     g.scaleRotateCenter = [34, 34]
+    ' (v1.1.1 VD-6) one focus rule: the white ring shows the focus; the circle keeps its glass fill, so it never
+    ' looks like a second Play button
+    bg.uri = "pkg:/images/ui/glass_circle_69.png"
+    icon.blendColor = "0xFFFFFFFF"
+    m.top.findNode(name + "Ring").visible = isFocused
     if isFocused
-        bg.uri = "pkg:/images/ui/white_circle_69.png"
-        icon.blendColor = "0x000000FF"
         g.scale = [1.06, 1.06]
     else
-        bg.uri = "pkg:/images/ui/glass_circle_69.png"
-        icon.blendColor = "0xFFFFFFFF"
         g.scale = [1.0, 1.0]
     end if
 end sub
