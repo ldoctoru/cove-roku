@@ -22,7 +22,9 @@ sub init()
     m.failed = 0
     m.lastError = ""
     m.inGrid = false        ' the results had the focus (Back from a result returns there)
-    m.keepFocus = invalid   ' (SC-1) the result to focus again after the search ran again
+    m.keepFocus = invalid   ' (SC-1) the result to focus again after the search ran again: { key, col }
+    m.shownKeys = []        ' the row keys on screen, in order
+    m.shownGen = -1
     ' Audio Guide: Roku says the keyboard keys; Cove says the result cards and the result count
     m.speakRow = -1
     m.grid.observeField("rowItemFocused", "onResultFocused")
@@ -49,6 +51,11 @@ sub search()
         return
     end if
     m.status.text = "Searching for " + chr(34) + term + chr(34) + "..."
+    ' (v1.1.1 SP-17) the older searches' answers are no longer wanted: no copy of them onto this thread
+    for each old in m.taskList
+        old.unobserveField("result")
+        old.unobserveField("error")
+    end for
     m.found = {}
     m.failed = 0
     m.lastError = ""
@@ -80,9 +87,18 @@ end sub
 sub onResult(ev as object)
     r = ev.getData()
     if r.gen <> m.gen then return
-    m.found[ev.getRoSGNode().rowKey] = r.nodes
+    ' (the nodes once, as a list: each redraw moves them into the new rows)
+    kids = []
+    holder = r.nodes
+    if holder <> invalid
+        for i = 0 to holder.getChildCount() - 1
+            kids.push(holder.getChild(i))
+        end for
+    end if
+    m.found[ev.getRoSGNode().rowKey] = kids
     m.waiting = m.waiting - 1
-    if m.waiting <= 0 then showResults()
+    ' (v1.1.1 SP-17) each query's results show as they arrive, in the fixed order
+    showResults()
 end sub
 
 sub onError(ev as object)
@@ -90,31 +106,39 @@ sub onError(ev as object)
     m.failed = m.failed + 1
     m.lastError = Util.toText(ev.getData())
     m.waiting = m.waiting - 1
-    if m.waiting <= 0 then showResults()
+    showResults()
 end sub
 
 ' People first (when the term is a name), then movies & shows, then episodes
 sub showResults()
+    final = m.waiting <= 0
     root = createObject("roSGNode", "ContentNode")
     sizes = []
     heights = []
+    keys = []
     total = 0
     order = [{ key: "people", title: "People", size: [170, 296] }, { key: "titles", title: "Movies & Shows", size: [236, 406] }, { key: "episodes", title: "Episodes", size: [380, 240] }]
     for each o in order
-        holder = m.found[o.key]
-        if holder <> invalid and holder.getChildCount() > 0
+        kids = m.found[o.key]
+        if kids <> invalid and kids.count() > 0
             row = root.createChild("ContentNode")
             row.title = o.title
-            kids = []
-            for i = 0 to holder.getChildCount() - 1
-                kids.push(holder.getChild(i))
-            end for
             row.appendChildren(kids)
             total = total + kids.count()
             sizes.push(o.size)
             heights.push(o.size[1] + 44)
+            keys.push(o.key)
         end if
     end for
+    ' (SP-17) nothing yet while other queries still run: keep waiting
+    if total = 0 and not final then return
+    ' (the results in the focus while a later row arrives: the same card stays focused)
+    if m.keepFocus = invalid and m.grid.isInFocusChain() and m.shownGen = m.gen
+        f = m.grid.rowItemFocused
+        if f <> invalid and f.count() >= 2 and f[0] < m.shownKeys.count() then m.keepFocus = { key: m.shownKeys[f[0]], col: f[1] }
+    end if
+    m.shownKeys = keys
+    m.shownGen = m.gen
     if total = 0
         m.keepFocus = invalid
         if m.grid.isInFocusChain() then m.keyboard.setFocus(true)
@@ -138,15 +162,22 @@ sub showResults()
     keep = m.keepFocus
     m.keepFocus = invalid
     m.grid.content = root
-    if keep <> invalid and keep[0] < root.getChildCount()
-        col = keep[1]
-        n = root.getChild(keep[0]).getChildCount()
+    keepRow = -1
+    if keep <> invalid
+        for i = 0 to keys.count() - 1
+            if keys[i] = keep.key then keepRow = i
+        end for
+    end if
+    if keepRow >= 0
+        col = keep.col
+        n = root.getChild(keepRow).getChildCount()
         if col > n - 1 then col = n - 1
-        if col >= 0 then m.grid.jumpToRowItem = [keep[0], col]
+        if col >= 0 then m.grid.jumpToRowItem = [keepRow, col]
     end if
     m.status.text = total.toStr() + " results   ·   press Right to choose"
     if total = 1 then m.status.text = "1 result   ·   press Right to choose"
-    Speak.say(Speak.clean(m.status.text), false)
+    ' (the count is spoken once, when every query has answered)
+    if final then Speak.say(Speak.clean(m.status.text), false)
 end sub
 
 sub onSelected()
@@ -211,7 +242,7 @@ sub onFocusChanged()
         m.top.stale = false
         if m.keyboard.text.trim().len() >= 2
             f = m.grid.rowItemFocused
-            if m.inGrid and f <> invalid and f.count() >= 2 then m.keepFocus = [f[0], f[1]]
+            if m.inGrid and f <> invalid and f.count() >= 2 and m.shownKeys <> invalid and f[0] < m.shownKeys.count() then m.keepFocus = { key: m.shownKeys[f[0]], col: f[1] }
             m.debounce.control = "stop"
             search()
         end if
