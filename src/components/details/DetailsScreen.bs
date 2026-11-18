@@ -333,6 +333,8 @@ sub showItem(it as object)
         end if
         if t = "Series"
             get("/Shows/" + Util.toText(it.Id) + "/Seasons?UserId=" + Util.toText(srv.userId) + "&" + Items.fields(), { kind: "seasons" })
+            ' (SP-10) the seasons wait for this answer
+            m.nextUpPending = true
             loadNextUp()
         end if
         get("/Items/" + Util.toText(it.Id) + "/Similar?UserId=" + Util.toText(srv.userId) + "&Limit=12&" + Items.fields(), { kind: "similar" })
@@ -1266,7 +1268,6 @@ end sub
 
 sub loadNextUp()
     srv = m.top.server
-    m.nextUpPending = true
     get("/Shows/NextUp?SeriesId=" + Util.toText(m.item.Id) + "&UserId=" + Util.toText(srv.userId) + "&Limit=1&" + Items.fields(), { kind: "nextUp" })
 end sub
 

@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Tracks.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/DeviceCaps.bs"
@@ -6,7 +7,6 @@ import "pkg:/source/Theme.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/QuickPlay.bs"
-import "pkg:/source/Tracks.bs"
 
 sub init()
     ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
