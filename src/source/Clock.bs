@@ -39,4 +39,24 @@ namespace Clock
         return "Ends at " + timeIn(secondsFromNow)
     end function
 
+    ' (v1.1.2) The moment now as { secs, ms }: whole UTC seconds plus milliseconds, so it fits Integers
+    ' (UpTime(0) is a Float of the time since the device booted: it printed 768769536 and lost precision)
+    function stampNow() as object
+        dt = createObject("roDateTime")
+        return { secs: dt.AsSeconds(), ms: dt.GetMilliseconds() }
+    end function
+
+    ' (v1.1.2) Milliseconds from one { secs, ms } stamp to a later one; -1 when either is missing
+    function msBetween(fromStamp as dynamic, toStamp as dynamic) as integer
+        if not Util.isAA(fromStamp) or not Util.isAA(toStamp) then return -1
+        if fromStamp.secs = invalid or fromStamp.ms = invalid or toStamp.secs = invalid or toStamp.ms = invalid then return -1
+        return (toStamp.secs - fromStamp.secs) * 1000 + (toStamp.ms - fromStamp.ms)
+    end function
+
+    ' (v1.1.2) Milliseconds since the app started (main.bs stores m.global.launchAt); -1 when unknown
+    function msSinceLaunch() as integer
+        if m.global = invalid or not m.global.hasField("launchAt") then return -1
+        return msBetween(m.global.launchAt, stampNow())
+    end function
+
 end namespace
