@@ -3,6 +3,8 @@
 ' roInputEvents: { contentId, mediaType }; the scene opens or plays that item (MainScene.openDeepLink).
 sub main(args as dynamic)
     screen = createObject("roSGScreen")
+    ' (v1.1.2) the launch moment, for the "ms after launch" timing lines (Clock.msSinceLaunch)
+    screen.getGlobalNode().addFields({ launchAt: Clock.stampNow() })
     port = createObject("roMessagePort")
     screen.setMessagePort(port)
     ' (registered before the screen shows, so no input event is missed)
