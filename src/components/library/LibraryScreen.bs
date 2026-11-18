@@ -4,6 +4,7 @@ import "pkg:/source/Items.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Toasts.bs"
+import "pkg:/source/LibGrid.bs"
 
 sub init()
     m.grid = m.top.findNode("grid")
@@ -34,6 +35,7 @@ sub init()
     m.picker = invalid
     m.shuffleTask = invalid
     m.keepIndex = -1        ' refresh: the card to focus again once the first page is back
+    m.phCount = 0           ' (SP-6) placeholder cards at the end of the grid while the next page loads
     ' (the grid gets focus as soon as the screen is shown, before the library is set: never leave it without content)
     m.grid.content = createObject("roSGNode", "ContentNode")
     ' Audio Guide: Cove says the cards and the pills itself (the last pill said, so a redraw stays quiet)
@@ -91,12 +93,14 @@ sub reload()
     m.total = 0
     m.nextStart = 0
     m.grid.content = createObject("roSGNode", "ContentNode")
+    m.phCount = 0
     m.status.text = "Loading..."
     ' (U-7: placeholder cards instead of the text)
     m.status.visible = false
     m.skeleton.active = true
     hidePanel()
-    loadPage(0, 60)
+    ' (v1.1.1 SP-6: a small first page paints sooner; the next 96 are asked for as soon as it is in)
+    loadPage(0, LibGrid.firstPage())
 end sub
 
 ' Back on this page after a favourite / watched change or playback (MainScene sets "stale"): load it again,
@@ -515,6 +519,37 @@ sub loadPage(startIndex as integer, limit as integer)
     t.observeField("error", "onError")
     m.task = t
     t.control = "RUN"
+    if startIndex > 0 then addPlaceholders()
+end sub
+
+' The cards loaded so far, without the placeholders at the end
+function realCount() as integer
+    if m.grid.content = invalid then return 0
+    n = m.grid.content.getChildCount() - m.phCount
+    if n < 0 then n = 0
+    return n
+end function
+
+' (SP-6) Skeleton cards after the last loaded one while the next page loads: the rest of the row plus a row,
+' so scrolling into the end shows that more is coming instead of stopping dead
+sub addPlaceholders()
+    content = m.grid.content
+    if content = invalid or m.phCount > 0 or content.getChildCount() = 0 then return
+    n = LibGrid.placeholderCount(content.getChildCount(), LibGrid.cols())
+    nodes = []
+    for i = 1 to n
+        c = createObject("roSGNode", "ContentNode")
+        c.addFields({ kind: "placeholder", itemId: "", itemType: "", landscape: false })
+        nodes.push(c)
+    end for
+    content.appendChildren(nodes)
+    m.phCount = n
+end sub
+
+sub removePlaceholders()
+    if m.phCount <= 0 or m.grid.content = invalid then return
+    m.grid.content.removeChildrenIndex(m.phCount, realCount())
+    m.phCount = 0
 end sub
 
 sub onPage(ev as object)
@@ -530,13 +565,32 @@ sub onPage(ev as object)
     if served = 0 then m.nextStart = m.total
     holder = r.nodes
     ' (a refresh replaces what was shown only now, so the grid doesn't go blank while it loads)
-    if r.startIndex = 0 then m.grid.content = createObject("roSGNode", "ContentNode")
+    if r.startIndex = 0
+        m.grid.content = createObject("roSGNode", "ContentNode")
+        m.phCount = 0
+    end if
     nodes = []
     for i = 0 to holder.getChildCount() - 1
         nodes.push(holder.getChild(i))
     end for
-    m.grid.content.appendChildren(nodes)
-    count = m.grid.content.getChildCount()
+    ' (SP-6) the new cards take the placeholders' places first, so a focus resting on one stays put
+    content = m.grid.content
+    firstPh = realCount()
+    used = 0
+    while used < nodes.count() and used < m.phCount
+        content.replaceChild(nodes[used], firstPh + used)
+        used = used + 1
+    end while
+    if used < m.phCount then content.removeChildrenIndex(m.phCount - used, firstPh + used)
+    m.phCount = 0
+    if used < nodes.count()
+        rest = []
+        for i = used to nodes.count() - 1
+            rest.push(nodes[i])
+        end for
+        content.appendChildren(rest)
+    end if
+    count = content.getChildCount()
     if count = 0
         text = "Nothing here."
         if feed() = "favorites" then text = "No favorites yet. Add titles with the heart on their page, or with * on a card on Home."
@@ -570,6 +624,7 @@ sub onError(ev as object)
     m.keepIndex = -1
     m.loading = false
     m.skeleton.active = false
+    removePlaceholders()
     ' (a refresh or the next page failed while titles are shown: keep them)
     if m.grid.content <> invalid and m.grid.content.getChildCount() > 0
         if m.top.isInFocusChain() then Toasts.notify("Couldn't load more titles. " + Util.toText(ev.getData()), "info")
@@ -626,25 +681,35 @@ sub updateInfo()
     m.top.findNode("info").text = s
 end sub
 
-' Near the end of what's loaded: fetch the next 60
+' Near the end of what's loaded: fetch the next page
 sub onFocused()
     if m.grid.content = invalid or m.top.library = invalid then return
-    count = m.grid.content.getChildCount()
+    count = realCount()
     if not m.inBar and m.picker = invalid and m.grid.isInFocusChain() and Speak.isOn()
         c = m.grid.content.getChild(m.grid.itemFocused)
-        if c <> invalid then Speak.say(Speak.card(c) + Speak.position(m.grid.itemFocused, m.total))
+        if c <> invalid and isPlaceholder(c)
+            Speak.say("Loading")
+        else if c <> invalid
+            Speak.say(Speak.card(c) + Speak.position(m.grid.itemFocused, m.total))
+        end if
     end if
     pageMore(count)
 end sub
 
-' The next 60 from the server's offset (m.nextStart), not from the number of cards shown
+function isPlaceholder(c as dynamic) as boolean
+    return c <> invalid and c.hasField("kind") and c.kind = "placeholder"
+end function
+
+' (SP-6) The next 96 from the server's offset (m.nextStart), not from the number of cards shown, once the
+' focus is within 8 rows of the end (holding Down no longer runs into the end before the page is in)
 sub pageMore(count as integer)
-    if not m.loading and m.nextStart < m.total and m.grid.itemFocused >= count - 21 then loadPage(m.nextStart, 60)
+    if not m.loading and m.nextStart < m.total and LibGrid.needsMore(m.grid.itemFocused, count, LibGrid.cols()) then loadPage(m.nextStart, LibGrid.nextPage())
 end sub
 
 sub onSelected()
     if m.grid.content = invalid then return
     it = m.grid.content.getChild(m.grid.itemSelected)
+    if isPlaceholder(it) then return
     if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
 end sub
 

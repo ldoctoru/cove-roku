@@ -15,6 +15,7 @@ sub init()
     m.landscape = false
     m.person = false
     m.selected = false
+    m.phBars = invalid
 end sub
 
 ' The tile keeps a margin of PAD around the card, because a list clips each item to its own area: without
@@ -133,6 +134,7 @@ sub onContent()
         mk.uri = t.maskCard
     end if
     m.top.findNode("border").visible = not m.person
+    if drawPlaceholder(c) then return
     m.initials.text = UCase(Left(c.title, 1))
     m.initials.visible = true
     m.image.uri = c.hdPosterUrl
@@ -274,8 +276,41 @@ sub onContent()
     end if
 end sub
 
+' (v1.1.1 SP-6) A library page still loading: an empty card with a title and a year bar, as the skeleton.
+' The bars are made the first time a placeholder is shown, so other cards don't carry them.
+function drawPlaceholder(c as object) as boolean
+    isPh = c.hasField("kind") and c.kind = "placeholder"
+    if m.phBars <> invalid then m.phBars.visible = isPh
+    if not isPh then return false
+    if m.phBars = invalid
+        m.phBars = m.top.createChild("Group")
+        for each wide in [0.7, 0.4]
+            b = m.phBars.createChild("Poster")
+            b.uri = "pkg:/images/ui/white_pill.9.png"
+            b.blendColor = "0xFFFFFF1A"
+            b.width = Int(m.w * wide)
+            b.height = 22
+            if wide < 0.5 then b.height = 18
+        end for
+    end if
+    pad = 18
+    bars = [m.phBars.getChild(0), m.phBars.getChild(1)]
+    bars[0].width = Int(m.w * 0.7)
+    bars[0].translation = [pad + Int(m.w * 0.15), pad + m.h + 18]
+    bars[1].width = Int(m.w * 0.4)
+    bars[1].translation = [pad + Int(m.w * 0.3), pad + m.h + 52]
+    m.image.uri = ""
+    m.initials.visible = false
+    m.title.visible = false
+    m.year.visible = false
+    for each id in ["barTrack", "barFill", "scrim", "overTitle", "overSub", "miniTrack", "miniFill", "miniLeft", "ep", "heart", "badge", "badgeIcon", "badgeText"]
+        m.top.findNode(id).visible = false
+    end for
+    return true
+end function
+
 sub onLoad()
-    m.initials.visible = m.image.loadStatus <> "ready"
+    m.initials.visible = m.image.loadStatus <> "ready" and m.initials.text <> ""
 end sub
 
 ' Focus: zoom x1.06, white ring and shadow (Mac HoverLift), title fully white

@@ -1,0 +1,52 @@
+' The library grid's paging and page-key maths (v1.1.1 SP-6 / NV page keys), kept pure for the unit tests.
+namespace LibGrid
+
+    ' Cards per screen: 7 columns x 2 rows (VD-1)
+    function cols() as integer
+        return 7
+    end function
+
+    ' (SP-6) The first page: 6 rows, 2 on screen and 4 ahead, so the first paint waits for 42 cards at most
+    function firstPage() as integer
+        return 36
+    end function
+
+    ' (SP-6) Every page after the first, asked for at once and then whenever the focus nears the end
+    function nextPage() as integer
+        return 96
+    end function
+
+    ' (SP-6) Load the next page once the focus is within 8 rows of the last loaded card
+    function needsMore(focused as integer, loaded as integer, columns as integer) as boolean
+        if loaded <= 0 then return false
+        return focused >= loaded - 8 * columns
+    end function
+
+    ' (SP-6) Placeholder cards shown at the end while a page loads: the rest of the last row plus one row
+    function placeholderCount(loaded as integer, columns as integer) as integer
+        if columns <= 0 then return 0
+        rest = (columns - (loaded mod columns)) mod columns
+        return rest + columns
+    end function
+
+    ' (NV page keys) How far one Rewind / Fast Forward press moves: a screen, then x2 and x4 while the key
+    ' is pressed again within the repeat window (streak = presses in a row, 0 for the first)
+    function jumpSize(streak as integer, screenful as integer) as integer
+        if streak >= 4 then return screenful * 4
+        if streak >= 2 then return screenful * 2
+        return screenful
+    end function
+
+    ' (NV page keys) The card a jump lands on: the same column, never before the first card or after the last
+    ' loaded one (the grid then loads more, and the next press goes on from there); -1 when nothing changes
+    function jumpTarget(focused as integer, loaded as integer, size as integer, forward as boolean) as integer
+        if loaded <= 0 or focused < 0 then return -1
+        target = focused - size
+        if forward then target = focused + size
+        if target > loaded - 1 then target = loaded - 1
+        if target < 0 then target = 0
+        if target = focused then return -1
+        return target
+    end function
+
+end namespace
