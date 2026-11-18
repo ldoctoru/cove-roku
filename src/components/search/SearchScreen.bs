@@ -55,9 +55,12 @@ sub search()
     m.waiting = 3
     uid = Util.toText(m.top.server.userId)
     enc = term.encodeUriComponent()
-    q = "SearchTerm=" + enc + "&Recursive=true&Limit=40&" + Items.fields()
-    runSearch("titles", "", "/Users/" + uid + "/Items?" + q + "&IncludeItemTypes=Movie,Series,Video", "/Items?userId=" + uid + "&" + q + "&IncludeItemTypes=Movie,Series,Video")
-    runSearch("episodes", "landscape", "/Users/" + uid + "/Items?" + q + "&IncludeItemTypes=Episode", "/Items?userId=" + uid + "&" + q + "&IncludeItemTypes=Episode")
+    ' (v1.1.1 SP-7: only the fields the cards read, and no total count, which nobody reads here)
+    q = "SearchTerm=" + enc + "&Recursive=true&Limit=40" + Items.noCount() + "&"
+    qt = q + Items.slimFields(false) + "&IncludeItemTypes=Movie,Series,Video"
+    qe = q + Items.slimFields(true) + "&IncludeItemTypes=Episode"
+    runSearch("titles", "", "/Users/" + uid + "/Items?" + qt, "/Items?userId=" + uid + "&" + qt)
+    runSearch("episodes", "landscape", "/Users/" + uid + "/Items?" + qe, "/Items?userId=" + uid + "&" + qe)
     runSearch("people", "person", "/Persons?SearchTerm=" + enc + "&UserId=" + uid + "&Limit=24&Recursive=true&Fields=PrimaryImageAspectRatio", "")
 end sub
 

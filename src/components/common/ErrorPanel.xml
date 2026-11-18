@@ -12,6 +12,10 @@
         <!-- "info" (empty page) or "error" (the server failed): the icon above the message -->
         <field id="icon" type="string" value="error" onChange="draw" />
         <field id="width" type="integer" value="1600" onChange="draw" />
+        <!-- (v1.1.1 VD-20) an empty page: a big glyph for the context (film / tv / heart / folder, 96 px at 40 %),
+             the message as a title line and `detail` as a dimmer second line. "" keeps the small icon. -->
+        <field id="glyph" type="string" value="" onChange="draw" />
+        <field id="detail" type="string" value="" onChange="draw" />
         <!-- { id } of the button pressed -->
         <field id="chosen" type="assocarray" alwaysNotify="true" />
         <field id="index" type="integer" value="0" />

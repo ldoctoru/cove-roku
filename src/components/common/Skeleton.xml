@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- Placeholder cards at the final positions while a page loads (instead of a bare "Loading..."): faint
-     rounded rectangles with a title bar under each, gently pulsing. `rows` x `cols` cards of cardW x cardH,
-     one every stepX / stepY. Set `active` to start / stop it (visible follows). -->
+     rounded rectangles with the poster's r18 corners, a title bar and a year bar under each (v1.1.1 VD-2),
+     gently pulsing. `rows` x `cols` cards of cardW x cardH, one every stepX / stepY. Set `active` to start /
+     stop it: it shows only when the load takes longer than `delay` seconds, so a quick answer doesn't flash. -->
 <component name="Skeleton" extends="Group">
     <script type="text/brightscript" uri="Skeleton.bs" />
     <interface>
@@ -12,10 +13,13 @@
         <field id="stepX" type="integer" value="276" />
         <field id="stepY" type="integer" value="470" />
         <field id="titleBars" type="boolean" value="true" />
+        <field id="yearBars" type="boolean" value="true" />
+        <field id="delay" type="float" value="0.25" />
         <field id="active" type="boolean" onChange="onActive" />
     </interface>
     <children>
         <Group id="cards" />
+        <Timer id="wait" repeat="false" />
         <Animation id="pulse" duration="1.6" repeat="true" easeFunction="inOutQuad">
             <FloatFieldInterpolator key="[0.0, 0.5, 1.0]" keyValue="[0.55, 1.0, 0.55]" fieldToInterp="cards.opacity" />
         </Animation>
