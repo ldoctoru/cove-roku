@@ -328,9 +328,28 @@ sub drawBar()
         lab.vertAlign = "center"
         lab.translation = [24, 0]
         isTab = ids[i].startsWith("tab:")
-        w = lab.boundingRect().width + 84
+        ' (v1.1.1 VD-23) an active filter: lit fill, white text and an accent dot before the label, readable
+        ' with every accent (the dot has a dark edge for the white one)
+        dotW = 0
+        if active and not isTab then dotW = 16
+        w = lab.boundingRect().width + 84 + dotW
         ' (an action or a tab, not a choice: no chevron)
-        if ids[i] = "shuffle" or ids[i] = "order" or isTab then w = lab.boundingRect().width + 48
+        if ids[i] = "shuffle" or ids[i] = "order" or isTab then w = lab.boundingRect().width + 48 + dotW
+        if dotW > 0
+            lab.translation = [24 + dotW, 0]
+            edge = g.createChild("Poster")
+            edge.uri = "pkg:/images/ui/dot_10.png"
+            edge.blendColor = "0x000000CC"
+            edge.width = 12
+            edge.height = 12
+            edge.translation = [19, 20]
+            dot = g.createChild("Poster")
+            dot.uri = "pkg:/images/ui/dot_10.png"
+            dot.blendColor = m.global.theme.accent
+            dot.width = 8
+            dot.height = 8
+            dot.translation = [21, 22]
+        end if
         bg.width = w
         bg.height = 52
         ch = g.createChild("Poster")
@@ -353,7 +372,10 @@ sub drawBar()
         else
             bg.uri = "pkg:/images/ui/glass_pill.9.png"
             lab.color = "0xFFFFFFD9"
-            if active then lab.color = m.global.theme.accent
+            if active
+                bg.uri = "pkg:/images/ui/sel_pill.9.png"
+                lab.color = "0xFFFFFFFF"
+            end if
         end if
         ch.blendColor = lab.color
         if isTab and x = 0 then x = 6
@@ -615,16 +637,30 @@ sub onPage(ev as object)
     end if
     count = content.getChildCount()
     if count = 0
-        text = "Nothing here."
-        if feed() = "favorites" then text = "No favorites yet. Add titles with the heart on their page, or with * on a card on Home."
-        if m.tab = "collections" then text = "No collections in this library."
+        ' (v1.1.1 VD-20: an empty page looks unlike a failed one: a glyph, a title and a hint)
+        noun = kindNoun()
+        title = "Nothing here yet"
+        detail = "This library has no " + noun + "."
+        if feed() = "favorites"
+            title = "No favorites yet"
+            detail = "Add titles with the heart on their page, or with * on a card on Home."
+        end if
+        if m.tab = "collections"
+            title = "No collections in this library"
+            detail = "Collections appear here once the server groups titles into them."
+        end if
         buttons = [{ id: "retry", label: "Try Again" }]
         if userFiltered()
             ' (U-8: one press back to everything)
-            text = "Nothing matches these filters."
+            title = "Nothing matches these filters"
+            detail = "Clear the filters to see everything."
+            if m.show = "unwatched" and m.genre = "" and m.letter = ""
+                title = "No unwatched " + noun
+                detail = "Change Show to All to see watched titles too."
+            end if
             buttons = [{ id: "clear", label: "Clear Filters" }, { id: "filters", label: "Change Filters" }]
         end if
-        showPanel(text, "info", buttons)
+        showEmpty(title, detail, buttons)
     else
         m.status.visible = false
         hidePanel()
@@ -661,8 +697,38 @@ end sub
 
 ' ---------------------------------------------------------------- error / empty panel
 
+' What the page lists, for the empty-page lines: "movies", "shows", "collections", "titles"
+function kindNoun() as string
+    if m.tab = "collections" then return "collections"
+    ct = LCase(Util.toText(m.top.library.collectionType))
+    if feed() = "" and ct = "movies" then return "movies"
+    if feed() = "" and ct = "tvshows" then return "shows"
+    return "titles"
+end function
+
+' (VD-20) The empty-page glyph: heart on Favorites, film for movies, tv for shows, folder otherwise
+function emptyGlyph() as string
+    if feed() = "favorites" then return "heart"
+    if m.tab = "collections" then return "folder"
+    ct = LCase(Util.toText(m.top.library.collectionType))
+    if ct = "movies" then return "film"
+    if ct = "tvshows" then return "tv"
+    return "folder"
+end function
+
+sub showEmpty(title as string, detail as string, buttons as object)
+    m.errorPanel.detail = detail
+    m.errorPanel.glyph = emptyGlyph()
+    showPanel(title, "info", buttons)
+end sub
+
 sub showPanel(text as string, icon as string, buttons as object)
     m.status.visible = false
+    ' (an error keeps the small icon; showEmpty sets the glyph after this reset)
+    if icon = "error"
+        m.errorPanel.glyph = ""
+        m.errorPanel.detail = ""
+    end if
     m.errorPanel.icon = icon
     m.errorPanel.buttons = buttons
     m.errorPanel.message = text
