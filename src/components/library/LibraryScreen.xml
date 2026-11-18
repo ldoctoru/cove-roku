@@ -36,6 +36,14 @@
         </Label>
         <!-- placeholder cards while the first page loads -->
         <Skeleton id="skeleton" translation="[96,186]" rows="2" cols="7" cardW="216" cardH="324" stepX="252" stepY="432" />
+        <!-- (NV page keys) the first letter of the focused title after a page jump with the Name sort, for 1 s -->
+        <Group id="letterBox" translation="[840,480]" visible="false">
+            <Poster uri="pkg:/images/ui/panel_dark_r18.9.png" width="240" height="240" />
+            <Label id="letterText" width="240" height="240" horizAlign="center" vertAlign="center" color="0xFFFFFFFF" text="A">
+                <Font role="font" uri="font:BoldSystemFontFile" size="160" />
+            </Label>
+        </Group>
+        <Timer id="letterTimer" duration="1.0" repeat="false" />
         <!-- the load failed or nothing to show: Try Again / Clear Filters / ... (Up still reaches the pills) -->
         <ErrorPanel id="errorPanel" translation="[100,400]" width="1720" visible="false" />
     </children>

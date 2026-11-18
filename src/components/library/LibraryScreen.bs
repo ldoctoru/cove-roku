@@ -36,6 +36,14 @@ sub init()
     m.shuffleTask = invalid
     m.keepIndex = -1        ' refresh: the card to focus again once the first page is back
     m.phCount = 0           ' (SP-6) placeholder cards at the end of the grid while the next page loads
+    ' (NV page keys) Rewind / Fast Forward: presses in a row speed up; the letter shows after a jump
+    m.jumpClock = createObject("roTimespan")
+    m.jumpStreak = 0
+    m.jumpForward = true
+    m.lastFocus = 0
+    m.letterBox = m.top.findNode("letterBox")
+    m.letterTimer = m.top.findNode("letterTimer")
+    m.letterTimer.observeField("fire", "hideLetter")
     ' (the grid gets focus as soon as the screen is shown, before the library is set: never leave it without content)
     m.grid.content = createObject("roSGNode", "ContentNode")
     ' Audio Guide: Cove says the cards and the pills itself (the last pill said, so a redraw stays quiet)
@@ -107,6 +115,8 @@ sub reload()
     m.nextStart = 0
     m.grid.content = createObject("roSGNode", "ContentNode")
     m.phCount = 0
+    m.lastFocus = 0
+    hideLetter()
     m.status.text = "Loading..."
     ' (U-7: placeholder cards instead of the text)
     m.status.visible = false
@@ -619,9 +629,12 @@ sub onPage(ev as object)
         m.status.visible = false
         hidePanel()
         if r.startIndex = 0 and m.top.isInFocusChain() and not m.inBar then m.grid.setFocus(true)
+        if r.startIndex = 0 then m.lastFocus = 0
         if r.startIndex = 0 and m.keepIndex > 0
             k = m.keepIndex
             if k > count - 1 then k = count - 1
+            ' (a refresh back to the same card is not a page jump: no letter)
+            m.lastFocus = k
             m.grid.jumpToItem = k
         end if
     end if
@@ -698,6 +711,12 @@ end sub
 sub onFocused()
     if m.grid.content = invalid or m.top.library = invalid then return
     count = realCount()
+    ' (a jump of a screen or more, by our page keys or the grid's own: the letter of where it landed)
+    f = m.grid.itemFocused
+    jump = f - m.lastFocus
+    if jump < 0 then jump = -jump
+    m.lastFocus = f
+    if jump >= LibGrid.cols() * 2 then showLetter(f)
     if not m.inBar and m.picker = invalid and m.grid.isInFocusChain() and Speak.isOn()
         c = m.grid.content.getChild(m.grid.itemFocused)
         if c <> invalid and isPlaceholder(c)
@@ -744,6 +763,11 @@ function onKeyEvent(key as string, press as boolean) as boolean
         end if
         return true
     end if
+    ' (NV page keys) Rewind / Fast Forward: a screen back / on, faster while pressed again and again
+    if key = "rewind" or key = "fastforward"
+        if m.grid.isInFocusChain() then pageJump(key = "fastforward")
+        return true
+    end if
     ' (v1.1 U-1) Play on a card: play it (a series its next episode) without opening its page
     if key = "play"
         a = invalid
@@ -758,6 +782,42 @@ function onKeyEvent(key as string, press as boolean) as boolean
     end if
     return false
 end function
+
+' A screen (14 cards) back or on in the same column; presses less than 0.45 s apart in the same direction
+' make it 2 and then 4 screens. Past the loaded cards it stops at the last one while the next page loads.
+sub pageJump(forward as boolean)
+    if m.grid.content = invalid then return
+    gap = m.jumpClock.TotalMilliseconds()
+    m.jumpClock.Mark()
+    if gap < 450 and forward = m.jumpForward
+        m.jumpStreak = m.jumpStreak + 1
+    else
+        m.jumpStreak = 0
+    end if
+    m.jumpForward = forward
+    size = LibGrid.jumpSize(m.jumpStreak, LibGrid.cols() * 2)
+    target = LibGrid.jumpTarget(m.grid.itemFocused, realCount(), size, forward)
+    if target >= 0 then m.grid.jumpToItem = target
+end sub
+
+' The big letter of the focused title for 1 s (Name sort only)
+sub showLetter(index as integer)
+    if m.sort <> "name" or m.grid.content = invalid then return
+    c = m.grid.content.getChild(index)
+    if c = invalid or isPlaceholder(c) then return
+    ch = ""
+    if c.hasField("letter") then ch = Util.toText(c.letter)
+    if ch = "" then ch = Items.letterOf("", Util.toText(c.title))
+    if ch = "" then return
+    m.top.findNode("letterText").text = ch
+    m.letterBox.visible = true
+    m.letterTimer.control = "stop"
+    m.letterTimer.control = "start"
+end sub
+
+sub hideLetter()
+    m.letterBox.visible = false
+end sub
 
 sub openPicker(purpose as string, title as string, options as object, selectedId as string)
     p = createObject("roSGNode", "Picker")
