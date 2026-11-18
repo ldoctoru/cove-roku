@@ -824,6 +824,11 @@ sub loadTrailers(it as object)
     t = Util.toText(it.Type)
     if t = "BoxSet" or t = "Person" then return
     if it.LocalTrailerCount <> invalid and Util.toNumber(it.LocalTrailerCount) <= 0 then return
+    ' (v1.1.1 SP-11) straight to the route that answered before on this server
+    if Api.knownRoute(m.top.server, "trailers") = "new"
+        get("/Items/" + Util.toText(it.Id) + "/LocalTrailers?userId=" + Util.toText(m.top.server.userId), { kind: "trailers", itemId: Util.toText(it.Id), newRoute: true })
+        return
+    end if
     get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + Util.toText(it.Id) + "/LocalTrailers", { kind: "trailers", itemId: Util.toText(it.Id), newRoute: false })
 end sub
 
@@ -834,6 +839,7 @@ sub onTrailers(r as object)
         return
     end if
     if r.code <> 200 then return
+    Api.rememberRoute(m.top.server, "trailers", r.tag.newRoute = true)
     list = []
     for each tr in listOf(r.json)
         if Util.isAA(tr) and Util.toText(tr.Id) <> "" then list.push(tr)
@@ -867,6 +873,10 @@ sub loadExtras(it as object)
     t = Util.toText(it.Type)
     if t = "BoxSet" or t = "Person" then return
     if it.SpecialFeatureCount <> invalid and Util.toNumber(it.SpecialFeatureCount) <= 0 then return
+    if Api.knownRoute(m.top.server, "extras") = "new"
+        get("/Items/" + Util.toText(it.Id) + "/SpecialFeatures?userId=" + Util.toText(m.top.server.userId), { kind: "extras", itemId: Util.toText(it.Id), newRoute: true })
+        return
+    end if
     get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + Util.toText(it.Id) + "/SpecialFeatures", { kind: "extras", itemId: Util.toText(it.Id), newRoute: false })
 end sub
 
@@ -877,6 +887,7 @@ sub onExtras(r as object)
         return
     end if
     if r.code <> 200 then return
+    Api.rememberRoute(m.top.server, "extras", r.tag.newRoute = true)
     list = []
     ' (the profile's rating limit applies to extras too)
     for each x in Ratings.keep(m.top.server, listOf(r.json))

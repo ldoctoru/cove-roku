@@ -11,5 +11,7 @@
         <field id="libraries" type="array" />
         <field id="error" type="string" />
         <field id="authFailed" type="boolean" />
+        <!-- (v1.1.1) print "home first rows / all rows <ms since launch>" (the first Home load only) -->
+        <field id="timing" type="boolean" />
     </interface>
 </component>

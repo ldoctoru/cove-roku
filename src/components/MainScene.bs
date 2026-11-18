@@ -6,6 +6,7 @@ import "pkg:/source/Theme.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/QuickPlay.bs"
+import "pkg:/source/Tracks.bs"
 
 sub init()
     ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
@@ -779,7 +780,12 @@ sub startPlayer(item as object)
         rid = nextReqId()
         m.introsPending = { id: rid, screen: top(), at: nowSecs() }
         m.top.toast = { text: "Getting the intros...", icon: "" }
-        request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(item.id) + "/Intros", true, "", { kind: "intros", item: item, newRoute: false, reqId: rid })
+        ' (v1.1.1 SP-11) straight to the route that answered before on this server
+        if Api.knownRoute(m.server, "intros") = "new"
+            request("GET", m.server, "/Items/" + Util.toText(item.id) + "/Intros?userId=" + Util.toText(m.server.userId), true, "", { kind: "intros", item: item, newRoute: true, reqId: rid })
+        else
+            request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(item.id) + "/Intros", true, "", { kind: "intros", item: item, newRoute: false, reqId: rid })
+        end if
         return
     end if
     openPlayer(item)
@@ -940,6 +946,7 @@ sub onIntros(r as object)
     end if
     m.introsPending = invalid
     list = []
+    if r.code = 200 then Api.rememberRoute(m.server, "intros", Util.flag(r.tag, "newRoute"))
     if r.code = 200
         src = r.json
         if Util.isAA(src) then src = src.Items
@@ -1547,6 +1554,9 @@ sub onValidate(r as object)
     ' (C2-10: the answer for an earlier profile or server, after two quick switches)
     if Util.toText(r.tag.serverId) <> Util.toText(m.server.id) or Util.toText(r.tag.userId) <> Util.toText(m.server.userId) then return
     if r.code = 200
+        ' (v1.1.1 SP-13a) the same user object the player would ask for: its audio preference, so the first
+        ' play of the session skips that request
+        Tracks.rememberServerAudio(m.server, r.json)
         showHome(m.server)
     else if r.code = 401 or r.code = 403
         ' (C2-12: a 404 is a proxy path change or a server still starting: "Couldn't reach" below, the token stays)

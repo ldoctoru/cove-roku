@@ -103,6 +103,9 @@ sub load()
     m.task = createObject("roSGNode", "HomeTask")
     m.libsPending = true
     m.task.server = s
+    ' (v1.1.1) the launch timing lines, for the first load only
+    m.task.timing = m.timedLoad <> true
+    m.timedLoad = true
     m.task.observeField("content", "onContent")
     m.task.observeField("error", "onError")
     m.task.observeField("authFailed", "onAuthFailed")
