@@ -9,8 +9,10 @@ import "pkg:/source/Prefs.bs"
 import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/HomeLayout.bs"
 import "pkg:/source/NavUtil.bs"
+import "pkg:/source/Clock.bs"
 
 sub init()
+    Clock.startupMark("MainScene init")
     ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
     look = Theme.get()
     m.global.addFields({ theme: look })
@@ -75,6 +77,7 @@ sub init()
     m.quickPending = invalid    ' (v1.1 U-1) { id, screen, at, title } while the Play key on a card looks up what to play
     ' (Instant Resume: the stop report and the end of a conversion still go out after the app is suspended)
     if m.top.hasField("allowBackgroundTask") then m.top.allowBackgroundTask = true
+    Clock.startupMark("MainScene init done")
     start()
 end sub
 
@@ -410,9 +413,11 @@ sub showHome(server as object)
     m.lock = invalid
     noteLock(server)
     h = createObject("roSGNode", "HomeScreen")
+    Clock.startupMark("HomeScreen created")
     h.observeField("action", "onHomeAction")
     reset(h)
     h.server = server
+    Clock.startupMark("HomeScreen pushed")
     m.homeReady = true
     m.homeLoadedAt = nowSecs()
     ' (AppLaunchComplete waits for Home's "ready": its rows or its error on screen)
@@ -551,6 +556,7 @@ sub onHomeAction(ev as object)
         end if
     end if
     if a.id = "ready"
+        Clock.startupMark("Home ready (AppLaunchComplete)")
         launchComplete()
     else if a.id = "switch"
         ' (v0.9.1: another server could lift the rating limit: a parent PIN first while a limited profile watches)
@@ -1556,12 +1562,14 @@ sub validate(server as object)
     sc.status = "Connecting..."
     reset(sc)
     request("GET", server, "/Users/" + Util.toText(server.userId), true, "", { kind: "validate", serverId: Util.toText(server.id), userId: Util.toText(server.userId) })
+    Clock.startupMark("sign-in check sent")
 end sub
 
 sub onValidate(r as object)
     if not topIs("connecting") or m.server = invalid then return
     ' (C2-10: the answer for an earlier profile or server, after two quick switches)
     if Util.toText(r.tag.serverId) <> Util.toText(m.server.id) or Util.toText(r.tag.userId) <> Util.toText(m.server.userId) then return
+    Clock.startupMark("sign-in check answered")
     if r.code = 200
         ' (v1.1.1 SP-13a) the same user object the player would ask for: its audio preference, so the first
         ' play of the session skips that request

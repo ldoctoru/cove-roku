@@ -4,7 +4,8 @@
 sub main(args as dynamic)
     screen = createObject("roSGScreen")
     ' (v1.1.2) the launch moment, for the "ms after launch" timing lines (Clock.msSinceLaunch)
-    screen.getGlobalNode().addFields({ launchAt: Clock.stampNow() })
+    launchAt = Clock.stampNow()
+    screen.getGlobalNode().addFields({ launchAt: launchAt, startupDone: false })
     port = createObject("roMessagePort")
     screen.setMessagePort(port)
     ' (registered before the screen shows, so no input event is missed)
@@ -37,8 +38,12 @@ sub main(args as dynamic)
     catch e
         print "Cove: registry check failed: "; e.message
     end try
+    ' (v1.2) startup steps on the main thread (m.global isn't set here, so the launch stamp is passed)
+    print "Cove: startup "; Clock.msBetween(launchAt, Clock.stampNow()); " ms  main: memory and registry checked"
     scene = screen.createScene("MainScene")
+    print "Cove: startup "; Clock.msBetween(launchAt, Clock.stampNow()); " ms  main: scene created"
     screen.show()
+    print "Cove: startup "; Clock.msBetween(launchAt, Clock.stampNow()); " ms  main: screen shown"
     if args <> invalid and args.contentId <> invalid and args.mediaType <> invalid
         print "Cove: launched with contentId="; args.contentId; " mediaType="; args.mediaType
         scene.deepLink = { contentId: args.contentId, mediaType: args.mediaType }
