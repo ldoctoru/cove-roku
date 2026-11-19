@@ -130,7 +130,9 @@ sub buildRows()
                 end if
             else
                 sizes.push([276, 466])
-                heights.push(466)
+                ' (v1.1.3) the row is 34 px taller than its tiles: the focused card's year steps 10 px down
+                ' and ran into the next row's label ("2012" under "Favorite Shows")
+                heights.push(500)
             end if
         end if
     end for

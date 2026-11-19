@@ -24,6 +24,7 @@ namespace Speak
             v = di.IsAudioGuideEnabled()
             return (type(v) = "roBoolean" or type(v) = "Boolean") and v
         catch e
+            print "Cove: audio guide check failed "; e.message
             return false
         end try
     end function
