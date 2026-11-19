@@ -38,8 +38,10 @@ sub onSize()
     m.title.translation = [pad, pad + h + 14]
     m.year.translation = [pad, pad + h + 44]
     ' (v1.1.2) poster titles take up to two lines where the tile leaves room under the card (the library
-    ' grid: 294-high cards in 432-high tiles); rows on Home, Details, Search, Person and Favorites keep one
-    m.twoLine = not m.person and not m.landscape and (m.top.height - 2 * pad - h) >= 120
+    ' grid: 294-high cards in 432-high tiles leave 102 px); rows on Home, Details, Search, Person and Favorites
+    ' (70 px) keep one. (v1.1.3) The limit was 120 px, so the library never got two lines; 100 px fits the
+    ' two lines and the year with the focus drop (focused: title at y 332, year at 396, ending at 426 of 432)
+    m.twoLine = not m.person and not m.landscape and (m.top.height - 2 * pad - h) >= 100
     m.year.color = "0xFFFFFF99"
     if m.person then m.year.color = "0xFFFFFFCC"
     ' people: the name on up to two lines across the whole tile, the role under it
