@@ -29,6 +29,7 @@ end sub
 
 sub load()
     srv = m.top.server
+    if m.top.timing then Clock.startupMark("home task running")
     print "Cove: home loading from "; Util.originOf(Util.toText(srv.url))
     m.srv = srv
     m.h = Api.headers(srv, true)
@@ -64,6 +65,7 @@ sub load()
         l.delete("view")
     end for
     m.top.libraries = libs
+    if m.top.timing then Clock.startupMark("home libraries read")
 
     ' Settings → Home → Rows: the order and switches, or the server's Home layout (its web app's Home sections)
     ids = HomeLayout.orderedIds(sid, libs)
@@ -124,7 +126,9 @@ sub load()
             end if
         end if
     end for
+    if m.top.timing then Clock.startupMark("home lists fetched")
     buildRows(root)
+    if m.top.timing then Clock.startupMark("home rows built")
 
     if root.getChildCount() = 0
         if m.failures > 0
