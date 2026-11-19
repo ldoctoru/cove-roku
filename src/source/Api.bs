@@ -107,6 +107,76 @@ namespace Api
         return res
     end function
 
+    ' (v1.2) Several GETs at once: every transfer starts on one port, so the total time is about the slowest
+    ' request instead of the sum (Home's rows). reqs = [{ url, headers }]; returns one result per request, in
+    ' the same order, shaped like execute()'s ({ code, json, value, error, ms }). A request still running at
+    ' timeoutMs is cancelled with code -1.
+    function executeMany(reqs as object, timeoutMs = 20000 as integer) as object
+        results = []
+        port = createObject("roMessagePort")
+        xfers = []
+        byId = {}
+        spent = createObject("roTimespan")
+        for i = 0 to reqs.count() - 1
+            req = reqs[i]
+            results.push({ code: -1, json: invalid, value: invalid, error: "", ms: 0 })
+            xfer = createObject("roUrlTransfer")
+            xfer.setPort(port)
+            xfer.setUrl(req.url)
+            xfer.setCertificatesFile("common:/certs/ca-bundle.crt")
+            xfer.enableEncodings(true)
+            xfer.retainBodyOnError(true)
+            if req.headers <> invalid
+                for each k in req.headers
+                    xfer.addHeader(k, req.headers[k])
+                end for
+            end if
+            if xfer.asyncGetToString()
+                byId[xfer.getIdentity().toStr()] = i
+            else
+                results[i].error = "The request couldn't be started."
+            end if
+            ' (kept referenced until the answer: a transfer that goes out of scope is cancelled)
+            xfers.push(xfer)
+        end for
+        waiting = byId.count()
+        while waiting > 0
+            remain = timeoutMs - spent.totalMilliseconds()
+            if remain <= 0 then exit while
+            msg = wait(remain, port)
+            if type(msg) = "roUrlEvent"
+                key = msg.getSourceIdentity().toStr()
+                if byId.doesExist(key)
+                    i = byId[key]
+                    byId.delete(key)
+                    waiting = waiting - 1
+                    res = results[i]
+                    res.ms = spent.totalMilliseconds()
+                    res.code = msg.getResponseCode()
+                    text = msg.getString()
+                    if text <> invalid and text <> ""
+                        res.json = parseJson(text)
+                        if res.json <> invalid and GetInterface(res.json, "ifAssociativeArray") = invalid and type(res.json) <> "roArray"
+                            res.value = res.json
+                            res.json = invalid
+                        end if
+                    end if
+                    if res.code < 0 then res.error = Util.toText(msg.getFailureReason())
+                end if
+            else if msg = invalid
+                exit while
+            end if
+        end while
+        ' (the ones that didn't answer in time)
+        for each key in byId
+            results[byId[key]].error = "The server didn't answer in time."
+        end for
+        for each xfer in xfers
+            xfer.asyncCancel()
+        end for
+        return results
+    end function
+
     ' (v1.1.1) The timing line of one request: "http GET /Users/x/Items 200 143" (the path without its query,
     ' so no api_key or search term; ids are not secrets)
     function timingLine(method as string, url as string, code as integer, ms as integer) as string

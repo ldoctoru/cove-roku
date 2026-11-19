@@ -38,11 +38,14 @@ sub load()
     root = createObject("roSGNode", "ContentNode")
     m.failures = 0
     m.requests = 0
+    ' (v1.2) the last Home of this profile from the cache, shown while the server is asked again
+    m.cacheFile = cachePath(srv)
+    if m.top.useCache then showCached(m.cacheFile)
 
     ' The libraries first (the rows depend on them); Jellyfin 10.9+ also has /UserItems, /UserViews, while the
     ' /Users/{id}/... routes work on Emby and Jellyfin
     ' (C2-12: Jellyfin answers 403 for a revoked token too: the libraries request then asks for the sign-in)
-    views = getList("/Users/" + uid + "/Views", "/UserViews?userId=" + uid, true)
+    views = fetchList("/Users/" + uid + "/Views", "/UserViews?userId=" + uid, true)
     if m.top.authFailed then return
     ' Settings → Libraries: their order and names, which are in the sidebar / on Home, and what the row shows
     libs = []
@@ -104,12 +107,11 @@ sub load()
         if isShown
             if id = "resume"
                 queueRow("Continue Watching", getList("/Users/" + uid + "/Items/Resume?Limit=20&MediaTypes=Video&" + f, "/UserItems/Resume?userId=" + uid + "&Limit=20&MediaTypes=Video&" + f), true)
-                if m.top.authFailed then return
             else if id = "nextup"
                 queueRow("Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20" + nuq + "&" + f, ""), true)
             else if id = "upcoming"
                 ' (v1.1) episodes not aired yet (both servers); no row when the server has none
-                m.pendingRows.push({ title: "Upcoming", list: getList("/Shows/Upcoming?UserId=" + uid + "&Limit=20&" + f, ""), landscape: true, upcoming: true })
+                queueRow("Upcoming", getList("/Shows/Upcoming?UserId=" + uid + "&Limit=20&" + f, ""), true, true)
             else if id = "released"
                 rq = HomeLayout.releasedQuery(Dates.isoNow(), Prefs.hideWatchedLatest()) + "&" + f
                 queueRow("Recently Released", getList("/Users/" + uid + "/Items?" + rq, "/Items?userId=" + uid + "&" + rq), false)
@@ -126,7 +128,11 @@ sub load()
             end if
         end if
     end for
+    ' (v1.2) every row's request at once
+    fetchQueued()
+    if m.top.authFailed then return
     if m.top.timing then Clock.startupMark("home lists fetched")
+    saveCache(m.cacheFile, libs)
     buildRows(root)
     if m.top.timing then Clock.startupMark("home rows built")
 
@@ -140,16 +146,58 @@ sub load()
     end if
     print "Cove: home rows "; root.getChildCount()
     if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch"
+    m.top.fromCache = false
     m.top.content = root
 end sub
 
-sub queueRow(title as string, list as object, isLandscape as boolean)
-    m.pendingRows.push({ title: title, list: list, landscape: isLandscape, upcoming: false })
-    ' (v1.1.1) the moment the first row could show: for the device test's timing
-    if not m.firstLogged and list.count() > 0
-        m.firstLogged = true
-        print "Cove: home first rows "; Clock.msSinceLaunch(); " ms after launch"
+' A row to load: "what" is a request from getList ({ path, fallback, ... }) or a list already known (Libraries)
+sub queueRow(title as string, what as object, isLandscape as boolean, isUpcoming = false as boolean)
+    p = { title: title, list: [], landscape: isLandscape, upcoming: isUpcoming, spec: invalid }
+    if type(what) = "roArray"
+        p.list = what
+    else
+        p.spec = what
     end if
+    m.pendingRows.push(p)
+end sub
+
+' (v1.2) The queued rows' requests, all at once (Api.executeMany); a 404 tries the newer Jellyfin route in a
+' second round. Each answer is read as getList used to read it (route memory, 401, failures, objects only).
+sub fetchQueued()
+    rounds = 0
+    while rounds < 2
+        rounds = rounds + 1
+        reqs = []
+        which = []
+        for i = 0 to m.pendingRows.count() - 1
+            sp = m.pendingRows[i].spec
+            if sp <> invalid and not sp.done
+                reqs.push({ url: Util.toText(m.srv.url) + sp.path, headers: m.h })
+                which.push(i)
+            end if
+        end for
+        if reqs.count() = 0 then exit while
+        answers = Api.executeMany(reqs, 20000)
+        for k = 0 to answers.count() - 1
+            p = m.pendingRows[which[k]]
+            sp = p.spec
+            r = answers[k]
+            print "Cove: "; Util.redact(Api.timingLine("GET", sp.path, r.code, r.ms))
+            if r.code = 404 and sp.fallback <> "" and rounds = 1
+                ' (the newer route next round)
+                sp.path = sp.fallback
+                sp.fallback = ""
+                sp.usedNew = true
+            else
+                sp.done = true
+                p.list = readList(r, sp)
+                if not m.firstLogged and p.list.count() > 0
+                    m.firstLogged = true
+                    print "Cove: home first rows "; Clock.msSinceLaunch(); " ms after launch"
+                end if
+            end if
+        end for
+    end while
 end sub
 
 ' (SP-4) One series-ratings request for every row's unrated episodes, then the rows
@@ -211,32 +259,40 @@ function timedGet(path as string) as object
     return r
 end function
 
-' GET a list (an array, or { Items: [...] }); on 404 try the newer Jellyfin route
+' (v1.2) The request for a list (an array, or { Items: [...] }), sent later with the others (fetchQueued):
+' the profile's rating limit applied, and straight to the newer Jellyfin route where only that one answered
 function getList(rawPath as string, rawFallback as string, authOn403 = false as boolean) as object
-    ' (the profile's rating limit, v0.9.0)
-    path = Ratings.withLimit(m.srv, rawPath)
-    fallback = Ratings.withLimit(m.srv, rawFallback)
-    ' (v1.1.1 SP-11) a server where only the newer route answered: straight to it
-    kind = "home:" + Api.routeKind(rawPath)
-    usedNew = false
-    if fallback <> "" and Api.knownRoute(m.srv, kind) = "new"
-        path = fallback
-        fallback = ""
-        usedNew = true
+    sp = { path: Ratings.withLimit(m.srv, rawPath), fallback: Ratings.withLimit(m.srv, rawFallback), rawFallback: rawFallback, kind: "home:" + Api.routeKind(rawPath), usedNew: false, authOn403: authOn403, done: false }
+    if sp.fallback <> "" and Api.knownRoute(m.srv, sp.kind) = "new"
+        sp.path = sp.fallback
+        sp.fallback = ""
+        sp.usedNew = true
     end if
-    r = timedGet(path)
-    if r.code = 404 and fallback <> ""
-        r = timedGet(fallback)
-        usedNew = true
+    return sp
+end function
+
+' GET one list now (the libraries, which the rows depend on); on 404 try the newer Jellyfin route
+function fetchList(rawPath as string, rawFallback as string, authOn403 = false as boolean) as object
+    sp = getList(rawPath, rawFallback, authOn403)
+    r = timedGet(sp.path)
+    if r.code = 404 and sp.fallback <> ""
+        sp.path = sp.fallback
+        sp.usedNew = true
+        r = timedGet(sp.path)
     end if
-    if r.code = 200 and rawFallback <> "" then Api.rememberRoute(m.srv, kind, usedNew)
-    if r.code = 401 or (r.code = 403 and authOn403)
+    return readList(r, sp)
+end function
+
+' One answer read as a list of objects: route memory, 401 (403 too for the libraries) asks for the sign-in
+function readList(r as object, sp as object) as object
+    if r.code = 200 and sp.rawFallback <> "" then Api.rememberRoute(m.srv, sp.kind, sp.usedNew)
+    if r.code = 401 or (r.code = 403 and sp.authOn403)
         m.top.authFailed = true
         return []
     end if
     if r.code <> 200 or r.json = invalid
         m.failures = m.failures + 1
-        print "Cove: home list failed "; path.split("?")[0]; " -> "; r.code; " "; Util.redact(Util.toText(r.error))
+        print "Cove: home list failed "; sp.path.split("?")[0]; " -> "; r.code; " "; Util.redact(Util.toText(r.error))
         return []
     end if
     list = Util.field(r.json, "Items")
@@ -249,6 +305,55 @@ function getList(rawPath as string, rawFallback as string, authOn403 = false as 
     end for
     return kept
 end function
+
+' ---------------------------------------------------------------- (v1.2) cached Home
+
+' One file per server and profile in cachefs: (Roku may clear it at any time; then Home just loads as before)
+function cachePath(srv as object) as string
+    key = Util.toText(srv.id) + "-" + Util.toText(srv.userId)
+    safe = createObject("roRegex", "[^A-Za-z0-9_-]", "").replaceAll(key, "")
+    return "cachefs:/home-" + safe.left(80) + ".json"
+end function
+
+' The rows of the last Home, drawn before the server answers; never for a profile with a rating limit (its
+' rows must be checked against the limit as they are today)
+sub showCached(path as string)
+    if Ratings.limitOf(m.srv) > 0 then return
+    try
+        text = ReadAsciiFile(path)
+        if text = "" then return
+        saved = parseJson(text)
+        if not Util.isAA(saved) or Util.toNumber(saved.v) <> 1 or type(saved.rows) <> "roArray" then return
+        root = createObject("roSGNode", "ContentNode")
+        m.pendingRows = []
+        for each p in saved.rows
+            if Util.isAA(p) and type(p.list) = "roArray" then m.pendingRows.push({ title: Util.toText(p.title), list: p.list, landscape: Util.flag(p, "landscape"), upcoming: Util.flag(p, "upcoming"), spec: invalid })
+        end for
+        buildRows(root)
+        if root.getChildCount() = 0 then return
+        if type(saved.libs) = "roArray" then m.top.libraries = saved.libs
+        if m.top.timing then Clock.startupMark("home cached rows built")
+        print "Cove: home from cache, "; root.getChildCount(); " rows"
+        m.top.fromCache = true
+        m.top.content = root
+    catch e
+        print "Cove: home cache unreadable: "; e.message
+    end try
+end sub
+
+' After a complete load: the lists for next time (nothing when a row failed or a rating limit applies)
+sub saveCache(path as string, libs as object)
+    if m.failures > 0 or Ratings.limitOf(m.srv) > 0 then return
+    try
+        rows = []
+        for each p in m.pendingRows
+            rows.push({ title: p.title, landscape: p.landscape, upcoming: p.upcoming, list: p.list })
+        end for
+        if not WriteAsciiFile(path, formatJson({ v: 1, libs: libs, rows: rows })) then print "Cove: home cache not written"
+    catch e
+        print "Cove: home cache not written: "; e.message
+    end try
+end sub
 
 sub addRow(root as object, title as string, list as object, isLandscape as boolean)
     ' (titles above the profile's rating limit, from routes that ignore MaxOfficialRating; unrated episodes
