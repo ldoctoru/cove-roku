@@ -42,6 +42,7 @@ sub init()
         m.caps = DeviceCaps.get()
         m.device = DeviceCaps.deviceLine(m.caps)
     catch e
+        print "Cove: settings device line failed "; e.message
         m.device = ""
     end try
     m.top.observeField("focusedChild", "onFocusChanged")
