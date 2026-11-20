@@ -21,6 +21,11 @@
         <field id="stopNow" type="boolean" onChange="onStopNow" />
         <!-- set before "done" by "Back to the series" (Are you still watching?): the scene opens that series -->
         <field id="openSeries" type="string" />
+        <!-- (v1.3.1) set by the scene when playback started from Home: { itemId, itemType } of that card; when
+             the player closes, the scene opens that title's page (NavUtil.returnPage) -->
+        <field id="returnTo" type="assocarray" />
+        <!-- (v1.3.1) the first title played: { id, type, seriesId, seasonId } (for returnTo) -->
+        <field id="playedInfo" type="assocarray" />
         <!-- voice / transport commands (main.bs → MainScene): { command, direction, duration } → { status } -->
         <function name="handleTransport" />
     </interface>

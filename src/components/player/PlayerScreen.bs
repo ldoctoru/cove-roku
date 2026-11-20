@@ -357,6 +357,11 @@ end sub
 sub onInfo(r as object)
     if r.code = 200 and r.json <> invalid
         m.info = r.json
+        ' (v1.3.1) the first title (not an intro): the scene opens its page after Home playback
+        pi = m.top.playedInfo
+        if not isIntro() and (not Util.isAA(pi) or pi.count() = 0)
+            m.top.playedInfo = { id: Util.toText(r.json.Id), type: Util.toText(r.json.Type), seriesId: Util.toText(r.json.SeriesId), seasonId: Util.toText(r.json.SeasonId) }
+        end if
         m.versions = Tracks.versions(r.json)
         m.tracks = Tracks.fromItem(r.json, Util.toText(m.opts.sourceId))
         m.marks = Tracks.markers(r.json)
