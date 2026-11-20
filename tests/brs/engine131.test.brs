@@ -50,3 +50,28 @@ sub test_embeddedStillWithoutExternal()
     t_eq(Tracks_defaultSub(t, "eng"), 4, "embedded text before pictures")
     t_eq(Tracks_subForLanguage(t, "English"), 4, "embedded text before pictures (Settings)")
 end sub
+
+' (E-3) subtitles in two parts: the first minutes, then the whole track; (E-10) the session copy's key
+sub test_subtitlePieceUrl()
+    srv = { url: "http://nas:8096" }
+    t_eq(Playback_subtitleUrl(srv, "it1", "src1", 3), "http://nas:8096/Videos/it1/src1/Subtitles/3/Stream.srt", "the whole track")
+    t_eq(Playback_subtitleUrl(srv, "it1", "src1", 3, 600.0), "http://nas:8096/Videos/it1/src1/Subtitles/3/0/Stream.srt?EndPositionTicks=6000000000", "up to 10 minutes")
+end sub
+
+sub test_cueStep()
+    t_eq(Playback_cueStep(200, 40, true, false), "use", "first part came")
+    t_eq(Playback_cueStep(200, 0, true, false), "askAll", "first part empty: the whole track")
+    t_eq(Playback_cueStep(-1, 0, true, false), "askAll", "first part timed out: the whole track")
+    t_eq(Playback_cueStep(404, 0, true, false), "askAll", "first-part route missing (older server): the whole track")
+    t_eq(Playback_cueStep(200, 900, false, true), "use", "whole track came")
+    t_eq(Playback_cueStep(-1, 0, false, true), "keep", "whole track timed out after the first part: keep it")
+    t_eq(Playback_cueStep(500, 0, false, false), "burnIn", "the server can't send it as text: burn in")
+    t_eq(Playback_cueStep(-1, 0, false, false), "failed", "no answer in time: a note, no burn-in")
+end sub
+
+sub test_subCacheKey()
+    k = Playback_subCacheKey("abc123", "mediasource_77", 4)
+    t_eq(k, "abc123_mediasource_77_4", "letters, digits and _")
+    t_eq(Playback_subCacheKey("a/../b", "x y", 1), "ab_xy_1", "nothing that leaves tmp:/")
+    t_eq(Playback_subCacheFile(k), "tmp:/cove-sub-abc123_mediasource_77_4.srt", "the file")
+end sub

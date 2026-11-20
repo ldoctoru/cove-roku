@@ -10,7 +10,12 @@ sub work()
     reqTag = invalid
     if Util.isAA(req) then reqTag = req.tag
     try
-        r = timedExecute(req)
+        if Util.toText(req.readFrom) <> ""
+            ' (v1.3.1 E-10) a subtitle track downloaded before in this session (tmp:/)
+            r = readCached(req)
+        else
+            r = timedExecute(req)
+        end if
         ' a route that only newer servers have (or only older ones): the same request on the other route
         if r.code = 404 and Util.toText(req.fallbackUrl) <> ""
             alt = {}
@@ -24,6 +29,7 @@ sub work()
         ' subtitles: parsed here, off the render thread
         if Util.toText(req.parse) = "srt"
             r.cues = Subs.parseSrt(r.text)
+            saveCached(req, r)
             r.text = invalid
         end if
         m.top.response = r
@@ -38,6 +44,29 @@ sub work()
         print "Cove: ApiTask failed: "; Util.redact(msg + where)
         m.top.response = { code: -1, json: invalid, value: invalid, error: "The request failed: " + msg, tag: reqTag }
     end try
+end sub
+
+' (v1.3.1 E-10) req.readFrom → { code 200, text } from tmp:/, or code -2 when the file is gone
+function readCached(req as object) as object
+    r = { code: -2, json: invalid, value: invalid, text: invalid, error: "", tag: req.tag }
+    path = Util.toText(req.readFrom)
+    fs = createObject("roFileSystem")
+    if fs <> invalid and fs.exists(path)
+        r.text = ReadAsciiFile(path)
+        if r.text <> invalid and r.text <> "" then r.code = 200
+    end if
+    print "Cove: subtitle from the session copy -> "; r.code
+    return r
+end function
+
+' The whole track in req.cacheTo (only when cues came, and a piece only when it reached past cacheIfPast)
+sub saveCached(req as object, r as object)
+    path = Util.toText(req.cacheTo)
+    if path = "" or r.code <> 200 or type(r.cues) <> "roArray" or r.cues.count() = 0 or r.text = invalid then return
+    lastEnd = r.cues[r.cues.count() - 1].e
+    past = Util.toNumber(req.cacheIfPast)
+    if past > 0 and lastEnd <= past then return
+    if WriteAsciiFile(path, r.text) then r.savedTo = path
 end sub
 
 ' (v1.1.1) Api.execute with one timing line: "Cove: http GET /Users/x/Items 200 143" (ms, without a delay)

@@ -260,8 +260,34 @@ namespace Playback
 
     ' The server's SRT version of a text subtitle (Cove draws it over the video). No token in the URL (it would
     ' end up in server and proxy access logs): the download sends it as a header, subtitleHeaders().
-    function subtitleUrl(server as object, itemId as string, sourceId as string, index as integer) as string
-        return Util.toText(server.url) + "/Videos/" + itemId + "/" + sourceId + "/Subtitles/" + index.toStr() + "/Stream.srt"
+    ' (v1.3.1 E-3) endSec > 0: only the cues up to there (the route with a start position of 0 and
+    ' EndPositionTicks, the same on Emby and Jellyfin 10.9+; as Cove for macOS subtitleCues(upTo:))
+    function subtitleUrl(server as object, itemId as string, sourceId as string, index as integer, endSec = -1.0 as float) as string
+        base = Util.toText(server.url) + "/Videos/" + itemId + "/" + sourceId + "/Subtitles/" + index.toStr()
+        if endSec > 0 then return base + "/0/Stream.srt?EndPositionTicks=" + ticks(endSec).toStr()
+        return base + "/Stream.srt"
+    end function
+
+    ' (v1.3.1 E-3) What to do with one subtitle download: "use" (cues came), "askAll" (the first part failed
+    ' or was empty: ask for the whole track), "keep" (the whole track failed after the first part: keep it),
+    ' "burnIn" (the server can't send it as text: HTTP error), "failed" (no answer in time or empty: playback
+    ' goes on without; burning in would need the same slow extraction). As Cove for macOS cueStep.
+    function cueStep(code as integer, cueCount as integer, piece as boolean, haveCues as boolean) as string
+        if code >= 200 and code < 400 and cueCount > 0 then return "use"
+        if piece then return "askAll"
+        if haveCues then return "keep"
+        if code >= 400 then return "burnIn"
+        return "failed"
+    end function
+
+    ' (v1.3.1 E-10) The session's copy of a whole subtitle track: a key of letters, digits, _ and - only
+    function subCacheKey(itemId as string, sourceId as string, index as integer) as string
+        raw = itemId + "_" + sourceId + "_" + index.toStr()
+        return createObject("roRegex", "[^A-Za-z0-9_-]", "").replaceAll(raw, "")
+    end function
+
+    function subCacheFile(key as string) as string
+        return "tmp:/cove-sub-" + key + ".srt"
     end function
 
     ' The sign-in headers for the subtitle download (ApiTask), without "Accept: application/json": the answer

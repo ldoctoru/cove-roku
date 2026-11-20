@@ -31,6 +31,13 @@
         <!-- text subtitles, drawn by Cove (Settings → Subtitles style); above the controls while they show -->
         <SubtitleLayer id="subLayer" />
         <Timer id="subTimer" duration="0.1" repeat="true" />
+        <!-- (v1.3.1 E-3) past the part of the subtitles downloaded so far, while the rest is still coming -->
+        <Group id="subNote" visible="false" translation="[790,924]">
+            <Poster uri="pkg:/images/ui/glass_pill.9.png" width="340" height="52" />
+            <Label text="Loading subtitles..." width="340" height="52" horizAlign="center" vertAlign="center" color="0xFFFFFFE6">
+                <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+            </Label>
+        </Group>
 
         <!-- controls, laid out like Cove for macOS (Sources/Views.swift player) -->
         <Group id="osd" opacity="0">
