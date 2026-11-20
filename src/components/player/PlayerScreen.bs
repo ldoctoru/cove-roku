@@ -96,8 +96,9 @@ end sub
 ' read again when a picker closes, since the player's menus can change them
 sub refreshPrefs()
     m.pf = {
-        skipIntro: Prefs.autoSkipIntro(),
-        skipRecap: Prefs.autoSkipRecap(),
+        ' (v1.3) Settings → Playback → Skip: "ask" / "auto" / "off" per segment kind (one registry read)
+        seg: Prefs.segmentSkipAll(),
+        upNextSecs: Prefs.upNextSeconds(),
         stillAfter: Prefs.stillWatchingAfter(),
         jump: Prefs.jumpSeconds(),
         skip: Prefs.skipSeconds(),
@@ -775,24 +776,35 @@ sub onPosition()
     ' (credits with a known end before the real end: a scene after them, the button goes when it starts)
     if inCredits and m.next = invalid and mk.creditsEnd > mk.credits and p >= mk.creditsEnd - 2 then inCredits = false
     seg = segmentAt(p)
-    if inIntro and not m.introDismissed and m.pf.skipIntro
-        ' Settings → Skip intros automatically
+    ' (v1.3) Settings → Playback → Skip: each kind asks (button), skips by itself (a notice) or shows nothing
+    so = m.pf.seg
+    creditsOpt = so.credits
+    if inIntro and not m.introDismissed and so.intro = "auto"
         m.introDismissed = true
-        print "Cove: skipping the intro to "; Int(mk.introEnd); " s"
+        print "Cove: player segment auto-skipped intro "; Int(mk.introStart); "-"; Int(mk.introEnd); " s"
         m.video.seek = mk.introEnd
         ' (v1.1 P-2, as on the Mac: a notice to go back)
         showSkipNotice(mk.introStart, "Intro skipped · Watch Intro")
-    else if inIntro and not m.introDismissed
+    else if inIntro and not m.introDismissed and so.intro = "ask"
         showAction("intro", "Skip intro")
-    else if seg <> invalid and seg.kind = "recap" and m.pf.skipRecap
-        ' Settings → Skip recaps automatically
+    else if seg <> invalid and so[seg.kind] = "auto"
         m.segsDone[seg.key] = true
-        print "Cove: skipping the recap to "; Int(seg.e); " s"
+        print "Cove: player segment auto-skipped "; seg.kind; " "; Int(seg.s); "-"; Int(seg.e); " s"
         skipTo(seg.e)
-        showSkipNotice(seg.s, "Recap skipped · Watch Recap")
+        if seg.kind = "recap"
+            showSkipNotice(seg.s, "Recap skipped · Watch Recap")
+        else
+            Toasts.notify("Skipped " + Tracks.segmentName(seg.kind))
+        end if
     else if seg <> invalid
         m.actionSeg = seg
         showAction("seg:" + seg.key, Tracks.segmentLabel(seg.kind))
+    else if inCredits and not m.creditsDismissed and creditsOpt = "auto"
+        m.creditsDismissed = true
+        autoSkipCredits(p)
+    else if creditsOpt = "off"
+        ' (Don't show: no button and no Up Next card; the end plays the next one as before)
+        if m.actionKind <> "" and m.actionKind <> "watch" then hideAction()
     else if inCredits and not m.creditsDismissed and m.next <> invalid
         ' (PL-8: a film next in a Shuffle queue isn't an episode)
         if nextIsEpisodeItem()
@@ -902,7 +914,8 @@ end sub
 function segmentAt(p as float) as dynamic
     if m.marks.segs = invalid then return invalid
     for each sg in m.marks.segs
-        if p >= sg.s and p < sg.e - 2 and not m.segsDone.doesExist(sg.key) then return sg
+        ' (v1.3: a kind set to Don't show is passed over)
+        if p >= sg.s and p < sg.e - 2 and not m.segsDone.doesExist(sg.key) and m.pf.seg[sg.kind] <> "off" then return sg
     end for
     return invalid
 end function
@@ -936,6 +949,23 @@ sub skipCredits()
     print "Cove: skipping the credits to "; Int(t); " s"
     skipTo(t)
 end sub
+
+' (v1.3) Settings → Playback → Skip → Credits: Skip automatically. An episode with a next one and Play the
+' next episode on goes straight to it (Are you still watching? still counts); otherwise as Skip credits
+sub autoSkipCredits(atSec as float)
+    print "Cove: player segment auto-skipped credits at "; Int(atSec); " s"
+    Toasts.notify("Skipped " + Tracks.segmentName("credits"))
+    if isEpisodeNow() and nextIsEpisodeItem() and m.pf.autoNext
+        autoPlayNext()
+    else
+        skipCredits()
+    end if
+end sub
+
+' The title playing is an episode (Up Next during the credits is for episodes only)
+function isEpisodeNow() as boolean
+    return m.info <> invalid and Util.toText(m.info.Type) = "Episode"
+end function
 
 sub onFinished()
     ' (v1.0 F-10) Cinema Mode: the next intro, then the film (PL-7: before the sleep timer, whose "End of
@@ -990,19 +1020,26 @@ sub onCountdown()
     m.count = m.count - 1
     if m.count <= 0
         m.countdown.control = "stop"
-        ' Settings → Playback → Are you still watching?: this many episodes in a row without a key press
-        ' (PL-8: episodes only, like the idle question: a film from a Shuffle queue is never interrupted)
-        lim = m.pf.stillAfter
-        nextIsEpisode = nextIsEpisodeItem()
-        if lim > 0 and m.autoCount >= lim and nextIsEpisode
-            askStill("next")
-            return
-        end if
-        if nextIsEpisode then m.autoCount = m.autoCount + 1
-        playNext()
+        autoPlayNext()
     else
         m.top.findNode("upNextCount").text = "Play now  (" + m.count.toStr() + ")"
     end if
+end sub
+
+' The next title without a key press (countdown end, credits skipped automatically)
+sub autoPlayNext()
+    ' Settings → Playback → Are you still watching?: this many episodes in a row without a key press
+    ' (PL-8: episodes only, like the idle question: a film from a Shuffle queue is never interrupted)
+    lim = m.pf.stillAfter
+    nextIsEpisode = nextIsEpisodeItem()
+    if lim > 0 and m.autoCount >= lim and nextIsEpisode
+        ' (asked during the credits: the video pauses under the question, so it can't end and move on)
+        if m.video.state = "playing" then m.video.control = "pause"
+        askStill("next")
+        return
+    end if
+    if nextIsEpisode then m.autoCount = m.autoCount + 1
+    playNext()
 end sub
 
 ' The next title is an episode (an unknown type counts as one, as the series' own list)

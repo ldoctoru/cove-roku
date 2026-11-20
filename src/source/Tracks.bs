@@ -324,6 +324,16 @@ namespace Tracks
         return "Skip"
     end function
 
+    ' (v1.3) A segment kind's name for the Settings rows and the "Skipped ..." notice
+    function segmentName(kind as string) as string
+        if kind = "intro" then return "Intro"
+        if kind = "recap" then return "Recap"
+        if kind = "preview" then return "Preview"
+        if kind = "commercial" then return "Ad"
+        if kind = "credits" then return "Credits"
+        return "Segment"
+    end function
+
     ' PL-11: a quality cap below the chosen file's bitrate makes the server encode the video (no copy), so
     ' the stream is handled as a conversion: H.264 within 1080p, reported as Transcode. info: PlaybackInfo.
     function capForcesEncode(info as dynamic, sourceId as string, maxBitrate as dynamic) as boolean

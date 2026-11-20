@@ -255,9 +255,15 @@ function rowsFor(tabId as string) as object
         un.dim = not Prefs.autoNext()
         out.push(un)
         out.push(note("Off starts the next episode as soon as one ends, without the Up Next card."))
-        out.push(toggle("autoSkipIntro", "", "Skip intros", Prefs.autoSkipIntro()))
-        out.push(toggle("autoSkipRecap", "", "Skip recaps", Prefs.autoSkipRecap()))
-        out.push(note("Recaps, previews and ads show a Skip button when the server knows where they are (Jellyfin media segments)."))
+        ' (v1.3) one row per kind of part the servers mark: Ask (the Skip button), Skip automatically, Don't show
+        out.push(sectionHead("Skip"))
+        segOpts = [{ id: "ask", label: "Ask (Skip button)" }, { id: "auto", label: "Skip automatically" }, { id: "off", label: "Don't show" }]
+        segNow = Prefs.segmentSkipAll()
+        segRows = [["intro", "Intros"], ["recap", "Recaps"], ["preview", "Previews"], ["commercial", "Ads"], ["credits", "Credits"]]
+        for each sr in segRows
+            out.push(choice("seg:" + sr[0], sr[1], segOpts, segNow[sr[0]]))
+        end for
+        out.push(note("Intros and credits come from the server's markers; recaps, previews and ads only from Jellyfin media segments. Skip automatically skips them with a short notice; an episode's credits then go straight to the next episode."))
         out.push(sectionHead("Are you still watching?"))
         out.push(choice("stillWatching", "Ask after", [{ id: "off", label: "Off" }, { id: "2", label: "2 episodes" }, { id: "3", label: "3 episodes" }, { id: "5", label: "5 episodes" }], Prefs.text("stillWatching", "3")))
         ' (v1.0 F-11) replaces the fixed 2 hours
@@ -1151,6 +1157,9 @@ sub apply(id as string, value as string)
     else if id = "subLang"
         Util.writeText(id, value)
         Prefs.setFlag("subAlways", true)
+    else if id.startsWith("seg:")
+        ' (v1.3) Settings → Playback → Skip: one compact key for all kinds
+        Prefs.setSegmentSkip(id.mid(4), value)
     else
         Util.writeText(id, value)
         if homeKeys.doesExist(id) then m.top.themeChanged = true
