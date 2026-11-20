@@ -206,8 +206,25 @@ sub begin()
     m.infoAnswer = invalid
     m.waitUser = Tracks.serverAudioPref(m.top.server) = invalid
     if m.waitUser then get("/Users/" + Util.toText(m.top.server.userId), { kind: "user", itemId: it.id })
-    requestInfo()
+    pre = takePreInfo(Util.toText(it.id))
+    if pre <> invalid
+        print "Cove: player item info from the details page"
+        m.infoAnswer = { code: 200, json: pre, tag: { kind: "info", itemId: it.id } }
+        startWhenReady()
+    else
+        requestInfo()
+    end if
 end sub
+
+' (v1.2 SP-13b) The item JSON handed over with this title (details page), used once; else invalid
+function takePreInfo(id as string) as dynamic
+    pre = m.top.info
+    if Util.isAA(pre) and pre.count() > 0
+        m.top.info = {}
+        if id <> "" and Util.toText(pre.Id) = id then return pre
+    end if
+    return invalid
+end function
 
 ' The item's details and the account's audio preference are both in: choose the tracks and ask for a stream
 sub startWhenReady()

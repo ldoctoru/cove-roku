@@ -12,6 +12,9 @@
     <interface>
         <field id="screenId" type="string" value="player" />
         <field id="server" type="assocarray" />
+        <!-- (v1.2 SP-13b) optional, set before item: the item JSON a details page already loaded (no People);
+             used once when its Id is the item's, instead of asking the server again -->
+        <field id="info" type="assocarray" />
         <field id="item" type="assocarray" onChange="begin" />
         <field id="done" type="boolean" alwaysNotify="true" />
         <!-- set by the scene before it removes the player (a deep link): stop everything, no "done" -->

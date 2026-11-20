@@ -368,4 +368,39 @@ namespace Playback
         return r
     end function
 
+    ' (v1.2 SP-13b) The item JSON a details page already loaded, for the player (which then skips its own item
+    ' request): the whole item without the cast (People), which the player never reads; invalid without
+    ' MediaSources (nothing the player could use)
+    function playerInfoOf(src as dynamic) as dynamic
+        if not Util.isAA(src) or type(src.MediaSources) <> "roArray" then return invalid
+        out = {}
+        for each k in src
+            if LCase(k) <> "people" then out[k] = src[k]
+        end for
+        return out
+    end function
+
+    ' (v1.2 SP-14) The fields the player reads from an episode in its series' list (previous / next, Up next,
+    ' the Episodes panel, rating checks): no Overview, one image per type
+    function episodeListFields() as string
+        return "Fields=PrimaryImageAspectRatio,OfficialRating&EnableUserData=true&ImageTypeLimit=1&EnableImageTypes=Primary,Thumb,Backdrop"
+    end function
+
+    ' (v1.2 SP-14) Only the episodes beside epId in its series' list (the one before, itself and the one after):
+    ' AdjacentTo on /Shows/{id}/Episodes (Emby and Jellyfin)
+    function adjacentEpisodesPath(userKey as string, showId as string, epId as string) as string
+        return "/Shows/" + showId + "/Episodes?UserId=" + userKey + "&AdjacentTo=" + epId + "&" + episodeListFields()
+    end function
+
+    ' The whole series' list (the Episodes panel, or a rating limit that has to skip episodes)
+    function seriesEpisodesPath(userKey as string, showId as string) as string
+        return "/Shows/" + showId + "/Episodes?UserId=" + userKey + "&" + episodeListFields()
+    end function
+
+    ' (v1.2 SP-13c) Cinema Mode intros: the old route (Emby, Jellyfin up to 10.8) or the new one (Jellyfin 10.9+)
+    function introsPath(userKey as string, titleId as string, newRoute as boolean) as string
+        if newRoute then return "/Items/" + titleId + "/Intros?userId=" + userKey
+        return "/Users/" + userKey + "/Items/" + titleId + "/Intros"
+    end function
+
 end namespace

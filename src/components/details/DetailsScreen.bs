@@ -107,7 +107,7 @@ sub onOpenSeason()
 end sub
 
 function itemPath() as string
-    return "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.itemId + "?Fields=Overview,People,Genres,MediaSources,MediaStreams,Chapters,Taglines,Studios,DateCreated,Path&EnableImageTypes=Primary,Backdrop,Thumb,Logo"
+    return "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.itemId + "?Fields=Overview,People,Genres,MediaSources,MediaStreams,Chapters,Trickplay,Taglines,Studios,DateCreated,Path&EnableImageTypes=Primary,Backdrop,Thumb,Logo"
 end function
 
 sub load()
@@ -818,7 +818,12 @@ sub requestPlay(it as object, start as float)
     if Util.toText(it.Type) = "Episode" then title = Util.toText(it.SeriesName)
     p = { id: Util.toText(it.Id), title: title, subtitle: sub_, start: start }
     ' Choices from this page apply to this movie / episode (other episodes use the defaults)
-    if m.item <> invalid and Util.toText(it.Id) = Util.toText(m.item.Id) and Util.toText(m.item.Type) <> "Series" then p.options = m.opts
+    if m.item <> invalid and Util.toText(it.Id) = Util.toText(m.item.Id) and Util.toText(m.item.Type) <> "Series"
+        p.options = m.opts
+        ' (v1.2 SP-13b) the item JSON loaded here (streams, chapters, trickplay): the player skips its own request
+        info = Playback.playerInfoOf(m.item)
+        if info <> invalid then p.info = info
+    end if
     m.top.play = p
 end sub
 

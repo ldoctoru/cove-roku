@@ -989,6 +989,12 @@ sub openPlayer(item as object)
     p.server = m.server
     p.observeField("done", "onPlayerDone")
     push(p)
+    ' (v1.2 SP-13b) the item JSON from the details page goes in its own field, before item (which starts the
+    ' player), so the item the player reads many times stays small
+    if Util.isAA(item.info)
+        p.info = item.info
+        item.delete("info")
+    end if
     p.item = item
 end sub
 
