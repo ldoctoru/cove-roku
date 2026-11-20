@@ -408,6 +408,7 @@ end function
 
 sub showHome(server as object)
     Servers.setActive(Util.toText(server.id))
+    Clock.startupMark("active server saved")
     m.server = server
     ' (C2-1: a limited profile locks the server list; any other profile on Home unlocks it)
     m.lock = invalid

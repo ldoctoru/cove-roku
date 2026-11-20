@@ -12,7 +12,9 @@ import "pkg:/source/NavUtil.bs"
 import "pkg:/source/Clock.bs"
 
 sub init()
+    Clock.startupMark("HomeScreen init")
     m.readySent = false     ' Home told MainScene it is ready (AppLaunchComplete)
+    m.cachedShown = false   ' (v1.2) the rows on screen came from the cache; the server's are still to come
     t = m.global.theme
     m.rows = m.top.findNode("rows")
     m.status = m.top.findNode("status")
@@ -83,6 +85,7 @@ sub init()
     m.spokenRow = -1
     ' (Cove speaks the cards and the hero itself, see speakHero / onItemFocused)
     Speak.mute([m.rows, m.top.findNode("heroKeys")])
+    Clock.startupMark("HomeScreen init done")
 end sub
 
 ' ---------------------------------------------------------------- loading
@@ -106,6 +109,8 @@ sub load()
     m.task.server = s
     ' (v1.1.1) the launch timing lines, for the first load only
     m.task.timing = m.timedLoad <> true
+    ' (v1.2) the first load of this Home draws the cached rows first
+    m.task.useCache = m.timedLoad <> true
     m.timedLoad = true
     m.task.observeField("content", "onContent")
     m.task.observeField("error", "onError")
@@ -199,7 +204,9 @@ sub onContent(ev as object)
     end for
     m.rows.rowHeights = heights
     m.rows.rowItemSize = sizes
-    wasReload = m.reloading = true
+    ' (v1.2) the server's rows after the cached ones: a reload (keep the focus, don't jump to the hero)
+    wasReload = m.reloading = true or m.cachedShown = true
+    m.cachedShown = ev.getRoSGNode().fromCache = true or ev.getRoSGNode().partial = true
     m.reloading = false
     keep = m.rows.rowItemFocused
     m.rows.content = content
@@ -405,7 +412,8 @@ sub showHero(i as integer)
     chip = m.top.findNode("chipText")
     chip.text = it.chip
     m.top.findNode("chipBg").width = it.chip.len() * 14 + 28
-    m.top.findNode("chip").visible = it.chip <> ""
+    ' (v1.2) the season and episode are on the meta line now (Items.heroMeta): no chip
+    m.top.findNode("chip").visible = false
     label = "Play"
     if it.resumeAt > 30 then label = "Resume"
     m.top.findNode("playLabel").text = label

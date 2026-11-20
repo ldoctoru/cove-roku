@@ -306,6 +306,8 @@ namespace Servers
     end function
 
     sub setActive(id as string)
+        ' (v1.2) a registry write + flush on every launch cost time before Home: only when it changes
+        if Util.readText("active") = id then return
         Util.writeText("active", id)
     end sub
 

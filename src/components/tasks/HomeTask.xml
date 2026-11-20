@@ -13,5 +13,10 @@
         <field id="authFailed" type="boolean" />
         <!-- (v1.1.1) print "home first rows / all rows <ms since launch>" (the first Home load only) -->
         <field id="timing" type="boolean" />
+        <!-- (v1.2) show the last Home from cachefs: first (content with fromCache = true), then the server's -->
+        <field id="useCache" type="boolean" />
+        <field id="fromCache" type="boolean" />
+        <!-- (v1.2) content without the rows still loading (Upcoming); the full content follows -->
+        <field id="partial" type="boolean" />
     </interface>
 </component>
