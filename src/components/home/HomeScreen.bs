@@ -206,7 +206,7 @@ sub onContent(ev as object)
     m.rows.rowItemSize = sizes
     ' (v1.2) the server's rows after the cached ones: a reload (keep the focus, don't jump to the hero)
     wasReload = m.reloading = true or m.cachedShown = true
-    m.cachedShown = ev.getRoSGNode().fromCache = true
+    m.cachedShown = ev.getRoSGNode().fromCache = true or ev.getRoSGNode().partial = true
     m.reloading = false
     keep = m.rows.rowItemFocused
     m.rows.content = content

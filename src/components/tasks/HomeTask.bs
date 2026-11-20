@@ -128,12 +128,31 @@ sub load()
             end if
         end if
     end for
-    ' (v1.2) every row's request at once
-    fetchQueued()
+    ' (v1.2) every row's request at once, except Upcoming: on Emby it took 7 s (or never answered) while the
+    ' other lists ran, and ~0.1 s alone. Home shows the other rows first; Upcoming follows on its own.
+    fetchQueued(false)
     if m.top.authFailed then return
     if m.top.timing then Clock.startupMark("home lists fetched")
+    hasLate = false
+    for each p in m.pendingRows
+        if p.spec <> invalid and not p.spec.done then hasLate = true
+    end for
+    if hasLate
+        first = createObject("roSGNode", "ContentNode")
+        buildRows(first, true)
+        if first.getChildCount() > 0
+            print "Cove: home rows "; first.getChildCount(); " (Upcoming still loading)"
+            if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch (without Upcoming)"
+            m.top.fromCache = false
+            m.top.partial = true
+            m.top.content = first
+        end if
+        fetchQueued(true)
+        if m.top.authFailed then return
+        if m.top.timing then Clock.startupMark("home upcoming fetched")
+    end if
     saveCache(m.cacheFile, libs)
-    buildRows(root)
+    buildRows(root, false)
     if m.top.timing then Clock.startupMark("home rows built")
 
     if root.getChildCount() = 0
@@ -147,6 +166,7 @@ sub load()
     print "Cove: home rows "; root.getChildCount()
     if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch"
     m.top.fromCache = false
+    m.top.partial = false
     m.top.content = root
 end sub
 
@@ -163,7 +183,7 @@ end sub
 
 ' (v1.2) The queued rows' requests, all at once (Api.executeMany); a 404 tries the newer Jellyfin route in a
 ' second round. Each answer is read as getList used to read it (route memory, 401, failures, objects only).
-sub fetchQueued()
+sub fetchQueued(late as boolean)
     rounds = 0
     while rounds < 2
         rounds = rounds + 1
@@ -171,7 +191,7 @@ sub fetchQueued()
         which = []
         for i = 0 to m.pendingRows.count() - 1
             sp = m.pendingRows[i].spec
-            if sp <> invalid and not sp.done
+            if sp <> invalid and not sp.done and (late or not m.pendingRows[i].upcoming)
                 reqs.push({ url: Util.toText(m.srv.url) + sp.path, headers: m.h })
                 which.push(i)
             end if
@@ -208,7 +228,8 @@ sub fetchQueued()
 end sub
 
 ' (SP-4) One series-ratings request for every row's unrated episodes, then the rows
-sub buildRows(root as object)
+' (skipLate: leave out the rows whose request hasn't answered yet; the list stays for the full build)
+sub buildRows(root as object, skipLate = false as boolean)
     if Ratings.limitOf(m.srv) > 0
         everything = []
         for each p in m.pendingRows
@@ -217,13 +238,15 @@ sub buildRows(root as object)
         Ratings.prefetchSeries(m.srv, everything)
     end if
     for each p in m.pendingRows
-        if p.upcoming
+        if skipLate and p.spec <> invalid and not p.spec.done
+            ' (still loading)
+        else if p.upcoming
             addUpcomingRow(root, p.list)
         else
             addRow(root, p.title, p.list, p.landscape)
         end if
     end for
-    m.pendingRows = []
+    if not skipLate then m.pendingRows = []
 end sub
 
 ' "New in Movies", "Top Rated in Movies", ...
