@@ -2347,14 +2347,20 @@ sub stopEncodingFor(s as dynamic)
     fire("DELETE", path, "", 6000)
 end sub
 
-' Closing past 90 % (or in the credits) counts as watched, like on the Mac
+' (v1.3.1 E-1) Closing past 90 % counts as watched through the Stopped report alone (the server marks it, as
+' on the Mac); only a stop in the credits under 90 % is marked here (Playback.needsPlayedMark)
 sub markIfWatched(atSec as float)
     if isIntro() then return
     d = m.video.duration
     if m.info = invalid or d <= 0 or Util.flag(m.info.UserData, "Played") then return
-    inCredits = m.marks.credits > 0 and atSec >= m.marks.credits
-    if atSec < d * 0.9 and not inCredits then return
-    print "Cove: marking watched at "; Int(atSec); " of "; Int(d); " s"
+    if not Playback.needsPlayedMark(atSec, d, m.marks.credits)
+        if atSec >= d * 0.9
+            print "Cove: player watched mark skipped (stop report at "; Int(atSec * 100 / d); " % marks it)"
+            if Util.isAA(m.info.UserData) then m.info.UserData.Played = true
+        end if
+        return
+    end if
+    print "Cove: player watched mark kept (in the credits at "; Int(atSec); " of "; Int(d); " s, under 90 %)"
     uid = Util.toText(m.top.server.userId)
     ' Emby and Jellyfin up to 10.8 know only /Users/{id}/PlayedItems; Jellyfin 10.9+ also /UserPlayedItems, used
     ' if the first answers 404 (as on Home)

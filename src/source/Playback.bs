@@ -432,6 +432,15 @@ namespace Playback
         return st
     end function
 
+    ' (v1.3.1 E-1) Whether Cove must mark a title played itself when it stops at atSec. At 90 % or more the
+    ' Stopped report already makes the server mark it (MaxResumePct, 90 by default); a second POST made the
+    ' server's Trakt / Playback Reporting plugins log two plays (Cove for macOS 5724be0). Only a stop in the
+    ' credits (creditsAt > 0) below 90 % needs the POST, since the server leaves that one unwatched.
+    function needsPlayedMark(atSec as float, duration as float, creditsAt as float) as boolean
+        if duration <= 0 or atSec >= duration * 0.9 then return false
+        return creditsAt > 0 and atSec >= creditsAt
+    end function
+
     ' (v1.3) Where the Up Next card shows in an episode: at the server's credits (Emby CreditsStart chapter,
     ' Jellyfin Outro segment), else 30 s before the end (episodes longer than 2 minutes); -1 = never
     function upNextStart(creditsAt as float, duration as float) as float
