@@ -36,6 +36,13 @@ sub init()
     m.shuffleTask = invalid
     m.keepIndex = -1        ' refresh: the card to focus again once the first page is back
     m.phCount = 0           ' (SP-6) placeholder cards at the end of the grid while the next page loads
+    ' (v1.2 NV-14) the card this page was left on, kept for the session (m.global.libPositions, not the registry)
+    m.restoring = false
+    m.restoreId = ""
+    m.restoreClock = createObject("roTimespan")
+    m.posTimer = m.top.findNode("posTimer")
+    m.posTimer.observeField("fire", "rememberPosition")
+    m.wasShown = false
     ' (NV page keys) Rewind / Fast Forward: presses in a row speed up; the letter shows after a jump
     m.jumpClock = createObject("roTimespan")
     m.jumpStreak = 0
@@ -80,7 +87,9 @@ sub onLibrary()
         end if
     end if
     drawBar()
-    reload()
+    m.restoreClock.Mark()
+    findPosition()
+    reload(m.restoring)
     ' (a genre / studio page: no Genre pill of its own)
     if feed() <> "tag" then loadGenres()
 end sub
@@ -96,6 +105,76 @@ sub layoutHeader()
     m.top.findNode("info").translation = [172 + Int(w) + 28, 30]
 end sub
 
+' ---------------------------------------------------------------- (v1.2 NV-14) position for the session
+
+' This page with its current tab, sort and filters, as the key of m.global.libPositions
+function positionKeyNow() as string
+    if m.top.library = invalid or m.top.server = invalid then return ""
+    lib = m.top.library
+    scope = Util.toText(lib.id)
+    if feed() <> "" then scope = feed() + ":" + Util.toText(lib.tagKind) + ":" + Util.toText(lib.tagId) + ":" + Util.toText(lib.tagName)
+    return LibGrid.positionKey(Util.toText(m.top.server.url), Util.toText(m.top.server.userId), scope, m.tab, m.sort, m.order, m.show, m.genre, m.letter)
+end function
+
+' Opening the page: the card it was left on this session with the same sort and filters (keepIndex for onPage)
+sub findPosition()
+    m.restoring = false
+    m.restoreId = ""
+    if not m.global.hasField("libPositions") then return
+    kept = m.global.libPositions
+    k = positionKeyNow()
+    if not Util.isAA(kept) or k = "" or not Util.isAA(kept[k]) then return
+    i = Util.toNumber(kept[k].i)
+    if i <= 0 then return
+    m.keepIndex = Int(i)
+    m.restoreId = Util.toText(kept[k].id)
+    m.restoring = true
+end sub
+
+' The focused card for this page's key (on a 0.5 s rest of the focus and when the page loses the focus)
+sub rememberPosition()
+    if m.grid.content = invalid or realCount() = 0 or m.restoring then return
+    f = m.grid.itemFocused
+    c = m.grid.content.getChild(f)
+    if f < 0 or c = invalid or isPlaceholder(c) then return
+    k = positionKeyNow()
+    if k = "" then return
+    if not m.global.hasField("libPositions") then m.global.addFields({ libPositions: {} })
+    kept = m.global.libPositions
+    if not Util.isAA(kept) then kept = {}
+    old = kept[k]
+    if Util.isAA(old) and Util.toNumber(old.i) = f then return
+    ' (kept small: cleared when it grows past 32 pages)
+    if kept.count() >= 32 and not kept.doesExist(k) then kept = {}
+    kept[k] = { i: f, id: Util.toText(c.itemId) }
+    m.global.libPositions = kept
+end sub
+
+' The card to land on once the first request is in: the remembered title (it may have moved a little when titles
+' were added), else the remembered index, else the last loaded card with a toast. Prints the timing line.
+function restoredIndex(count as integer) as integer
+    k = LibGrid.restoreTarget(m.keepIndex, count)
+    content = m.grid.content
+    if m.restoreId <> "" and k >= 0
+        c = content.getChild(k)
+        if c = invalid or Util.toText(c.itemId) <> m.restoreId
+            for i = 0 to count - 1
+                c = content.getChild(i)
+                if c <> invalid and Util.toText(c.itemId) = m.restoreId
+                    k = i
+                    exit for
+                end if
+            end for
+        end if
+    end if
+    if k >= 0 and m.keepIndex > count - 1 and count < m.total
+        ' (past what one request may load: the nearest loaded titles instead of a long wait)
+        Toasts.notify("Back near where you were", "info")
+    end if
+    print "Cove: library "; m.restoreClock.TotalMilliseconds(); " restored at "; k
+    return k
+end function
+
 ' The page's choices for the next visit (only what differs from the Settings → Libraries defaults)
 sub saveFilters()
     libId = Util.toText(m.top.library.id)
@@ -108,8 +187,17 @@ sub saveFilters()
     Prefs.setLibFilters(libId, f)
 end sub
 
-sub reload()
+sub reload(restore = false as boolean)
     m.gen = m.gen + 1
+    firstLimit = LibGrid.firstPage()
+    ' (v1.2 NV-14) back on a remembered card: one request that reaches it (36 + 96 ..., at most restoreCap);
+    ' any other reload (a new sort or filter, Try Again) starts at the top
+    m.restoring = restore and m.keepIndex > 0
+    if m.restoring
+        firstLimit = LibGrid.restoreLimit(m.keepIndex, LibGrid.restoreCap())
+    else
+        m.keepIndex = -1
+    end if
     m.total = 0
     m.nextStart = 0
     m.grid.content = createObject("roSGNode", "ContentNode")
@@ -122,7 +210,7 @@ sub reload()
     m.skeleton.active = true
     hidePanel()
     ' (v1.1.1 SP-6: a small first page paints sooner; the next 96 are asked for as soon as it is in)
-    loadPage(0, LibGrid.firstPage())
+    loadPage(0, firstLimit)
 end sub
 
 ' Back on this page after a favourite / watched change or playback (MainScene sets "stale"): load it again,
@@ -668,12 +756,14 @@ sub onPage(ev as object)
         if r.startIndex = 0 and m.keepIndex > 0
             k = m.keepIndex
             if k > count - 1 then k = count - 1
+            if m.restoring then k = restoredIndex(count)
             ' (a refresh back to the same card is not a page jump: no letter)
             m.lastFocus = k
             m.grid.jumpToItem = k
         end if
     end if
     m.keepIndex = -1
+    m.restoring = false
     updateInfo()
     ' (a page thinned out by the rating limit: keep going while the focus is still near the end)
     if count > 0 then pageMore(count)
@@ -683,6 +773,7 @@ sub onError(ev as object)
     ' (the answer to a page of an earlier sort / filter: the current request is still running)
     if ev.getRoSGNode().gen <> m.gen then return
     m.keepIndex = -1
+    m.restoring = false
     m.loading = false
     m.skeleton.active = false
     removePlaceholders()
@@ -782,6 +873,11 @@ sub onFocused()
     if jump < 0 then jump = -jump
     m.lastFocus = f
     if jump >= LibGrid.cols() * 2 then showLetter(f)
+    ' (v1.2 NV-14) kept once the focus rests (a removed page's timer stops, so this also covers Back)
+    if not m.restoring and m.grid.isInFocusChain()
+        m.posTimer.control = "stop"
+        m.posTimer.control = "start"
+    end if
     if not m.inBar and m.picker = invalid and m.grid.isInFocusChain() and Speak.isOn()
         c = m.grid.content.getChild(m.grid.itemFocused)
         if c <> invalid and isPlaceholder(c)
@@ -934,6 +1030,10 @@ sub onPicked(ev as object)
 end sub
 
 sub onFocusChanged()
+    ' (v1.2 NV-14) leaving the page (details on top, Back, Home): keep the focused card for the session
+    inChain = m.top.isInFocusChain()
+    if m.wasShown and not inChain then rememberPosition()
+    m.wasShown = inChain
     if m.top.stale and m.top.isInFocusChain()
         m.top.stale = false
         onRefresh()

@@ -45,6 +45,8 @@
             </Label>
         </Group>
         <Timer id="letterTimer" duration="1.0" repeat="false" />
+        <!-- (v1.2 NV-14) the focused card is kept for the session once the focus rests -->
+        <Timer id="posTimer" duration="0.5" repeat="false" />
         <!-- the load failed or nothing to show: Try Again / Clear Filters / ... (Up still reaches the pills) -->
         <ErrorPanel id="errorPanel" translation="[100,340]" width="1720" visible="false" />
     </children>
