@@ -13,6 +13,9 @@
         <field id="server" type="assocarray" />
         <!-- (a series opened with "Go to Season": set before itemId) -->
         <field id="seasonId" type="string" />
+        <!-- (v1.2 SP-12) from the card that opened the page, set before itemId: { itemType, title, eyebrow,
+             backdrop, logo, overview, meta, played, full }; the header is drawn from it at once -->
+        <field id="preview" type="assocarray" />
         <field id="itemId" type="string" onChange="load" />
         <field id="refresh" type="boolean" alwaysNotify="true" onChange="onRefresh" />
         <field id="play" type="assocarray" alwaysNotify="true" />
@@ -66,6 +69,8 @@
             <Poster id="ovFocus" uri="pkg:/images/ui/sel_pill.9.png" visible="false" />
             <Label id="ovMeasure" height="38" opacity="0"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
             <Group id="ov" translation="[96,0]">
+                <!-- (SP-12) placeholder bars where the description goes, until the item answers -->
+                <Group id="ovSkel" />
                 <Label id="ovMore" text="MORE" height="38" color="0xFFFFFFCC" visible="false"><Font role="font" uri="font:BoldSystemFontFile" size="24" /></Label>
                 <Label id="ov0" width="980" height="38" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
                 <Label id="ov1" width="980" height="38" translation="[0,38]" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>

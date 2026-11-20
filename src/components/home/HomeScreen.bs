@@ -751,8 +751,9 @@ function isUpcomingCard(it as dynamic) as boolean
 end function
 
 function openAction(it as object) as object
-    if isUpcomingCard(it) and Util.toText(it.seriesId) <> "" then return { id: "open", itemId: it.seriesId, itemType: "Series", collectionType: "", title: it.title }
-    return { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
+    ' (v1.2 SP-12) preview: what the details page draws at once (Home rows have every field)
+    if isUpcomingCard(it) and Util.toText(it.seriesId) <> "" then return { id: "open", itemId: it.seriesId, itemType: "Series", collectionType: "", title: it.title, preview: QuickPlay.seriesPreviewOfCard(it) }
+    return { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title, preview: QuickPlay.previewOfCard(it, true) }
 end function
 
 ' ---------------------------------------------------------------- keys

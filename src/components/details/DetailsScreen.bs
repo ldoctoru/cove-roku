@@ -15,6 +15,14 @@ import "pkg:/source/HomeLayout.bs"
 import "pkg:/source/Servers.bs"
 
 sub init()
+    ' (v1.2) "Cove: details <ms> header / item answered / rows ready": from the screen's creation (MainScene
+    ' creates and pushes it in one go)
+    m.pushClock = createObject("roTimespan")
+    m.headerTimed = false
+    m.itemTimed = false
+    m.previewShown = false
+    m.previewBackdrop = ""
+    m.previewLogo = ""
     m.focusEpisodes = false
     m.userAudioAsked = false
     t = m.global.theme
@@ -112,9 +120,128 @@ end function
 
 sub load()
     m.status.text = "Loading..."
-    ' (v1.1.1) "Cove: details ready <ms>": from here to the header drawn
-    m.readyClock = createObject("roTimespan")
+    ' (v1.2 SP-12) the card's preview: the header at once, the buttons as placeholder pills
+    if m.item = invalid and not m.previewShown and Util.isAA(m.top.preview) then showPreview(m.top.preview)
     get(itemPath(), { kind: "item" })
+end sub
+
+' (v1.2) one "Cove: details <ms> <what>" line, ms since the screen was created
+sub detailsMark(what as string)
+    print "Cove: details "; m.pushClock.totalMilliseconds(); " "; what
+end sub
+
+' (v1.2 SP-12) The header from the card that opened the page: backdrop, logo or title, the meta line and the
+' description, at the positions showItem uses, so nothing jumps when the item answers
+sub showPreview(p as object)
+    srv = m.top.server
+    m.previewShown = true
+    m.status.text = ""
+    t = Util.toText(p.itemType)
+    id = Util.toText(m.top.itemId)
+    ' (slim lists carry no artwork tags: the title's own picture without a tag; showItem keeps the same URL
+    ' when the title has one, so the texture isn't loaded twice)
+    bd = Util.toText(p.backdrop)
+    lg = Util.toText(p.logo)
+    if previewGuessesArt(t) and id <> ""
+        if bd = "" then bd = Util.toText(srv.url) + "/Items/" + id + "/Images/Backdrop/0?maxWidth=1280&quality=85"
+        if lg = "" then lg = Util.toText(srv.url) + "/Items/" + id + "/Images/Logo?maxWidth=700&quality=85"
+    end if
+    m.previewBackdrop = bd
+    m.previewLogo = lg
+    m.top.findNode("backdrop").uri = bd
+    m.top.findNode("eyebrow").text = Util.toText(p.eyebrow)
+    title = Util.toText(p.title)
+    m.top.findNode("title").text = title
+    m.top.findNode("title").visible = true
+    m.top.findNode("miniTitle").text = title
+    m.logoReady = false
+    m.logo.visible = false
+    m.logo.uri = lg
+    ' the meta line where the kind / rating / score row goes
+    m.top.findNode("kind").text = Util.toText(p.meta)
+    for each n in ["ratingBox", "star", "critic"]
+        m.top.findNode(n).visible = false
+    end for
+    for each n in ["rating", "score", "criticScore"]
+        m.top.findNode(n).text = ""
+    end for
+    ov = Util.toText(p.overview)
+    lines = Util.wrapLines(ov, 72, 3)
+    if Util.flag(p, "full") and ov = "" and Items.hidesSpoilers({ Type: t, UserData: { Played: Util.flag(p, "played") } }) then lines = ["Description hidden until you watch this episode."]
+    skeletonLines = 0
+    ' (a slim list has no description: three placeholder bars, the common length)
+    if not Util.flag(p, "full") and ov = "" then skeletonLines = 3
+    m.lines = lines.count()
+    if skeletonLines > 0 then m.lines = skeletonLines
+    for i = 0 to 2
+        line = ""
+        if i < lines.count() then line = lines[i]
+        m.top.findNode("ov" + i.toStr()).text = line
+    end for
+    drawOverviewSkeleton(skeletonLines)
+    m.ovMore = false
+    m.top.findNode("ovMore").visible = false
+    m.ovWidth = 0
+    m.top.findNode("facts").text = ""
+    for each n in ["starL", "dirL"]
+        m.top.findNode(n).visible = false
+    end for
+    for each n in ["star0", "star1", "dir0"]
+        m.top.findNode(n).text = ""
+    end for
+    layoutHeader()
+    drawButtons()
+    m.headerTimed = true
+    detailsMark("header (from the card)")
+end sub
+
+' Titles whose own backdrop / logo the preview may ask for without a tag (an episode's come from its series)
+function previewGuessesArt(t as string) as boolean
+    return t = "Movie" or t = "Series" or t = "BoxSet" or t = "Video" or t = "MusicVideo"
+end function
+
+' (SP-12) Placeholder bars in the description's lines (0 removes them)
+sub drawOverviewSkeleton(count as integer)
+    g = m.top.findNode("ovSkel")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    widths = [940, 860, 560]
+    for i = 0 to count - 1
+        bar = g.createChild("Poster")
+        bar.uri = "pkg:/images/ui/white_pill.9.png"
+        bar.blendColor = skeletonColor()
+        bar.width = widths[i]
+        bar.height = 22
+        bar.translation = [0, i * 38 + 8]
+    end for
+end sub
+
+function skeletonColor() as string
+    c = Util.toText(m.global.theme.placeholder)
+    if c = "" then c = "0x262626FF"
+    return c
+end function
+
+' (SP-12) The button row before the item answers: the Play pill and three round buttons as plain shapes
+sub drawButtonSkeleton()
+    m.btnGroup.removeChildrenIndex(m.btnGroup.getChildCount(), 0)
+    m.btnGroup.translation = [96, 830]
+    if not m.previewShown then return
+    col = skeletonColor()
+    pill = m.btnGroup.createChild("Poster")
+    pill.uri = "pkg:/images/ui/white_pill.9.png"
+    pill.blendColor = col
+    pill.width = 255
+    pill.height = 69
+    x = 255 + 21
+    for i = 0 to 2
+        c = m.btnGroup.createChild("Poster")
+        c.uri = "pkg:/images/ui/white_circle_69.png"
+        c.blendColor = col
+        c.width = 69
+        c.height = 69
+        c.translation = [x, 0]
+        x = x + 69 + 18
+    end for
 end sub
 
 ' After playback: reload so Resume and the episodes show the new position
@@ -152,6 +279,10 @@ sub onResponse(ev as object)
     end for
     r = ev.getData()
     k = r.tag.kind
+    if k = "item" and not m.itemTimed
+        m.itemTimed = true
+        detailsMark("item answered (" + Util.toText(r.code) + ")")
+    end if
     if k = "fav"
         onFavourite(r)
         return
@@ -225,6 +356,10 @@ end sub
 ' (SC-9) The page couldn't load: the message and Try Again instead of an empty page
 sub showLoadError(text as string)
     m.status.text = ""
+    ' (SP-12: no placeholder pills behind the error)
+    m.previewShown = false
+    drawButtonSkeleton()
+    drawOverviewSkeleton(0)
     m.errorPanel.message = text
     m.errorPanel.index = 0
     m.errorPanel.visible = true
@@ -261,10 +396,6 @@ end function
 sub showItem(it as object)
     first = m.item = invalid
     m.item = it
-    if first and m.readyClock <> invalid
-        print "Cove: details ready "; m.readyClock.totalMilliseconds()
-        m.readyClock = invalid
-    end if
     srv = m.top.server
     m.status.text = ""
     if m.errorPanel.visible
@@ -273,7 +404,10 @@ sub showItem(it as object)
     end if
     t = Util.toText(it.Type)
     m.isFav = Util.flag(it.UserData, "IsFavorite")
-    m.top.findNode("backdrop").uri = Items.backdrop(srv, it, 1280)
+    bdUrl = Items.backdrop(srv, it, 1280)
+    ' (SP-12) the preview's picture is this title's own (untagged or the same URL): keep it, no second load
+    if m.previewBackdrop <> "" and bdUrl <> "" then bdUrl = m.previewBackdrop
+    if m.top.findNode("backdrop").uri <> bdUrl then m.top.findNode("backdrop").uri = bdUrl
     ' an episode: series name and number above its own title; movies and series show their logo
     eyebrow = ""
     title = Util.toText(it.Name)
@@ -284,6 +418,7 @@ sub showItem(it as object)
         if chip <> "" then eyebrow = eyebrow + "  ·  " + chip
         logoUrl = ""
     end if
+    if m.previewLogo <> "" and logoUrl <> "" then logoUrl = m.previewLogo
     m.top.findNode("eyebrow").text = eyebrow
     m.top.findNode("title").text = title
     m.top.findNode("miniTitle").text = title
@@ -303,6 +438,7 @@ sub showItem(it as object)
         if i < lines.count() then line = lines[i]
         m.top.findNode("ov" + i.toStr()).text = line
     end for
+    if first then drawOverviewSkeleton(0)
     placeMore(it, lines)
     m.top.findNode("facts").text = Items.facts(it)
     showPeople(it)
@@ -357,6 +493,10 @@ sub showItem(it as object)
     end if
     buildButtons()
     layoutHeader()
+    if first and not m.headerTimed
+        m.headerTimed = true
+        detailsMark("header")
+    end if
     rebuildRows()
     if first and m.top.isInFocusChain() then enterButtons(false)
 end sub
@@ -618,6 +758,10 @@ function seriesTarget() as dynamic
 end function
 
 sub drawButtons()
+    if m.item = invalid
+        drawButtonSkeleton()
+        return
+    end if
     m.btnGroup.removeChildrenIndex(m.btnGroup.getChildCount(), 0)
     focused = m.state = "buttons" and m.picker = invalid
     x = 0
@@ -1871,10 +2015,11 @@ sub onRowSelected()
         else
             b = m.includedList[i]
         end if
-        m.top.openItem = { id: "open", itemId: Util.toText(b.Id), itemType: Util.toText(b.Type), collectionType: "", title: Util.toText(b.Name), seriesId: Util.toText(b.SeriesId), seriesName: Util.toText(b.SeriesName) }
+        m.top.openItem = { id: "open", itemId: Util.toText(b.Id), itemType: Util.toText(b.Type), collectionType: "", title: Util.toText(b.Name), seriesId: Util.toText(b.SeriesId), seriesName: Util.toText(b.SeriesName), preview: QuickPlay.previewOfCard(row.getChild(i), true) }
     else if k = "similar" and i < m.similarList.count()
         it = m.similarList[i]
-        m.top.openItem = { id: "open", itemId: Util.toText(it.Id), itemType: Util.toText(it.Type), collectionType: "", title: Util.toText(it.Name) }
+        ' (v1.2 SP-12) the card's preview: the next page's header at once
+        m.top.openItem = { id: "open", itemId: Util.toText(it.Id), itemType: Util.toText(it.Type), collectionType: "", title: Util.toText(it.Name), preview: QuickPlay.previewOfCard(row.getChild(i), true) }
     end if
 end sub
 

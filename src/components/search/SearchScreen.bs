@@ -189,7 +189,8 @@ sub onSelected()
     row = m.grid.content.getChild(s[0])
     if row = invalid then return
     it = row.getChild(s[1])
-    if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title }
+    ' (v1.2 SP-12) preview: the details page draws its header at once
+    if it <> invalid then m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title, preview: QuickPlay.previewOfCard(it, false) }
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
