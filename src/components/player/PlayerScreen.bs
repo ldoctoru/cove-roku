@@ -687,6 +687,9 @@ sub onState()
             if m.thumbStream <> invalid then m.thumbTimer.control = "start"
             report("/Sessions/Playing", false)
             m.progressTimer.control = "start"
+            ' (v1.3) a subtitle added on the server after the details page loaded (or while the server was still
+            ' adding it): the track list is checked once more now that the video plays
+            checkStreams("start")
         end if
         ' (PL-15) a restart of a paused video: paused again; (PL-2) a menu opened while loading: the video
         ' waits under it, and closing it plays on
@@ -2922,6 +2925,8 @@ end sub
 ' The Subtitles menu (v1.0.1): Language and Style side by side in one panel (SubtitlePanel), the subtitles
 ' visible underneath as a live preview; style changes apply at once and the panel stays open
 sub openSubsMenu()
+    ' (v1.3) the list as the server has it now (a subtitle added meanwhile shows up while the menu is open)
+    checkStreams("menu")
     langRows = [{ id: "-1", label: "Off" }]
     for each s in m.tracks.subs
         langRows.push({ id: s.index.toStr(), label: s.label })
@@ -3393,6 +3398,10 @@ sub onSubSearch(ev as object)
     k = r.tag.kind
     print "Cove: subtitle "; k; " -> "; r.code
     waiting = m.picker <> invalid and Util.toText(m.picker.purpose) = "subresults"
+    if k = "streamsCheck"
+        onStreamsCheck(r)
+        return
+    end if
     if k = "subSearch"
         if not waiting then return
         if r.code = 401 or r.code = 403
@@ -3432,7 +3441,7 @@ sub onSubSearch(ev as object)
         end for
         if added = invalid
             m.subTries = m.subTries + 1
-            if m.subTries < 4
+            if m.subTries < 10
                 subSearchRequest("GET", "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.item.id + "?Fields=MediaSources,MediaStreams", { kind: "subRefresh", itemId: m.top.item.id }, 3000)
             else if waiting
                 subSearchNote("Downloaded. It will be in the Subtitles list once the server has added it.")
@@ -3486,4 +3495,65 @@ end function
 sub subSearchNote(text as string)
     if m.picker = invalid or Util.toText(m.picker.purpose) <> "subresults" then return
     openPicker("subresults", "Search for subtitles", [{ id: "none", label: text }], "")
+end sub
+
+' (v1.3) GET the item's streams again (at most every 5 s): subtitles the server added since this title's info
+' was read (an episode had none, one was added in Emby / Bazarr / Cove's own search) join the Subtitles list
+' without closing and reopening the episode
+sub checkStreams(why as string)
+    if m.top.item = invalid or Util.toText(m.top.item.id) = "" then return
+    if m.streamsClock <> invalid and m.streamsClock.totalMilliseconds() < 5000 then return
+    m.streamsClock = createObject("roTimespan")
+    print "Cove: player subtitles check ("; why; ")"
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "GET", url: Util.toText(m.top.server.url) + "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + Util.toText(m.top.item.id) + "?Fields=MediaSources,MediaStreams", headers: Api.headers(m.top.server, true), body: "", tag: { kind: "streamsCheck", itemId: m.top.item.id, why: why }, timeout: 15000 }
+    t.observeField("response", "onSubSearch")
+    m.streamsTask = t
+    t.control = "RUN"
+end sub
+
+sub onStreamsCheck(r as object)
+    if r.code <> 200 or not Util.isAA(r.json) or m.tracks = invalid then return
+    fresh = Tracks.fromItem(r.json, Util.toText(m.opts.sourceId))
+    known = {}
+    for each s in m.tracks.subs
+        known[s.index.toStr()] = true
+    end for
+    added = []
+    for each s in fresh.subs
+        if not known.doesExist(s.index.toStr()) then added.push(s)
+    end for
+    if added.count() = 0 then return
+    print "Cove: player subtitles check found "; added.count(); " new track(s)"
+    ' (the audio list stays as it is: only the subtitles are new)
+    m.tracks.subs = fresh.subs
+    if m.info <> invalid
+        m.info.MediaSources = r.json.MediaSources
+        m.info.MediaStreams = r.json.MediaStreams
+    end if
+    buildTools()
+    turnedOn = false
+    ' subtitles were off: the language from Settings → Subtitles ("Always load") or the one chosen before
+    if m.opts.sub < 0
+        pick = -1
+        if Prefs.subAlways() then pick = Tracks.subForLanguage(m.tracks, Prefs.subLang())
+        if pick < 0 and Util.toText(m.subLang) <> "" then pick = Tracks.defaultSub(m.tracks, Util.toText(m.subLang))
+        if pick >= 0
+            nt = Tracks.findSub(m.tracks, pick)
+            if nt <> invalid and nt.isText
+                m.opts.sub = pick
+                m.opts.burn = false
+                loadTextSub()
+                turnedOn = true
+            end if
+        end if
+    end if
+    if turnedOn
+        Toasts.notify("Subtitles added: " + Tracks.subLabel(m.tracks, m.opts.sub), "info")
+    else
+        Toasts.notify("New subtitles are in the Subtitles menu", "info")
+    end if
+    ' (the menu is open: show it again with the new list)
+    if m.picker <> invalid and Util.toText(m.picker.purpose) = "subs" then openSubsMenu()
+    drawControls()
 end sub
