@@ -73,7 +73,6 @@ sub init()
     m.toastOnHome = ""          ' a toast for the next Home (profile switch)
     ' (SC-3 / SC-4) MainScene's own requests for a screen: the answer is dropped when that screen is no longer on top
     m.reqSeq = 0
-    m.introsPending = invalid   ' { id, screen, at } while Cinema Mode asks for the intros (a second Play waits)
     m.seasonPending = invalid   ' { id, screen } while a season card asks for its series
     m.quickPending = invalid    ' (v1.1 U-1) { id, screen, at, title } while the Play key on a card looks up what to play
     ' (Instant Resume: the stop report and the end of a conversion still go out after the app is suspended)
@@ -690,6 +689,8 @@ sub openItem(a as object)
     d.observeField("openItem", "onDetailsOpen")
     push(d)
     if a.seasonId <> invalid then d.seasonId = a.seasonId
+    ' (v1.2 SP-12) the card's title, artwork and text: the header draws before the item answers
+    if Util.isAA(a.preview) then d.preview = a.preview
     d.itemId = a.itemId
 end sub
 
@@ -786,24 +787,11 @@ end sub
 
 sub startPlayer(item as object)
     ' (v1.0 F-10) Settings → Playback → Cinema Mode: the server's intros first, for a title started from the
-    ' beginning (not a trailer / extra, not a Shuffle queue); the server decides which titles get intros
+    ' beginning (not a trailer / extra, not a Shuffle queue); the server decides which titles get intros.
+    ' (v1.2 SP-13c) The player opens at once and asks for the intros itself, in parallel with the title's
+    ' details (PlayerScreen askIntros); the intros still play before the title.
     if Prefs.cinemaMode() and m.server <> invalid and not Util.flag(item, "trailer") and type(item.queue) <> "roArray" and Util.toNumber(item.start) <= 0
-        ' (SC-4) a second OK while the intros are asked for would open a second player: wait for the answer
-        ' (at most 15 s, so a lost answer doesn't block Play)
-        if m.introsPending <> invalid and nowSecs() - m.introsPending.at < 15
-            print "Cove: cinema mode: still waiting for the intros"
-            return
-        end if
-        rid = nextReqId()
-        m.introsPending = { id: rid, screen: top(), at: nowSecs() }
-        m.top.toast = { text: "Getting the intros...", icon: "" }
-        ' (v1.1.1 SP-11) straight to the route that answered before on this server
-        if Api.knownRoute(m.server, "intros") = "new"
-            request("GET", m.server, "/Items/" + Util.toText(item.id) + "/Intros?userId=" + Util.toText(m.server.userId), true, "", { kind: "intros", item: item, newRoute: true, reqId: rid })
-        else
-            request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(item.id) + "/Intros", true, "", { kind: "intros", item: item, newRoute: false, reqId: rid })
-        end if
-        return
+        item.cinema = true
     end if
     openPlayer(item)
 end sub
@@ -944,51 +932,17 @@ sub quickStart(it as object)
     startPlayer(item)
 end sub
 
-' The intros answer: the first intro plays with the rest and the film behind it (PlayerScreen.playAfterIntro)
-sub onIntros(r as object)
-    item = r.tag.item
-    ' (SC-3 / SC-4) only the answer to the last request, and only while the page that asked is still on top
-    p = m.introsPending
-    if p = invalid or Util.toNumber(r.tag.reqId) <> p.id
-        print "Cove: ignored an old intros answer"
-        return
-    end if
-    if not isTopScreen(p.screen)
-        m.introsPending = invalid
-        print "Cove: dropped the intros answer: the page that asked was closed"
-        return
-    end if
-    if (r.code = 404 or r.code = 405) and not Util.flag(r.tag, "newRoute")
-        ' (Jellyfin 10.9+ route)
-        request("GET", m.server, "/Items/" + Util.toText(item.id) + "/Intros?userId=" + Util.toText(m.server.userId), true, "", { kind: "intros", item: item, newRoute: true, reqId: p.id })
-        return
-    end if
-    m.introsPending = invalid
-    list = []
-    if r.code = 200 then Api.rememberRoute(m.server, "intros", Util.flag(r.tag, "newRoute"))
-    if r.code = 200
-        src = r.json
-        if Util.isAA(src) then src = src.Items
-        for each it in Ratings.keep(m.server, src)
-            if Util.isAA(it) and Util.isSafeId(it.Id, false) and list.count() < 5 then list.push({ id: Util.toText(it.Id), subtitle: Util.toText(it.Name) })
-        end for
-    end if
-    print "Cove: cinema mode intros -> "; r.code; " "; list.count()
-    if list.count() = 0
-        openPlayer(item)
-        return
-    end if
-    first = list.shift()
-    sub_ = "Intro"
-    if first.subtitle <> "" then sub_ = "Intro  ·  " + first.subtitle
-    openPlayer({ id: first.id, title: Util.toText(item.title), subtitle: sub_, start: 0.0, trailer: true, after: item, intros: list })
-end sub
-
 sub openPlayer(item as object)
     p = createObject("roSGNode", "PlayerScreen")
     p.server = m.server
     p.observeField("done", "onPlayerDone")
     push(p)
+    ' (v1.2 SP-13b) the item JSON from the details page goes in its own field, before item (which starts the
+    ' player), so the item the player reads many times stays small
+    if Util.isAA(item.info)
+        p.info = item.info
+        item.delete("info")
+    end if
     p.item = item
 end sub
 
@@ -1281,8 +1235,6 @@ sub dispatchResponse(r as object)
         end if
     else if kind = "resumeCheck"
         onResumeCheck(r)
-    else if kind = "intros"
-        onIntros(r)
     else if kind = "qpItem"
         onQuickItem(r)
     else if kind = "qpSeries"
@@ -1507,6 +1459,9 @@ sub saveSignIn(auth as object)
         s.userName = Util.toText(auth.User.Name)
         ' (the profile picture, for Who's watching?)
         s.avatar = Util.toText(auth.User.PrimaryImageTag)
+        ' (v1.2 SP-13a) the sign-in answer holds the same user object as GET /Users/{id}: its audio
+        ' preference, so the first play skips that request
+        Tracks.rememberServerAudio(s, auth.User)
     end if
     Servers.upsert(s)
     showHome(s)

@@ -191,7 +191,8 @@ sub onSelected()
     if it = invalid then return
     ct = ""
     if it.hasField("collectionType") then ct = it.collectionType
-    m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: ct, title: it.title }
+    ' (v1.2 SP-12) preview: the details page draws its header at once
+    m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: ct, title: it.title, preview: QuickPlay.previewOfCard(it, false) }
 end sub
 
 sub onFocusChanged()

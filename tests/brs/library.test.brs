@@ -43,3 +43,36 @@ sub test_jumps()
     t_eq(LibGrid_jumpTarget(99, 100, 14, true), -1, "already at the end")
     t_eq(LibGrid_jumpTarget(0, 0, 14, true), -1, "empty")
 end sub
+
+' (v1.2 NV-14) the library position kept for the session
+sub test_positionKey()
+    a = LibGrid_positionKey("http://emby:8096", "u1", "lib1", "main", "name", "", "all", "", "")
+    t_eq(a, "http://emby:8096|u1|lib1|main|name||all||", "every part in order")
+    t_ok(a <> LibGrid_positionKey("http://emby:8096", "u1", "lib1", "main", "added", "", "all", "", ""), "another sort: another key")
+    t_ok(a <> LibGrid_positionKey("http://emby:8096", "u1", "lib1", "main", "name", "desc", "all", "", ""), "another order: another key")
+    t_ok(a <> LibGrid_positionKey("http://emby:8096", "u1", "lib1", "main", "name", "", "unwatched", "", ""), "another filter: another key")
+    t_ok(a <> LibGrid_positionKey("http://emby:8096", "u2", "lib1", "main", "name", "", "all", "", ""), "another profile: another key")
+    t_ok(a <> LibGrid_positionKey("http://other:8096", "u1", "lib1", "main", "name", "", "all", "", ""), "another server: another key")
+    t_ok(a <> LibGrid_positionKey("http://emby:8096", "u1", "lib1", "collections", "name", "", "all", "", ""), "the Collections tab: another key")
+    t_eq(a, LibGrid_positionKey("http://emby:8096", "u1", "lib1", "main", "name", "", "all", "", ""), "same page and filters: same key")
+end sub
+
+sub test_restoreLimit()
+    cap = LibGrid_restoreCap()
+    t_eq(cap, 420, "36 + 4 x 96")
+    t_eq(LibGrid_restoreLimit(0, cap), 36, "top: the normal first page")
+    t_eq(LibGrid_restoreLimit(13, cap), 36, "second row: first page (its screen is in)")
+    t_eq(LibGrid_restoreLimit(20, cap), 36, "third row: still inside the first page")
+    t_eq(LibGrid_restoreLimit(21, cap), 132, "fourth row: one more page so the rows after it are in")
+    t_eq(LibGrid_restoreLimit(100, cap), 132, "card 100: 36 + 96")
+    t_eq(LibGrid_restoreLimit(300, cap), 324, "card 300: 36 + 3 x 96")
+    t_eq(LibGrid_restoreLimit(5000, cap), 420, "far down: capped")
+    t_eq(LibGrid_restoreLimit(300, 100), 100, "a smaller cap holds")
+end sub
+
+sub test_restoreTarget()
+    t_eq(LibGrid_restoreTarget(50, 132), 50, "loaded: that card")
+    t_eq(LibGrid_restoreTarget(500, 420), 419, "not reached: the last loaded card")
+    t_eq(LibGrid_restoreTarget(10, 0), -1, "nothing loaded")
+    t_eq(LibGrid_restoreTarget(-1, 36), -1, "nothing remembered")
+end sub

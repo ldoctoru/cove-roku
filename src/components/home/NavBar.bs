@@ -1,5 +1,6 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/NavUtil.bs"
 
 sub init()
     m.pill = m.top.findNode("pill")
@@ -11,8 +12,17 @@ sub init()
 end sub
 
 sub onFocus()
-    paint()
     has = m.top.hasFocus()
+    if has and not m.hadFocus and m.top.items <> invalid
+        ' (v1.2 NV-6) open on the entry last opened from the menu this session (shared with the sidebar)
+        last = invalid
+        if m.global.hasField("navLastEntry") then last = m.global.navLastEntry
+        if Util.isAA(last)
+            at = NavUtil.openEntry(m.top.items, Util.toText(last.id), Util.toText(last.label), "")
+            if at >= 0 then m.index = at
+        end if
+    end if
+    paint()
     if has and not m.hadFocus then speakEntry("Menu. ")
     m.hadFocus = has
 end sub
@@ -119,18 +129,19 @@ end sub
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     n = m.top.items.count()
-    if key = "left" and m.index > 0
-        m.index = m.index - 1
-        paint()
-        speakEntry("")
-        return true
-    else if key = "right" and m.index < n - 1
-        m.index = m.index + 1
+    if (key = "left" or key = "right") and n > 0
+        ' (v1.2 NV-7) Left on the first entry goes to the last, Right on the last to the first
+        dir = 1
+        if key = "left" then dir = -1
+        m.index = NavUtil.wrapStep(m.index, n, dir)
         paint()
         speakEntry("")
         return true
     else if key = "OK" and n > 0
-        m.top.chosen = { id: m.top.items[m.index].id }
+        it = m.top.items[m.index]
+        if not m.global.hasField("navLastEntry") then m.global.addFields({ navLastEntry: {} })
+        m.global.navLastEntry = { id: Util.toText(it.id), label: Util.toText(it.label) }
+        m.top.chosen = { id: it.id }
         return true
     else if key = "left" or key = "right"
         return true
