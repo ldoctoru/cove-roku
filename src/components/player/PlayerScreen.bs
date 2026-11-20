@@ -151,6 +151,10 @@ sub resetState()
     m.episodes = []
     m.epWaiting = invalid
     m.epIndex = -1
+    ' (v1.2 SP-14) m.episodes holds only the neighbours until the Episodes panel asks for the whole list
+    m.epFull = false
+    m.epFullAsked = false
+    m.epPanelWanted = false
     m.actionKind = ""
     m.watchAt = -1.0        ' (v1.1) where Watch Intro / Watch Recap goes back to
     m.noticeTimer.control = "stop"
@@ -382,13 +386,34 @@ sub onInfo(r as object)
         ' Jellyfin keeps intro / credits (and recaps, previews, commercials) as media segments
         if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial", { kind: "segments", itemId: m.top.item.id })
         if Util.toText(r.json.Type) = "Episode" and Util.toText(r.json.SeriesId) <> ""
-            ' (C2-4: the profile's rating limit, as on Details)
-            get(Ratings.withLimit(m.top.server, "/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields()), { kind: "episodes", itemId: m.top.item.id })
+            ' (v1.2 SP-14) previous / next: only the neighbours (AdjacentTo); a rating limit keeps the whole list,
+            ' so a hidden neighbour is skipped to the next allowed one as before
+            requestEpisodes(Util.toText(r.json.SeriesId), Ratings.limitOf(m.top.server) = 0)
         end if
     end if
     useQueue()
     start(m.startAt, false)
 end sub
+
+' The series' episodes: around this one only (adjacent), or the whole list (the Episodes panel, a rating limit)
+sub requestEpisodes(seriesId as string, adjacent as boolean)
+    if seriesId = "" then return
+    uid = Util.toText(m.top.server.userId)
+    path = Playback.adjacentEpisodesPath(uid, seriesId, Util.toText(m.top.item.id))
+    if not adjacent
+        m.epFullAsked = true
+        ' (C2-4: the profile's rating limit, as on Details)
+        path = Ratings.withLimit(m.top.server, Playback.seriesEpisodesPath(uid, seriesId))
+    end if
+    get(path, { kind: "episodes", itemId: m.top.item.id, adjacent: adjacent, seriesId: seriesId })
+end sub
+
+function listHasItem(list as object, id as string) as boolean
+    for each e in list
+        if Util.isAA(e) and Util.toText(e.Id) = id then return true
+    end for
+    return false
+end function
 
 ' Shuffle queue hook: the next title is the queue's first
 ' (PL-13: after the queue's last title nothing follows, not that series' next episodes; Previous stays)
@@ -1464,6 +1489,13 @@ end sub
 ' The episodes of the current season in the side panel; OK plays one
 sub showEpisodes()
     if m.epIndex < 0 then return
+    if not m.epFull
+        ' (v1.2 SP-14) only the neighbours so far: the whole list first, the panel opens when it is in
+        m.epPanelWanted = true
+        if not m.epFullAsked then requestEpisodes(seriesKey(), false)
+        Toasts.notify("Loading episodes...", "info")
+        return
+    end if
     season = Util.toText(m.episodes[m.epIndex].SeasonId)
     o = []
     for each e in m.episodes
@@ -2085,10 +2117,21 @@ sub onResponse(ev as object)
         list = m.epWaiting
         m.epWaiting = invalid
         if type(list) = "roArray" then useEpisodes(list)
-    else if k = "episodes" and r.code = 200 and r.json <> invalid
+    else if k = "episodes"
         ' the series' episodes: previous / next and the Episodes panel
-        list = r.json.Items
+        list = invalid
+        if r.code = 200 and Util.isAA(r.json) then list = r.json.Items
+        adjacent = Util.flag(r.tag, "adjacent")
+        if adjacent and (type(list) <> "roArray" or not listHasItem(list, Util.toText(m.top.item.id)))
+            ' (a server without AdjacentTo, or this episode outside the list): the whole list, as before
+            print "Cove: neighbouring episodes -> "; r.code; ", asking for the whole list"
+            requestEpisodes(Util.toText(r.tag.seriesId), false)
+            return
+        end if
+        if not adjacent and type(list) <> "roArray" then m.epFullAsked = false
         if type(list) = "roArray"
+            ' (more than the three neighbours: a server that ignored AdjacentTo sent the whole list)
+            m.epFull = not adjacent or list.count() > 3
             ' (C2-4: only the episodes the profile's rating limit allows; an unrated one takes its series' rating)
             ids = Ratings.missingSeries(m.top.server, list)
             if ids.count() > 0
@@ -2120,6 +2163,11 @@ sub useEpisodes(fullList as object)
     ' (prev / next join the centre row: keep the focus on play)
     if m.area = "center" then m.idx = playIndex()
     buildTools()
+    ' (v1.2 SP-14) the Episodes panel was asked for while only the neighbours were known
+    if m.epFull and m.epPanelWanted
+        m.epPanelWanted = false
+        if m.picker = invalid and not m.upNext.visible and not m.still.visible and not m.closing then showEpisodes()
+    end if
 end sub
 
 ' A request whose answer nobody waits for. The task is parked in the scene's "tasks" group so it keeps running
