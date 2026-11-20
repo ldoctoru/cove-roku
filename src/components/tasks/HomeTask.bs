@@ -140,7 +140,8 @@ sub load()
     if hasLate
         first = createObject("roSGNode", "ContentNode")
         buildRows(first, true)
-        if first.getChildCount() > 0
+        ' (v1.2) after the cached Home, no in-between version: the screen changes once, to the full rows
+        if first.getChildCount() > 0 and m.top.fromCache <> true
             print "Cove: home rows "; first.getChildCount(); " (Upcoming still loading)"
             if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch (without Upcoming)"
             m.top.fromCache = false
