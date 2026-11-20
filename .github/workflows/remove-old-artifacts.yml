@@ -1,0 +1,23 @@
+name: Remove old artifacts
+
+# Daily cleanup of build artifacts (CI zips): older than 2 weeks are removed, but release (tag) artifacts and
+# the 5 newest are always kept. Action: https://github.com/marketplace/actions/remove-artifacts (pinned by SHA).
+on:
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  remove-old-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Remove old artifacts
+        uses: c-hive/gha-remove-artifacts@62c2fbea931baa7dd4a6b73ea5a799984a818f61 # v1.8.0
+        with:
+          age: '2 weeks'
+          skip-tags: true
+          skip-recent: 5
