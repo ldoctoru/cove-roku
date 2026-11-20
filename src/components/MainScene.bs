@@ -689,6 +689,8 @@ sub openItem(a as object)
     d.observeField("openItem", "onDetailsOpen")
     push(d)
     if a.seasonId <> invalid then d.seasonId = a.seasonId
+    ' (v1.2 SP-12) the card's title, artwork and text: the header draws before the item answers
+    if Util.isAA(a.preview) then d.preview = a.preview
     d.itemId = a.itemId
 end sub
 

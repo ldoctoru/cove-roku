@@ -125,4 +125,47 @@ namespace QuickPlay
         return { id: Util.toText(it.Id), title: title, subtitle: subtitle, start: startSecs(it) }
     end function
 
+    ' (v1.2 SP-12) What a details page can draw at once from the card that opened it: { itemType, title,
+    ' eyebrow, backdrop, logo, overview, meta, played, full }, or invalid for a card that isn't a title.
+    ' full: the card came from a full-field list (Home rows, person page, details rows), so an empty overview
+    ' really is empty; slim lists (library, search, favorites) have no overview, logo or backdrop tags.
+    function previewOfCard(card as dynamic, full as boolean) as dynamic
+        if type(card) <> "roSGNode" or not card.hasField("itemId") then return invalid
+        return previewFromFields(card.getFields(), full)
+    end function
+
+    ' (the pure part of previewOfCard, from the card's fields as an AA)
+    function previewFromFields(f as dynamic, full as boolean) as dynamic
+        if not Util.isAA(f) then return invalid
+        t = Util.toText(f.itemType)
+        if Util.toText(f.itemId) = "" or t = "" or t = "Person" then return invalid
+        p = { itemType: t, title: Util.toText(f.title), eyebrow: "", backdrop: Util.toText(f.backdrop), logo: Util.toText(f.logo), overview: Util.toText(f.overview), meta: Util.toText(f.heroMeta), played: Util.flag(f, "played"), full: full }
+        if p.meta = "" then p.meta = Util.toText(f.meta)
+        if t = "Episode"
+            ' the details page: series name and number above the episode's own title, no logo
+            chip = Util.toText(f.chip)
+            p.eyebrow = p.title
+            if chip <> "" then p.eyebrow = p.eyebrow + "  ·  " + chip
+            p.title = episodeNameOf(Util.toText(f.episode))
+            p.logo = ""
+        end if
+        return p
+    end function
+
+    ' "S1:E2  ·  Pilot" → "Pilot"; "S1:E2" → ""; "Pilot" → "Pilot"
+    function episodeNameOf(label as string) as string
+        at = label.instr("  ·  ")
+        if at >= 0 then return label.mid(at + 5)
+        if CreateObject("roRegex", "^S\d+(:E\d+)?$", "").isMatch(label) then return ""
+        return label
+    end function
+
+    ' (SP-12) An Upcoming episode card opens its series: only the series' name and logo are known
+    function seriesPreviewOfCard(card as dynamic) as dynamic
+        if type(card) <> "roSGNode" or not card.hasField("itemId") then return invalid
+        lg = ""
+        if card.hasField("logo") then lg = Util.toText(card.logo)
+        return { itemType: "Series", title: Util.toText(card.title), eyebrow: "", backdrop: "", logo: lg, overview: "", meta: "", played: false, full: false }
+    end function
+
 end namespace

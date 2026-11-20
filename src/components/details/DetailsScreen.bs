@@ -15,6 +15,14 @@ import "pkg:/source/HomeLayout.bs"
 import "pkg:/source/Servers.bs"
 
 sub init()
+    ' (v1.2) "Cove: details <ms> header / item answered / rows ready": from the screen's creation (MainScene
+    ' creates and pushes it in one go)
+    m.pushClock = createObject("roTimespan")
+    m.headerTimed = false
+    m.itemTimed = false
+    m.previewShown = false
+    m.previewBackdrop = ""
+    m.previewLogo = ""
     m.focusEpisodes = false
     m.userAudioAsked = false
     t = m.global.theme
@@ -86,6 +94,18 @@ sub init()
     m.seasonWaiting = false
     m.seasonWait = m.top.findNode("seasonWait")
     m.seasonWait.observeField("fire", "onSeasonWait")
+    ' (v1.2 SP-9) each list's cards, built once when it arrives; one rebuild per burst of answers
+    m.rowNodes = {}
+    m.rowGens = {}
+    m.rowGen = 0
+    m.rowsSig = ""
+    m.rowBuilds = 0
+    m.epNodeById = {}
+    m.epDesc = invalid
+    m.rowWait = {}
+    m.rowsTimed = false
+    m.rowsTimer = m.top.findNode("rowsTimer")
+    m.rowsTimer.observeField("fire", "onRowsTimer")
     Speak.mute([m.rows, m.btnKeys])
 end sub
 
@@ -112,9 +132,128 @@ end function
 
 sub load()
     m.status.text = "Loading..."
-    ' (v1.1.1) "Cove: details ready <ms>": from here to the header drawn
-    m.readyClock = createObject("roTimespan")
+    ' (v1.2 SP-12) the card's preview: the header at once, the buttons as placeholder pills
+    if m.item = invalid and not m.previewShown and Util.isAA(m.top.preview) then showPreview(m.top.preview)
     get(itemPath(), { kind: "item" })
+end sub
+
+' (v1.2) one "Cove: details <ms> <what>" line, ms since the screen was created
+sub detailsMark(what as string)
+    print "Cove: details "; m.pushClock.totalMilliseconds(); " "; what
+end sub
+
+' (v1.2 SP-12) The header from the card that opened the page: backdrop, logo or title, the meta line and the
+' description, at the positions showItem uses, so nothing jumps when the item answers
+sub showPreview(p as object)
+    srv = m.top.server
+    m.previewShown = true
+    m.status.text = ""
+    t = Util.toText(p.itemType)
+    id = Util.toText(m.top.itemId)
+    ' (slim lists carry no artwork tags: the title's own picture without a tag; showItem keeps the same URL
+    ' when the title has one, so the texture isn't loaded twice)
+    bd = Util.toText(p.backdrop)
+    lg = Util.toText(p.logo)
+    if previewGuessesArt(t) and id <> ""
+        if bd = "" then bd = Util.toText(srv.url) + "/Items/" + id + "/Images/Backdrop/0?maxWidth=1280&quality=85"
+        if lg = "" then lg = Util.toText(srv.url) + "/Items/" + id + "/Images/Logo?maxWidth=700&quality=85"
+    end if
+    m.previewBackdrop = bd
+    m.previewLogo = lg
+    m.top.findNode("backdrop").uri = bd
+    m.top.findNode("eyebrow").text = Util.toText(p.eyebrow)
+    title = Util.toText(p.title)
+    m.top.findNode("title").text = title
+    m.top.findNode("title").visible = true
+    m.top.findNode("miniTitle").text = title
+    m.logoReady = false
+    m.logo.visible = false
+    m.logo.uri = lg
+    ' the meta line where the kind / rating / score row goes
+    m.top.findNode("kind").text = Util.toText(p.meta)
+    for each n in ["ratingBox", "star", "critic"]
+        m.top.findNode(n).visible = false
+    end for
+    for each n in ["rating", "score", "criticScore"]
+        m.top.findNode(n).text = ""
+    end for
+    ov = Util.toText(p.overview)
+    lines = Util.wrapLines(ov, 72, 3)
+    if Util.flag(p, "full") and ov = "" and Items.hidesSpoilers({ Type: t, UserData: { Played: Util.flag(p, "played") } }) then lines = ["Description hidden until you watch this episode."]
+    skeletonLines = 0
+    ' (a slim list has no description: three placeholder bars, the common length)
+    if not Util.flag(p, "full") and ov = "" then skeletonLines = 3
+    m.lines = lines.count()
+    if skeletonLines > 0 then m.lines = skeletonLines
+    for i = 0 to 2
+        line = ""
+        if i < lines.count() then line = lines[i]
+        m.top.findNode("ov" + i.toStr()).text = line
+    end for
+    drawOverviewSkeleton(skeletonLines)
+    m.ovMore = false
+    m.top.findNode("ovMore").visible = false
+    m.ovWidth = 0
+    m.top.findNode("facts").text = ""
+    for each n in ["starL", "dirL"]
+        m.top.findNode(n).visible = false
+    end for
+    for each n in ["star0", "star1", "dir0"]
+        m.top.findNode(n).text = ""
+    end for
+    layoutHeader()
+    drawButtons()
+    m.headerTimed = true
+    detailsMark("header (from the card)")
+end sub
+
+' Titles whose own backdrop / logo the preview may ask for without a tag (an episode's come from its series)
+function previewGuessesArt(t as string) as boolean
+    return t = "Movie" or t = "Series" or t = "BoxSet" or t = "Video" or t = "MusicVideo"
+end function
+
+' (SP-12) Placeholder bars in the description's lines (0 removes them)
+sub drawOverviewSkeleton(count as integer)
+    g = m.top.findNode("ovSkel")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    widths = [940, 860, 560]
+    for i = 0 to count - 1
+        bar = g.createChild("Poster")
+        bar.uri = "pkg:/images/ui/white_pill.9.png"
+        bar.blendColor = skeletonColor()
+        bar.width = widths[i]
+        bar.height = 22
+        bar.translation = [0, i * 38 + 8]
+    end for
+end sub
+
+function skeletonColor() as string
+    c = Util.toText(m.global.theme.placeholder)
+    if c = "" then c = "0x262626FF"
+    return c
+end function
+
+' (SP-12) The button row before the item answers: the Play pill and three round buttons as plain shapes
+sub drawButtonSkeleton()
+    m.btnGroup.removeChildrenIndex(m.btnGroup.getChildCount(), 0)
+    m.btnGroup.translation = [96, 830]
+    if not m.previewShown then return
+    col = skeletonColor()
+    pill = m.btnGroup.createChild("Poster")
+    pill.uri = "pkg:/images/ui/white_pill.9.png"
+    pill.blendColor = col
+    pill.width = 255
+    pill.height = 69
+    x = 255 + 21
+    for i = 0 to 2
+        c = m.btnGroup.createChild("Poster")
+        c.uri = "pkg:/images/ui/white_circle_69.png"
+        c.blendColor = col
+        c.width = 69
+        c.height = 69
+        c.translation = [x, 0]
+        x = x + 69 + 18
+    end for
 end sub
 
 ' After playback: reload so Resume and the episodes show the new position
@@ -123,8 +262,19 @@ sub onRefresh()
     if m.item = invalid then return
     get(itemPath(), { kind: "item" })
     if Util.toText(m.item.Type) = "Series"
+        m.nextUpPending = true
         loadNextUp()
-        if m.seasonIndex >= 0 then loadEpisodes(m.seasonIndex)
+        if m.seasonIndex >= 0
+            if m.seasonByUser
+                loadEpisodes(m.seasonIndex)
+            else
+                ' (v1.2 SP-10) after playback Next Up may be in the next season: wait for it (at most 0.8 s) and
+                ' load that season's episodes once, instead of this season's and then the other
+                m.seasonWaiting = true
+                m.seasonWait.control = "stop"
+                m.seasonWait.control = "start"
+            end if
+        end if
         reloadSeasonCounts()
     end if
     if Util.toText(m.item.Type) = "BoxSet" then loadBoxItems()
@@ -152,6 +302,10 @@ sub onResponse(ev as object)
     end for
     r = ev.getData()
     k = r.tag.kind
+    if k = "item" and not m.itemTimed
+        m.itemTimed = true
+        detailsMark("item answered (" + Util.toText(r.code) + ")")
+    end if
     if k = "fav"
         onFavourite(r)
         return
@@ -178,6 +332,8 @@ sub onResponse(ev as object)
     if r.code <> 200 or r.json = invalid
         ' (SP-10) no Next Up: a season waiting for it loads now
         if k = "nextUp" then onNextUp(invalid)
+        ' (SP-9) a failed list still counts as answered for "rows ready"
+        if k = "similar" or k = "boxItems" or k = "includedIn" or k = "seasons" or k = "episodes" then rowAnswered(k)
         if k = "item"
             if m.item = invalid
                 showLoadError("Couldn't load this title. " + Api.describeFailure(r))
@@ -204,27 +360,34 @@ sub onResponse(ev as object)
         onEpisodeStreams(r.json)
     else if k = "similar"
         m.similarList = Ratings.keep(m.top.server, listOf(r.json))
-        rebuildRows()
+        setRowNodes("similar", m.similarList)
+        rowAnswered("similar")
     else if k = "seasonCounts"
         onSeasonCounts(r.json)
     else if k = "boxItems"
         m.boxList = Ratings.keep(m.top.server, listOf(r.json))
         print "Cove: collection titles -> "; m.boxList.count()
+        setRowNodes("box", m.boxList)
         buildButtons()
-        rebuildRows()
+        rowAnswered("boxItems")
     else if k = "includedIn"
         list = listOf(r.json)
         ' (a long answer means the server ignored the filter and sent every collection: show none, as the Mac)
         if list.count() > 10 then list = []
         ' (v0.9.1: collections above the profile's rating limit stay away too)
         m.includedList = Ratings.keep(m.top.server, list)
-        rebuildRows()
+        setRowNodes("included", m.includedList)
+        rowAnswered("includedIn")
     end if
 end sub
 
 ' (SC-9) The page couldn't load: the message and Try Again instead of an empty page
 sub showLoadError(text as string)
     m.status.text = ""
+    ' (SP-12: no placeholder pills behind the error)
+    m.previewShown = false
+    drawButtonSkeleton()
+    drawOverviewSkeleton(0)
     m.errorPanel.message = text
     m.errorPanel.index = 0
     m.errorPanel.visible = true
@@ -261,10 +424,6 @@ end function
 sub showItem(it as object)
     first = m.item = invalid
     m.item = it
-    if first and m.readyClock <> invalid
-        print "Cove: details ready "; m.readyClock.totalMilliseconds()
-        m.readyClock = invalid
-    end if
     srv = m.top.server
     m.status.text = ""
     if m.errorPanel.visible
@@ -273,7 +432,10 @@ sub showItem(it as object)
     end if
     t = Util.toText(it.Type)
     m.isFav = Util.flag(it.UserData, "IsFavorite")
-    m.top.findNode("backdrop").uri = Items.backdrop(srv, it, 1280)
+    bdUrl = Items.backdrop(srv, it, 1280)
+    ' (SP-12) the preview's picture is this title's own (untagged or the same URL): keep it, no second load
+    if m.previewBackdrop <> "" and bdUrl <> "" then bdUrl = m.previewBackdrop
+    if m.top.findNode("backdrop").uri <> bdUrl then m.top.findNode("backdrop").uri = bdUrl
     ' an episode: series name and number above its own title; movies and series show their logo
     eyebrow = ""
     title = Util.toText(it.Name)
@@ -284,6 +446,7 @@ sub showItem(it as object)
         if chip <> "" then eyebrow = eyebrow + "  ·  " + chip
         logoUrl = ""
     end if
+    if m.previewLogo <> "" and logoUrl <> "" then logoUrl = m.previewLogo
     m.top.findNode("eyebrow").text = eyebrow
     m.top.findNode("title").text = title
     m.top.findNode("miniTitle").text = title
@@ -303,6 +466,7 @@ sub showItem(it as object)
         if i < lines.count() then line = lines[i]
         m.top.findNode("ov" + i.toStr()).text = line
     end for
+    if first then drawOverviewSkeleton(0)
     placeMore(it, lines)
     m.top.findNode("facts").text = Items.facts(it)
     showPeople(it)
@@ -343,6 +507,12 @@ sub showItem(it as object)
                 if (k = "Actor" or k = "Director" or k = "Writer" or k = "GuestStar") and m.castList.count() < 20 then m.castList.push(p)
             end for
         end if
+        setRowNodes("cast", m.castList)
+        ' (SP-9) the first answers "rows ready" waits for (extras: loadExtras adds itself when it asks)
+        m.rowWait["similar"] = true
+        if t = "Series" then m.rowWait["seasons"] = true
+        if t = "BoxSet" then m.rowWait["boxItems"] = true
+        if t <> "BoxSet" and t <> "Episode" then m.rowWait["includedIn"] = true
         if t = "Series"
             get("/Shows/" + Util.toText(it.Id) + "/Seasons?UserId=" + Util.toText(srv.userId) + "&" + Items.fields(), { kind: "seasons" })
             ' (SP-10) the seasons wait for this answer
@@ -357,6 +527,10 @@ sub showItem(it as object)
     end if
     buildButtons()
     layoutHeader()
+    if first and not m.headerTimed
+        m.headerTimed = true
+        detailsMark("header")
+    end if
     rebuildRows()
     if first and m.top.isInFocusChain() then enterButtons(false)
 end sub
@@ -618,6 +792,10 @@ function seriesTarget() as dynamic
 end function
 
 sub drawButtons()
+    if m.item = invalid
+        drawButtonSkeleton()
+        return
+    end if
     m.btnGroup.removeChildrenIndex(m.btnGroup.getChildCount(), 0)
     focused = m.state = "buttons" and m.picker = invalid
     x = 0
@@ -905,6 +1083,7 @@ sub loadExtras(it as object)
     t = Util.toText(it.Type)
     if t = "BoxSet" or t = "Person" then return
     if it.SpecialFeatureCount <> invalid and Util.toNumber(it.SpecialFeatureCount) <= 0 then return
+    if not m.rowsTimed then m.rowWait["extras"] = true
     if Api.knownRoute(m.top.server, "extras") = "new"
         get("/Items/" + Util.toText(it.Id) + "/SpecialFeatures?userId=" + Util.toText(m.top.server.userId), { kind: "extras", itemId: Util.toText(it.Id), newRoute: true })
         return
@@ -918,7 +1097,10 @@ sub onExtras(r as object)
         get("/Items/" + r.tag.itemId + "/SpecialFeatures?userId=" + Util.toText(m.top.server.userId), { kind: "extras", itemId: r.tag.itemId, newRoute: true })
         return
     end if
-    if r.code <> 200 then return
+    if r.code <> 200
+        rowAnswered("extras")
+        return
+    end if
     Api.rememberRoute(m.top.server, "extras", r.tag.newRoute = true)
     list = []
     ' (the profile's rating limit applies to extras too)
@@ -927,7 +1109,8 @@ sub onExtras(r as object)
     end for
     print "Cove: extras -> "; list.count()
     m.extrasList = list
-    rebuildRows()
+    setRowNodes("extras", m.extrasList)
+    rowAnswered("extras")
 end sub
 
 ' "BehindTheScenes" → "Behind the Scenes"; "" when the server doesn't say
@@ -1313,7 +1496,10 @@ sub onNextUp(json as dynamic)
     if m.seasonWaiting
         m.seasonWaiting = false
         m.seasonWait.control = "stop"
-        if not m.seasonByUser then selectSeason(defaultSeasonIndex(), false)
+        if not m.seasonByUser
+            detailsMark("Next Up answered, episodes of season index " + defaultSeasonIndex().toStr())
+            selectSeason(defaultSeasonIndex(), false)
+        end if
         return
     end if
     ' open on the season of the next episode, unless the user picked one
@@ -1332,7 +1518,13 @@ end function
 
 sub onSeasons(json as object)
     m.seasonList = listOf(json)
-    if m.seasonList.count() = 0 then return
+    ' (SP-9) "rows ready" now waits for the episodes instead
+    if m.seasonList.count() > 0 and not m.rowsTimed then m.rowWait["episodes"] = true
+    if m.rowWait.doesExist("seasons") then m.rowWait.delete("seasons")
+    if m.seasonList.count() = 0
+        rebuildRows()
+        return
+    end if
     i = defaultSeasonIndex()
     ' opened with "Go to Season": that season, with the focus on its episodes
     if m.top.seasonId <> ""
@@ -1365,7 +1557,10 @@ end function
 sub onSeasonWait()
     if not m.seasonWaiting then return
     m.seasonWaiting = false
-    if not m.seasonByUser and m.seasonList.count() > 0 then selectSeason(defaultSeasonIndex(), false)
+    if not m.seasonByUser and m.seasonList.count() > 0
+        detailsMark("Next Up late (0.8 s), episodes of season index " + defaultSeasonIndex().toStr())
+        selectSeason(defaultSeasonIndex(), false)
+    end if
 end sub
 
 sub selectSeason(i as integer, byUser as boolean)
@@ -1388,6 +1583,8 @@ end sub
 sub onEpisodes(json as object)
     m.episodeList = listOf(json)
     m.episodesSeason = m.seasonIndex
+    buildEpisodeNodes()
+    if m.rowWait.doesExist("episodes") then m.rowWait.delete("episodes")
     target = seriesTarget()
     if target <> invalid then loadEpisodeStreams(target)
     if m.nextUp = invalid then buildButtons()
@@ -1398,8 +1595,81 @@ end sub
 
 ' Rows in order: the chosen season's episodes (series; the season pill above it picks the season),
 ' Cast & Crew, More Like This. Rebuilt when data arrives; the focus stays on the same row and item.
+' (v1.2 SP-9) Answers only ask for a rebuild: one runs 0.05 s after the last of a burst (rowsTimer), and it
+' reuses each list's nodes, built once when the list arrived (setRowNodes), instead of making them again.
 sub rebuildRows()
+    m.rowsTimer.control = "stop"
+    m.rowsTimer.control = "start"
+end sub
+
+sub onRowsTimer()
+    rebuildRowsNow()
+end sub
+
+' (SP-9) A list's cards, built once: kind = "box", "extras", "cast", "included", "similar"
+sub setRowNodes(kind as string, list as object)
     srv = m.top.server
+    nodes = []
+    for each x in list
+        if kind = "cast"
+            nodes.push(Items.personNode(srv, x))
+        else if kind = "extras"
+            n = Items.node(srv, x, true)
+            n.title = Util.toText(x.Name)
+            n.episode = extraKind(x)
+            rt = ""
+            if x.RunTimeTicks <> invalid then rt = Int(x.RunTimeTicks / 600000000).toStr() + "m"
+            n.addFields({ kind: "episode", runtime: rt })
+            n.overview = ""
+            nodes.push(n)
+        else
+            nodes.push(Items.node(srv, x, false))
+        end if
+    end for
+    m.rowNodes[kind] = nodes
+    m.rowGen = m.rowGen + 1
+    m.rowGens[kind] = m.rowGen
+end sub
+
+' (SP-9) The season's episode cards, built once per answer (and again only if the description setting changed)
+sub buildEpisodeNodes()
+    srv = m.top.server
+    m.epDesc = Prefs.showEpisodeDescription()
+    m.epNodeById = {}
+    for each e in m.episodeList
+        n = Items.node(srv, e, true)
+        n.title = Util.toText(e.Name)
+        n.episode = "Episode " + Util.toText(e.IndexNumber)
+        rt = ""
+        if e.RunTimeTicks <> invalid then rt = Int(e.RunTimeTicks / 600000000).toStr() + "m"
+        n.addFields({ kind: "episode", runtime: rt })
+        ' Settings → Libraries → Show episode descriptions
+        if not m.epDesc then n.overview = ""
+        m.epNodeById[Util.toText(e.Id)] = n
+    end for
+    m.rowGen = m.rowGen + 1
+    m.rowGens["episodes"] = m.rowGen
+end sub
+
+' (SP-9) Which first answers the page still waits for before "rows ready" (once per page)
+sub rowAnswered(kind as string)
+    if m.rowWait.doesExist(kind) then m.rowWait.delete(kind)
+    rebuildRows()
+end sub
+
+sub rebuildRowsNow()
+    m.rowsTimer.control = "stop"
+    if m.item = invalid then return
+    buildRowsContent()
+    if not m.rowsTimed and m.rowWait.count() = 0
+        m.rowsTimed = true
+        n = 0
+        if m.rows.content <> invalid and m.rows.visible then n = m.rows.content.getChildCount()
+        detailsMark("rows ready (" + n.toStr() + " rows, " + m.rowBuilds.toStr() + " builds)")
+    end if
+end sub
+
+sub buildRowsContent()
     keepKind = ""
     keepItem = 0
     f = m.rows.rowItemFocused
@@ -1411,89 +1681,27 @@ sub rebuildRows()
             keepItem = f[1]
         end if
     end if
-    root = createObject("roSGNode", "ContentNode")
-    sizes = []
-    heights = []
-    labels = []
-    showDesc = Prefs.showEpisodeDescription()
+    if m.epDesc <> invalid and m.epDesc <> Prefs.showEpisodeDescription() then buildEpisodeNodes()
     m.shownEps = shownEpisodes()
+    specs = []
     if m.shownEps.count() > 0
-        row = newRow(root, "", "episodes")
+        eps = []
         for each e in m.shownEps
-            n = Items.node(srv, e, true)
-            n.title = Util.toText(e.Name)
-            n.episode = "Episode " + Util.toText(e.IndexNumber)
-            rt = ""
-            if e.RunTimeTicks <> invalid then rt = Int(e.RunTimeTicks / 600000000).toStr() + "m"
-            n.addFields({ kind: "episode", runtime: rt })
-            ' Settings → Libraries → Show episode descriptions
-            if not showDesc then n.overview = ""
-            row.appendChild(n)
+            n = m.epNodeById[Util.toText(e.Id)]
+            if n <> invalid then eps.push(n)
         end for
-        sizes.push([516, 426])
-        heights.push(426)
-        labels.push(false)
+        if eps.count() > 0 then specs.push({ kind: "episodes", title: "", nodes: eps, size: [516, 426], label: false })
     end if
     ' a collection: its titles, in release order
-    if m.boxList.count() > 0
-        row = newRow(root, "In This Collection", "box")
-        for each b in m.boxList
-            row.appendChild(Items.node(srv, b, false))
-        end for
-        sizes.push([276, 466])
-        heights.push(466)
-        labels.push(true)
-    end if
+    addRowSpec(specs, "box", "In This Collection", [276, 466])
     ' (v1.0 F-9) extras, as landscape cards like the episodes
-    if m.extrasList.count() > 0
-        row = newRow(root, "Extras", "extras")
-        for each x in m.extrasList
-            n = Items.node(srv, x, true)
-            n.title = Util.toText(x.Name)
-            n.episode = extraKind(x)
-            rt = ""
-            if x.RunTimeTicks <> invalid then rt = Int(x.RunTimeTicks / 600000000).toStr() + "m"
-            n.addFields({ kind: "episode", runtime: rt })
-            n.overview = ""
-            row.appendChild(n)
-        end for
-        sizes.push([516, 426])
-        heights.push(426)
-        labels.push(true)
-    end if
-    if m.castList.count() > 0
-        row = newRow(root, "Cast & Crew", "cast")
-        for each p in m.castList
-            row.appendChild(Items.personNode(srv, p))
-        end for
-        ' Settings → Libraries → Cast & Crew: Normal / Large
-        if Prefs.castLarge()
-            sizes.push([236, 356])
-            heights.push(356)
-        else
-            sizes.push([180, 296])
-            heights.push(296)
-        end if
-        labels.push(true)
-    end if
-    if m.includedList.count() > 0
-        row = newRow(root, "Included In", "included")
-        for each b in m.includedList
-            row.appendChild(Items.node(srv, b, false))
-        end for
-        sizes.push([276, 466])
-        heights.push(466)
-        labels.push(true)
-    end if
-    if m.similarList.count() > 0
-        row = newRow(root, "More Like This", "similar")
-        for each s in m.similarList
-            row.appendChild(Items.node(srv, s, false))
-        end for
-        sizes.push([276, 466])
-        heights.push(466)
-        labels.push(true)
-    end if
+    addRowSpec(specs, "extras", "Extras", [516, 426])
+    ' Settings → Libraries → Cast & Crew: Normal / Large
+    castSize = [180, 296]
+    if Prefs.castLarge() then castSize = [236, 356]
+    addRowSpec(specs, "cast", "Cast & Crew", castSize)
+    addRowSpec(specs, "included", "Included In", [276, 466])
+    addRowSpec(specs, "similar", "More Like This", [276, 466])
     ' the season / subtitle pills sit above the episodes, like the Mac's "Season 1 ⌃" header
     hasBar = Util.toText(m.item.Type) = "Series" and m.seasonList.count() > 0
     m.seasonBar.visible = hasBar
@@ -1503,10 +1711,40 @@ sub rebuildRows()
     else
         m.rows.translation = [0, 0]
     end if
-    if root.getChildCount() = 0
+    if specs.count() = 0
         m.rows.visible = false
+        m.rowsSig = ""
         return
     end if
+    ' (SP-9) the same rows with the same cards: nothing to rebuild (the focus stays where it is)
+    sig = ""
+    for each sp in specs
+        g = m.rowGens[sp.kind]
+        if g = invalid then g = 0
+        sig = sig + sp.kind + ":" + g.toStr() + ":" + sp.nodes.count().toStr() + ":" + sp.size[0].toStr() + ";"
+    end for
+    if sig = m.rowsSig and not m.jumpToEpisodes and m.focusEpisodes <> true and m.rows.visible then return
+    m.rowsSig = sig
+    m.rowBuilds = m.rowBuilds + 1
+    ' (a node has one parent: take the cards out of the rows on screen before they go into the new ones)
+    old = m.rows.content
+    if old <> invalid
+        for i = 0 to old.getChildCount() - 1
+            orow = old.getChild(i)
+            orow.removeChildrenIndex(orow.getChildCount(), 0)
+        end for
+    end if
+    root = createObject("roSGNode", "ContentNode")
+    sizes = []
+    heights = []
+    labels = []
+    for each sp in specs
+        row = newRow(root, sp.title, sp.kind)
+        row.appendChildren(sp.nodes)
+        sizes.push(sp.size)
+        heights.push(sp.size[1])
+        labels.push(sp.label)
+    end for
     m.rows.rowItemSize = sizes
     m.rows.rowHeights = heights
     m.rows.showRowLabel = labels
@@ -1536,6 +1774,13 @@ sub rebuildRows()
     end if
     if target >= 0 then m.rows.jumpToRowItem = [target, item]
     if m.state = "rows" then m.rows.setFocus(true)
+end sub
+
+' (SP-9) A row from a list's cached cards, when it has any
+sub addRowSpec(specs as object, kind as string, title as string, size as object)
+    nodes = m.rowNodes[kind]
+    if nodes = invalid or nodes.count() = 0 then return
+    specs.push({ kind: kind, title: title, nodes: nodes, size: size, label: true })
 end sub
 
 ' ---------------------------------------------------------------- season / subtitle pills (series)
@@ -1667,7 +1912,7 @@ sub useBar()
     if id = "filter"
         m.showAllEps = not m.showAllEps
         print "Cove: season episodes, show all = "; m.showAllEps
-        rebuildRows()
+        rebuildRowsNow()
         return
     end if
     if id = "season"
@@ -1876,10 +2121,11 @@ sub onRowSelected()
         else
             b = m.includedList[i]
         end if
-        m.top.openItem = { id: "open", itemId: Util.toText(b.Id), itemType: Util.toText(b.Type), collectionType: "", title: Util.toText(b.Name), seriesId: Util.toText(b.SeriesId), seriesName: Util.toText(b.SeriesName) }
+        m.top.openItem = { id: "open", itemId: Util.toText(b.Id), itemType: Util.toText(b.Type), collectionType: "", title: Util.toText(b.Name), seriesId: Util.toText(b.SeriesId), seriesName: Util.toText(b.SeriesName), preview: QuickPlay.previewOfCard(row.getChild(i), true) }
     else if k = "similar" and i < m.similarList.count()
         it = m.similarList[i]
-        m.top.openItem = { id: "open", itemId: Util.toText(it.Id), itemType: Util.toText(it.Type), collectionType: "", title: Util.toText(it.Name) }
+        ' (v1.2 SP-12) the card's preview: the next page's header at once
+        m.top.openItem = { id: "open", itemId: Util.toText(it.Id), itemType: Util.toText(it.Type), collectionType: "", title: Util.toText(it.Name), preview: QuickPlay.previewOfCard(row.getChild(i), true) }
     end if
 end sub
 
