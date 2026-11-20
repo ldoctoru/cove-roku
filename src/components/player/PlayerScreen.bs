@@ -58,6 +58,8 @@ sub init()
     m.video.notificationInterval = 1
     m.top.observeField("focusedChild", "onFocusChanged")
     m.pending = []
+    m.infoAnswer = invalid  ' (v1.2) the item's details, waiting for the audio preference (startWhenReady)
+    m.waitUser = false
     m.hasQueue = false      ' (PL-13) the title came with a Shuffle queue
     m.orphans = []          ' superseded PlayTasks, kept until they answer so their server conversion can be ended
     m.tasksHolder = invalid
@@ -193,12 +195,21 @@ sub begin()
     if it.options <> invalid and it.options.audio <> invalid then m.opts = it.options
     showLoading(0, "")
     Speak.say(Speak.clean("Loading " + Util.toText(it.title) + ", " + Util.toText(it.subtitle)))
-    ' (v1.1) the account's preferred audio language first, once per session (Tracks.serverAudioPref)
-    if Tracks.serverAudioPref(m.top.server) = invalid
-        get("/Users/" + Util.toText(m.top.server.userId), { kind: "user", itemId: it.id })
-    else
-        requestInfo()
-    end if
+    ' (v1.1) the account's preferred audio language, once per session (Tracks.serverAudioPref; usually known
+    ' from the launch sign-in check). (v1.2 SP-13a) Asked for in parallel with the item, not before it:
+    ' the stream request waits for both (startWhenReady).
+    m.infoAnswer = invalid
+    m.waitUser = Tracks.serverAudioPref(m.top.server) = invalid
+    if m.waitUser then get("/Users/" + Util.toText(m.top.server.userId), { kind: "user", itemId: it.id })
+    requestInfo()
+end sub
+
+' The item's details and the account's audio preference are both in: choose the tracks and ask for a stream
+sub startWhenReady()
+    if m.waitUser or m.infoAnswer = invalid then return
+    r = m.infoAnswer
+    m.infoAnswer = invalid
+    onInfo(r)
 end sub
 
 sub requestInfo()
@@ -1963,10 +1974,12 @@ sub onResponse(ev as object)
         if r.code = 200 then json = r.json
         if r.code <> 200 then print "Cove: user settings -> "; r.code
         Tracks.rememberServerAudio(m.top.server, json)
-        requestInfo()
+        m.waitUser = false
+        startWhenReady()
     else if k = "info"
         if r.tag.itemId <> m.top.item.id then return
-        onInfo(r)
+        m.infoAnswer = r
+        startWhenReady()
     else if k = "bif"
         onBif(r)
     else if k = "subProbe"

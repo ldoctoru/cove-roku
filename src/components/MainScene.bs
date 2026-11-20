@@ -1507,6 +1507,9 @@ sub saveSignIn(auth as object)
         s.userName = Util.toText(auth.User.Name)
         ' (the profile picture, for Who's watching?)
         s.avatar = Util.toText(auth.User.PrimaryImageTag)
+        ' (v1.2 SP-13a) the sign-in answer holds the same user object as GET /Users/{id}: its audio
+        ' preference, so the first play skips that request
+        Tracks.rememberServerAudio(s, auth.User)
     end if
     Servers.upsert(s)
     showHome(s)
