@@ -60,6 +60,8 @@ sub init()
     m.pending = []
     m.infoAnswer = invalid  ' (v1.2) the item's details, waiting for the audio preference (startWhenReady)
     m.waitUser = false
+    m.startClock = invalid
+    m.keepClock = false     ' (v1.2) the next begin keeps the clock (film -> its first Cinema Mode intro)
     m.hasQueue = false      ' (PL-13) the title came with a Shuffle queue
     m.orphans = []          ' superseded PlayTasks, kept until they answer so their server conversion can be ended
     m.tasksHolder = invalid
@@ -173,8 +175,11 @@ end sub
 ' A new item (also the next episode): load its details first (tracks, markers), then ask for a stream
 sub begin()
     resetState()
-    ' (v1.1.1) "Cove: player first frame <ms>": from here to the first "playing"
-    m.startClock = createObject("roTimespan")
+    ' (v1.1.1) "Cove: player <ms> <step>" (v1.2 playerMark): from here (the player pushed, or the next title)
+    ' to info ready, PlaybackInfo answered, stream URL set and the first frame
+    ' (kept over the switch from the film to its first Cinema Mode intro, so the line counts from OK)
+    if not m.keepClock or m.startClock = invalid then m.startClock = createObject("roTimespan")
+    m.keepClock = false
     it = m.top.item
     ' library Shuffle: the titles still to play (Up next takes them before the series' next episode)
     m.queue = []
@@ -209,7 +214,14 @@ sub startWhenReady()
     if m.waitUser or m.infoAnswer = invalid then return
     r = m.infoAnswer
     m.infoAnswer = invalid
+    playerMark("info ready")
     onInfo(r)
+end sub
+
+' "Cove: player <ms> <step>": ms since the player started this title (begin)
+sub playerMark(stepName as string)
+    if m.startClock = invalid then return
+    print "Cove: player "; m.startClock.totalMilliseconds(); " "; stepName
 end sub
 
 sub requestInfo()
@@ -381,6 +393,7 @@ sub onStream(ev as object)
     m.playTask = invalid
     s.itemId = m.top.item.id
     m.session = s
+    playerMark("PlaybackInfo answered")
     ' left while the server was preparing it: stop that conversion and go
     if m.closing
         stopEncoding()
@@ -407,6 +420,7 @@ sub onStream(ev as object)
     if m.startAt > 1 then c.PlayStart = m.startAt
     ' A text subtitle: Cove downloads the server's SRT and draws it (SubtitleLayer); Roku's captions stay off
     m.video.content = c
+    playerMark("stream URL set")
     ' (no subtitleTracks, so Roku's renderer has nothing to show; the Roku's global caption mode is left alone)
     m.video.subtitleTrack = ""
     loadTextSub()
@@ -548,10 +562,8 @@ sub onState()
         first = not m.started
         if not m.started
             m.started = true
-            if m.startClock <> invalid
-                print "Cove: player first frame "; m.startClock.totalMilliseconds()
-                m.startClock = invalid
-            end if
+            playerMark("first frame")
+            m.startClock = invalid
             ' (SP-15) the thumbnails 8 s into playback, or at the first seek if that comes sooner
             if m.thumbStream <> invalid then m.thumbTimer.control = "start"
             report("/Sessions/Playing", false)
