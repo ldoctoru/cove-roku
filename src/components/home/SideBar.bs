@@ -29,10 +29,9 @@ end function
 sub onFocus()
     open = m.top.isInFocusChain()
     if open and not m.top.expanded
-        ' open on the page being shown
-        for i = 0 to m.top.items.count() - 1
-            if m.top.items[i].id = m.top.current then m.index = i
-        end for
+        ' (v1.2 NV-6) open on the entry last opened from here this session, else the page being shown
+        at = NavUtil.openEntry(m.top.items, lastChosenId(), lastChosenLabel(), m.top.current)
+        if at >= 0 and not isHeader(at) then m.index = at
     end if
     wasOpen = m.top.expanded
     m.top.expanded = open
@@ -176,6 +175,22 @@ function headerFlags() as object
     return flags
 end function
 
+' (v1.2 NV-6) The entry last opened from the menu, for the session (m.global, so a rebuilt Home keeps it)
+sub rememberChosen(it as object)
+    if not m.global.hasField("navLastEntry") then m.global.addFields({ navLastEntry: {} })
+    m.global.navLastEntry = { id: Util.toText(it.id), label: Util.toText(it.label) }
+end sub
+
+function lastChosenId() as string
+    if not m.global.hasField("navLastEntry") or not Util.isAA(m.global.navLastEntry) then return ""
+    return Util.toText(m.global.navLastEntry.id)
+end function
+
+function lastChosenLabel() as string
+    if not m.global.hasField("navLastEntry") or not Util.isAA(m.global.navLastEntry) then return ""
+    return Util.toText(m.global.navLastEntry.label)
+end function
+
 function font(uri as string, size as integer) as object
     f = createObject("roSGNode", "Font")
     f.uri = uri
@@ -196,6 +211,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
         speakEntry("")
         return true
     else if key = "OK" and n > 0
+        rememberChosen(m.top.items[m.index])
         m.top.chosen = { id: m.top.items[m.index].id }
         return true
     else if key = "left"

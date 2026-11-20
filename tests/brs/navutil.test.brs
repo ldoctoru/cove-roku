@@ -76,3 +76,13 @@ sub test_nextEntry()
     t_eq(NavUtil_nextEntry(invalid, 0, 1), -1, "no list")
 end sub
 
+' (v1.2 NV-6) the sidebar opens on the entry last opened from it
+sub test_openEntry()
+    menu = [{ id: "home", label: "Home" }, { header: true, label: "Library" }, { id: "lib:0", label: "Movies" }, { id: "lib:1", label: "TV Shows" }, { id: "settings", label: "Settings" }]
+    t_eq(NavUtil_openEntry(menu, "lib:1", "TV Shows", "home"), 3, "the last opened library")
+    t_eq(NavUtil_openEntry(menu, "lib:1", "Kids", "home"), 0, "that index is another library now: the current page")
+    t_eq(NavUtil_openEntry(menu, "", "", "home"), 0, "nothing opened yet: the current page")
+    t_eq(NavUtil_openEntry(menu, "search", "Search", "home"), 0, "entry hidden since: the current page")
+    t_eq(NavUtil_openEntry(menu, "", "", ""), -1, "nothing to open on (top bar keeps its place)")
+    t_eq(NavUtil_openEntry(invalid, "home", "Home", "home"), -1, "no menu")
+end sub

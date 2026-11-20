@@ -114,4 +114,13 @@ namespace NavUtil
         return -1
     end function
 
+    ' (v1.2 NV-6) Where the sidebar opens: the entry last opened from it this session (same id and name, so a
+    ' library list that changed since doesn't land on another library), else the current page, else -1
+    function openEntry(list as object, lastId as string, lastLabel as string, currentId as string) as integer
+        if type(list) <> "roArray" then return -1
+        i = indexOfId(list, lastId)
+        if i >= 0 and Util.toText(list[i].label) = lastLabel then return i
+        return indexOfId(list, currentId)
+    end function
+
 end namespace
