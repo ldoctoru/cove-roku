@@ -403,4 +403,41 @@ namespace Playback
         return "/Users/" + userKey + "/Items/" + titleId + "/Intros"
     end function
 
+    ' (v1.3 U-4) Left / Right held on the progress bar: the step for one key repeat after heldMs of holding.
+    ' The first second keeps the normal step (Settings → Skip back / forward), then 30 s, from 3 s 60 s and
+    ' from 5 s 120 s per repeat (never below the normal step).
+    function holdSeekStep(heldMs as integer, baseStep as integer) as integer
+        st = baseStep
+        if heldMs >= 5000
+            st = 120
+        else if heldMs >= 3000
+            st = 60
+        else if heldMs >= 1000
+            st = 30
+        end if
+        if st < baseStep then st = baseStep
+        return st
+    end function
+
+    ' (v1.3 NV-16) Rewind / Fast forward pressed again within a second: the press number in that run (0 = the
+    ' first) → its jump: 30, 30, 60, 60, 120, 120, then 300 s (never below the Jump buttons setting)
+    function jumpStreakStep(pressIndex as integer, baseStep as integer) as integer
+        steps = [30, 30, 60, 60, 120, 120, 300]
+        i = pressIndex
+        if i < 0 then i = 0
+        if i > steps.count() - 1 then i = steps.count() - 1
+        st = steps[i]
+        if pressIndex <= 0 then st = baseStep
+        if st < baseStep then st = baseStep
+        return st
+    end function
+
+    ' (v1.3) Where the Up Next card shows in an episode: at the server's credits (Emby CreditsStart chapter,
+    ' Jellyfin Outro segment), else 30 s before the end (episodes longer than 2 minutes); -1 = never
+    function upNextStart(creditsAt as float, duration as float) as float
+        if creditsAt > 0 and (duration <= 0 or creditsAt < duration - 1) then return creditsAt
+        if duration > 120 then return duration - 30
+        return -1.0
+    end function
+
 end namespace
