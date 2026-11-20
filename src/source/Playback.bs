@@ -403,4 +403,12 @@ namespace Playback
         return "/Users/" + userKey + "/Items/" + titleId + "/Intros"
     end function
 
+    ' (v1.3) Where the Up Next card shows in an episode: at the server's credits (Emby CreditsStart chapter,
+    ' Jellyfin Outro segment), else 30 s before the end (episodes longer than 2 minutes); -1 = never
+    function upNextStart(creditsAt as float, duration as float) as float
+        if creditsAt > 0 and (duration <= 0 or creditsAt < duration - 1) then return creditsAt
+        if duration > 120 then return duration - 30
+        return -1.0
+    end function
+
 end namespace

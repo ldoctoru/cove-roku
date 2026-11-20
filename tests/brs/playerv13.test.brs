@@ -1,6 +1,15 @@
 ' v1.3 player helpers: hold-to-seek steps (Playback), Rewind / Fast forward runs (NV-16), where Up Next shows
 ' in the credits, and Settings → Playback → Skip (Prefs, one registry key)
 
+sub test_upNextStart()
+    t_eq(Playback_upNextStart(1300.0, 1400.0), 1300.0, "the server's credits marker")
+    t_eq(Playback_upNextStart(-1.0, 1400.0), 1370.0, "no marker: the last 30 s")
+    t_eq(Playback_upNextStart(0.0, 1400.0), 1370.0, "a 0 marker counts as none")
+    t_eq(Playback_upNextStart(1400.0, 1400.0), 1370.0, "a marker at the very end: the last 30 s")
+    t_eq(Playback_upNextStart(-1.0, 100.0), -1.0, "a short clip: never")
+    t_eq(Playback_upNextStart(500.0, 0.0), 500.0, "duration unknown yet: the marker")
+end sub
+
 sub test_segmentSkipDefaults()
     a = Prefs_segmentSkipAll()
     t_eq(a.intro, "auto", "intros skipped by default (v1.2 Skip intros on)")

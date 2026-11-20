@@ -169,6 +169,13 @@ sub resetState()
     m.action.visible = false
     m.upNext.visible = false
     m.countdown.control = "stop"
+    ' (v1.3) the Up Next card: "credits" (over the playing credits) or "end" (after the end); the credits
+    ' card's seconds left (kept while the controls hide it), its focused button (0 Play Now, 1 Back to
+    ' Credits) and the time since it showed
+    m.cardMode = ""
+    m.cardCount = -1
+    m.cardBtn = 0
+    m.cardClock = invalid
     m.watchdog.control = "stop"
     m.thumbs = invalid       ' { kind: "bif", ... } or { kind: "tiles", ... } for seek thumbnails
     m.thumbShown = -1
@@ -805,6 +812,9 @@ sub onPosition()
     else if creditsOpt = "off"
         ' (Don't show: no button and no Up Next card; the end plays the next one as before)
         if m.actionKind <> "" and m.actionKind <> "watch" then hideAction()
+    else if not m.creditsDismissed and creditsCardDue(p)
+        ' (v1.3) Up Next over the credits (or the last 30 s), counting down while they play
+        showCreditsCard(p)
     else if inCredits and not m.creditsDismissed and m.next <> invalid
         ' (PL-8: a film next in a Shuffle queue isn't an episode)
         if nextIsEpisodeItem()
@@ -980,8 +990,23 @@ sub onFinished()
         sleepExpire(m.video.duration)
         return
     end if
+    ' (v1.3) the credits ended under the Up Next card: the next one now, as at the countdown's end
+    if m.upNext.visible and m.cardMode = "credits" and m.next <> invalid and m.pf.autoNext
+        report("/Sessions/Playing/Stopped", false, m.video.duration)
+        stopEncoding()
+        m.progressTimer.control = "stop"
+        m.started = false
+        m.countdown.control = "stop"
+        m.upNext.visible = false
+        m.cardMode = ""
+        print "Cove: player up next played (credits ended) after "; cardMs(); " ms"
+        autoPlayNext()
+        return
+    end if
     ' Settings → Play the next episode automatically (off: the player closes at the end)
     if m.next <> invalid and m.pf.autoNext
+        m.cardMode = "end"
+        m.cardCount = -1
         report("/Sessions/Playing/Stopped", false, m.video.duration)
         stopEncoding()
         m.progressTimer.control = "stop"
@@ -1002,7 +1027,9 @@ sub onFinished()
             return
         end if
         m.count = secs
-        m.top.findNode("upNextCount").text = "Play now  (" + secs.toStr() + ")"
+        m.cardTotal = secs
+        m.cardBtn = 0
+        drawUpNextCard()
         m.top.findNode("upNextStill").uri = Items.landscape(m.top.server, m.next, 240)
         m.osdShown = false
         m.osd.opacity = 0
@@ -1010,7 +1037,7 @@ sub onFinished()
         m.upNext.visible = true
         m.upNext.setFocus(true)
         m.countdown.control = "start"
-        Speak.say(Speak.clean("Up next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play now, button, plays in " + secs.toStr() + " seconds")
+        Speak.say(Speak.clean("Up Next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play Now, button, plays in " + secs.toStr() + " seconds")
     else
         close(m.video.duration)
     end if
@@ -1020,11 +1047,133 @@ sub onCountdown()
     m.count = m.count - 1
     if m.count <= 0
         m.countdown.control = "stop"
+        if m.cardMode = "credits" then print "Cove: player up next played (countdown) after "; cardMs(); " ms"
         autoPlayNext()
     else
-        m.top.findNode("upNextCount").text = "Play now  (" + m.count.toStr() + ")"
+        if m.cardMode = "credits" then m.cardCount = m.count
+        drawUpNextCard()
     end if
 end sub
+
+' ---------------------------------------------------------------- (v1.3) Up Next during the credits
+
+' Episodes only, with a next episode, Play the next episode on and an Up Next countdown; hidden while the
+' controls show. From the server's credits marker, else the last 30 s, to the end.
+function creditsCardDue(p as float) as boolean
+    if m.osdShown or m.picker <> invalid or not isEpisodeNow() or not nextIsEpisodeItem() then return false
+    if not m.pf.autoNext or m.pf.upNextSecs <= 0 then return false
+    d = m.video.duration
+    at = Playback.upNextStart(m.marks.credits, d)
+    if at < 0 or p < at
+        ' (seeked back before the credits: the next card counts from the start again)
+        if not m.upNext.visible then m.cardCount = -1
+        return false
+    end if
+    return d <= 0 or p < d - 1
+end function
+
+sub showCreditsCard(p as float)
+    n = m.next
+    if n = invalid then return
+    hideAction()
+    resumed = m.cardCount > 0
+    m.cardMode = "credits"
+    m.cardTotal = m.pf.upNextSecs
+    if not resumed then m.cardCount = m.cardTotal
+    m.count = m.cardCount
+    m.cardBtn = 0
+    m.top.findNode("upNextTitle").text = Util.toText(n.SeriesName)
+    m.top.findNode("upNextEpisode").text = Items.episodeLabel(n)
+    m.top.findNode("upNextStill").uri = Items.landscape(m.top.server, n, 240)
+    drawUpNextCard()
+    m.upNext.visible = true
+    m.upNext.setFocus(true)
+    m.countdown.control = "stop"
+    m.countdown.control = "start"
+    if m.cardClock = invalid then m.cardClock = createObject("roTimespan")
+    src = "last 30 s"
+    if m.marks.credits > 0 then src = "credits marker"
+    print "Cove: player up next shown at "; Int(p); " s ("; src; ", "; m.count; " s left"; ")"
+    Speak.say(Speak.clean("Up Next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". " + Speak.button("Play Now") + Speak.position(0, 2) + ", plays in " + m.count.toStr() + " seconds")
+end sub
+
+' The card's buttons and countdown bar: credits mode Play Now + Back to Credits (the focused one white),
+' end mode Play Now and the "Back: stop" hint
+sub drawUpNextCard()
+    m.top.findNode("upNextCount").text = "Play Now  (" + m.count.toStr() + ")"
+    total = m.cardTotal
+    if total = invalid or total <= 0 then total = 10
+    frac = m.count / total
+    if frac < 0 then frac = 0
+    if frac > 1 then frac = 1
+    m.top.findNode("upNextFill").width = Int(240 * frac)
+    inCredits = m.cardMode = "credits"
+    m.top.findNode("upNextHint").visible = not inCredits
+    m.top.findNode("upNextAlt").visible = inCredits
+    playFocused = not inCredits or m.cardBtn = 0
+    pb = m.top.findNode("upNextPlayBg")
+    pl = m.top.findNode("upNextCount")
+    ab = m.top.findNode("upNextAltBg")
+    al = m.top.findNode("upNextAltLabel")
+    if playFocused
+        pb.uri = "pkg:/images/ui/white_rr12.9.png"
+        pl.color = "0x000000FF"
+        ab.uri = "pkg:/images/ui/glass_pill.9.png"
+        al.color = "0xFFFFFFFF"
+    else
+        pb.uri = "pkg:/images/ui/glass_pill.9.png"
+        pl.color = "0xFFFFFFFF"
+        ab.uri = "pkg:/images/ui/white_rr12.9.png"
+        al.color = "0x000000FF"
+    end if
+end sub
+
+' Keys on the credits card: OK uses the focused button, Play = Play Now, Left / Right move, Back = Back to
+' Credits; any other key hides it for now (the controls) and does its usual job
+function creditsCardKey(key as string) as boolean
+    if key = "OK" and m.cardBtn = 1
+        dismissCreditsCard()
+    else if key = "OK" or key = "play"
+        print "Cove: player up next played (Play Now) after "; cardMs(); " ms"
+        playNext()
+    else if key = "left" or key = "right"
+        m.cardBtn = 1 - m.cardBtn
+        drawUpNextCard()
+        labels = ["Play Now", "Back to Credits"]
+        Speak.say(Speak.button(labels[m.cardBtn]) + Speak.position(m.cardBtn, 2))
+    else if key = "back"
+        dismissCreditsCard()
+    else
+        pauseCreditsCard()
+        return false
+    end if
+    return true
+end function
+
+' Back to Credits: the card goes for this episode, the credits play to the end (then Up Next as before)
+sub dismissCreditsCard()
+    m.countdown.control = "stop"
+    m.upNext.visible = false
+    m.cardMode = ""
+    m.creditsDismissed = true
+    print "Cove: player up next hidden (Back to Credits) after "; cardMs(); " ms"
+    Speak.say("Back to credits")
+    focusPlayer()
+end sub
+
+' The controls show over the credits: the card hides and its countdown waits until they hide again
+sub pauseCreditsCard()
+    if not (m.upNext.visible and m.cardMode = "credits") then return
+    m.countdown.control = "stop"
+    m.upNext.visible = false
+    print "Cove: player up next hidden (controls), "; m.cardCount; " s left"
+    m.keys.setFocus(true)
+end sub
+
+function cardMs() as integer
+    if m.cardClock = invalid then return 0
+    return m.cardClock.TotalMilliseconds()
+end function
 
 ' The next title without a key press (countdown end, credits skipped automatically)
 sub autoPlayNext()
@@ -1334,6 +1483,11 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if m.still.visible
         stillKey(key)
         return true
+    end if
+    if m.upNext.visible and m.cardMode = "credits"
+        if creditsCardKey(key) then return true
+        ' (the card hid for the controls: the key goes on as usual)
+        return onKeyEvent(key, press)
     end if
     if m.upNext.visible
         if key = "OK" or key = "play"
@@ -1771,6 +1925,8 @@ function toolSpeech(id as string) as string
 end function
 
 sub showOsd(autoHide as boolean)
+    ' (v1.3) the Up Next card over the credits hides while the controls show
+    pauseCreditsCard()
     if not m.osdShown
         m.osdShown = true
         ' the progress bar starts with the focus (Left / Right seek), Up: the centre buttons, Down: the tools
