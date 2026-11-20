@@ -1,5 +1,6 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/NavUtil.bs"
 
 sub init()
     m.entries = m.top.findNode("entries")
@@ -166,6 +167,15 @@ sub paint()
     m.entries.translation = [0, top]
 end sub
 
+' Which entries are section titles, for NavUtil.nextEntry
+function headerFlags() as object
+    flags = []
+    for i = 0 to m.top.items.count() - 1
+        flags.push(isHeader(i))
+    end for
+    return flags
+end function
+
 function font(uri as string, size as integer) as object
     f = createObject("roSGNode", "Font")
     f.uri = uri
@@ -176,21 +186,12 @@ end function
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     n = m.top.items.count()
-    if key = "up"
-        i = m.index - 1
-        while i >= 0 and isHeader(i)
-            i = i - 1
-        end while
+    if key = "up" or key = "down"
+        ' (v1.2 NV-7) Up on the first entry goes to the last, Down on the last to the first
+        dir = 1
+        if key = "up" then dir = -1
+        i = NavUtil.nextEntry(headerFlags(), m.index, dir)
         if i >= 0 then m.index = i
-        paint()
-        speakEntry("")
-        return true
-    else if key = "down"
-        i = m.index + 1
-        while i < n and isHeader(i)
-            i = i + 1
-        end while
-        if i < n then m.index = i
         paint()
         speakEntry("")
         return true
