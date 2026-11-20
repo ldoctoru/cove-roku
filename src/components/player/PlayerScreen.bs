@@ -60,6 +60,8 @@ sub init()
     m.pending = []
     m.infoAnswer = invalid  ' (v1.2) the item's details, waiting for the audio preference (startWhenReady)
     m.waitUser = false
+    m.waitIntros = false    ' (v1.2 SP-13c) Cinema Mode: the intros answer is still to come
+    m.preInfo = invalid     ' (v1.2 SP-13c) { id, json }: the film's details, kept while its intros play
     m.startClock = invalid
     m.keepClock = false     ' (v1.2) the next begin keeps the clock (film -> its first Cinema Mode intro)
     m.hasQueue = false      ' (PL-13) the title came with a Shuffle queue
@@ -206,6 +208,9 @@ sub begin()
     m.infoAnswer = invalid
     m.waitUser = Tracks.serverAudioPref(m.top.server) = invalid
     if m.waitUser then get("/Users/" + Util.toText(m.top.server.userId), { kind: "user", itemId: it.id })
+    ' (v1.2 SP-13c) Cinema Mode (MainScene.startPlayer): the intros, in parallel with the title's details
+    m.waitIntros = Util.flag(it, "cinema")
+    if m.waitIntros then askIntros(Api.knownRoute(m.top.server, "intros") = "new")
     pre = takePreInfo(Util.toText(it.id))
     if pre <> invalid
         print "Cove: player item info from the details page"
@@ -223,12 +228,60 @@ function takePreInfo(id as string) as dynamic
         m.top.info = {}
         if id <> "" and Util.toText(pre.Id) = id then return pre
     end if
+    ' (v1.2 SP-13c) the film after its Cinema Mode intros
+    if m.preInfo <> invalid and id <> "" and m.preInfo.id = id
+        pre = m.preInfo.json
+        m.preInfo = invalid
+        return pre
+    end if
     return invalid
 end function
 
+' (v1.2 SP-13c) Cinema Mode: GET the title's intros (SP-11: straight to the route that answered before here)
+sub askIntros(newRoute as boolean)
+    uid = Util.toText(m.top.server.userId)
+    get(Playback.introsPath(uid, Util.toText(m.top.item.id), newRoute), { kind: "intros", itemId: m.top.item.id, newRoute: newRoute })
+end sub
+
+' The intros answer: none, the title starts as soon as its details are in; else the first intro plays now with
+' the rest and the title behind it (playAfterIntro), and the title's details are kept for its start
+sub onIntrosAnswer(r as object)
+    if (r.code = 404 or r.code = 405) and not Util.flag(r.tag, "newRoute")
+        ' (Jellyfin 10.9+ route)
+        askIntros(true)
+        return
+    end if
+    m.waitIntros = false
+    if r.code = 200 then Api.rememberRoute(m.top.server, "intros", Util.flag(r.tag, "newRoute"))
+    list = []
+    if r.code = 200
+        src = r.json
+        if Util.isAA(src) then src = src.Items
+        for each x in Ratings.keep(m.top.server, src)
+            if Util.isAA(x) and Util.isSafeId(x.Id, false) and list.count() < 5 then list.push({ id: Util.toText(x.Id), subtitle: Util.toText(x.Name) })
+        end for
+    end if
+    print "Cove: cinema mode intros -> "; r.code; " "; list.count()
+    playerMark("intros answered")
+    if list.count() = 0
+        startWhenReady()
+        return
+    end if
+    film = m.top.item
+    film.delete("cinema")
+    if m.infoAnswer <> invalid and m.infoAnswer.code = 200 then m.preInfo = { id: Util.toText(film.id), json: m.infoAnswer.json }
+    m.infoAnswer = invalid
+    first = list.shift()
+    sub_ = "Intro"
+    if first.subtitle <> "" then sub_ = "Intro  ·  " + first.subtitle
+    ' (the timing lines keep counting from the Play press)
+    m.keepClock = true
+    m.top.item = { id: first.id, title: Util.toText(film.title), subtitle: sub_, start: 0.0, trailer: true, after: film, intros: list }
+end sub
+
 ' The item's details and the account's audio preference are both in: choose the tracks and ask for a stream
 sub startWhenReady()
-    if m.waitUser or m.infoAnswer = invalid then return
+    if m.waitUser or m.waitIntros or m.infoAnswer = invalid then return
     r = m.infoAnswer
     m.infoAnswer = invalid
     playerMark("info ready")
@@ -2006,9 +2059,17 @@ sub onResponse(ev as object)
         m.waitUser = false
         startWhenReady()
     else if k = "info"
-        if r.tag.itemId <> m.top.item.id then return
+        if r.tag.itemId <> m.top.item.id
+            ' (v1.2 SP-13c) the film's details arriving while its first intro already started: kept for later
+            af = m.top.item.after
+            if r.code = 200 and Util.isAA(af) and Util.toText(af.id) = Util.toText(r.tag.itemId) then m.preInfo = { id: Util.toText(af.id), json: r.json }
+            return
+        end if
         m.infoAnswer = r
         startWhenReady()
+    else if k = "intros"
+        if r.tag.itemId <> m.top.item.id or not m.waitIntros then return
+        onIntrosAnswer(r)
     else if k = "bif"
         onBif(r)
     else if k = "subProbe"
