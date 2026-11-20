@@ -108,3 +108,12 @@ sub test_audioCodecOf()
     t_eq(Playback_audioCodecOf(src, 9), "", "a track that isn't there")
     t_eq(Playback_audioCodecOf({}, -1), "", "no streams")
 end sub
+
+' (E-6) a forced conversion's video bitrate
+sub test_conversionBitrate()
+    t_eq(Playback_conversionBitrate(0, { maxBitrate: 0 }), 20000000, "automatic quality: 20 Mbit/s")
+    t_eq(Playback_conversionBitrate(90000000, { maxBitrate: 0 }), 20000000, "the server's 90 Mbit/s capped")
+    t_eq(Playback_conversionBitrate(8000000, { maxBitrate: 0 }), 8000000, "a lower one in the URL stays")
+    t_eq(Playback_conversionBitrate(0, { maxBitrate: 10000000 }), 10000000, "the chosen quality when lower")
+    t_eq(Playback_conversionBitrate(invalid, invalid), 20000000, "nothing known")
+end sub

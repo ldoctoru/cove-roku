@@ -106,6 +106,13 @@
             <Font role="font" uri="font:MediumSystemFontFile" size="36" />
         </Label>
 
+        <!-- (v1.3.1 E-7) the video couldn't play: the reason with Try Again (and Play Without Subtitles when a
+             subtitle was burned in); Back leaves the player -->
+        <Group id="errorBox" visible="false">
+            <Rectangle width="1920" height="1080" color="0x000000B3" />
+            <ErrorPanel id="errorPanel" translation="[160,400]" width="1600" />
+        </Group>
+
         <!-- Skip intro / Next episode: a white button over the video (OK uses it, any other key dismisses it) -->
         <Group id="action" translation="[1554,840]" visible="false">
             <Poster id="actionBg" uri="pkg:/images/ui/white_rr12.9.png" width="270" height="72" />

@@ -194,6 +194,13 @@ namespace Playback
             t = Util.removeQuery(Util.removeQuery(t, "SubtitleStreamIndex"), "SubtitleMethod")
         end if
         if opts.audio >= 0 then t = Util.setQuery(t, "AudioStreamIndex", opts.audio.toStr())
+        ' (v1.3.1 E-6) a forced conversion (the retry, a burned-in subtitle) at most 20 Mbit/s or the chosen
+        ' quality: enough for 1080p H.264, the Roku's ceiling; a 4K source would otherwise come at up to ~100
+        if forceTranscode or (opts.burn and opts.sub >= 0)
+            capped = conversionBitrate(Util.toNumber(urlParam(t, "VideoBitrate")), opts)
+            t = Util.setQuery(t, "VideoBitrate", capped.toStr())
+            print "Cove: stream: forced conversion, video at most "; capped \ 1000000; " Mbit/s"
+        end if
         r.url = t
         ' (Jellyfin also gets the sign-in header, for a playlist whose own URL has no key; nothing for another host)
         r.headers = []
@@ -206,6 +213,15 @@ namespace Playback
         ' (a forced conversion or a burned-in subtitle is always one, whatever the URL says)
         if forceTranscode or (opts.burn and opts.sub >= 0) then r.method = "Transcode"
         return r
+    end function
+
+    ' (v1.3.1 E-6) The video bitrate for a forced conversion: the URL's own when lower, else 20 Mbit/s or the
+    ' chosen quality when that is lower
+    function conversionBitrate(urlBitrate as dynamic, opts as object) as integer
+        cap = 20000000
+        if opts <> invalid and opts.maxBitrate <> invalid and opts.maxBitrate > 0 and opts.maxBitrate < cap then cap = opts.maxBitrate
+        if urlBitrate <> invalid and urlBitrate > 0 and urlBitrate < cap then return Int(urlBitrate)
+        return cap
     end function
 
     ' (v1.3.1 E-5) The real play method of a stream, as the servers count it (Cove for macOS PlayMethod.guess):
