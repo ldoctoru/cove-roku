@@ -38,9 +38,6 @@ sub load()
     root = createObject("roSGNode", "ContentNode")
     m.failures = 0
     m.requests = 0
-    ' (v1.2) the last Home of this profile from the cache, shown while the server is asked again
-    m.cacheFile = cachePath(srv)
-    if m.top.useCache then showCached(m.cacheFile)
 
     ' The libraries first (the rows depend on them); Jellyfin 10.9+ also has /UserItems, /UserViews, while the
     ' /Users/{id}/... routes work on Emby and Jellyfin
@@ -140,12 +137,10 @@ sub load()
     if hasLate
         first = createObject("roSGNode", "ContentNode")
         buildRows(first, true)
-        ' (v1.2) after the cached Home, no in-between version: the screen changes once, to the full rows
-        shownFirst = first.getChildCount() > 0 and m.top.fromCache <> true
+        shownFirst = first.getChildCount() > 0
         if shownFirst
             print "Cove: home rows "; first.getChildCount(); " (Upcoming still loading)"
             if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch (without Upcoming)"
-            m.top.fromCache = false
             m.top.partial = true
             m.top.content = first
         end if
@@ -155,20 +150,14 @@ sub load()
         ' (v1.2) the rows already on screen get the late row put in place, instead of all 7 rows being built
         ' and drawn again (~0.45 s on the Streambar)
         if shownFirst
-            toSave = []
-            toSave.append(m.pendingRows)
             insertLateRows(first)
             print "Cove: home rows "; first.getChildCount()
             if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch"
             m.top.rowsAdded = m.top.rowsAdded + 1
-            m.pendingRows = toSave
-            saveCache(m.cacheFile, libs, first)
             m.pendingRows = []
             return
         end if
     end if
-    ' (the lists for the cache, taken before buildRows empties them; written after the rows are out)
-    toSave = m.pendingRows
     buildRows(root, false)
     if m.top.timing then Clock.startupMark("home rows built")
 
@@ -182,14 +171,8 @@ sub load()
     end if
     print "Cove: home rows "; root.getChildCount()
     if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch"
-    m.top.fromCache = false
     m.top.partial = false
     m.top.content = root
-    ' (v1.2) writing the cache took ~0.5 s before the full rows went out: now after
-    m.pendingRows = toSave
-    saveCache(m.cacheFile, libs, root)
-    m.pendingRows = []
-    if m.top.timing then Clock.startupMark("home cache saved")
 end sub
 
 ' A row to load: "what" is a request from getList ({ path, fallback, ... }) or a list already known (Libraries)
@@ -358,68 +341,6 @@ function readList(r as object, sp as object) as object
     return kept
 end function
 
-' ---------------------------------------------------------------- (v1.2) cached Home
-
-' One file per server and profile in cachefs: (Roku may clear it at any time; then Home just loads as before)
-function cachePath(srv as object) as string
-    key = Util.toText(srv.id) + "-" + Util.toText(srv.userId)
-    safe = createObject("roRegex", "[^A-Za-z0-9_-]", "").replaceAll(key, "")
-    return "cachefs:/home-" + safe.left(80) + ".json"
-end function
-
-' The rows of the last Home, drawn before the server answers; never for a profile with a rating limit (its
-' rows must be checked against the limit as they are today)
-sub showCached(path as string)
-    if Ratings.limitOf(m.srv) > 0 then return
-    try
-        ' (no file yet: ReadAsciiFile would print an error on the console)
-        if not createObject("roFileSystem").exists(path)
-            print "Cove: no cached Home yet ("; path; ")"
-            return
-        end if
-        text = ReadAsciiFile(path)
-        if text = "" then return
-        saved = parseJson(text)
-        if not Util.isAA(saved) or Util.toNumber(saved.v) <> 1 or type(saved.rows) <> "roArray" then return
-        root = createObject("roSGNode", "ContentNode")
-        m.pendingRows = []
-        for each p in saved.rows
-            if Util.isAA(p) and type(p.list) = "roArray" then m.pendingRows.push({ title: Util.toText(p.title), list: p.list, landscape: Util.flag(p, "landscape"), upcoming: Util.flag(p, "upcoming"), spec: invalid })
-        end for
-        buildRows(root)
-        if root.getChildCount() = 0 then return
-        if type(saved.libs) = "roArray" then m.top.libraries = saved.libs
-        useSavedBackdrop(root, saved.bd)
-        if m.top.timing then Clock.startupMark("home cached rows built")
-        print "Cove: home from cache, "; root.getChildCount(); " rows"
-        m.top.fromCache = true
-        m.top.content = root
-    catch e
-        print "Cove: home cache unreadable: "; e.message
-    end try
-end sub
-
-' After a complete load: the lists for next time (nothing when a row failed or a rating limit applies)
-sub saveCache(path as string, libs as object, root as object)
-    if m.failures > 0 or Ratings.limitOf(m.srv) > 0 then return
-    try
-        rows = []
-        for each p in m.pendingRows
-            rows.push({ title: p.title, landscape: p.landscape, upcoming: p.upcoming, list: p.list })
-        end for
-        ' (v1.2) the first hero's backdrop as a file, so the cached Home has its picture at once
-        bd = saveBackdrop(path, root)
-        text = formatJson({ v: 1, libs: libs, rows: rows, bd: bd })
-        if WriteAsciiFile(path, text)
-            print "Cove: home cache saved, "; text.len(); " chars, backdrop "; bd <> invalid
-        else
-            print "Cove: home cache not written"
-        end if
-    catch e
-        print "Cove: home cache not written: "; e.message
-    end try
-end sub
-
 sub addRow(root as object, title as string, list as object, isLandscape as boolean)
     ' (titles above the profile's rating limit, from routes that ignore MaxOfficialRating; unrated episodes
     ' by their series' rating)
@@ -461,45 +382,6 @@ sub addUpcomingRow(root as object, list as object)
         c.timeLeft = ""
         c.resumeAt = 0.0
         row.appendChild(c)
-    end for
-end sub
-
-' (v1.2) The backdrop Home's banner shows first (HomeScreen.buildHeroes: the first card with a backdrop that
-' isn't a folder or an Upcoming card), downloaded next to the cache; { url, file } or invalid
-function saveBackdrop(path as string, root as object) as dynamic
-    url = ""
-    for i = 0 to root.getChildCount() - 1
-        row = root.getChild(i)
-        for j = 0 to row.getChildCount() - 1
-            it = row.getChild(j)
-            t = Util.toText(it.itemType)
-            folder = t = "CollectionFolder" or t = "UserView" or t = "Folder" or t = "BoxSet" or t = "Playlist"
-            upc = it.hasField("upcoming") and it.upcoming = true
-            if url = "" and Util.toText(it.backdrop) <> "" and not folder and not upc then url = it.backdrop
-        end for
-    end for
-    if url = "" then return invalid
-    file = path.replace(".json", "-bd.jpg")
-    r = Api.execute({ method: "GET", url: url, saveTo: file, timeout: 8000 })
-    if r.code <> 200
-        print "Cove: home backdrop not cached -> "; r.code
-        return invalid
-    end if
-    return { url: url, file: file }
-end function
-
-' (v1.2) Cached rows: the card whose backdrop was saved shows the local file
-sub useSavedBackdrop(root as object, bd as dynamic)
-    if not Util.isAA(bd) then return
-    url = Util.toText(bd.url)
-    file = Util.toText(bd.file)
-    if url = "" or file = "" or not createObject("roFileSystem").exists(file) then return
-    for i = 0 to root.getChildCount() - 1
-        row = root.getChild(i)
-        for j = 0 to row.getChildCount() - 1
-            it = row.getChild(j)
-            if it.backdrop = url then it.backdrop = file
-        end for
     end for
 end sub
 

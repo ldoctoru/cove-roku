@@ -13,7 +13,7 @@ import "pkg:/source/Clock.bs"
 sub init()
     Clock.startupMark("HomeScreen init")
     m.readySent = false     ' Home told MainScene it is ready (AppLaunchComplete)
-    m.cachedShown = false   ' (v1.2) the rows on screen came from the cache; the server's are still to come
+    m.partialShown = false   ' (v1.2) the rows on screen are a first part; the full rows are still to come
     t = m.global.theme
     m.rows = m.top.findNode("rows")
     m.status = m.top.findNode("status")
@@ -109,8 +109,6 @@ sub load()
     m.task.server = s
     ' (v1.1.1) the launch timing lines, for the first load only
     m.task.timing = m.timedLoad <> true
-    ' (v1.2) the first load of this Home draws the cached rows first
-    m.task.useCache = m.timedLoad <> true
     m.timedLoad = true
     m.task.observeField("content", "onContent")
     m.task.observeField("rowsAdded", "onRowsAdded")
@@ -192,9 +190,9 @@ sub onContent(ev as object)
     signalReady()
     ' Per row: 16:9 cards for Continue Watching / Next Up / Libraries, 2:3 posters with title and year otherwise
     sizeRows(content)
-    ' (v1.2) the server's rows after the cached ones: a reload (keep the focus, don't jump to the hero)
-    wasReload = m.reloading = true or m.cachedShown = true
-    m.cachedShown = ev.getRoSGNode().fromCache = true or ev.getRoSGNode().partial = true
+    ' (v1.2) the full rows after a first part: a reload (keep the focus, don't jump to the hero)
+    wasReload = m.reloading = true or m.partialShown = true
+    m.partialShown = ev.getRoSGNode().partial = true
     m.reloading = false
     keep = m.rows.rowItemFocused
     m.rows.content = content
@@ -1231,6 +1229,6 @@ sub onRowsAdded(ev as object)
     content = m.rows.content
     if content = invalid then return
     sizeRows(content)
-    m.cachedShown = false
+    m.partialShown = false
     Clock.startupMark("home late row added")
 end sub
