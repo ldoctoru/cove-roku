@@ -159,6 +159,8 @@
         <Timer id="countdown" duration="1" repeat="true" />
         <Timer id="hideTimer" duration="4" repeat="false" />
         <Timer id="seekTimer" duration="0.8" repeat="false" />
+        <!-- (v1.3 U-4) Left / Right held: the next bigger step every 0.25 s while no key repeats come -->
+        <Timer id="holdTimer" duration="0.25" repeat="true" />
         <Animation id="osdAnim" duration="0.25" easeFunction="linear">
             <FloatFieldInterpolator id="osdFade" key="[0.0, 1.0]" fieldToInterp="osd.opacity" />
         </Animation>

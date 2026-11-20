@@ -1,6 +1,31 @@
 ' v1.3 player helpers: hold-to-seek steps (Playback), Rewind / Fast forward runs (NV-16), where Up Next shows
 ' in the credits, and Settings → Playback → Skip (Prefs, one registry key)
 
+sub test_holdSeekStep()
+    t_eq(Playback_holdSeekStep(0, 10), 10, "a press: the normal step")
+    t_eq(Playback_holdSeekStep(999, 10), 10, "under 1 s held: still the normal step")
+    t_eq(Playback_holdSeekStep(1000, 10), 30, "from 1 s: 30 s")
+    t_eq(Playback_holdSeekStep(2999, 10), 30, "until 3 s: 30 s")
+    t_eq(Playback_holdSeekStep(3000, 10), 60, "from 3 s: 60 s")
+    t_eq(Playback_holdSeekStep(5000, 10), 120, "from 5 s: 120 s")
+    t_eq(Playback_holdSeekStep(60000, 10), 120, "120 s at most")
+    t_eq(Playback_holdSeekStep(1500, 60), 60, "never below the Skip back / forward setting")
+    t_eq(Playback_holdSeekStep(200, 5), 5, "a 5 s setting keeps 5 s presses")
+end sub
+
+sub test_jumpStreakStep()
+    t_eq(Playback_jumpStreakStep(0, 30), 30, "first press: the Jump buttons step")
+    t_eq(Playback_jumpStreakStep(1, 30), 30, "second: 30")
+    t_eq(Playback_jumpStreakStep(2, 30), 60, "third: 60")
+    t_eq(Playback_jumpStreakStep(3, 30), 60, "fourth: 60")
+    t_eq(Playback_jumpStreakStep(4, 30), 120, "fifth: 120")
+    t_eq(Playback_jumpStreakStep(6, 30), 300, "seventh: 300")
+    t_eq(Playback_jumpStreakStep(50, 30), 300, "then 300 s")
+    t_eq(Playback_jumpStreakStep(0, 10), 10, "a 10 s setting: the first press stays 10 s")
+    t_eq(Playback_jumpStreakStep(1, 60), 60, "never below the setting")
+    t_eq(Playback_jumpStreakStep(-1, 15), 15, "a bad index counts as the first press")
+end sub
+
 sub test_upNextStart()
     t_eq(Playback_upNextStart(1300.0, 1400.0), 1300.0, "the server's credits marker")
     t_eq(Playback_upNextStart(-1.0, 1400.0), 1370.0, "no marker: the last 30 s")
