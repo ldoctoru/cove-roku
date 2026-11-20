@@ -49,4 +49,37 @@ namespace LibGrid
         return target
     end function
 
+    ' (v1.2 NV-14) The session key a library page's position is kept under: the server and user, the page
+    ' (library id, or its feed / genre / studio), the tab and every sort and filter choice. Another sort or
+    ' filter is another key, so a position only comes back with the same sort and filter.
+    function positionKey(serverUrl as string, userId as string, scope as string, tabId as string, sortId as string, orderId as string, showId as string, genreName as string, letterId as string) as string
+        return serverUrl + "|" + userId + "|" + scope + "|" + tabId + "|" + sortId + "|" + orderId + "|" + showId + "|" + genreName + "|" + letterId
+    end function
+
+    ' (v1.2 NV-14) The most cards the first request may ask for to reach a remembered card (36 + 4 x 96): more
+    ' would keep the skeleton up too long, so a card past it falls back to the end of what this loads
+    function restoreCap() as integer
+        return firstPage() + 4 * nextPage()
+    end function
+
+    ' (v1.2 NV-14) How many cards the first request asks for to come back on card index: the 36 + 96 + 96 ...
+    ' steps of the normal paging, enough for the card's screen (two rows after its own), at most maxCards
+    function restoreLimit(index as integer, maxCards as integer) as integer
+        limit = firstPage()
+        want = 0
+        if index >= 0 then want = (Int(index / cols()) + 3) * cols()
+        while limit < want and limit < maxCards
+            limit = limit + nextPage()
+        end while
+        if limit > maxCards then limit = maxCards
+        return limit
+    end function
+
+    ' (v1.2 NV-14) The card to land on: the remembered one when loaded, else the last loaded card (-1: none)
+    function restoreTarget(index as integer, loaded as integer) as integer
+        if loaded <= 0 or index < 0 then return -1
+        if index > loaded - 1 then return loaded - 1
+        return index
+    end function
+
 end namespace
