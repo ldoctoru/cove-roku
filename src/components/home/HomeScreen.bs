@@ -3,7 +3,6 @@ import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Prefs.bs"
-import "pkg:/source/Playback.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Toasts.bs"
@@ -14,7 +13,7 @@ import "pkg:/source/Clock.bs"
 sub init()
     Clock.startupMark("HomeScreen init")
     m.readySent = false     ' Home told MainScene it is ready (AppLaunchComplete)
-    m.cachedShown = false   ' (v1.2) the rows on screen came from the cache; the server's are still to come
+    m.partialShown = false   ' (v1.2) the rows on screen are a first part; the full rows are still to come
     t = m.global.theme
     m.rows = m.top.findNode("rows")
     m.status = m.top.findNode("status")
@@ -100,6 +99,7 @@ sub load()
     ' a reload while one still runs: drop the older task, its late answer must not be read as this one's
     if m.task <> invalid
         m.task.unobserveField("content")
+        m.task.unobserveField("rowsAdded")
         m.task.unobserveField("error")
         m.task.unobserveField("authFailed")
         m.task.control = "stop"
@@ -109,10 +109,9 @@ sub load()
     m.task.server = s
     ' (v1.1.1) the launch timing lines, for the first load only
     m.task.timing = m.timedLoad <> true
-    ' (v1.2) the first load of this Home draws the cached rows first
-    m.task.useCache = m.timedLoad <> true
     m.timedLoad = true
     m.task.observeField("content", "onContent")
+    m.task.observeField("rowsAdded", "onRowsAdded")
     m.task.observeField("error", "onError")
     m.task.observeField("authFailed", "onAuthFailed")
     m.task.control = "RUN"
@@ -190,23 +189,10 @@ sub onContent(ev as object)
     hideError()
     signalReady()
     ' Per row: 16:9 cards for Continue Watching / Next Up / Libraries, 2:3 posters with title and year otherwise
-    heights = []
-    sizes = []
-    for i = 0 to content.getChildCount() - 1
-        ' (tiles include an 18 px margin around each card for its focus zoom and ring: see PosterItem)
-        if content.getChild(i).landscape
-            sizes.push([396, 246])
-            heights.push(246)
-        else
-            sizes.push([276, 466])
-            heights.push(466)
-        end if
-    end for
-    m.rows.rowHeights = heights
-    m.rows.rowItemSize = sizes
-    ' (v1.2) the server's rows after the cached ones: a reload (keep the focus, don't jump to the hero)
-    wasReload = m.reloading = true or m.cachedShown = true
-    m.cachedShown = ev.getRoSGNode().fromCache = true or ev.getRoSGNode().partial = true
+    sizeRows(content)
+    ' (v1.2) the full rows after a first part: a reload (keep the focus, don't jump to the hero)
+    wasReload = m.reloading = true or m.partialShown = true
+    m.partialShown = ev.getRoSGNode().partial = true
     m.reloading = false
     keep = m.rows.rowItemFocused
     m.rows.content = content
@@ -985,7 +971,7 @@ sub itemMenu(it as object)
     kind = it.itemType
     if kind <> "Series" and not isFolderKind(kind) and not isUpcomingCard(it)
         if it.resumeAt > 30
-            o.push({ id: "resume", label: "Resume from " + Playback.clock(it.resumeAt) })
+            o.push({ id: "resume", label: "Resume from " + clockText(it.resumeAt) })
             o.push({ id: "start", label: "Play from the Beginning" })
         else
             o.push({ id: "start", label: "Play" })
@@ -1204,4 +1190,45 @@ sub restoreFocus()
     else
         m.top.findNode("heroKeys").setFocus(true)
     end if
+end sub
+
+' "1:02:03" / "4:05" (as Playback.clock; Home doesn't import Playback, which with DeviceCaps is ~25 KB that Roku
+' compiled before Home could start, v1.2)
+function clockText(secs as float) as string
+    s = Int(secs)
+    h = s \ 3600
+    mm = (s mod 3600) \ 60
+    ss = s mod 60
+    out = mm.toStr() + ":"
+    if h > 0 then out = h.toStr() + ":" + Right("0" + mm.toStr(), 2) + ":"
+    return out + Right("0" + ss.toStr(), 2)
+end function
+
+' Per row: 16:9 cards for Continue Watching / Next Up / Libraries, 2:3 posters with title and year otherwise
+' (tiles include an 18 px margin around each card for its focus zoom and ring: see PosterItem)
+sub sizeRows(content as object)
+    heights = []
+    sizes = []
+    for i = 0 to content.getChildCount() - 1
+        if content.getChild(i).landscape
+            sizes.push([396, 246])
+            heights.push(246)
+        else
+            sizes.push([276, 466])
+            heights.push(466)
+        end if
+    end for
+    m.rows.rowHeights = heights
+    m.rows.rowItemSize = sizes
+end sub
+
+' (v1.2) HomeTask put a late row (Upcoming) into the rows on screen (~0.2 s after them, while the banner
+' has the focus): their sizes again
+sub onRowsAdded(ev as object)
+    if m.task = invalid or not ev.getRoSGNode().isSameNode(m.task) then return
+    content = m.rows.content
+    if content = invalid then return
+    sizeRows(content)
+    m.partialShown = false
+    Clock.startupMark("home late row added")
 end sub
