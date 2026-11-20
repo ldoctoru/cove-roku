@@ -13,5 +13,9 @@
         <field id="authFailed" type="boolean" />
         <!-- (v1.1.1) print "home first rows / all rows <ms since launch>" (the first Home load only) -->
         <field id="timing" type="boolean" />
+        <!-- (v1.2) content without the rows still loading (Upcoming); the full content follows -->
+        <field id="partial" type="boolean" />
+        <!-- (v1.2) a late row (Upcoming) was put into the content already shown: Home re-sizes its rows -->
+        <field id="rowsAdded" type="integer" value="0" />
     </interface>
 </component>

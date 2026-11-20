@@ -59,4 +59,18 @@ namespace Clock
         return msBetween(m.global.launchAt, stampNow())
     end function
 
+    ' (v1.2) A startup step on the debug console, "Cove: startup  412 ms  sign-in check answered": splits the
+    ' time before Home into its steps. Printed until Home's first backdrop is on screen (HomeScreen sets
+    ' m.global.startupDone) and never later than 15 s after the launch (a sign-in or a profile choice)
+    sub startupMark(label as string)
+        if m.global = invalid then return
+        if m.global.hasField("startupDone") and m.global.startupDone = true then return
+        ms = msSinceLaunch()
+        if ms > 15000
+            if m.global.hasField("startupDone") then m.global.startupDone = true
+            return
+        end if
+        print "Cove: startup "; ms; " ms  "; label
+    end sub
+
 end namespace

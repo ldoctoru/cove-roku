@@ -58,6 +58,12 @@ sub init()
     m.video.notificationInterval = 1
     m.top.observeField("focusedChild", "onFocusChanged")
     m.pending = []
+    m.infoAnswer = invalid  ' (v1.2) the item's details, waiting for the audio preference (startWhenReady)
+    m.waitUser = false
+    m.waitIntros = false    ' (v1.2 SP-13c) Cinema Mode: the intros answer is still to come
+    m.preInfo = invalid     ' (v1.2 SP-13c) { id, json }: the film's details, kept while its intros play
+    m.startClock = invalid
+    m.keepClock = false     ' (v1.2) the next begin keeps the clock (film -> its first Cinema Mode intro)
     m.hasQueue = false      ' (PL-13) the title came with a Shuffle queue
     m.orphans = []          ' superseded PlayTasks, kept until they answer so their server conversion can be ended
     m.tasksHolder = invalid
@@ -145,6 +151,10 @@ sub resetState()
     m.episodes = []
     m.epWaiting = invalid
     m.epIndex = -1
+    ' (v1.2 SP-14) m.episodes holds only the neighbours until the Episodes panel asks for the whole list
+    m.epFull = false
+    m.epFullAsked = false
+    m.epPanelWanted = false
     m.actionKind = ""
     m.watchAt = -1.0        ' (v1.1) where Watch Intro / Watch Recap goes back to
     m.noticeTimer.control = "stop"
@@ -171,8 +181,11 @@ end sub
 ' A new item (also the next episode): load its details first (tracks, markers), then ask for a stream
 sub begin()
     resetState()
-    ' (v1.1.1) "Cove: player first frame <ms>": from here to the first "playing"
-    m.startClock = createObject("roTimespan")
+    ' (v1.1.1) "Cove: player <ms> <step>" (v1.2 playerMark): from here (the player pushed, or the next title)
+    ' to info ready, PlaybackInfo answered, stream URL set and the first frame
+    ' (kept over the switch from the film to its first Cinema Mode intro, so the line counts from OK)
+    if not m.keepClock or m.startClock = invalid then m.startClock = createObject("roTimespan")
+    m.keepClock = false
     it = m.top.item
     ' library Shuffle: the titles still to play (Up next takes them before the series' next episode)
     m.queue = []
@@ -193,12 +206,96 @@ sub begin()
     if it.options <> invalid and it.options.audio <> invalid then m.opts = it.options
     showLoading(0, "")
     Speak.say(Speak.clean("Loading " + Util.toText(it.title) + ", " + Util.toText(it.subtitle)))
-    ' (v1.1) the account's preferred audio language first, once per session (Tracks.serverAudioPref)
-    if Tracks.serverAudioPref(m.top.server) = invalid
-        get("/Users/" + Util.toText(m.top.server.userId), { kind: "user", itemId: it.id })
+    ' (v1.1) the account's preferred audio language, once per session (Tracks.serverAudioPref; usually known
+    ' from the launch sign-in check). (v1.2 SP-13a) Asked for in parallel with the item, not before it:
+    ' the stream request waits for both (startWhenReady).
+    m.infoAnswer = invalid
+    m.waitUser = Tracks.serverAudioPref(m.top.server) = invalid
+    if m.waitUser then get("/Users/" + Util.toText(m.top.server.userId), { kind: "user", itemId: it.id })
+    ' (v1.2 SP-13c) Cinema Mode (MainScene.startPlayer): the intros, in parallel with the title's details
+    m.waitIntros = Util.flag(it, "cinema")
+    if m.waitIntros then askIntros(Api.knownRoute(m.top.server, "intros") = "new")
+    pre = takePreInfo(Util.toText(it.id))
+    if pre <> invalid
+        print "Cove: player item info from the details page"
+        m.infoAnswer = { code: 200, json: pre, tag: { kind: "info", itemId: it.id } }
+        startWhenReady()
     else
         requestInfo()
     end if
+end sub
+
+' (v1.2 SP-13b) The item JSON handed over with this title (details page), used once; else invalid
+function takePreInfo(id as string) as dynamic
+    pre = m.top.info
+    if Util.isAA(pre) and pre.count() > 0
+        m.top.info = {}
+        if id <> "" and Util.toText(pre.Id) = id then return pre
+    end if
+    ' (v1.2 SP-13c) the film after its Cinema Mode intros
+    if m.preInfo <> invalid and id <> "" and m.preInfo.id = id
+        pre = m.preInfo.json
+        m.preInfo = invalid
+        return pre
+    end if
+    return invalid
+end function
+
+' (v1.2 SP-13c) Cinema Mode: GET the title's intros (SP-11: straight to the route that answered before here)
+sub askIntros(newRoute as boolean)
+    uid = Util.toText(m.top.server.userId)
+    get(Playback.introsPath(uid, Util.toText(m.top.item.id), newRoute), { kind: "intros", itemId: m.top.item.id, newRoute: newRoute })
+end sub
+
+' The intros answer: none, the title starts as soon as its details are in; else the first intro plays now with
+' the rest and the title behind it (playAfterIntro), and the title's details are kept for its start
+sub onIntrosAnswer(r as object)
+    if (r.code = 404 or r.code = 405) and not Util.flag(r.tag, "newRoute")
+        ' (Jellyfin 10.9+ route)
+        askIntros(true)
+        return
+    end if
+    m.waitIntros = false
+    if r.code = 200 then Api.rememberRoute(m.top.server, "intros", Util.flag(r.tag, "newRoute"))
+    list = []
+    if r.code = 200
+        src = r.json
+        if Util.isAA(src) then src = src.Items
+        for each x in Ratings.keep(m.top.server, src)
+            if Util.isAA(x) and Util.isSafeId(x.Id, false) and list.count() < 5 then list.push({ id: Util.toText(x.Id), subtitle: Util.toText(x.Name) })
+        end for
+    end if
+    print "Cove: cinema mode intros -> "; r.code; " "; list.count()
+    playerMark("intros answered")
+    if list.count() = 0
+        startWhenReady()
+        return
+    end if
+    film = m.top.item
+    film.delete("cinema")
+    if m.infoAnswer <> invalid and m.infoAnswer.code = 200 then m.preInfo = { id: Util.toText(film.id), json: m.infoAnswer.json }
+    m.infoAnswer = invalid
+    first = list.shift()
+    sub_ = "Intro"
+    if first.subtitle <> "" then sub_ = "Intro  ·  " + first.subtitle
+    ' (the timing lines keep counting from the Play press)
+    m.keepClock = true
+    m.top.item = { id: first.id, title: Util.toText(film.title), subtitle: sub_, start: 0.0, trailer: true, after: film, intros: list }
+end sub
+
+' The item's details and the account's audio preference are both in: choose the tracks and ask for a stream
+sub startWhenReady()
+    if m.waitUser or m.waitIntros or m.infoAnswer = invalid then return
+    r = m.infoAnswer
+    m.infoAnswer = invalid
+    playerMark("info ready")
+    onInfo(r)
+end sub
+
+' "Cove: player <ms> <step>": ms since the player started this title (begin)
+sub playerMark(stepName as string)
+    if m.startClock = invalid then return
+    print "Cove: player "; m.startClock.totalMilliseconds(); " "; stepName
 end sub
 
 sub requestInfo()
@@ -289,13 +386,34 @@ sub onInfo(r as object)
         ' Jellyfin keeps intro / credits (and recaps, previews, commercials) as media segments
         if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial", { kind: "segments", itemId: m.top.item.id })
         if Util.toText(r.json.Type) = "Episode" and Util.toText(r.json.SeriesId) <> ""
-            ' (C2-4: the profile's rating limit, as on Details)
-            get(Ratings.withLimit(m.top.server, "/Shows/" + Util.toText(r.json.SeriesId) + "/Episodes?UserId=" + Util.toText(m.top.server.userId) + "&" + Items.fields()), { kind: "episodes", itemId: m.top.item.id })
+            ' (v1.2 SP-14) previous / next: only the neighbours (AdjacentTo); a rating limit keeps the whole list,
+            ' so a hidden neighbour is skipped to the next allowed one as before
+            requestEpisodes(Util.toText(r.json.SeriesId), Ratings.limitOf(m.top.server) = 0)
         end if
     end if
     useQueue()
     start(m.startAt, false)
 end sub
+
+' The series' episodes: around this one only (adjacent), or the whole list (the Episodes panel, a rating limit)
+sub requestEpisodes(seriesId as string, adjacent as boolean)
+    if seriesId = "" then return
+    uid = Util.toText(m.top.server.userId)
+    path = Playback.adjacentEpisodesPath(uid, seriesId, Util.toText(m.top.item.id))
+    if not adjacent
+        m.epFullAsked = true
+        ' (C2-4: the profile's rating limit, as on Details)
+        path = Ratings.withLimit(m.top.server, Playback.seriesEpisodesPath(uid, seriesId))
+    end if
+    get(path, { kind: "episodes", itemId: m.top.item.id, adjacent: adjacent, seriesId: seriesId })
+end sub
+
+function listHasItem(list as object, id as string) as boolean
+    for each e in list
+        if Util.isAA(e) and Util.toText(e.Id) = id then return true
+    end for
+    return false
+end function
 
 ' Shuffle queue hook: the next title is the queue's first
 ' (PL-13: after the queue's last title nothing follows, not that series' next episodes; Previous stays)
@@ -370,6 +488,7 @@ sub onStream(ev as object)
     m.playTask = invalid
     s.itemId = m.top.item.id
     m.session = s
+    playerMark("PlaybackInfo answered")
     ' left while the server was preparing it: stop that conversion and go
     if m.closing
         stopEncoding()
@@ -396,6 +515,7 @@ sub onStream(ev as object)
     if m.startAt > 1 then c.PlayStart = m.startAt
     ' A text subtitle: Cove downloads the server's SRT and draws it (SubtitleLayer); Roku's captions stay off
     m.video.content = c
+    playerMark("stream URL set")
     ' (no subtitleTracks, so Roku's renderer has nothing to show; the Roku's global caption mode is left alone)
     m.video.subtitleTrack = ""
     loadTextSub()
@@ -537,10 +657,8 @@ sub onState()
         first = not m.started
         if not m.started
             m.started = true
-            if m.startClock <> invalid
-                print "Cove: player first frame "; m.startClock.totalMilliseconds()
-                m.startClock = invalid
-            end if
+            playerMark("first frame")
+            m.startClock = invalid
             ' (SP-15) the thumbnails 8 s into playback, or at the first seek if that comes sooner
             if m.thumbStream <> invalid then m.thumbTimer.control = "start"
             report("/Sessions/Playing", false)
@@ -1371,6 +1489,13 @@ end sub
 ' The episodes of the current season in the side panel; OK plays one
 sub showEpisodes()
     if m.epIndex < 0 then return
+    if not m.epFull
+        ' (v1.2 SP-14) only the neighbours so far: the whole list first, the panel opens when it is in
+        m.epPanelWanted = true
+        if not m.epFullAsked then requestEpisodes(seriesKey(), false)
+        Toasts.notify("Loading episodes...", "info")
+        return
+    end if
     season = Util.toText(m.episodes[m.epIndex].SeasonId)
     o = []
     for each e in m.episodes
@@ -1648,6 +1773,9 @@ end function
 ' Presses add up: the bar shows where playback will continue, the jump happens 0.8 s after the last press
 sub seekBy(delta as integer)
     if m.session = invalid then return
+    ' (v1.2 SP-15) Emby's BIF: the first scrub starts it if the 8 s after "playing" haven't passed yet (only a
+    ' real seek: showing the controls or moving between buttons doesn't)
+    if m.thumbs = invalid and m.thumbStream <> invalid then startDeferredThumbs()
     target = currentPos() + delta
     d = m.video.duration
     if target < 0 then target = 0
@@ -1733,6 +1861,7 @@ sub startDeferredThumbs()
     if s = invalid or m.thumbs <> invalid then return
     m.thumbStream = invalid
     m.thumbTimer.control = "stop"
+    print "Cove: player seek thumbnails (BIF) download starts"
     loadThumbs(s)
 end sub
 
@@ -1787,7 +1916,6 @@ end sub
 ' The frame for atSec above the scrubber at x (only while seeking)
 sub showPreview(atSec as float, x as integer)
     pv = m.top.findNode("preview")
-    if m.thumbs = invalid and m.thumbStream <> invalid then startDeferredThumbs()
     th = m.thumbs
     if m.seekTarget < 0 or th = invalid or th.kind = "none"
         pv.visible = false
@@ -1963,10 +2091,20 @@ sub onResponse(ev as object)
         if r.code = 200 then json = r.json
         if r.code <> 200 then print "Cove: user settings -> "; r.code
         Tracks.rememberServerAudio(m.top.server, json)
-        requestInfo()
+        m.waitUser = false
+        startWhenReady()
     else if k = "info"
-        if r.tag.itemId <> m.top.item.id then return
-        onInfo(r)
+        if r.tag.itemId <> m.top.item.id
+            ' (v1.2 SP-13c) the film's details arriving while its first intro already started: kept for later
+            af = m.top.item.after
+            if r.code = 200 and Util.isAA(af) and Util.toText(af.id) = Util.toText(r.tag.itemId) then m.preInfo = { id: Util.toText(af.id), json: r.json }
+            return
+        end if
+        m.infoAnswer = r
+        startWhenReady()
+    else if k = "intros"
+        if r.tag.itemId <> m.top.item.id or not m.waitIntros then return
+        onIntrosAnswer(r)
     else if k = "bif"
         onBif(r)
     else if k = "subProbe"
@@ -1982,10 +2120,21 @@ sub onResponse(ev as object)
         list = m.epWaiting
         m.epWaiting = invalid
         if type(list) = "roArray" then useEpisodes(list)
-    else if k = "episodes" and r.code = 200 and r.json <> invalid
+    else if k = "episodes"
         ' the series' episodes: previous / next and the Episodes panel
-        list = r.json.Items
+        list = invalid
+        if r.code = 200 and Util.isAA(r.json) then list = r.json.Items
+        adjacent = Util.flag(r.tag, "adjacent")
+        if adjacent and (type(list) <> "roArray" or not listHasItem(list, Util.toText(m.top.item.id)))
+            ' (a server without AdjacentTo, or this episode outside the list): the whole list, as before
+            print "Cove: neighbouring episodes -> "; r.code; ", asking for the whole list"
+            requestEpisodes(Util.toText(r.tag.seriesId), false)
+            return
+        end if
+        if not adjacent and type(list) <> "roArray" then m.epFullAsked = false
         if type(list) = "roArray"
+            ' (more than the three neighbours: a server that ignored AdjacentTo sent the whole list)
+            m.epFull = not adjacent or list.count() > 3
             ' (C2-4: only the episodes the profile's rating limit allows; an unrated one takes its series' rating)
             ids = Ratings.missingSeries(m.top.server, list)
             if ids.count() > 0
@@ -2017,6 +2166,11 @@ sub useEpisodes(fullList as object)
     ' (prev / next join the centre row: keep the focus on play)
     if m.area = "center" then m.idx = playIndex()
     buildTools()
+    ' (v1.2 SP-14) the Episodes panel was asked for while only the neighbours were known
+    if m.epFull and m.epPanelWanted
+        m.epPanelWanted = false
+        if m.picker = invalid and not m.upNext.visible and not m.still.visible and not m.closing then showEpisodes()
+    end if
 end sub
 
 ' A request whose answer nobody waits for. The task is parked in the scene's "tasks" group so it keeps running

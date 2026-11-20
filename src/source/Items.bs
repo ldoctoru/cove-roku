@@ -125,15 +125,23 @@ namespace Items
     end function
 
     ' The hero line, as on the Mac home: "TV Show · Comedy · Romance · 2007" / "Movie · Drama · 1979"
+    ' (v1.2) An episode: "S4:E2  ·  The Trip (2)  ·  Comedy  ·  1992" (the season and episode on this line
+    ' instead of a boxed "S4, E2" chip above the logo, which Liviu found ugly)
     function heroMeta(it as object) as string
         parts = []
         t = Util.toText(it.Type)
         if t = "Movie" then parts.push("Movie")
-        ' (an episode in the hero stands for its series, as on the Mac)
-        if t = "Series" or t = "Episode" then parts.push("TV Show")
+        if t = "Series" then parts.push("TV Show")
+        maxGenres = 2
+        if t = "Episode"
+            ep = episodeLabel(it)
+            if ep = "" then ep = "TV Show"
+            parts.push(ep)
+            maxGenres = 1
+        end if
         if type(it.Genres) = "roArray"
             for i = 0 to it.Genres.count() - 1
-                if i < 2 then parts.push(Util.toText(it.Genres[i]))
+                if i < maxGenres then parts.push(Util.toText(it.Genres[i]))
             end for
         end if
         y = Util.toText(it.ProductionYear)

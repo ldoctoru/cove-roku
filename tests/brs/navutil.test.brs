@@ -52,3 +52,37 @@ sub test_pageKey()
     t_eq(NavUtil_tagPageKey("Genre", "g7", "Comedy"), "Genre:g7", "same key as the pill opens")
     t_eq(NavUtil_tagPageKey("Genre", "", ""), "", "nothing to match")
 end sub
+
+' (v1.2 NV-7) the sidebar / top bar wrap round
+sub test_wrapStep()
+    t_eq(NavUtil_wrapStep(0, 5, -1), 4, "before the first: the last")
+    t_eq(NavUtil_wrapStep(4, 5, 1), 0, "past the last: the first")
+    t_eq(NavUtil_wrapStep(2, 5, 1), 3, "down one")
+    t_eq(NavUtil_wrapStep(2, 5, -1), 1, "up one")
+    t_eq(NavUtil_wrapStep(0, 1, 1), 0, "one entry stays")
+    t_eq(NavUtil_wrapStep(0, 0, 1), -1, "empty menu")
+end sub
+
+sub test_nextEntry()
+    ' Home, Search, [Library], Recently Added, Movies, [ ], Profile, Settings
+    h = [false, false, true, false, false, true, false, false]
+    t_eq(NavUtil_nextEntry(h, 0, -1), 7, "Up on Home: Settings")
+    t_eq(NavUtil_nextEntry(h, 7, 1), 0, "Down on Settings: Home")
+    t_eq(NavUtil_nextEntry(h, 1, 1), 3, "Down skips the section title")
+    t_eq(NavUtil_nextEntry(h, 6, -1), 4, "Up skips the blank section title")
+    t_eq(NavUtil_nextEntry([true, false, true], 1, 1), 1, "only entry: stays")
+    t_eq(NavUtil_nextEntry([true, false], 1, -1), 1, "a title first: wraps to the only entry")
+    t_eq(NavUtil_nextEntry([true, true], 0, 1), -1, "no entries")
+    t_eq(NavUtil_nextEntry(invalid, 0, 1), -1, "no list")
+end sub
+
+' (v1.2 NV-6) the sidebar opens on the entry last opened from it
+sub test_openEntry()
+    menu = [{ id: "home", label: "Home" }, { header: true, label: "Library" }, { id: "lib:0", label: "Movies" }, { id: "lib:1", label: "TV Shows" }, { id: "settings", label: "Settings" }]
+    t_eq(NavUtil_openEntry(menu, "lib:1", "TV Shows", "home"), 3, "the last opened library")
+    t_eq(NavUtil_openEntry(menu, "lib:1", "Kids", "home"), 0, "that index is another library now: the current page")
+    t_eq(NavUtil_openEntry(menu, "", "", "home"), 0, "nothing opened yet: the current page")
+    t_eq(NavUtil_openEntry(menu, "search", "Search", "home"), 0, "entry hidden since: the current page")
+    t_eq(NavUtil_openEntry(menu, "", "", ""), -1, "nothing to open on (top bar keeps its place)")
+    t_eq(NavUtil_openEntry(invalid, "home", "Home", "home"), -1, "no menu")
+end sub
