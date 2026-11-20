@@ -61,6 +61,52 @@ namespace Prefs
         return n
     end function
 
+    ' (v1.3) Settings → Playback → Skip: per segment kind "ask" (the Skip button), "auto" (skipped with a short
+    ' notice) or "off" (no button). One compact registry key "segSkip" (JSON, only the kinds changed). A kind
+    ' never changed keeps the v1.2 behaviour: intros follow the old "Skip intros" switch (on), recaps the old
+    ' "Skip recaps" switch (off), previews, ads and credits ask.
+    function segmentKinds() as object
+        return ["intro", "recap", "preview", "commercial", "credits"]
+    end function
+
+    function segmentSkipDefault(kind as string) as string
+        if kind = "intro" and flagOn("autoSkipIntro", true) then return "auto"
+        if kind = "recap" and flagOn("autoSkipRecap", false) then return "auto"
+        return "ask"
+    end function
+
+    ' { intro, recap, preview, commercial, credits } → "ask" / "auto" / "off" (one registry read)
+    function segmentSkipAll() as object
+        saved = Util.readJson("segSkip")
+        out = {}
+        for each k in segmentKinds()
+            v = ""
+            if Util.isAA(saved) then v = Util.toText(saved[k])
+            if v <> "ask" and v <> "auto" and v <> "off" then v = segmentSkipDefault(k)
+            out[k] = v
+        end for
+        return out
+    end function
+
+    function segmentSkipOf(kind as string) as string
+        v = segmentSkipAll()[kind]
+        if v = invalid then return "ask"
+        return v
+    end function
+
+    sub setSegmentSkip(kind as string, value as string)
+        if value <> "ask" and value <> "auto" and value <> "off" then return
+        known = false
+        for each k in segmentKinds()
+            if k = kind then known = true
+        end for
+        if not known then return
+        saved = Util.readJson("segSkip")
+        if not Util.isAA(saved) then saved = {}
+        saved[kind] = value
+        Util.writeText("segSkip", formatJson(saved))
+    end sub
+
     ' (v1.0) Settings → Playback → Ask if still watching after: seconds of playing without a key press before
     ' Cove pauses and asks (0 = Off); 1, 2 (default) or 3 hours
     function stillIdleSeconds() as integer

@@ -48,6 +48,22 @@ sub init()
     m.seekTimer = m.top.findNode("seekTimer")
     m.hideTimer.observeField("fire", "hideOsd")
     m.seekTimer.observeField("fire", "applySeek")
+    ' (v1.3 U-4) hold-to-seek: the key held, since when, since its release, steps so far, their size, and
+    ' whether the remote's own key repeats drive it (holdTimer otherwise)
+    m.holdTimer = m.top.findNode("holdTimer")
+    m.holdTimer.observeField("fire", "onHoldTick")
+    m.holdKey = ""
+    m.holdLastKey = ""
+    m.holdClock = createObject("roTimespan")
+    m.holdRelease = createObject("roTimespan")
+    m.holdLast = createObject("roTimespan")
+    m.holdSteps = 0
+    m.holdLevel = 0
+    m.holdNative = false
+    ' (v1.3 NV-16) Rewind / Fast forward runs
+    m.jumpStreak = 0
+    m.jumpDir = 0
+    m.jumpClock = createObject("roTimespan")
     m.seekTarget = -1.0
     m.osdShown = false
     m.area = "center"
@@ -96,8 +112,9 @@ end sub
 ' read again when a picker closes, since the player's menus can change them
 sub refreshPrefs()
     m.pf = {
-        skipIntro: Prefs.autoSkipIntro(),
-        skipRecap: Prefs.autoSkipRecap(),
+        ' (v1.3) Settings → Playback → Skip: "ask" / "auto" / "off" per segment kind (one registry read)
+        seg: Prefs.segmentSkipAll(),
+        upNextSecs: Prefs.upNextSeconds(),
         stillAfter: Prefs.stillWatchingAfter(),
         jump: Prefs.jumpSeconds(),
         skip: Prefs.skipSeconds(),
@@ -168,6 +185,13 @@ sub resetState()
     m.action.visible = false
     m.upNext.visible = false
     m.countdown.control = "stop"
+    ' (v1.3) the Up Next card: "credits" (over the playing credits) or "end" (after the end); the credits
+    ' card's seconds left (kept while the controls hide it), its focused button (0 Play Now, 1 Back to
+    ' Credits) and the time since it showed
+    m.cardMode = ""
+    m.cardCount = -1
+    m.cardBtn = 0
+    m.cardClock = invalid
     m.watchdog.control = "stop"
     m.thumbs = invalid       ' { kind: "bif", ... } or { kind: "tiles", ... } for seek thumbnails
     m.thumbShown = -1
@@ -663,6 +687,9 @@ sub onState()
             if m.thumbStream <> invalid then m.thumbTimer.control = "start"
             report("/Sessions/Playing", false)
             m.progressTimer.control = "start"
+            ' (v1.3) a subtitle added on the server after the details page loaded (or while the server was still
+            ' adding it): the track list is checked once more now that the video plays
+            checkStreams("start")
         end if
         ' (PL-15) a restart of a paused video: paused again; (PL-2) a menu opened while loading: the video
         ' waits under it, and closing it plays on
@@ -775,24 +802,38 @@ sub onPosition()
     ' (credits with a known end before the real end: a scene after them, the button goes when it starts)
     if inCredits and m.next = invalid and mk.creditsEnd > mk.credits and p >= mk.creditsEnd - 2 then inCredits = false
     seg = segmentAt(p)
-    if inIntro and not m.introDismissed and m.pf.skipIntro
-        ' Settings → Skip intros automatically
+    ' (v1.3) Settings → Playback → Skip: each kind asks (button), skips by itself (a notice) or shows nothing
+    so = m.pf.seg
+    creditsOpt = so.credits
+    if inIntro and not m.introDismissed and so.intro = "auto"
         m.introDismissed = true
-        print "Cove: skipping the intro to "; Int(mk.introEnd); " s"
+        print "Cove: player segment auto-skipped intro "; Int(mk.introStart); "-"; Int(mk.introEnd); " s"
         m.video.seek = mk.introEnd
         ' (v1.1 P-2, as on the Mac: a notice to go back)
         showSkipNotice(mk.introStart, "Intro skipped · Watch Intro")
-    else if inIntro and not m.introDismissed
+    else if inIntro and not m.introDismissed and so.intro = "ask"
         showAction("intro", "Skip intro")
-    else if seg <> invalid and seg.kind = "recap" and m.pf.skipRecap
-        ' Settings → Skip recaps automatically
+    else if seg <> invalid and so[seg.kind] = "auto"
         m.segsDone[seg.key] = true
-        print "Cove: skipping the recap to "; Int(seg.e); " s"
+        print "Cove: player segment auto-skipped "; seg.kind; " "; Int(seg.s); "-"; Int(seg.e); " s"
         skipTo(seg.e)
-        showSkipNotice(seg.s, "Recap skipped · Watch Recap")
+        if seg.kind = "recap"
+            showSkipNotice(seg.s, "Recap skipped · Watch Recap")
+        else
+            Toasts.notify("Skipped " + Tracks.segmentName(seg.kind))
+        end if
     else if seg <> invalid
         m.actionSeg = seg
         showAction("seg:" + seg.key, Tracks.segmentLabel(seg.kind))
+    else if inCredits and not m.creditsDismissed and creditsOpt = "auto"
+        m.creditsDismissed = true
+        autoSkipCredits(p)
+    else if creditsOpt = "off"
+        ' (Don't show: no button and no Up Next card; the end plays the next one as before)
+        if m.actionKind <> "" and m.actionKind <> "watch" then hideAction()
+    else if not m.creditsDismissed and creditsCardDue(p)
+        ' (v1.3) Up Next over the credits (or the last 30 s), counting down while they play
+        showCreditsCard(p)
     else if inCredits and not m.creditsDismissed and m.next <> invalid
         ' (PL-8: a film next in a Shuffle queue isn't an episode)
         if nextIsEpisodeItem()
@@ -902,7 +943,8 @@ end sub
 function segmentAt(p as float) as dynamic
     if m.marks.segs = invalid then return invalid
     for each sg in m.marks.segs
-        if p >= sg.s and p < sg.e - 2 and not m.segsDone.doesExist(sg.key) then return sg
+        ' (v1.3: a kind set to Don't show is passed over)
+        if p >= sg.s and p < sg.e - 2 and not m.segsDone.doesExist(sg.key) and m.pf.seg[sg.kind] <> "off" then return sg
     end for
     return invalid
 end function
@@ -937,6 +979,23 @@ sub skipCredits()
     skipTo(t)
 end sub
 
+' (v1.3) Settings → Playback → Skip → Credits: Skip automatically. An episode with a next one and Play the
+' next episode on goes straight to it (Are you still watching? still counts); otherwise as Skip credits
+sub autoSkipCredits(atSec as float)
+    print "Cove: player segment auto-skipped credits at "; Int(atSec); " s"
+    Toasts.notify("Skipped " + Tracks.segmentName("credits"))
+    if isEpisodeNow() and nextIsEpisodeItem() and m.pf.autoNext
+        autoPlayNext()
+    else
+        skipCredits()
+    end if
+end sub
+
+' The title playing is an episode (Up Next during the credits is for episodes only)
+function isEpisodeNow() as boolean
+    return m.info <> invalid and Util.toText(m.info.Type) = "Episode"
+end function
+
 sub onFinished()
     ' (v1.0 F-10) Cinema Mode: the next intro, then the film (PL-7: before the sleep timer, whose "End of
     ' episode" means the film's end)
@@ -950,8 +1009,23 @@ sub onFinished()
         sleepExpire(m.video.duration)
         return
     end if
+    ' (v1.3) the credits ended under the Up Next card: the next one now, as at the countdown's end
+    if m.upNext.visible and m.cardMode = "credits" and m.next <> invalid and m.pf.autoNext
+        report("/Sessions/Playing/Stopped", false, m.video.duration)
+        stopEncoding()
+        m.progressTimer.control = "stop"
+        m.started = false
+        m.countdown.control = "stop"
+        m.upNext.visible = false
+        m.cardMode = ""
+        print "Cove: player up next played (credits ended) after "; cardMs(); " ms"
+        autoPlayNext()
+        return
+    end if
     ' Settings → Play the next episode automatically (off: the player closes at the end)
     if m.next <> invalid and m.pf.autoNext
+        m.cardMode = "end"
+        m.cardCount = -1
         report("/Sessions/Playing/Stopped", false, m.video.duration)
         stopEncoding()
         m.progressTimer.control = "stop"
@@ -972,7 +1046,9 @@ sub onFinished()
             return
         end if
         m.count = secs
-        m.top.findNode("upNextCount").text = "Play now  (" + secs.toStr() + ")"
+        m.cardTotal = secs
+        m.cardBtn = 0
+        drawUpNextCard()
         m.top.findNode("upNextStill").uri = Items.landscape(m.top.server, m.next, 240)
         m.osdShown = false
         m.osd.opacity = 0
@@ -980,7 +1056,7 @@ sub onFinished()
         m.upNext.visible = true
         m.upNext.setFocus(true)
         m.countdown.control = "start"
-        Speak.say(Speak.clean("Up next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play now, button, plays in " + secs.toStr() + " seconds")
+        Speak.say(Speak.clean("Up Next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". Play Now, button, plays in " + secs.toStr() + " seconds")
     else
         close(m.video.duration)
     end if
@@ -990,19 +1066,148 @@ sub onCountdown()
     m.count = m.count - 1
     if m.count <= 0
         m.countdown.control = "stop"
-        ' Settings → Playback → Are you still watching?: this many episodes in a row without a key press
-        ' (PL-8: episodes only, like the idle question: a film from a Shuffle queue is never interrupted)
-        lim = m.pf.stillAfter
-        nextIsEpisode = nextIsEpisodeItem()
-        if lim > 0 and m.autoCount >= lim and nextIsEpisode
-            askStill("next")
-            return
-        end if
-        if nextIsEpisode then m.autoCount = m.autoCount + 1
-        playNext()
+        if m.cardMode = "credits" then print "Cove: player up next played (countdown) after "; cardMs(); " ms"
+        autoPlayNext()
     else
-        m.top.findNode("upNextCount").text = "Play now  (" + m.count.toStr() + ")"
+        if m.cardMode = "credits" then m.cardCount = m.count
+        drawUpNextCard()
     end if
+end sub
+
+' ---------------------------------------------------------------- (v1.3) Up Next during the credits
+
+' Episodes only, with a next episode, Play the next episode on and an Up Next countdown; hidden while the
+' controls show. From the server's credits marker, else the last 30 s, to the end.
+function creditsCardDue(p as float) as boolean
+    if m.osdShown or m.picker <> invalid or not isEpisodeNow() or not nextIsEpisodeItem() then return false
+    if not m.pf.autoNext or m.pf.upNextSecs <= 0 then return false
+    d = m.video.duration
+    at = Playback.upNextStart(m.marks.credits, d)
+    if at < 0 or p < at
+        ' (seeked back before the credits: the next card counts from the start again)
+        if not m.upNext.visible then m.cardCount = -1
+        return false
+    end if
+    return d <= 0 or p < d - 1
+end function
+
+sub showCreditsCard(p as float)
+    n = m.next
+    if n = invalid then return
+    hideAction()
+    resumed = m.cardCount > 0
+    m.cardMode = "credits"
+    m.cardTotal = m.pf.upNextSecs
+    if not resumed then m.cardCount = m.cardTotal
+    m.count = m.cardCount
+    m.cardBtn = 0
+    m.top.findNode("upNextTitle").text = Util.toText(n.SeriesName)
+    m.top.findNode("upNextEpisode").text = Items.episodeLabel(n)
+    m.top.findNode("upNextStill").uri = Items.landscape(m.top.server, n, 240)
+    drawUpNextCard()
+    m.upNext.visible = true
+    m.upNext.setFocus(true)
+    m.countdown.control = "stop"
+    m.countdown.control = "start"
+    if m.cardClock = invalid then m.cardClock = createObject("roTimespan")
+    src = "last 30 s"
+    if m.marks.credits > 0 then src = "credits marker"
+    print "Cove: player up next shown at "; Int(p); " s ("; src; ", "; m.count; " s left"; ")"
+    Speak.say(Speak.clean("Up Next: " + m.top.findNode("upNextTitle").text + ", " + m.top.findNode("upNextEpisode").text) + ". " + Speak.button("Play Now") + Speak.position(0, 2) + ", plays in " + m.count.toStr() + " seconds")
+end sub
+
+' The card's buttons and countdown bar: credits mode Play Now + Back to Credits (the focused one white),
+' end mode Play Now and the "Back: stop" hint
+sub drawUpNextCard()
+    m.top.findNode("upNextCount").text = "Play Now  (" + m.count.toStr() + ")"
+    total = m.cardTotal
+    if total = invalid or total <= 0 then total = 10
+    frac = m.count / total
+    if frac < 0 then frac = 0
+    if frac > 1 then frac = 1
+    m.top.findNode("upNextFill").width = Int(240 * frac)
+    inCredits = m.cardMode = "credits"
+    m.top.findNode("upNextHint").visible = not inCredits
+    m.top.findNode("upNextAlt").visible = inCredits
+    playFocused = not inCredits or m.cardBtn = 0
+    pb = m.top.findNode("upNextPlayBg")
+    pl = m.top.findNode("upNextCount")
+    ab = m.top.findNode("upNextAltBg")
+    al = m.top.findNode("upNextAltLabel")
+    if playFocused
+        pb.uri = "pkg:/images/ui/white_rr12.9.png"
+        pl.color = "0x000000FF"
+        ab.uri = "pkg:/images/ui/glass_pill.9.png"
+        al.color = "0xFFFFFFFF"
+    else
+        pb.uri = "pkg:/images/ui/glass_pill.9.png"
+        pl.color = "0xFFFFFFFF"
+        ab.uri = "pkg:/images/ui/white_rr12.9.png"
+        al.color = "0x000000FF"
+    end if
+end sub
+
+' Keys on the credits card: OK uses the focused button, Play = Play Now, Left / Right move, Back = Back to
+' Credits; any other key hides it for now (the controls) and does its usual job
+function creditsCardKey(key as string) as boolean
+    if key = "OK" and m.cardBtn = 1
+        dismissCreditsCard()
+    else if key = "OK" or key = "play"
+        print "Cove: player up next played (Play Now) after "; cardMs(); " ms"
+        playNext()
+    else if key = "left" or key = "right"
+        m.cardBtn = 1 - m.cardBtn
+        drawUpNextCard()
+        labels = ["Play Now", "Back to Credits"]
+        Speak.say(Speak.button(labels[m.cardBtn]) + Speak.position(m.cardBtn, 2))
+    else if key = "back"
+        dismissCreditsCard()
+    else
+        pauseCreditsCard()
+        return false
+    end if
+    return true
+end function
+
+' Back to Credits: the card goes for this episode, the credits play to the end (then Up Next as before)
+sub dismissCreditsCard()
+    m.countdown.control = "stop"
+    m.upNext.visible = false
+    m.cardMode = ""
+    m.creditsDismissed = true
+    print "Cove: player up next hidden (Back to Credits) after "; cardMs(); " ms"
+    Speak.say("Back to credits")
+    focusPlayer()
+end sub
+
+' The controls show over the credits: the card hides and its countdown waits until they hide again
+sub pauseCreditsCard()
+    if not (m.upNext.visible and m.cardMode = "credits") then return
+    m.countdown.control = "stop"
+    m.upNext.visible = false
+    print "Cove: player up next hidden (controls), "; m.cardCount; " s left"
+    m.keys.setFocus(true)
+end sub
+
+function cardMs() as integer
+    if m.cardClock = invalid then return 0
+    return m.cardClock.TotalMilliseconds()
+end function
+
+' The next title without a key press (countdown end, credits skipped automatically)
+sub autoPlayNext()
+    ' Settings → Playback → Are you still watching?: this many episodes in a row without a key press
+    ' (PL-8: episodes only, like the idle question: a film from a Shuffle queue is never interrupted)
+    lim = m.pf.stillAfter
+    nextIsEpisode = nextIsEpisodeItem()
+    if lim > 0 and m.autoCount >= lim and nextIsEpisode
+        ' (asked during the credits: the video pauses under the question, so it can't end and move on)
+        if m.video.state = "playing" then m.video.control = "pause"
+        askStill("next")
+        return
+    end if
+    if nextIsEpisode then m.autoCount = m.autoCount + 1
+    playNext()
 end sub
 
 ' The next title is an episode (an unknown type counts as one, as the series' own list)
@@ -1291,12 +1496,23 @@ end sub
 ' ---------------------------------------------------------------- keys, leaving
 
 function onKeyEvent(key as string, press as boolean) as boolean
-    if not press then return false
+    if not press
+        ' (v1.3 U-4) the release of a held Left / Right
+        if key = m.holdKey then endHold()
+        return false
+    end if
+    ' (a different key ends a hold whose release didn't come)
+    if m.holdKey <> "" and key <> m.holdKey then endHold()
     ' (any key: someone is watching)
     noteInput()
     if m.still.visible
         stillKey(key)
         return true
+    end if
+    if m.upNext.visible and m.cardMode = "credits"
+        if creditsCardKey(key) then return true
+        ' (the card hid for the controls: the key goes on as usual)
+        return onKeyEvent(key, press)
     end if
     if m.upNext.visible
         if key = "OK" or key = "play"
@@ -1325,12 +1541,8 @@ function onKeyEvent(key as string, press as boolean) as boolean
         instantReplay()
         return true
     else if key = "rewind" or key = "fastforward"
-        ' Settings → Playback → Jump buttons
-        if key = "fastforward"
-            seekBy(m.pf.jump)
-        else
-            seekBy(-m.pf.jump)
-        end if
+        ' Settings → Playback → Jump buttons (v1.3 NV-16: presses in quick succession jump further)
+        jumpStreakSeek(key)
         return true
     else if key = "play"
         togglePause()
@@ -1342,10 +1554,8 @@ function onKeyEvent(key as string, press as boolean) as boolean
             leavePlayer()
         else if key = "OK"
             togglePause()
-        else if key = "left"
-            seekBy(-m.pf.skip)
-        else if key = "right"
-            seekBy(m.pf.skip)
+        else if key = "left" or key = "right"
+            holdSeek(key)
         else
             showOsd(true)
         end if
@@ -1368,12 +1578,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
             focusPlayer()
         end if
     else if m.area = "bar" and (key = "left" or key = "right")
-        ' the progress bar has the focus: Left / Right move along it (presses add up, thumbnail shows)
-        if key = "left"
-            seekBy(-m.pf.skip)
-        else
-            seekBy(m.pf.skip)
-        end if
+        ' the progress bar has the focus: Left / Right move along it (presses add up, thumbnail shows; held,
+        ' the steps grow: v1.3 U-4)
+        holdSeek(key)
     else if key = "left"
         if m.idx > 0 then m.idx = m.idx - 1
         drawControls()
@@ -1734,6 +1941,8 @@ function toolSpeech(id as string) as string
 end function
 
 sub showOsd(autoHide as boolean)
+    ' (v1.3) the Up Next card over the credits hides while the controls show
+    pauseCreditsCard()
     if not m.osdShown
         m.osdShown = true
         ' the progress bar starts with the focus (Left / Right seek), Up: the centre buttons, Down: the tools
@@ -1786,6 +1995,109 @@ sub seekBy(delta as integer)
     m.seekTimer.control = "start"
     ' (each press replaces the last: only where it lands is heard)
     Speak.say(positionSpeech(target))
+end sub
+
+' ---------------------------------------------------------------- (v1.3 U-4) hold-to-seek, NV-16 jump runs
+
+' Left / Right: a press is one normal step (presses add up as before). Held, the steps grow with the time
+' held (Playback.holdSeekStep): driven by the Roku's key repeats when the remote sends them (a press again
+' without a release, or a press right after its release), else by holdTimer every 0.25 s from 0.5 s on.
+' The jump follows 0.8 s after the release (seekTimer), with the thumbnail showing meanwhile.
+sub holdSeek(key as string)
+    ' (a repeat comes within 0.6 s of the last step; a later press is a new one, even if a release was lost)
+    if m.holdKey = key and m.holdLast.TotalMilliseconds() < 600
+        m.holdNative = true
+        m.holdTimer.control = "stop"
+        holdStep()
+        return
+    end if
+    if m.holdKey = "" and m.holdLastKey = key and m.holdRelease.TotalMilliseconds() < 150
+        ' (a remote that repeats as press + release: still the same hold)
+        m.holdNative = true
+        m.holdKey = key
+        holdStep()
+        return
+    end if
+    m.holdClock.Mark()
+    m.holdLast.Mark()
+    m.holdSteps = 0
+    m.holdLevel = m.pf.skip
+    m.holdNative = false
+    m.holdKey = key
+    m.holdLastKey = key
+    if key = "left"
+        seekBy(-m.pf.skip)
+    else
+        seekBy(m.pf.skip)
+    end if
+    m.holdTimer.control = "stop"
+    m.holdTimer.control = "start"
+end sub
+
+sub onHoldTick()
+    if m.holdKey = "" or m.holdNative
+        m.holdTimer.control = "stop"
+        return
+    end if
+    held = m.holdClock.TotalMilliseconds()
+    if held < 500 then return
+    ' (a release that never came: stop after 20 s, by then the bar has reached an end anyway)
+    if held > 20000
+        print "Cove: player hold seek stopped after 20 s without a release"
+        endHold()
+        return
+    end if
+    holdStep()
+end sub
+
+' One step of a held Left / Right, its size from the time held
+sub holdStep()
+    held = m.holdClock.TotalMilliseconds()
+    st = Playback.holdSeekStep(held, m.pf.skip)
+    if st <> m.holdLevel
+        m.holdLevel = st
+        print "Cove: player hold seek "; st; " s steps after "; held; " ms"
+    end if
+    m.holdSteps = m.holdSteps + 1
+    m.holdLast.Mark()
+    if m.holdKey = "left"
+        seekBy(-st)
+    else
+        seekBy(st)
+    end if
+end sub
+
+sub endHold()
+    m.holdTimer.control = "stop"
+    m.holdKey = ""
+    m.holdRelease.Mark()
+    if m.holdSteps > 0
+        print "Cove: player hold seek released after "; m.holdClock.TotalMilliseconds(); " ms, "; m.holdSteps; " repeats, target "; Int(m.seekTarget); " s"
+        m.holdSteps = 0
+    end if
+    ' (the jump: 0.8 s after the release)
+    if m.seekTarget >= 0
+        m.seekTimer.control = "stop"
+        m.seekTimer.control = "start"
+    end if
+end sub
+
+' (v1.3 NV-16) Rewind / Fast forward: a press within 1 s of the last one in the same direction jumps further
+' (Playback.jumpStreakStep); 1.5 s without one starts over at the Jump buttons step
+sub jumpStreakSeek(key as string)
+    dirn = 1
+    if key = "rewind" then dirn = -1
+    gap = m.jumpClock.TotalMilliseconds()
+    if dirn <> m.jumpDir or gap >= 1500
+        m.jumpStreak = 0
+    else if gap < 1000
+        m.jumpStreak = m.jumpStreak + 1
+    end if
+    m.jumpDir = dirn
+    m.jumpClock.Mark()
+    st = Playback.jumpStreakStep(m.jumpStreak, m.pf.jump)
+    if m.jumpStreak > 0 then print "Cove: player jump run press "; m.jumpStreak + 1; ", "; st; " s"
+    seekBy(dirn * st)
 end sub
 
 sub applySeek()
@@ -2613,6 +2925,8 @@ end sub
 ' The Subtitles menu (v1.0.1): Language and Style side by side in one panel (SubtitlePanel), the subtitles
 ' visible underneath as a live preview; style changes apply at once and the panel stays open
 sub openSubsMenu()
+    ' (v1.3) the list as the server has it now (a subtitle added meanwhile shows up while the menu is open)
+    checkStreams("menu")
     langRows = [{ id: "-1", label: "Off" }]
     for each s in m.tracks.subs
         langRows.push({ id: s.index.toStr(), label: s.label })
@@ -3084,6 +3398,10 @@ sub onSubSearch(ev as object)
     k = r.tag.kind
     print "Cove: subtitle "; k; " -> "; r.code
     waiting = m.picker <> invalid and Util.toText(m.picker.purpose) = "subresults"
+    if k = "streamsCheck"
+        onStreamsCheck(r)
+        return
+    end if
     if k = "subSearch"
         if not waiting then return
         if r.code = 401 or r.code = 403
@@ -3123,7 +3441,7 @@ sub onSubSearch(ev as object)
         end for
         if added = invalid
             m.subTries = m.subTries + 1
-            if m.subTries < 4
+            if m.subTries < 10
                 subSearchRequest("GET", "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.item.id + "?Fields=MediaSources,MediaStreams", { kind: "subRefresh", itemId: m.top.item.id }, 3000)
             else if waiting
                 subSearchNote("Downloaded. It will be in the Subtitles list once the server has added it.")
@@ -3177,4 +3495,65 @@ end function
 sub subSearchNote(text as string)
     if m.picker = invalid or Util.toText(m.picker.purpose) <> "subresults" then return
     openPicker("subresults", "Search for subtitles", [{ id: "none", label: text }], "")
+end sub
+
+' (v1.3) GET the item's streams again (at most every 5 s): subtitles the server added since this title's info
+' was read (an episode had none, one was added in Emby / Bazarr / Cove's own search) join the Subtitles list
+' without closing and reopening the episode
+sub checkStreams(why as string)
+    if m.top.item = invalid or Util.toText(m.top.item.id) = "" then return
+    if m.streamsClock <> invalid and m.streamsClock.totalMilliseconds() < 5000 then return
+    m.streamsClock = createObject("roTimespan")
+    print "Cove: player subtitles check ("; why; ")"
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "GET", url: Util.toText(m.top.server.url) + "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + Util.toText(m.top.item.id) + "?Fields=MediaSources,MediaStreams", headers: Api.headers(m.top.server, true), body: "", tag: { kind: "streamsCheck", itemId: m.top.item.id, why: why }, timeout: 15000 }
+    t.observeField("response", "onSubSearch")
+    m.streamsTask = t
+    t.control = "RUN"
+end sub
+
+sub onStreamsCheck(r as object)
+    if r.code <> 200 or not Util.isAA(r.json) or m.tracks = invalid then return
+    fresh = Tracks.fromItem(r.json, Util.toText(m.opts.sourceId))
+    known = {}
+    for each s in m.tracks.subs
+        known[s.index.toStr()] = true
+    end for
+    added = []
+    for each s in fresh.subs
+        if not known.doesExist(s.index.toStr()) then added.push(s)
+    end for
+    if added.count() = 0 then return
+    print "Cove: player subtitles check found "; added.count(); " new track(s)"
+    ' (the audio list stays as it is: only the subtitles are new)
+    m.tracks.subs = fresh.subs
+    if m.info <> invalid
+        m.info.MediaSources = r.json.MediaSources
+        m.info.MediaStreams = r.json.MediaStreams
+    end if
+    buildTools()
+    turnedOn = false
+    ' subtitles were off: the language from Settings → Subtitles ("Always load") or the one chosen before
+    if m.opts.sub < 0
+        pick = -1
+        if Prefs.subAlways() then pick = Tracks.subForLanguage(m.tracks, Prefs.subLang())
+        if pick < 0 and Util.toText(m.subLang) <> "" then pick = Tracks.defaultSub(m.tracks, Util.toText(m.subLang))
+        if pick >= 0
+            nt = Tracks.findSub(m.tracks, pick)
+            if nt <> invalid and nt.isText
+                m.opts.sub = pick
+                m.opts.burn = false
+                loadTextSub()
+                turnedOn = true
+            end if
+        end if
+    end if
+    if turnedOn
+        Toasts.notify("Subtitles added: " + Tracks.subLabel(m.tracks, m.opts.sub), "info")
+    else
+        Toasts.notify("New subtitles are in the Subtitles menu", "info")
+    end if
+    ' (the menu is open: show it again with the new list)
+    if m.picker <> invalid and Util.toText(m.picker.purpose) = "subs" then openSubsMenu()
+    drawControls()
 end sub

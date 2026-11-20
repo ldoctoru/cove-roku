@@ -102,11 +102,15 @@
             </Label>
         </Group>
 
-        <!-- After an episode: a card bottom-right, the next one starts by itself -->
+        <!-- Up Next, a card bottom-right: (v1.3) over an episode's credits (or its last 30 s) with Play Now and
+             Back to Credits, counting down while they play; and after an episode, the next one starts by itself -->
         <Group id="upNext" translation="[1164,766]" visible="false">
             <Poster uri="pkg:/images/ui/panel_dark_r18.9.png" width="660" height="230" />
             <Poster id="upNextStill" width="240" height="135" translation="[24,24]" loadWidth="240" loadHeight="135" loadDisplayMode="scaleToZoom" />
-            <Label text="Up next" width="350" height="32" translation="[288,20]" color="0xFFFFFFCC">
+            <!-- the countdown: a bar along the still's bottom edge that empties -->
+            <Rectangle width="240" height="5" translation="[24,154]" color="0xFFFFFF40" />
+            <Rectangle id="upNextFill" width="240" height="5" translation="[24,154]" color="0xFFFFFFFF" />
+            <Label text="Up Next" width="350" height="32" translation="[288,20]" color="0xFFFFFFCC">
                 <Font role="font" uri="font:BoldSystemFontFile" size="24" />
             </Label>
             <Label id="upNextTitle" width="350" height="36" translation="[288,54]" color="0xFFFFFFFF">
@@ -115,13 +119,19 @@
             <Label id="upNextEpisode" width="350" height="34" translation="[288,92]" color="0xFFFFFFD9">
                 <Font role="font" uri="font:MediumSystemFontFile" size="24" />
             </Label>
-            <Poster uri="pkg:/images/ui/white_rr12.9.png" width="250" height="52" translation="[24,166]" />
+            <Poster id="upNextPlayBg" uri="pkg:/images/ui/white_rr12.9.png" width="250" height="52" translation="[24,166]" />
             <Label id="upNextCount" width="250" height="52" translation="[24,166]" horizAlign="center" vertAlign="center" color="0x000000FF">
                 <Font role="font" uri="font:BoldSystemFontFile" size="24" />
             </Label>
-            <Label text="Back: stop" width="350" height="52" translation="[288,166]" vertAlign="center" color="0xFFFFFFCC">
+            <Label id="upNextHint" text="Back: stop" width="350" height="52" translation="[288,166]" vertAlign="center" color="0xFFFFFFCC">
                 <Font role="font" uri="font:MediumSystemFontFile" size="24" />
             </Label>
+            <Group id="upNextAlt" translation="[288,166]" visible="false">
+                <Poster id="upNextAltBg" uri="pkg:/images/ui/glass_pill.9.png" width="348" height="52" />
+                <Label id="upNextAltLabel" text="Back to Credits" width="348" height="52" horizAlign="center" vertAlign="center" color="0xFFFFFFFF">
+                    <Font role="font" uri="font:BoldSystemFontFile" size="24" />
+                </Label>
+            </Group>
         </Group>
 
         <!-- Are you still watching? (Settings → Playback): after several episodes in a row, or 2 hours,
@@ -149,6 +159,8 @@
         <Timer id="countdown" duration="1" repeat="true" />
         <Timer id="hideTimer" duration="4" repeat="false" />
         <Timer id="seekTimer" duration="0.8" repeat="false" />
+        <!-- (v1.3 U-4) Left / Right held: the next bigger step every 0.25 s while no key repeats come -->
+        <Timer id="holdTimer" duration="0.25" repeat="true" />
         <Animation id="osdAnim" duration="0.25" easeFunction="linear">
             <FloatFieldInterpolator id="osdFade" key="[0.0, 1.0]" fieldToInterp="osd.opacity" />
         </Animation>
