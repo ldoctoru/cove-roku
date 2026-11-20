@@ -177,12 +177,19 @@ sub fetchQueued()
             end if
         end for
         if reqs.count() = 0 then exit while
-        answers = Api.executeMany(reqs, 20000)
+        answers = Api.executeMany(reqs, 8000, 4)
         for k = 0 to answers.count() - 1
             p = m.pendingRows[which[k]]
             sp = p.spec
             r = answers[k]
             print "Cove: "; Util.redact(Api.timingLine("GET", sp.path, r.code, r.ms))
+            if r.timedOut = true and rounds = 1
+                ' (v1.2) no answer at all: once more on its own (one Upcoming request never answered while
+                ' 7 others ran, so Home waited 20 s)
+                print "Cove: home list "; sp.path.split("?")[0]; " didn't answer, asking again"
+                r = timedGet(sp.path, 8000)
+                r.timedOut = false
+            end if
             if r.code = 404 and sp.fallback <> "" and rounds = 1
                 ' (the newer route next round)
                 sp.path = sp.fallback
@@ -252,9 +259,9 @@ function displayPrefs(uid as string) as dynamic
 end function
 
 ' One GET with its timing line ("Cove: http GET /Users/x/Items/Resume 200 143")
-function timedGet(path as string) as object
+function timedGet(path as string, timeoutMs = 20000 as integer) as object
     stopwatch = createObject("roTimespan")
-    r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + path, headers: m.h, timeout: 20000 })
+    r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + path, headers: m.h, timeout: timeoutMs })
     print "Cove: "; Util.redact(Api.timingLine("GET", path, r.code, stopwatch.totalMilliseconds()))
     return r
 end function
@@ -320,6 +327,8 @@ end function
 sub showCached(path as string)
     if Ratings.limitOf(m.srv) > 0 then return
     try
+        ' (no file yet: ReadAsciiFile would print an error on the console)
+        if not createObject("roFileSystem").exists(path) then return
         text = ReadAsciiFile(path)
         if text = "" then return
         saved = parseJson(text)

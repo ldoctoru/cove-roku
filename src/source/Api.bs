@@ -107,51 +107,64 @@ namespace Api
         return res
     end function
 
-    ' (v1.2) Several GETs at once: every transfer starts on one port, so the total time is about the slowest
-    ' request instead of the sum (Home's rows). reqs = [{ url, headers }]; returns one result per request, in
-    ' the same order, shaped like execute()'s ({ code, json, value, error, ms }). A request still running at
-    ' timeoutMs is cancelled with code -1.
-    function executeMany(reqs as object, timeoutMs = 20000 as integer) as object
+    ' (v1.2) Several GETs at once on one port: the total time is about the slowest request instead of the sum
+    ' (Home's rows). At most maxInFlight run together (the next starts as one answers), and each has its own
+    ' deadline (perRequestMs from its start), so one request that never answers costs its own deadline, not
+    ' the whole Home. reqs = [{ url, headers }]; returns one result per request, in order, shaped like
+    ' execute()'s plus ms (from that request's start); unanswered ones get code -1 and timedOut = true.
+    function executeMany(reqs as object, perRequestMs = 8000 as integer, maxInFlight = 4 as integer) as object
         results = []
-        port = createObject("roMessagePort")
-        xfers = []
-        byId = {}
-        spent = createObject("roTimespan")
         for i = 0 to reqs.count() - 1
-            req = reqs[i]
-            results.push({ code: -1, json: invalid, value: invalid, error: "", ms: 0 })
-            xfer = createObject("roUrlTransfer")
-            xfer.setPort(port)
-            xfer.setUrl(req.url)
-            xfer.setCertificatesFile("common:/certs/ca-bundle.crt")
-            xfer.enableEncodings(true)
-            xfer.retainBodyOnError(true)
-            if req.headers <> invalid
-                for each k in req.headers
-                    xfer.addHeader(k, req.headers[k])
-                end for
-            end if
-            if xfer.asyncGetToString()
-                byId[xfer.getIdentity().toStr()] = i
-            else
-                results[i].error = "The request couldn't be started."
-            end if
-            ' (kept referenced until the answer: a transfer that goes out of scope is cancelled)
-            xfers.push(xfer)
+            results.push({ code: -1, json: invalid, value: invalid, error: "", ms: 0, timedOut: false })
         end for
-        waiting = byId.count()
-        while waiting > 0
-            remain = timeoutMs - spent.totalMilliseconds()
-            if remain <= 0 then exit while
+        port = createObject("roMessagePort")
+        spent = createObject("roTimespan")
+        running = {}            ' identity -> { i, xfer, at }
+        nextUp = 0
+        busy = 0
+        while nextUp < reqs.count() or busy > 0
+            ' start more while there is room
+            while busy < maxInFlight and nextUp < reqs.count()
+                i = nextUp
+                nextUp = nextUp + 1
+                req = reqs[i]
+                xfer = createObject("roUrlTransfer")
+                xfer.setPort(port)
+                xfer.setUrl(req.url)
+                xfer.setCertificatesFile("common:/certs/ca-bundle.crt")
+                xfer.enableEncodings(true)
+                xfer.retainBodyOnError(true)
+                if req.headers <> invalid
+                    for each k in req.headers
+                        xfer.addHeader(k, req.headers[k])
+                    end for
+                end if
+                if xfer.asyncGetToString()
+                    running[xfer.getIdentity().toStr()] = { i: i, xfer: xfer, at: spent.totalMilliseconds() }
+                    busy = busy + 1
+                else
+                    results[i].error = "The request couldn't be started."
+                end if
+            end while
+            if busy = 0 then exit while
+            ' wait until the nearest deadline at most
+            now = spent.totalMilliseconds()
+            soonest = 0
+            for each key in running
+                due = running[key].at + perRequestMs
+                if soonest = 0 or due < soonest then soonest = due
+            end for
+            remain = soonest - now
+            if remain < 1 then remain = 1
             msg = wait(remain, port)
             if type(msg) = "roUrlEvent"
                 key = msg.getSourceIdentity().toStr()
-                if byId.doesExist(key)
-                    i = byId[key]
-                    byId.delete(key)
-                    waiting = waiting - 1
-                    res = results[i]
-                    res.ms = spent.totalMilliseconds()
+                if running.doesExist(key)
+                    job = running[key]
+                    running.delete(key)
+                    busy = busy - 1
+                    res = results[job.i]
+                    res.ms = spent.totalMilliseconds() - job.at
                     res.code = msg.getResponseCode()
                     text = msg.getString()
                     if text <> invalid and text <> ""
@@ -163,17 +176,23 @@ namespace Api
                     end if
                     if res.code < 0 then res.error = Util.toText(msg.getFailureReason())
                 end if
-            else if msg = invalid
-                exit while
             end if
+            ' cancel the ones past their deadline
+            now = spent.totalMilliseconds()
+            late = []
+            for each key in running
+                if now - running[key].at >= perRequestMs then late.push(key)
+            end for
+            for each key in late
+                job = running[key]
+                job.xfer.asyncCancel()
+                running.delete(key)
+                busy = busy - 1
+                results[job.i].ms = now - job.at
+                results[job.i].timedOut = true
+                results[job.i].error = "The server didn't answer in time."
+            end for
         end while
-        ' (the ones that didn't answer in time)
-        for each key in byId
-            results[byId[key]].error = "The server didn't answer in time."
-        end for
-        for each xfer in xfers
-            xfer.asyncCancel()
-        end for
         return results
     end function
 
