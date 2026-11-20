@@ -141,7 +141,8 @@ sub load()
         first = createObject("roSGNode", "ContentNode")
         buildRows(first, true)
         ' (v1.2) after the cached Home, no in-between version: the screen changes once, to the full rows
-        if first.getChildCount() > 0 and m.top.fromCache <> true
+        shownFirst = first.getChildCount() > 0 and m.top.fromCache <> true
+        if shownFirst
             print "Cove: home rows "; first.getChildCount(); " (Upcoming still loading)"
             if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch (without Upcoming)"
             m.top.fromCache = false
@@ -151,6 +152,20 @@ sub load()
         fetchQueued(true)
         if m.top.authFailed then return
         if m.top.timing then Clock.startupMark("home upcoming fetched")
+        ' (v1.2) the rows already on screen get the late row put in place, instead of all 7 rows being built
+        ' and drawn again (~0.45 s on the Streambar)
+        if shownFirst
+            toSave = []
+            toSave.append(m.pendingRows)
+            insertLateRows(first)
+            print "Cove: home rows "; first.getChildCount()
+            if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch"
+            m.top.rowsAdded = m.top.rowsAdded + 1
+            m.pendingRows = toSave
+            saveCache(m.cacheFile, libs, first)
+            m.pendingRows = []
+            return
+        end if
     end if
     ' (the lists for the cache, taken before buildRows empties them; written after the rows are out)
     toSave = m.pendingRows
@@ -358,7 +373,10 @@ sub showCached(path as string)
     if Ratings.limitOf(m.srv) > 0 then return
     try
         ' (no file yet: ReadAsciiFile would print an error on the console)
-        if not createObject("roFileSystem").exists(path) then return
+        if not createObject("roFileSystem").exists(path)
+            print "Cove: no cached Home yet ("; path; ")"
+            return
+        end if
         text = ReadAsciiFile(path)
         if text = "" then return
         saved = parseJson(text)
@@ -391,7 +409,12 @@ sub saveCache(path as string, libs as object, root as object)
         end for
         ' (v1.2) the first hero's backdrop as a file, so the cached Home has its picture at once
         bd = saveBackdrop(path, root)
-        if not WriteAsciiFile(path, formatJson({ v: 1, libs: libs, rows: rows, bd: bd })) then print "Cove: home cache not written"
+        text = formatJson({ v: 1, libs: libs, rows: rows, bd: bd })
+        if WriteAsciiFile(path, text)
+            print "Cove: home cache saved, "; text.len(); " chars, backdrop "; bd <> invalid
+        else
+            print "Cove: home cache not written"
+        end if
     catch e
         print "Cove: home cache not written: "; e.message
     end try
@@ -477,5 +500,29 @@ sub useSavedBackdrop(root as object, bd as dynamic)
             it = row.getChild(j)
             if it.backdrop = url then it.backdrop = file
         end for
+    end for
+end sub
+
+' (v1.2) The rows that answered late (Upcoming), built and put at their place among the rows already shown
+' (the place: after the rows of the queue entries before it that made a row; rows are matched by title)
+sub insertLateRows(shown as object)
+    titles = {}
+    for i = 0 to shown.getChildCount() - 1
+        titles[shown.getChild(i).title] = true
+    end for
+    at = 0
+    for each p in m.pendingRows
+        if p.spec <> invalid and p.spec.done and p.upcoming and not titles.doesExist(p.title)
+            one = createObject("roSGNode", "ContentNode")
+            addUpcomingRow(one, p.list)
+            if one.getChildCount() > 0
+                row = one.getChild(0)
+                one.removeChild(row)
+                shown.insertChild(row, at)
+                at = at + 1
+            end if
+        else if titles.doesExist(p.title)
+            at = at + 1
+        end if
     end for
 end sub
