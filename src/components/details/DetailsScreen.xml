@@ -128,5 +128,7 @@
         </Animation>
         <!-- (v1.1.1 SP-10) how long a series page waits for Next Up before opening the first season -->
         <Timer id="seasonWait" duration="0.8" repeat="false" />
+        <!-- (v1.2 SP-9) the rows are rebuilt once, this long after the last answer of a burst -->
+        <Timer id="rowsTimer" duration="0.05" repeat="false" />
     </children>
 </component>
