@@ -412,7 +412,8 @@ sub showHero(i as integer)
     chip = m.top.findNode("chipText")
     chip.text = it.chip
     m.top.findNode("chipBg").width = it.chip.len() * 14 + 28
-    m.top.findNode("chip").visible = it.chip <> ""
+    ' (v1.2) the season and episode are on the meta line now (Items.heroMeta): no chip
+    m.top.findNode("chip").visible = false
     label = "Play"
     if it.resumeAt > 30 then label = "Resume"
     m.top.findNode("playLabel").text = label
