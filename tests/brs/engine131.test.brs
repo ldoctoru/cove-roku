@@ -75,3 +75,36 @@ sub test_subCacheKey()
     t_eq(Playback_subCacheKey("a/../b", "x y", 1), "ab_xy_1", "nothing that leaves tmp:/")
     t_eq(Playback_subCacheFile(k), "tmp:/cove-sub-abc123_mediasource_77_4.srt", "the file")
 end sub
+
+' (E-5) the real play method: from the stream URL, then from the server's TranscodingInfo
+sub test_guessMethod()
+    hls = "http://nas/videos/1/master.m3u8?DeviceId=x&MediaSourceId=a&VideoCodec=h264,hevc&AudioCodec=eac3,ac3,aac"
+    t_eq(Playback_guessMethod("http://nas/Videos/1/stream?static=true&MediaSourceId=a"), "DirectPlay", "the file itself")
+    t_eq(Playback_guessMethod(hls + "&TranscodeReasons=ContainerNotSupported", "ac3"), "DirectStream", "an H.264 MKV remux: Direct Stream")
+    t_eq(Playback_guessMethod(hls, "dts"), "Transcode", "DTS not in AudioCodec: converted")
+    t_eq(Playback_guessMethod(hls + "&AllowVideoStreamCopy=false", "aac"), "Transcode", "no video copy")
+    t_eq(Playback_guessMethod(hls + "&allowaudiostreamcopy=false", "aac"), "Transcode", "no audio copy (any case)")
+    t_eq(Playback_guessMethod(hls + "&SubtitleStreamIndex=3&SubtitleMethod=Encode", "aac"), "Transcode", "burned-in subtitle")
+    t_eq(Playback_guessMethod(hls + "&TranscodeReasons=VideoCodecNotSupported%2CContainerNotSupported", "aac"), "Transcode", "a codec reason")
+    t_eq(Playback_guessMethod(hls + "&TranscodeReasons=SubtitleCodecNotSupported", "aac"), "DirectStream", "a subtitle reason without burn-in")
+    t_eq(Playback_guessMethod(hls, ""), "DirectStream", "source audio unknown: by the URL alone")
+end sub
+
+sub test_classifyMethod()
+    hls = "http://nas/videos/1/master.m3u8?AudioCodec=aac"
+    t_eq(Playback_classifyMethod(hls, { IsVideoDirect: true, IsAudioDirect: true }, "dts"), "DirectStream", "server: both copied")
+    t_eq(Playback_classifyMethod(hls, { IsVideoDirect: true, IsAudioDirect: false }, "aac"), "Transcode", "server: audio converted")
+    t_eq(Playback_classifyMethod(hls, { IsVideoDirect: false, IsAudioDirect: true }, "aac"), "Transcode", "server: video converted")
+    t_eq(Playback_classifyMethod(hls, { IsVideoDirect: true }, "aac"), "DirectStream", "no audio field: nothing to convert")
+    t_eq(Playback_classifyMethod(hls, {}, "dts"), "Transcode", "no TranscodingInfo fields: the URL guess")
+    t_eq(Playback_classifyMethod(hls, invalid, "aac"), "DirectStream", "no session: the URL guess")
+    t_eq(Playback_classifyMethod("http://nas/Videos/1/stream?static=true", { IsVideoDirect: false }, ""), "DirectPlay", "a static file stays Direct Play")
+end sub
+
+sub test_audioCodecOf()
+    src = { MediaStreams: [{ Type: "Video", Index: 0, Codec: "h264" }, { Type: "Audio", Index: 1, Codec: "AC3" }, { Type: "Audio", Index: 2, Codec: "dts", IsDefault: true }] }
+    t_eq(Playback_audioCodecOf(src, 1), "ac3", "the chosen track")
+    t_eq(Playback_audioCodecOf(src, -1), "dts", "the file's default")
+    t_eq(Playback_audioCodecOf(src, 9), "", "a track that isn't there")
+    t_eq(Playback_audioCodecOf({}, -1), "", "no streams")
+end sub

@@ -153,6 +153,7 @@ sub resetState()
         m.speed = Val(m.speedId)
     end if
     m.session = invalid
+    if m.methodTimer <> invalid then m.methodTimer.control = "stop"
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = invalid
     m.retried = false
@@ -828,6 +829,8 @@ sub onState()
             if m.thumbStream <> invalid then m.thumbTimer.control = "start"
             report("/Sessions/Playing", false)
             m.progressTimer.control = "start"
+            ' (v1.3.1 E-5) the server's own view of the play method
+            startMethodCheck()
             ' (v1.3) a subtitle added on the server after the details page loaded (or while the server was still
             ' adding it): the track list is checked once more now that the video plays
             checkStreams("start")
@@ -2907,6 +2910,64 @@ sub askSessionInfo()
     t.observeField("response", "onPbSession")
     m.pbTask = t
     t.control = "RUN"
+end sub
+
+' (v1.3.1 E-5) The play method as the server sees it: 4, 8 and 12 s after the first frame, GET the session's
+' TranscodingInfo until it says whether the video / audio are copied, then correct the method (one Progress
+' report with it), as Cove for macOS confirmMethod
+sub startMethodCheck()
+    s = m.session
+    if s = invalid then return
+    print "Cove: player play method reported "; s.method; " (from the stream URL)"
+    if s.method = "DirectPlay" then return
+    m.methodTries = 0
+    if m.methodTimer = invalid
+        m.methodTimer = createObject("roSGNode", "Timer")
+        m.methodTimer.duration = 4
+        m.methodTimer.repeat = false
+        m.methodTimer.observeField("fire", "askMethodInfo")
+        m.top.appendChild(m.methodTimer)
+    end if
+    m.methodTimer.control = "stop"
+    m.methodTimer.control = "start"
+end sub
+
+sub askMethodInfo()
+    if m.session = invalid or m.closing then return
+    m.methodTries = m.methodTries + 1
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "GET", url: Util.toText(m.top.server.url) + "/Sessions?DeviceId=" + Util.deviceId(), headers: Api.headers(m.top.server, true), body: "", tag: { kind: "methodCheck", itemId: m.top.item.id, playSessionId: Util.toText(m.session.playSessionId) }, timeout: 8000 }
+    t.observeField("response", "onMethodInfo")
+    m.methodTask = t
+    t.control = "RUN"
+end sub
+
+sub onMethodInfo(ev as object)
+    r = ev.getData()
+    s = m.session
+    if s = invalid or m.closing or r.tag.itemId <> m.top.item.id or Util.toText(r.tag.playSessionId) <> Util.toText(s.playSessionId) then return
+    ti = invalid
+    if r.code = 200 and type(r.json) = "roArray" and r.json.count() > 0 and Util.isAA(r.json[0]) then ti = r.json[0].TranscodingInfo
+    known = Util.isAA(ti) and (ti.IsVideoDirect <> invalid or ti.IsAudioDirect <> invalid)
+    if not known and m.methodTries < 3
+        m.methodTimer.control = "start"
+        return
+    end if
+    if Util.isAA(ti) then m.pbServer = { itemId: r.tag.itemId, info: ti }
+    fixed = Playback.classifyMethod(Util.toText(s.url), ti, Util.toText(s.sourceAudioCodec))
+    vid = "?"
+    aud = "?"
+    if known
+        vid = "converted"
+        if Util.flag(ti, "IsVideoDirect") then vid = "copied"
+        aud = "converted"
+        if Util.flag(ti, "IsAudioDirect") then aud = "copied"
+    end if
+    print "Cove: player play method reported "; fixed; " (first guess "; s.method; "; server: video "; vid; ", audio "; aud; ", after "; m.methodTries; " checks)"
+    if fixed = s.method then return
+    s.method = fixed
+    m.session = s
+    if m.started then report("/Sessions/Playing/Progress", m.video.state = "paused")
 end sub
 
 sub onPbSession(ev as object)
