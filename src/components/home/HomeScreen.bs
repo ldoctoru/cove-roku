@@ -506,7 +506,7 @@ sub useButton()
     else
         start = 0.0
         if it.resumeAt > 30 then start = it.resumeAt
-        m.top.action = { id: "play", itemId: it.itemId, title: it.title, subtitle: it.episode, start: start }
+        m.top.action = { id: "play", itemId: it.itemId, itemType: Util.toText(it.itemType), title: it.title, subtitle: it.episode, start: start }
     end if
 end sub
 
@@ -1028,7 +1028,7 @@ sub onItemChosen(ev as object)
     if id = "resume" or id = "start"
         start = 0.0
         if id = "resume" then start = it.resumeAt
-        m.top.action = { id: "play", itemId: it.itemId, title: it.title, subtitle: it.episode, start: start }
+        m.top.action = { id: "play", itemId: it.itemId, itemType: Util.toText(it.itemType), title: it.title, subtitle: it.episode, start: start }
     else if id = "watched" or id = "unwatched"
         method = "DELETE"
         if id = "watched" then method = "POST"

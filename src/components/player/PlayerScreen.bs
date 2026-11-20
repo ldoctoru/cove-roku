@@ -17,10 +17,18 @@ sub init()
     ' lets Roku open its system Options panel on *, so our audio / subtitle menu never got the key.
     m.keys = m.top.findNode("keys")
     m.status = m.top.findNode("status")
+    ' (v1.3.1 E-7) the error panel (Try Again / Play Without Subtitles)
+    m.errorBox = m.top.findNode("errorBox")
+    m.errorPanel = m.top.findNode("errorPanel")
+    m.errorPanel.observeField("chosen", "onErrorChoice")
+    m.errorAt = 0.0
     m.loader = m.top.findNode("loader")
     m.subLayer = m.top.findNode("subLayer")
     m.subTimer = m.top.findNode("subTimer")
     m.subTimer.observeField("fire", "onSubTick")
+    m.subGen = 0            ' (v1.3.1 E-3) the subtitle load answers belong to (clearSubs / startSubLoad)
+    m.subFetching = false
+    m.subUpTo = -1.0
     m.subsOn = false        ' cues loaded (the subtitle timer runs only while they are and the video plays)
     m.stillClock = invalid  ' since "Are you still watching?" showed (R-5)
     m.loaderArc = m.top.findNode("loaderArc")
@@ -150,6 +158,7 @@ sub resetState()
         m.speed = Val(m.speedId)
     end if
     m.session = invalid
+    if m.methodTimer <> invalid then m.methodTimer.control = "stop"
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
     m.playTask = invalid
     m.retried = false
@@ -353,6 +362,11 @@ end sub
 sub onInfo(r as object)
     if r.code = 200 and r.json <> invalid
         m.info = r.json
+        ' (v1.3.1) the first title (not an intro): the scene opens its page after Home playback
+        pi = m.top.playedInfo
+        if not isIntro() and (not Util.isAA(pi) or pi.count() = 0)
+            m.top.playedInfo = { id: Util.toText(r.json.Id), type: Util.toText(r.json.Type), seriesId: Util.toText(r.json.SeriesId), seasonId: Util.toText(r.json.SeasonId) }
+        end if
         m.versions = Tracks.versions(r.json)
         m.tracks = Tracks.fromItem(r.json, Util.toText(m.opts.sourceId))
         m.marks = Tracks.markers(r.json)
@@ -407,6 +421,7 @@ sub onInfo(r as object)
             if rs >= 0 and Tracks.findSub(m.tracks, rs).isText then m.replaySub = rs
             print "Cove: Roku captions on instant replay -> track "; rs
         end if
+        if m.opts.sub >= 0 then print "Cove: player subtitle chosen track "; m.opts.sub; " ("; Tracks.subKindOf(m.tracks, m.opts.sub); ")"
         ' Jellyfin keeps intro / credits (and recaps, previews, commercials) as media segments
         if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial", { kind: "segments", itemId: m.top.item.id })
         if Util.toText(r.json.Type) = "Episode" and Util.toText(r.json.SeriesId) <> ""
@@ -564,12 +579,11 @@ sub loadTextSub()
     sub_ = Tracks.findSub(m.tracks, m.opts.sub)
     if m.opts.sub < 0 and m.replaySub >= 0
         ' (subtitles off, Roku captions on instant replay: loaded now, shown only after a replay)
-        probeSubtitle(Playback.subtitleUrl(m.top.server, m.top.item.id, Util.toText(m.session.mediaSourceId), m.replaySub), m.replaySub, true)
+        startSubLoad(m.replaySub, true)
         return
     end if
     if sub_ = invalid or not sub_.isText or m.opts.burn then return
-    url = Playback.subtitleUrl(m.top.server, m.top.item.id, Util.toText(m.session.mediaSourceId), sub_.index)
-    probeSubtitle(url, sub_.index)
+    startSubLoad(sub_.index, false)
 end sub
 
 sub clearSubs()
@@ -577,6 +591,12 @@ sub clearSubs()
     m.subTimer.control = "stop"
     m.subsOn = false
     m.subLayer.cues = []
+    ' (v1.3.1 E-3) answers for the subtitle loaded before are dropped (subGen)
+    m.subGen = m.subGen + 1
+    m.subFetching = false
+    m.subFailed = false
+    m.subUpTo = -1.0
+    updateSubNote()
 end sub
 
 ' The Video node reports its position once a second: in between, add the time since that report
@@ -591,6 +611,7 @@ sub syncSubClock(atSec as float)
     m.subPos = atSec
     if m.subClock = invalid then m.subClock = createObject("roTimespan")
     m.subClock.Mark()
+    updateSubNote()
 end sub
 
 ' Settings → Subtitles → Distance from bottom; above the controls while they show (as on the Mac)
@@ -598,51 +619,182 @@ sub liftSubs(controlsShown as boolean)
     base = Int(1080 * m.pf.subBottom / 100)
     if controlsShown and base < 236 then base = 236
     m.subLayer.lift = base
+    updateSubNote()
 end sub
 
-' Download the subtitle (the server extracts embedded ones the first time, so it can take a while). If the
-' server answers with an error, play the subtitle burned into the picture instead of showing nothing.
-sub probeSubtitle(url as string, index as integer, forReplay = false as boolean)
+' (v1.3.1 E-3) Subtitles in two parts, as Cove for macOS loadCues: the next 5 minutes from the playback
+' position first (the server reads an embedded track from the start of the file up to there, so they come
+' quickly), then the whole track (a large MKV can take minutes the first time). Playback never waits for
+' them. (E-10) A whole track downloaded before in this session comes from tmp:/ at once (a restart for
+' another audio track, quality or version doesn't download it again).
+sub startSubLoad(index as integer, forReplay as boolean)
+    m.subGen = m.subGen + 1
+    m.subIndex = index
+    m.subFailed = false
+    m.subLoadClock = createObject("roTimespan")
+    m.subCacheKey = Playback.subCacheKey(Util.toText(m.top.item.id), Util.toText(m.session.mediaSourceId), index)
+    cached = subCachePath(m.subCacheKey)
+    if cached <> ""
+        m.subUpTo = 0.0
+        m.subFetching = not forReplay
+        requestSubPart("cache", index, forReplay, -1.0, cached)
+        return
+    end if
+    startSubDownload(index, forReplay)
+end sub
+
+sub startSubDownload(index as integer, forReplay as boolean)
+    if forReplay
+        ' (the hidden instant-replay subtitle: the whole track, nothing on screen waits for it)
+        m.subFetching = false
+        requestSubPart("whole", index, true, -1.0, "")
+        return
+    end if
+    m.subUpTo = 0.0
+    m.subFetching = true
+    at = m.video.position
+    if not m.started or at < 1 then at = m.startAt
+    requestSubPart("piece", index, false, at + 300, "")
+    updateSubNote()
+end sub
+
+' One subtitle download: part "piece" (up to endSec), "whole" or "cache" (readFrom: the tmp:/ file)
+sub requestSubPart(part as string, index as integer, forReplay as boolean, endSec as float, readFrom as string)
+    sourceId = Util.toText(m.session.mediaSourceId)
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: "GET", url: url, headers: Playback.subtitleHeaders(m.top.server), body: "", keepText: true, parse: "srt", tag: { kind: "subProbe", itemId: m.top.item.id, index: index, replay: forReplay }, timeout: 180000 }
+    req = { method: "GET", url: Playback.subtitleUrl(m.top.server, m.top.item.id, sourceId, index, endSec), headers: Playback.subtitleHeaders(m.top.server), body: "", keepText: true, parse: "srt", tag: { kind: "subProbe", itemId: m.top.item.id, index: index, replay: forReplay, gen: m.subGen, part: part, endSec: endSec, cacheKey: m.subCacheKey }, timeout: 600000 }
+    if part = "piece" then req.timeout = 120000
+    if readFrom <> ""
+        req.readFrom = readFrom
+    else
+        ' (the whole track is kept for the session: a piece only when the server sent it all anyway)
+        req.cacheTo = Playback.subCacheFile(m.subCacheKey)
+        req.cacheIfPast = -1.0
+        if part = "piece" then req.cacheIfPast = endSec + 120
+    end if
+    print "Cove: player subtitle "; part; " asked (track "; index; ")"
+    t.request = req
     t.observeField("response", "onResponse")
     m.pending.push(t)
     t.control = "RUN"
 end sub
 
 sub onSubProbe(r as object)
-    print "Cove: subtitle -> "; r.code
-    if r.tag.replay = true
+    tg = r.tag
+    ' (a whole track saved in tmp:/ is kept for the session, also when its answer is no longer wanted)
+    if Util.toText(r.savedTo) <> "" then rememberSubCache(Util.toText(tg.cacheKey), Util.toText(r.savedTo))
+    if Util.toNumber(tg.gen) <> m.subGen or tg.itemId <> m.top.item.id or m.closing then return
+    part = Util.toText(tg.part)
+    n = 0
+    if r.cues <> invalid then n = r.cues.count()
+    ms = 0
+    if m.subLoadClock <> invalid then ms = m.subLoadClock.TotalMilliseconds()
+    print "Cove: subtitle "; part; " -> "; r.code; ", "; n; " cues, "; ms; " ms"
+    ' (the tmp:/ copy is gone: download it again)
+    if part = "cache" and n = 0
+        forgetSubCache(Util.toText(tg.cacheKey))
+        startSubDownload(tg.index, tg.replay = true)
+        return
+    end if
+    if tg.replay = true
         ' (the instant-replay subtitle: kept hidden; nothing to fall back to if it fails)
-        if r.tag.itemId <> m.top.item.id or m.opts.sub >= 0 or m.closing or r.code < 200 or r.code >= 400 or r.cues = invalid or r.cues.count() = 0 then return
+        if m.opts.sub >= 0 or n = 0 then return
         m.subLayer.visible = false
-        m.subLayer.restyle = true
-        liftSubs(m.osdShown)
-        m.subLayer.cues = r.cues
-        m.subsOn = true
-        m.subTimer.control = "start"
+        showCues(r.cues)
         m.replayReady = true
         return
     end if
-    if r.tag.itemId <> m.top.item.id or m.opts.sub <> r.tag.index or m.opts.burn or m.closing then return
-    if r.code >= 200 and r.code < 400
-        if r.cues <> invalid then print "Cove: subtitle cues "; r.cues.count()
-        if r.cues <> invalid and r.cues.count() > 0
-            m.subLayer.restyle = true
-            liftSubs(m.osdShown)
-            m.subLayer.cues = r.cues
-            m.subsOn = true
-            m.subTimer.control = "start"
+    if m.opts.sub <> tg.index or m.opts.burn then return
+    st = Playback.cueStep(r.code, n, part = "piece", m.subsOn)
+    if st = "use"
+        showCues(r.cues)
+        m.subUpTo = -1.0
+        if part = "piece" and r.cues[n - 1].e <= tg.endSec + 120 then m.subUpTo = tg.endSec
+        m.subFetching = m.subUpTo >= 0
+        if part = "piece"
+            print "Cove: player subtitle piece loaded "; ms; " ms ("; n; " cues, up to "; Int(tg.endSec); " s)"
+        else
+            print "Cove: player subtitle whole track loaded "; ms; " ms ("; n; " cues, "; part; ")"
         end if
+        if m.subFetching then requestSubPart("whole", tg.index, false, -1.0, "")
+    else if st = "askAll"
+        ' (no cues in these minutes yet, or the route is missing on an older server: the whole track)
+        requestSubPart("whole", tg.index, false, -1.0, "")
+    else if st = "keep"
+        ' (the rest failed: the first minutes stay)
+        m.subFetching = false
+        print "Cove: player subtitle whole track failed ("; r.code; "), keeping the first part"
+        Toasts.notify("The rest of the subtitles couldn't be loaded", "info")
+    else if st = "burnIn"
+        m.subFetching = false
+        print "Cove: text subtitle failed, burning it in"
+        m.opts.burn = true
+        ' (the line stays under the loading ring)
+        m.loadNote = "The subtitles couldn't load as text. Adding them to the picture..."
+        restartAt(m.video.position)
         return
+    else
+        ' (no answer in time: playback goes on without them; burning in would need the same extraction)
+        m.subFetching = false
+        m.subFailed = true
+        print "Cove: player subtitle timed out ("; r.code; ") after "; ms; " ms"
+        Toasts.notify("Subtitles couldn't be loaded. Try again from the Subtitles menu.", "info")
     end if
-    ' (no answer in time: nothing to show)
-    if r.code < 400 then return
-    print "Cove: text subtitle failed, burning it in"
-    m.opts.burn = true
-    ' (the line stays under the loading ring)
-    m.loadNote = "The subtitles couldn't load as text. Adding them to the picture..."
-    restartAt(m.video.position)
+    updateSubNote()
+end sub
+
+sub showCues(cues as object)
+    m.subLayer.restyle = true
+    liftSubs(m.osdShown)
+    m.subLayer.cues = cues
+    m.subsOn = true
+    if m.video.state = "playing" then m.subTimer.control = "start"
+end sub
+
+' "Loading subtitles..." while the position is past the part downloaded so far and the rest is coming
+sub updateSubNote()
+    note = m.top.findNode("subNote")
+    if note = invalid then return
+    show = m.subFetching = true and m.subUpTo <> invalid and m.subUpTo >= 0 and m.started and m.subLayer.visible
+    if show then show = m.video.position - m.subLayer.delay >= m.subUpTo
+    if show then note.translation = [790, 1080 - m.subLayer.lift - 52]
+    note.visible = show
+end sub
+
+' (E-10) the session's subtitle files in tmp:/ (m.global, so a new player finds them): at most 8
+function subCachePath(key as string) as string
+    if key = "" or m.global = invalid or not m.global.hasField("subCache") then return ""
+    c = m.global.subCache
+    if not Util.isAA(c) then return ""
+    return Util.toText(c[key])
+end function
+
+sub rememberSubCache(key as string, path as string)
+    if key = "" or m.global = invalid then return
+    if not m.global.hasField("subCache") then m.global.addFields({ subCache: {}, subCacheOrder: [] })
+    c = m.global.subCache
+    order = m.global.subCacheOrder
+    if not Util.isAA(c) then c = {}
+    if type(order) <> "roArray" then order = []
+    if c.doesExist(key) then return
+    c[key] = path
+    order.push(key)
+    while order.count() > 8
+        old = order.shift()
+        DeleteFile(Util.toText(c[old]))
+        c.delete(old)
+    end while
+    m.global.subCache = c
+    m.global.subCacheOrder = order
+end sub
+
+sub forgetSubCache(key as string)
+    if key = "" or m.global = invalid or not m.global.hasField("subCache") then return
+    c = m.global.subCache
+    if Util.isAA(c) and c.doesExist(key)
+        c.delete(key)
+        m.global.subCache = c
+    end if
 end sub
 
 sub onPlayError(ev as object)
@@ -652,9 +804,7 @@ sub onPlayError(ev as object)
     t.unobserveField("error")
     m.playTask = invalid
     m.watchdog.control = "stop"
-    m.status.text = Util.toText(ev.getData()) + chr(10) + "Press Back to return."
-    m.status.visible = true
-    hideLoading()
+    showPlayError(Util.toText(ev.getData()), m.startAt, "PlaybackInfo")
 end sub
 
 sub onState()
@@ -687,6 +837,8 @@ sub onState()
             if m.thumbStream <> invalid then m.thumbTimer.control = "start"
             report("/Sessions/Playing", false)
             m.progressTimer.control = "start"
+            ' (v1.3.1 E-5) the server's own view of the play method
+            startMethodCheck()
             ' (v1.3) a subtitle added on the server after the details page loaded (or while the server was still
             ' adding it): the track list is checked once more now that the video plays
             checkStreams("start")
@@ -720,9 +872,9 @@ sub onVideoError()
         retryConverted(atSec)
         return
     end if
-    m.status.text = "This video can't be played on this Roku." + chr(10) + Util.redact(Util.toText(m.video.errorMsg)) + "  (" + Util.toText(m.video.errorCode) + ")" + chr(10) + "Press Back to return."
-    m.status.visible = true
-    hideLoading()
+    m.video.control = "stop"
+    stopEncoding()
+    showPlayError("This video can't be played on this Roku. " + Util.redact(Util.toText(m.video.errorMsg)) + "  (" + Util.toText(m.video.errorCode) + ")", atSec, "video error")
 end sub
 
 ' Every 10 s: progress while playing; while paused a ping plus the paused progress, so the server keeps
@@ -770,9 +922,68 @@ sub onWatchdog()
     end if
     m.video.control = "stop"
     stopEncoding()
-    m.status.text = "The server didn't start the video." + chr(10) + "Try again, or choose a lower quality with *." + chr(10) + "Press Back to return."
-    m.status.visible = true
+    showPlayError("The server didn't start the video. Try again, or choose a lower quality with *.", atSec, "no start")
+end sub
+
+' (v1.3.1 E-7) After the automatic converted retry: the reason with Try Again (converted, at the same
+' position) and, when a subtitle was burned into the picture, Play Without Subtitles (as Cove for macOS
+' ClassicPlayer "Retry with transcoding" and CastSubtitles). Back leaves the player.
+sub showPlayError(text as string, atSec as float, why as string)
+    m.status.visible = false
     hideLoading()
+    if m.picker <> invalid then closePicker()
+    m.osdShown = false
+    m.osd.opacity = 0
+    ' (the failed session ends on the server, as before a restart; the position is kept)
+    if m.started then report("/Sessions/Playing/Stopped", false, atSec)
+    m.started = false
+    m.progressTimer.control = "stop"
+    m.errorAt = atSec
+    m.errorWhy = why
+    btns = [{ id: "retry", label: "Try Again" }]
+    burned = m.opts.burn and m.opts.sub >= 0
+    if burned then btns.push({ id: "nosubs", label: "Play Without Subtitles" })
+    print "Cove: player error panel ("; why; ", subtitle burned in "; burned; ") at "; Int(atSec); " s"
+    m.errorPanel.message = text
+    m.errorPanel.index = 0
+    m.errorPanel.buttons = btns
+    m.errorBox.visible = true
+    m.errorPanel.setFocus(true)
+end sub
+
+sub onErrorChoice(ev as object)
+    id = Util.toText(ev.getData().id)
+    if not m.errorBox.visible or m.closing then return
+    m.errorBox.visible = false
+    atSec = m.errorAt
+    m.video.control = "stop"
+    stopEncoding()
+    m.started = false
+    m.failed = false
+    m.progressTimer.control = "stop"
+    m.watchdog.control = "stop"
+    if id = "nosubs"
+        ' (for this title only: the series' language stays)
+        m.opts.sub = -1
+        m.opts.burn = false
+        clearSubs()
+        m.retried = false
+        m.loadNote = ""
+        print "Cove: player error panel: Play Without Subtitles at "; Int(atSec); " s"
+        Toasts.notify("Playing without subtitles", "info")
+        drawControls()
+        start(atSec, false)
+    else
+        ' (converted, as the automatic retry; a failure again shows this panel again)
+        ' (a PlaybackInfo failure: the same request again)
+        convert = m.errorWhy <> "PlaybackInfo"
+        m.retried = true
+        m.loadNote = ""
+        if convert then m.loadNote = "Converting the video for this Roku..."
+        print "Cove: player error panel: Try Again at "; Int(atSec); " s (converted "; convert; ")"
+        start(atSec, convert)
+    end if
+    focusPlayer()
 end sub
 
 sub retryConverted(atSec as float)
@@ -896,7 +1107,7 @@ end sub
 ' The remote to the Skip intro / Next button when it shows over the bare video, else to the player's keys;
 ' an open menu keeps it
 sub focusPlayer()
-    if m.picker <> invalid or m.still.visible or m.upNext.visible then return
+    if m.picker <> invalid or m.still.visible or m.upNext.visible or m.errorBox.visible then return
     if m.action.visible and not m.osdShown
         if not m.action.isInFocusChain() then Speak.say(Speak.button(m.actionLabel.text) + ", press OK")
         m.action.setFocus(true)
@@ -1464,6 +1675,10 @@ sub onPicked(ev as object)
         else
             loadTextSub()
         end if
+    else if c.purpose = "subs" and v = m.opts.sub and m.subFailed = true
+        ' (v1.3.1 E-3) the same subtitle again after "Subtitles couldn't be loaded": try once more
+        print "Cove: player subtitle try again (track "; v; ")"
+        loadTextSub()
     end if
     focusPlayer()
     print "Cove: picked "; c.purpose; " "; c.id; " restart="; restart
@@ -1505,6 +1720,11 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if m.holdKey <> "" and key <> m.holdKey then endHold()
     ' (any key: someone is watching)
     noteInput()
+    ' (v1.3.1 E-7) the error panel keeps Left / Right / OK; Back leaves, other keys wait
+    if m.errorBox.visible
+        if key = "back" then close()
+        return true
+    end if
     if m.still.visible
         stillKey(key)
         return true
@@ -2347,14 +2567,20 @@ sub stopEncodingFor(s as dynamic)
     fire("DELETE", path, "", 6000)
 end sub
 
-' Closing past 90 % (or in the credits) counts as watched, like on the Mac
+' (v1.3.1 E-1) Closing past 90 % counts as watched through the Stopped report alone (the server marks it, as
+' on the Mac); only a stop in the credits under 90 % is marked here (Playback.needsPlayedMark)
 sub markIfWatched(atSec as float)
     if isIntro() then return
     d = m.video.duration
     if m.info = invalid or d <= 0 or Util.flag(m.info.UserData, "Played") then return
-    inCredits = m.marks.credits > 0 and atSec >= m.marks.credits
-    if atSec < d * 0.9 and not inCredits then return
-    print "Cove: marking watched at "; Int(atSec); " of "; Int(d); " s"
+    if not Playback.needsPlayedMark(atSec, d, m.marks.credits)
+        if atSec >= d * 0.9
+            print "Cove: player watched mark skipped (stop report at "; Int(atSec * 100 / d); " % marks it)"
+            if Util.isAA(m.info.UserData) then m.info.UserData.Played = true
+        end if
+        return
+    end if
+    print "Cove: player watched mark kept (in the credits at "; Int(atSec); " of "; Int(d); " s, under 90 %)"
     uid = Util.toText(m.top.server.userId)
     ' Emby and Jellyfin up to 10.8 know only /Users/{id}/PlayedItems; Jellyfin 10.9+ also /UserPlayedItems, used
     ' if the first answers 404 (as on Home)
@@ -2518,7 +2744,9 @@ end function
 
 sub onFocusChanged()
     if not m.top.hasFocus() then return
-    if m.picker <> invalid
+    if m.errorBox.visible
+        m.errorPanel.setFocus(true)
+    else if m.picker <> invalid
         m.picker.setFocus(true)
     else if m.still.visible
         m.still.setFocus(true)
@@ -2756,6 +2984,64 @@ sub askSessionInfo()
     t.observeField("response", "onPbSession")
     m.pbTask = t
     t.control = "RUN"
+end sub
+
+' (v1.3.1 E-5) The play method as the server sees it: 4, 8 and 12 s after the first frame, GET the session's
+' TranscodingInfo until it says whether the video / audio are copied, then correct the method (one Progress
+' report with it), as Cove for macOS confirmMethod
+sub startMethodCheck()
+    s = m.session
+    if s = invalid then return
+    print "Cove: player play method reported "; s.method; " (from the stream URL)"
+    if s.method = "DirectPlay" then return
+    m.methodTries = 0
+    if m.methodTimer = invalid
+        m.methodTimer = createObject("roSGNode", "Timer")
+        m.methodTimer.duration = 4
+        m.methodTimer.repeat = false
+        m.methodTimer.observeField("fire", "askMethodInfo")
+        m.top.appendChild(m.methodTimer)
+    end if
+    m.methodTimer.control = "stop"
+    m.methodTimer.control = "start"
+end sub
+
+sub askMethodInfo()
+    if m.session = invalid or m.closing then return
+    m.methodTries = m.methodTries + 1
+    t = createObject("roSGNode", "ApiTask")
+    t.request = { method: "GET", url: Util.toText(m.top.server.url) + "/Sessions?DeviceId=" + Util.deviceId(), headers: Api.headers(m.top.server, true), body: "", tag: { kind: "methodCheck", itemId: m.top.item.id, playSessionId: Util.toText(m.session.playSessionId) }, timeout: 8000 }
+    t.observeField("response", "onMethodInfo")
+    m.methodTask = t
+    t.control = "RUN"
+end sub
+
+sub onMethodInfo(ev as object)
+    r = ev.getData()
+    s = m.session
+    if s = invalid or m.closing or r.tag.itemId <> m.top.item.id or Util.toText(r.tag.playSessionId) <> Util.toText(s.playSessionId) then return
+    ti = invalid
+    if r.code = 200 and type(r.json) = "roArray" and r.json.count() > 0 and Util.isAA(r.json[0]) then ti = r.json[0].TranscodingInfo
+    known = Util.isAA(ti) and (ti.IsVideoDirect <> invalid or ti.IsAudioDirect <> invalid)
+    if not known and m.methodTries < 3
+        m.methodTimer.control = "start"
+        return
+    end if
+    if Util.isAA(ti) then m.pbServer = { itemId: r.tag.itemId, info: ti }
+    fixed = Playback.classifyMethod(Util.toText(s.url), ti, Util.toText(s.sourceAudioCodec))
+    vid = "?"
+    aud = "?"
+    if known
+        vid = "converted"
+        if Util.flag(ti, "IsVideoDirect") then vid = "copied"
+        aud = "converted"
+        if Util.flag(ti, "IsAudioDirect") then aud = "copied"
+    end if
+    print "Cove: player play method reported "; fixed; " (first guess "; s.method; "; server: video "; vid; ", audio "; aud; ", after "; m.methodTries; " checks)"
+    if fixed = s.method then return
+    s.method = fixed
+    m.session = s
+    if m.started then report("/Sessions/Playing/Progress", m.video.state = "paused")
 end sub
 
 sub onPbSession(ev as object)
@@ -3543,6 +3829,7 @@ sub onStreamsCheck(r as object)
             if nt <> invalid and nt.isText
                 m.opts.sub = pick
                 m.opts.burn = false
+                print "Cove: player subtitle chosen track "; pick; " ("; Tracks.subKindOf(m.tracks, pick); ", added on the server)"
                 loadTextSub()
                 turnedOn = true
             end if

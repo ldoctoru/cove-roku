@@ -578,6 +578,8 @@ sub onHomeAction(ev as object)
         playItem = { id: a.itemId, title: a.title, subtitle: Util.toText(a.subtitle), start: a.start }
         ' (library Shuffle: the titles to play after this one)
         if type(a.queue) = "roArray" then playItem.queue = a.queue
+        ' (v1.3.1) from Home (banner Play, a card's Resume / Play from the beginning): its page opens afterwards
+        if Util.toText(sender.screenId) = "home" then playItem.returnTo = { itemId: Util.toText(a.itemId), itemType: Util.toText(a.itemType) }
         startPlayer(playItem)
     else if a.id = "favorites"
         ' rows by kind (Movies, Shows, Episodes, Collections, People), as the Mac's Favorites page
@@ -812,7 +814,7 @@ sub playFromCard(a as object)
         return
     end if
     rid = nextReqId()
-    m.quickPending = { id: rid, screen: top(), at: nowSecs(), title: Util.toText(a.title) }
+    m.quickPending = { id: rid, screen: top(), at: nowSecs(), title: Util.toText(a.title), card: { itemId: id, itemType: Util.toText(a.itemType) } }
     print "Cove: play key on "; Util.toText(a.itemType); " "; id
     request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + id, true, "", { kind: "qpItem", reqId: rid })
 end sub
@@ -926,8 +928,11 @@ sub onQuickList(r as object)
 end sub
 
 sub quickStart(it as object)
+    p = m.quickPending
     m.quickPending = invalid
     item = QuickPlay.playerItem(it)
+    ' (v1.3.1) the Play key on a Home card: that card's page opens when playback ends (Cove for macOS playFromHome)
+    if p <> invalid and p.screen <> invalid and Util.toText(p.screen.screenId) = "home" then item.returnTo = p.card
     print "Cove: play key starts "; item.id; " at "; item.start
     startPlayer(item)
 end sub
@@ -936,6 +941,10 @@ sub openPlayer(item as object)
     p = createObject("roSGNode", "PlayerScreen")
     p.server = m.server
     p.observeField("done", "onPlayerDone")
+    if Util.isAA(item.returnTo)
+        p.returnTo = item.returnTo
+        item.delete("returnTo")
+    end if
     push(p)
     ' (v1.2 SP-13b) the item JSON from the details page goes in its own field, before item (which starts the
     ' player), so the item the player reads many times stays small
@@ -950,12 +959,21 @@ end sub
 sub onPlayerDone(ev as object)
     ' (before pop: a Home or library page right under the player reloads as it is shown)
     markStale()
-    seriesId = Util.toText(ev.getRoSGNode().openSeries)
+    pl = ev.getRoSGNode()
+    seriesId = Util.toText(pl.openSeries)
+    ' (v1.3.1) playback started from Home: that title's page (an episode: its series on that season), as on the
+    ' Mac; Back from there returns to Home
+    back = NavUtil.returnPage(pl.returnTo, pl.playedInfo)
     ' (SC-1: the page under the player, and every page under it, reload as they are shown: "stale")
     pop()
     t = top()
     ' "Back to the series" (Are you still watching?): its page, unless it is the one under the player
-    if seriesId <> "" and not (t <> invalid and t.screenId = "details" and Util.toText(t.itemId) = seriesId) then openItem({ itemId: seriesId, itemType: "Series", title: "" })
+    if seriesId <> "" and not (t <> invalid and t.screenId = "details" and Util.toText(t.itemId) = seriesId)
+        openItem({ itemId: seriesId, itemType: "Series", title: "" })
+    else if seriesId = "" and back <> invalid and t <> invalid and Util.toText(t.screenId) = "home"
+        print "Cove: player closed after Home playback: opening "; back.itemType; " "; back.itemId; " (season "; Util.toText(back.seasonId); ")"
+        openItem(back)
+    end if
 end sub
 
 sub showNotice(title as string, text as string)
