@@ -1773,6 +1773,9 @@ end function
 ' Presses add up: the bar shows where playback will continue, the jump happens 0.8 s after the last press
 sub seekBy(delta as integer)
     if m.session = invalid then return
+    ' (v1.2 SP-15) Emby's BIF: the first scrub starts it if the 8 s after "playing" haven't passed yet (only a
+    ' real seek: showing the controls or moving between buttons doesn't)
+    if m.thumbs = invalid and m.thumbStream <> invalid then startDeferredThumbs()
     target = currentPos() + delta
     d = m.video.duration
     if target < 0 then target = 0
@@ -1858,6 +1861,7 @@ sub startDeferredThumbs()
     if s = invalid or m.thumbs <> invalid then return
     m.thumbStream = invalid
     m.thumbTimer.control = "stop"
+    print "Cove: player seek thumbnails (BIF) download starts"
     loadThumbs(s)
 end sub
 
@@ -1912,7 +1916,6 @@ end sub
 ' The frame for atSec above the scrubber at x (only while seeking)
 sub showPreview(atSec as float, x as integer)
     pv = m.top.findNode("preview")
-    if m.thumbs = invalid and m.thumbStream <> invalid then startDeferredThumbs()
     th = m.thumbs
     if m.seekTarget < 0 or th = invalid or th.kind = "none"
         pv.visible = false
