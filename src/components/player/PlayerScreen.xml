@@ -21,6 +21,11 @@
         <field id="stopNow" type="boolean" onChange="onStopNow" />
         <!-- set before "done" by "Back to the series" (Are you still watching?): the scene opens that series -->
         <field id="openSeries" type="string" />
+        <!-- (v1.3.1) set by the scene when playback started from Home: { itemId, itemType } of that card; when
+             the player closes, the scene opens that title's page (NavUtil.returnPage) -->
+        <field id="returnTo" type="assocarray" />
+        <!-- (v1.3.1) the first title played: { id, type, seriesId, seasonId } (for returnTo) -->
+        <field id="playedInfo" type="assocarray" />
         <!-- voice / transport commands (main.bs → MainScene): { command, direction, duration } → { status } -->
         <function name="handleTransport" />
     </interface>
@@ -31,6 +36,13 @@
         <!-- text subtitles, drawn by Cove (Settings → Subtitles style); above the controls while they show -->
         <SubtitleLayer id="subLayer" />
         <Timer id="subTimer" duration="0.1" repeat="true" />
+        <!-- (v1.3.1 E-3) past the part of the subtitles downloaded so far, while the rest is still coming -->
+        <Group id="subNote" visible="false" translation="[790,924]">
+            <Poster uri="pkg:/images/ui/glass_pill.9.png" width="340" height="52" />
+            <Label text="Loading subtitles..." width="340" height="52" horizAlign="center" vertAlign="center" color="0xFFFFFFE6">
+                <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+            </Label>
+        </Group>
 
         <!-- controls, laid out like Cove for macOS (Sources/Views.swift player) -->
         <Group id="osd" opacity="0">
@@ -93,6 +105,13 @@
         <Label id="status" width="1920" height="60" translation="[0,510]" horizAlign="center" color="0xFFFFFFD9" visible="false">
             <Font role="font" uri="font:MediumSystemFontFile" size="36" />
         </Label>
+
+        <!-- (v1.3.1 E-7) the video couldn't play: the reason with Try Again (and Play Without Subtitles when a
+             subtitle was burned in); Back leaves the player -->
+        <Group id="errorBox" visible="false">
+            <Rectangle width="1920" height="1080" color="0x000000B3" />
+            <ErrorPanel id="errorPanel" translation="[160,400]" width="1600" />
+        </Group>
 
         <!-- Skip intro / Next episode: a white button over the video (OK uses it, any other key dismisses it) -->
         <Group id="action" translation="[1554,840]" visible="false">

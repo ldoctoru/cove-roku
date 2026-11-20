@@ -194,14 +194,106 @@ namespace Playback
             t = Util.removeQuery(Util.removeQuery(t, "SubtitleStreamIndex"), "SubtitleMethod")
         end if
         if opts.audio >= 0 then t = Util.setQuery(t, "AudioStreamIndex", opts.audio.toStr())
+        ' (v1.3.1 E-6) a forced conversion (the retry, a burned-in subtitle) at most 20 Mbit/s or the chosen
+        ' quality: enough for 1080p H.264, the Roku's ceiling; a 4K source would otherwise come at up to ~100
+        if forceTranscode or (opts.burn and opts.sub >= 0)
+            capped = conversionBitrate(Util.toNumber(urlParam(t, "VideoBitrate")), opts)
+            t = Util.setQuery(t, "VideoBitrate", capped.toStr())
+            print "Cove: stream: forced conversion, video at most "; capped \ 1000000; " Mbit/s"
+        end if
         r.url = t
         ' (Jellyfin also gets the sign-in header, for a playlist whose own URL has no key; nothing for another host)
         r.headers = []
         if safe then r.headers = videoHeaders(server, t)
         r.streamFormat = "hls"
-        r.method = "Transcode"
-        if r.sourceVideoCodec = "hevc" and not forceTranscode and not (opts.burn and opts.sub >= 0) then r.method = "DirectStream"
+        ' (v1.3.1 E-5) from the URL the server gave (a container remux of H.264 is a Direct Stream, an HEVC copy
+        ' with DTS converted is a Transcode); the player corrects it from the server's TranscodingInfo
+        r.sourceAudioCodec = audioCodecOf(src, opts.audio)
+        r.method = guessMethod(t, r.sourceAudioCodec)
+        ' (a forced conversion or a burned-in subtitle is always one, whatever the URL says)
+        if forceTranscode or (opts.burn and opts.sub >= 0) then r.method = "Transcode"
         return r
+    end function
+
+    ' (v1.3.1 E-6) The video bitrate for a forced conversion: the URL's own when lower, else 20 Mbit/s or the
+    ' chosen quality when that is lower
+    function conversionBitrate(urlBitrate as dynamic, opts as object) as integer
+        cap = 20000000
+        if opts <> invalid and opts.maxBitrate <> invalid and opts.maxBitrate > 0 and opts.maxBitrate < cap then cap = opts.maxBitrate
+        if urlBitrate <> invalid and urlBitrate > 0 and urlBitrate < cap then return Int(urlBitrate)
+        return cap
+    end function
+
+    ' (v1.3.1 E-5) The real play method of a stream, as the servers count it (Cove for macOS PlayMethod.guess):
+    ' DirectPlay = the file itself (static=true); Transcode = the URL forbids a video or audio copy, burns a
+    ' subtitle in, asks for an audio codec the source track isn't in, or names a reason other than the
+    ' container (or the subtitle, when none is burned in); anything else on HLS is a DirectStream (a remux)
+    function guessMethod(url as string, sourceAudio = "" as string) as string
+        if LCase(urlParam(url, "static")) = "true" then return "DirectPlay"
+        if LCase(urlParam(url, "AllowVideoStreamCopy")) = "false" then return "Transcode"
+        if LCase(urlParam(url, "AllowAudioStreamCopy")) = "false" then return "Transcode"
+        burn = LCase(urlParam(url, "SubtitleMethod")) = "encode"
+        if burn and urlParam(url, "SubtitleStreamIndex") <> "" then return "Transcode"
+        a = LCase(sourceAudio.trim())
+        allowed = LCase(urlParam(url, "AudioCodec"))
+        if a <> "" and allowed <> ""
+            found = false
+            for each c in allowed.split(",")
+                if c.trim() = a then found = true
+            end for
+            if not found then return "Transcode"
+        end if
+        for each reason in urlParam(url, "TranscodeReasons").split(",")
+            rs = reason.trim()
+            containerOnly = rs = "ContainerNotSupported" or rs = "ContainerBitrateExceedsLimit"
+            subOnly = rs = "SubtitleCodecNotSupported" or rs = "SubtitleFormatNotSupported"
+            if rs <> "" and not containerOnly and (burn or not subOnly) then return "Transcode"
+        end for
+        return "DirectStream"
+    end function
+
+    ' (v1.3.1 E-5) The method from the server's session (GET /Sessions?DeviceId=: TranscodingInfo
+    ' IsVideoDirect / IsAudioDirect), else the URL guess (Cove for macOS PlayMethod.classify)
+    function classifyMethod(url as string, info as dynamic, sourceAudio = "" as string) as string
+        if LCase(urlParam(url, "static")) = "true" then return "DirectPlay"
+        if not Util.isAA(info) then return guessMethod(url, sourceAudio)
+        hasV = info.doesExist("IsVideoDirect") and info.IsVideoDirect <> invalid
+        hasA = info.doesExist("IsAudioDirect") and info.IsAudioDirect <> invalid
+        if not hasV and not hasA then return guessMethod(url, sourceAudio)
+        ' (a stream without audio has nothing to convert there: IsAudioDirect may be missing)
+        audioOk = not hasA or Util.flag(info, "IsAudioDirect")
+        if Util.flag(info, "IsVideoDirect") and audioOk then return "DirectStream"
+        return "Transcode"
+    end function
+
+    ' A query parameter's value (name not case-sensitive, %2C as a comma), "" when missing
+    function urlParam(url as string, name as string) as string
+        q = url.instr("?")
+        if q < 0 then return ""
+        want = LCase(name)
+        for each part in url.mid(q + 1).split("&")
+            eq = part.instr("=")
+            if eq > 0 and LCase(part.left(eq)) = want then return part.mid(eq + 1).replace("%2C", ",").replace("%2c", ",")
+        end for
+        return ""
+    end function
+
+    ' The codec of the audio track played: stream index audioIndex, else the file's default (else the first)
+    function audioCodecOf(src as object, audioIndex as integer) as string
+        if not Util.isAA(src) or type(src.MediaStreams) <> "roArray" then return ""
+        first = ""
+        flagged = ""
+        for each s in src.MediaStreams
+            if Util.isAA(s) and Util.toText(s.Type) = "Audio"
+                c = LCase(Util.toText(s.Codec))
+                if audioIndex >= 0 and Util.toNumber(s.Index) = audioIndex then return c
+                if first = "" then first = c
+                if flagged = "" and Util.flag(s, "IsDefault") then flagged = c
+            end if
+        end for
+        if audioIndex >= 0 then return ""
+        if flagged <> "" then return flagged
+        return first
     end function
 
     ' The access token as a query parameter, for a URL handed to a node that can't send headers (Poster) or to
@@ -260,8 +352,34 @@ namespace Playback
 
     ' The server's SRT version of a text subtitle (Cove draws it over the video). No token in the URL (it would
     ' end up in server and proxy access logs): the download sends it as a header, subtitleHeaders().
-    function subtitleUrl(server as object, itemId as string, sourceId as string, index as integer) as string
-        return Util.toText(server.url) + "/Videos/" + itemId + "/" + sourceId + "/Subtitles/" + index.toStr() + "/Stream.srt"
+    ' (v1.3.1 E-3) endSec > 0: only the cues up to there (the route with a start position of 0 and
+    ' EndPositionTicks, the same on Emby and Jellyfin 10.9+; as Cove for macOS subtitleCues(upTo:))
+    function subtitleUrl(server as object, itemId as string, sourceId as string, index as integer, endSec = -1.0 as float) as string
+        base = Util.toText(server.url) + "/Videos/" + itemId + "/" + sourceId + "/Subtitles/" + index.toStr()
+        if endSec > 0 then return base + "/0/Stream.srt?EndPositionTicks=" + ticks(endSec).toStr()
+        return base + "/Stream.srt"
+    end function
+
+    ' (v1.3.1 E-3) What to do with one subtitle download: "use" (cues came), "askAll" (the first part failed
+    ' or was empty: ask for the whole track), "keep" (the whole track failed after the first part: keep it),
+    ' "burnIn" (the server can't send it as text: HTTP error), "failed" (no answer in time or empty: playback
+    ' goes on without; burning in would need the same slow extraction). As Cove for macOS cueStep.
+    function cueStep(code as integer, cueCount as integer, piece as boolean, haveCues as boolean) as string
+        if code >= 200 and code < 400 and cueCount > 0 then return "use"
+        if piece then return "askAll"
+        if haveCues then return "keep"
+        if code >= 400 then return "burnIn"
+        return "failed"
+    end function
+
+    ' (v1.3.1 E-10) The session's copy of a whole subtitle track: a key of letters, digits, _ and - only
+    function subCacheKey(itemId as string, sourceId as string, index as integer) as string
+        raw = itemId + "_" + sourceId + "_" + index.toStr()
+        return createObject("roRegex", "[^A-Za-z0-9_-]", "").replaceAll(raw, "")
+    end function
+
+    function subCacheFile(key as string) as string
+        return "tmp:/cove-sub-" + key + ".srt"
     end function
 
     ' The sign-in headers for the subtitle download (ApiTask), without "Accept: application/json": the answer
@@ -430,6 +548,15 @@ namespace Playback
         if pressIndex <= 0 then st = baseStep
         if st < baseStep then st = baseStep
         return st
+    end function
+
+    ' (v1.3.1 E-1) Whether Cove must mark a title played itself when it stops at atSec. At 90 % or more the
+    ' Stopped report already makes the server mark it (MaxResumePct, 90 by default); a second POST made the
+    ' server's Trakt / Playback Reporting plugins log two plays (Cove for macOS 5724be0). Only a stop in the
+    ' credits (creditsAt > 0) below 90 % needs the POST, since the server leaves that one unwatched.
+    function needsPlayedMark(atSec as float, duration as float, creditsAt as float) as boolean
+        if duration <= 0 or atSec >= duration * 0.9 then return false
+        return creditsAt > 0 and atSec >= creditsAt
     end function
 
     ' (v1.3) Where the Up Next card shows in an episode: at the server's credits (Emby CreditsStart chapter,

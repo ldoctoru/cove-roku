@@ -123,4 +123,26 @@ namespace NavUtil
         return indexOfId(list, currentId)
     end function
 
+    ' (v1.3.1) Playback started from Home has ended: the page to open over Home, as Cove for macOS returnAfterPlay /
+    ' openPage. card: { itemId, itemType } of the Home card or banner played; played: { id, type, seriesId,
+    ' seasonId } of the first title the player showed. An episode opens its series on that episode's season (its
+    ' own page when the series isn't known), anything else its own page. invalid: nothing to open.
+    function returnPage(card as dynamic, played as dynamic) as dynamic
+        if not Util.isAA(card) or Util.toText(card.itemId) = "" then return invalid
+        id = Util.toText(card.itemId)
+        t = Util.toText(card.itemType)
+        p = played
+        if not Util.isAA(p) or Util.toText(p.id) <> id then p = invalid
+        if t = "" and p <> invalid then t = Util.toText(p.type)
+        if t = "Episode" or t = ""
+            if p <> invalid and Util.toText(p.seriesId) <> ""
+                out = { itemId: Util.toText(p.seriesId), itemType: "Series", title: "" }
+                if Util.toText(p.seasonId) <> "" then out.seasonId = Util.toText(p.seasonId)
+                return out
+            end if
+            if t = "" then return invalid
+        end if
+        return { itemId: id, itemType: t, title: "" }
+    end function
+
 end namespace
