@@ -151,7 +151,8 @@ sub load()
         if m.top.authFailed then return
         if m.top.timing then Clock.startupMark("home upcoming fetched")
     end if
-    saveCache(m.cacheFile, libs)
+    ' (the lists for the cache, taken before buildRows empties them; written after the rows are out)
+    toSave = m.pendingRows
     buildRows(root, false)
     if m.top.timing then Clock.startupMark("home rows built")
 
@@ -168,6 +169,11 @@ sub load()
     m.top.fromCache = false
     m.top.partial = false
     m.top.content = root
+    ' (v1.2) writing the cache took ~0.5 s before the full rows went out: now after
+    m.pendingRows = toSave
+    saveCache(m.cacheFile, libs)
+    m.pendingRows = []
+    if m.top.timing then Clock.startupMark("home cache saved")
 end sub
 
 ' A row to load: "what" is a request from getList ({ path, fallback, ... }) or a list already known (Libraries)
