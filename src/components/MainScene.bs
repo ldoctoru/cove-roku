@@ -48,6 +48,7 @@ sub init()
     m.capsTask = createObject("roSGNode", "CapsTask")
     m.capsTask.observeField("line", "onDeviceLine")
     m.capsTask.control = "RUN"
+    m.validating = invalid      ' (v1.2) the launch's sign-in check while Home is already shown
     m.pendingLink = invalid
     m.pendingLinkAt = 0         ' (C2-16) when it was held, and the server it came for ("" = any)
     m.pendingLinkServer = ""
@@ -88,7 +89,9 @@ sub start()
         ' Who's watching? (2 or more profiles on the server, Settings → Profiles)
         showWho(s, "", false)
     else if s <> invalid and Util.toText(s.token) <> ""
-        validate(s)
+        ' (v1.2) Home at once (its cached rows) while the saved sign-in is checked; a refused sign-in still
+        ' leads to the sign-in page (onValidate), anything else shows on Home's own error panel
+        validate(s, true)
     else
         showServers("")
     end if
@@ -1557,8 +1560,16 @@ end sub
 
 ' ---------------------------------------------------------------- saved sign-in
 
-sub validate(server as object)
+sub validate(server as object, homeFirst = false as boolean)
     m.server = server
+    if homeFirst
+        m.validating = { serverId: Util.toText(server.id), userId: Util.toText(server.userId) }
+        request("GET", server, "/Users/" + Util.toText(server.userId), true, "", { kind: "validate", serverId: Util.toText(server.id), userId: Util.toText(server.userId), homeFirst: true })
+        Clock.startupMark("sign-in check sent (Home first)")
+        showHome(server)
+        return
+    end if
+    m.validating = invalid
     sc = newMenu("connecting", Util.toText(server.name), Servers.typeName(server) + "   ·   " + Util.toText(server.url), [])
     sc.status = "Connecting..."
     reset(sc)
@@ -1567,6 +1578,25 @@ sub validate(server as object)
 end sub
 
 sub onValidate(r as object)
+    ' (v1.2) the launch's check while Home is already on screen
+    if r.tag.homeFirst = true
+        v = m.validating
+        m.validating = invalid
+        if v = invalid or m.server = invalid then return
+        if Util.toText(r.tag.serverId) <> v.serverId or Util.toText(r.tag.userId) <> v.userId then return
+        Clock.startupMark("sign-in check answered")
+        if r.code = 200
+            Tracks.rememberServerAudio(m.server, r.json)
+        else if (r.code = 401 or r.code = 403) and topIs("home") and Util.toText(m.server.id) = v.serverId
+            ' (as before: the saved sign-in no longer works; Home's own 401 may have led here first, then
+            ' the top is no longer Home and nothing is done twice)
+            m.server.token = ""
+            Servers.upsert(m.server)
+            openSignIn(m.server, "Your sign-in has expired. Please sign in again.")
+        end if
+        ' (other answers: Home's requests show their own error with Try Again / Switch Server)
+        return
+    end if
     if not topIs("connecting") or m.server = invalid then return
     ' (C2-10: the answer for an earlier profile or server, after two quick switches)
     if Util.toText(r.tag.serverId) <> Util.toText(m.server.id) or Util.toText(r.tag.userId) <> Util.toText(m.server.userId) then return

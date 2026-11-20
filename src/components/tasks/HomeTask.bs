@@ -172,7 +172,7 @@ sub load()
     m.top.content = root
     ' (v1.2) writing the cache took ~0.5 s before the full rows went out: now after
     m.pendingRows = toSave
-    saveCache(m.cacheFile, libs)
+    saveCache(m.cacheFile, libs, root)
     m.pendingRows = []
     if m.top.timing then Clock.startupMark("home cache saved")
 end sub
@@ -371,6 +371,7 @@ sub showCached(path as string)
         buildRows(root)
         if root.getChildCount() = 0 then return
         if type(saved.libs) = "roArray" then m.top.libraries = saved.libs
+        useSavedBackdrop(root, saved.bd)
         if m.top.timing then Clock.startupMark("home cached rows built")
         print "Cove: home from cache, "; root.getChildCount(); " rows"
         m.top.fromCache = true
@@ -381,14 +382,16 @@ sub showCached(path as string)
 end sub
 
 ' After a complete load: the lists for next time (nothing when a row failed or a rating limit applies)
-sub saveCache(path as string, libs as object)
+sub saveCache(path as string, libs as object, root as object)
     if m.failures > 0 or Ratings.limitOf(m.srv) > 0 then return
     try
         rows = []
         for each p in m.pendingRows
             rows.push({ title: p.title, landscape: p.landscape, upcoming: p.upcoming, list: p.list })
         end for
-        if not WriteAsciiFile(path, formatJson({ v: 1, libs: libs, rows: rows })) then print "Cove: home cache not written"
+        ' (v1.2) the first hero's backdrop as a file, so the cached Home has its picture at once
+        bd = saveBackdrop(path, root)
+        if not WriteAsciiFile(path, formatJson({ v: 1, libs: libs, rows: rows, bd: bd })) then print "Cove: home cache not written"
     catch e
         print "Cove: home cache not written: "; e.message
     end try
@@ -435,5 +438,44 @@ sub addUpcomingRow(root as object, list as object)
         c.timeLeft = ""
         c.resumeAt = 0.0
         row.appendChild(c)
+    end for
+end sub
+
+' (v1.2) The backdrop Home's banner shows first (HomeScreen.buildHeroes: the first card with a backdrop that
+' isn't a folder or an Upcoming card), downloaded next to the cache; { url, file } or invalid
+function saveBackdrop(path as string, root as object) as dynamic
+    url = ""
+    for i = 0 to root.getChildCount() - 1
+        row = root.getChild(i)
+        for j = 0 to row.getChildCount() - 1
+            it = row.getChild(j)
+            t = Util.toText(it.itemType)
+            folder = t = "CollectionFolder" or t = "UserView" or t = "Folder" or t = "BoxSet" or t = "Playlist"
+            upc = it.hasField("upcoming") and it.upcoming = true
+            if url = "" and Util.toText(it.backdrop) <> "" and not folder and not upc then url = it.backdrop
+        end for
+    end for
+    if url = "" then return invalid
+    file = path.replace(".json", "-bd.jpg")
+    r = Api.execute({ method: "GET", url: url, saveTo: file, timeout: 8000 })
+    if r.code <> 200
+        print "Cove: home backdrop not cached -> "; r.code
+        return invalid
+    end if
+    return { url: url, file: file }
+end function
+
+' (v1.2) Cached rows: the card whose backdrop was saved shows the local file
+sub useSavedBackdrop(root as object, bd as dynamic)
+    if not Util.isAA(bd) then return
+    url = Util.toText(bd.url)
+    file = Util.toText(bd.file)
+    if url = "" or file = "" or not createObject("roFileSystem").exists(file) then return
+    for i = 0 to root.getChildCount() - 1
+        row = root.getChild(i)
+        for j = 0 to row.getChildCount() - 1
+            it = row.getChild(j)
+            if it.backdrop = url then it.backdrop = file
+        end for
     end for
 end sub
