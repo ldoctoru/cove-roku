@@ -262,8 +262,19 @@ sub onRefresh()
     if m.item = invalid then return
     get(itemPath(), { kind: "item" })
     if Util.toText(m.item.Type) = "Series"
+        m.nextUpPending = true
         loadNextUp()
-        if m.seasonIndex >= 0 then loadEpisodes(m.seasonIndex)
+        if m.seasonIndex >= 0
+            if m.seasonByUser
+                loadEpisodes(m.seasonIndex)
+            else
+                ' (v1.2 SP-10) after playback Next Up may be in the next season: wait for it (at most 0.8 s) and
+                ' load that season's episodes once, instead of this season's and then the other
+                m.seasonWaiting = true
+                m.seasonWait.control = "stop"
+                m.seasonWait.control = "start"
+            end if
+        end if
         reloadSeasonCounts()
     end if
     if Util.toText(m.item.Type) = "BoxSet" then loadBoxItems()
@@ -1480,7 +1491,10 @@ sub onNextUp(json as dynamic)
     if m.seasonWaiting
         m.seasonWaiting = false
         m.seasonWait.control = "stop"
-        if not m.seasonByUser then selectSeason(defaultSeasonIndex(), false)
+        if not m.seasonByUser
+            detailsMark("Next Up answered, episodes of season index " + defaultSeasonIndex().toStr())
+            selectSeason(defaultSeasonIndex(), false)
+        end if
         return
     end if
     ' open on the season of the next episode, unless the user picked one
@@ -1538,7 +1552,10 @@ end function
 sub onSeasonWait()
     if not m.seasonWaiting then return
     m.seasonWaiting = false
-    if not m.seasonByUser and m.seasonList.count() > 0 then selectSeason(defaultSeasonIndex(), false)
+    if not m.seasonByUser and m.seasonList.count() > 0
+        detailsMark("Next Up late (0.8 s), episodes of season index " + defaultSeasonIndex().toStr())
+        selectSeason(defaultSeasonIndex(), false)
+    end if
 end sub
 
 sub selectSeason(i as integer, byUser as boolean)
