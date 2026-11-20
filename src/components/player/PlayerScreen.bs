@@ -407,6 +407,7 @@ sub onInfo(r as object)
             if rs >= 0 and Tracks.findSub(m.tracks, rs).isText then m.replaySub = rs
             print "Cove: Roku captions on instant replay -> track "; rs
         end if
+        if m.opts.sub >= 0 then print "Cove: player subtitle chosen track "; m.opts.sub; " ("; Tracks.subKindOf(m.tracks, m.opts.sub); ")"
         ' Jellyfin keeps intro / credits (and recaps, previews, commercials) as media segments
         if Util.toText(m.top.server.type) = "jellyfin" then get("/MediaSegments/" + m.top.item.id + "?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial", { kind: "segments", itemId: m.top.item.id })
         if Util.toText(r.json.Type) = "Episode" and Util.toText(r.json.SeriesId) <> ""
@@ -3549,6 +3550,7 @@ sub onStreamsCheck(r as object)
             if nt <> invalid and nt.isText
                 m.opts.sub = pick
                 m.opts.burn = false
+                print "Cove: player subtitle chosen track "; pick; " ("; Tracks.subKindOf(m.tracks, pick); ", added on the server)"
                 loadTextSub()
                 turnedOn = true
             end if
