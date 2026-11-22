@@ -114,6 +114,8 @@
         <Timer id="heroTimer" duration="9" repeat="true" />
         <Timer id="watchdog" duration="45" repeat="false" />
         <Timer id="sessionsTimer" duration="30" repeat="true" />
+        <!-- (v1.3.2) Settings → Home → Refresh banner: checks every 30 s whether a fresh set is due -->
+        <Timer id="bannerTick" duration="30" repeat="true" />
         <Animation id="slide" duration="0.3" easeFunction="outCubic">
             <Vector2DFieldInterpolator id="rowsMove" key="[0.0, 1.0]" fieldToInterp="rows.translation" />
             <FloatFieldInterpolator id="heroFadeI" key="[0.0, 1.0]" fieldToInterp="hero.opacity" />

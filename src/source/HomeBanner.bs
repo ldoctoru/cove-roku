@@ -1,0 +1,188 @@
+import "pkg:/source/Util.bs"
+
+' (v1.3.2) Settings → Home → Banner, as on the Mac (Shared/BannerSource.swift, BannerRefresh.swift): where the
+' Home banner takes its titles from, and how often it picks a fresh set while Home stays open. Pure helpers on
+' the server's item JSON (tests/brs/homebanner.test.brs); HomeTask fetches, HomeScreen shows.
+namespace HomeBanner
+
+    ' "Banner shows" (the Mac's labels in Title Case). Roku's default is Newest (the Mac's is From Home Rows).
+    function sourceOptions() as object
+        return [{ id: "rows", label: "From Home Rows" }, { id: "newest", label: "Newest" }, { id: "random", label: "Random Picks" }, { id: "favorites", label: "Favorites" }]
+    end function
+
+    ' "Refresh banner" in minutes; 0 = only when Home loads (the Mac's default)
+    function refreshOptions() as object
+        return [{ id: "0", label: "Only When Home Loads" }, { id: "15", label: "Every 15 Minutes" }, { id: "30", label: "Every 30 Minutes" }, { id: "60", label: "Every Hour" }]
+    end function
+
+    function validSource(s as string) as string
+        for each o in sourceOptions()
+            if o.id = s then return s
+        end for
+        return "newest"
+    end function
+
+    function validRefresh(mins as integer) as integer
+        for each o in refreshOptions()
+            if o.id.toInt() = mins then return mins
+        end for
+        return 0
+    end function
+
+    ' Prefs' one registry key "banner": "<source>,<minutes>" ("newest,0")
+    function encodePref(source as string, mins as integer) as string
+        return validSource(source) + "," + validRefresh(mins).toStr()
+    end function
+
+    function decodePref(text as string) as object
+        parts = text.split(",")
+        src = ""
+        mins = 0
+        if parts.count() > 0 then src = parts[0]
+        if parts.count() > 1 then mins = parts[1].toInt()
+        return { source: validSource(src), minutes: validRefresh(mins) }
+    end function
+
+    ' The requests for one source: per Home library (parentIds; [] = all libraries), path + query
+    ' ("/Users/<uid>/Items?..."). kinds: library id → collection type, to skip the type a library can't hold.
+    function queries(source as string, uid as string, parentIds as object, kinds as object) as object
+        out = []
+        if source = "rows" then return out
+        base = "/Users/" + uid + "/Items?Recursive=true&ImageTypes=Backdrop&Fields=Overview,ProductionYear,OfficialRating,CommunityRating,Genres,DateCreated,DateLastContentAdded&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb,Logo&EnableUserData=true"
+        parents = parentIds
+        if parents.count() = 0 then parents = [""]
+        for each p in parents
+            q = base
+            if p <> "" then q = q + "&ParentId=" + p
+            kind = ""
+            if Util.isAA(kinds) and p <> "" and kinds.doesExist(p) then kind = Util.toText(kinds[p])
+            if source = "newest"
+                if kind <> "tvshows" then out.push(q + "&IncludeItemTypes=Movie&SortBy=DateCreated&SortOrder=Descending&Limit=15")
+                if kind <> "movies" then out.push(q + "&IncludeItemTypes=Series&SortBy=DateLastContentAdded&SortOrder=Descending&Limit=15")
+            else if source = "random"
+                out.push(q + "&IncludeItemTypes=Movie,Series&SortBy=Random&Limit=20")
+            else if source = "favorites"
+                out.push(q + "&IncludeItemTypes=Movie,Series&Filters=IsFavorite&SortBy=Random&Limit=20")
+            end if
+        end for
+        return out
+    end function
+
+    function hasBackdrop(it as object) as boolean
+        tags = it.BackdropImageTags
+        return type(tags) = "roArray" and tags.count() > 0 and Util.toText(tags[0]) <> ""
+    end function
+
+    ' Films and shows (never episodes) with a backdrop, one per title, at most max
+    function pickTitles(list as object, max = 8 as integer) as object
+        out = []
+        seen = {}
+        if type(list) <> "roArray" then return out
+        for each it in list
+            if Util.isAA(it)
+                kind = Util.toText(it.Type)
+                name = LCase(Util.toText(it.Name))
+                if name = "" then name = Util.toText(it.Id)
+                if (kind = "Movie" or kind = "Series") and hasBackdrop(it) and not seen.doesExist(name)
+                    seen[name] = true
+                    out.push(it)
+                    if out.count() >= max then exit for
+                end if
+            end if
+        end for
+        return out
+    end function
+
+    ' Newest: a film by its date added, a show by its latest new content (a new episode moves the show up)
+    function newestDate(it as object) as string
+        d = ""
+        if Util.toText(it.Type) = "Series" then d = Util.toText(it.DateLastContentAdded)
+        if d = "" then d = Util.toText(it.DateCreated)
+        return d
+    end function
+
+    ' Films and shows merged newest first (ISO dates sort as text; equal dates keep their order)
+    function newestFirst(list as object) as object
+        out = []
+        if type(list) <> "roArray" then return out
+        for each it in list
+            if Util.isAA(it)
+                d = newestDate(it)
+                at = out.count()
+                ' (insertion sort: a few dozen titles)
+                while at > 0 and newestDate(out[at - 1]) < d
+                    at = at - 1
+                end while
+                out.push(invalid)
+                k = out.count() - 1
+                while k > at
+                    out[k] = out[k - 1]
+                    k = k - 1
+                end while
+                out[at] = it
+            end if
+        end for
+        return out
+    end function
+
+    function isPlayed(it as object) as boolean
+        ud = it.UserData
+        if not Util.isAA(ud) then return false
+        return Util.flag(ud, "Played")
+    end function
+
+    ' Random picks: the unwatched titles while they still fill at least four banner slots, otherwise all
+    function preferUnwatched(list as object) as object
+        if type(list) <> "roArray" then return []
+        unwatched = []
+        for each it in list
+            if Util.isAA(it) and not isPlayed(it) then unwatched.push(it)
+        end for
+        if pickTitles(unwatched).count() >= 4 then return unwatched
+        return list
+    end function
+
+    ' A refresh of Random Picks / Favorites: titles not in the previous banner first (previousIds: [id])
+    function avoidingPrevious(list as object, previousIds as object) as object
+        prev = {}
+        if type(previousIds) = "roArray"
+            for each id in previousIds
+                prev[Util.toText(id)] = true
+            end for
+        end if
+        fresh = []
+        again = []
+        for each it in list
+            if Util.isAA(it) and prev.doesExist(Util.toText(it.Id))
+                again.push(it)
+            else
+                fresh.push(it)
+            end if
+        end for
+        fresh.append(again)
+        return fresh
+    end function
+
+    ' What the banner shows: the fetched titles, or invalid = the Home rows' titles ("From Home Rows", a failed
+    ' fetch (fetched = invalid) or nothing found, e.g. no favorites)
+    function resolveTitles(source as string, fetched as dynamic) as dynamic
+        if source = "rows" or type(fetched) <> "roArray" then return invalid
+        picked = pickTitles(fetched)
+        if picked.count() = 0 then return invalid
+        return picked
+    end function
+
+    ' Why the banner falls back to the rows ("" = it doesn't)
+    function fallbackReason(source as string, fetched as dynamic) as string
+        if source = "rows" then return ""
+        if type(fetched) <> "roArray" then return "request failed"
+        if pickTitles(fetched).count() = 0 then return "no titles"
+        return ""
+    end function
+
+    ' Whether a refresh is due: an interval is set and it has passed (seconds)
+    function refreshDue(minutes as integer, lastSecs as integer, atSecs as integer) as boolean
+        return minutes > 0 and atSecs - lastSecs >= minutes * 60
+    end function
+
+end namespace

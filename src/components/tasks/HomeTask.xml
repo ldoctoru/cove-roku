@@ -17,5 +17,12 @@
         <field id="partial" type="boolean" />
         <!-- (v1.2) a late row (Upcoming) was put into the content already shown: Home re-sizes its rows -->
         <field id="rowsAdded" type="integer" value="0" />
+        <!-- (v1.3.2) Settings → Home → Banner shows: "newest" / "random" / "favorites" fetch the banner's own titles
+             after the rows ("rows" or "": none); heroItems = their cards (no children = keep the rows' titles) -->
+        <field id="bannerSource" type="string" />
+        <field id="heroItems" type="node" />
+        <!-- (v1.3.2) Refresh banner: only the banner's list (libraries given in "libraries"), the ids on screen -->
+        <field id="bannerOnly" type="boolean" />
+        <field id="bannerPrevious" type="array" />
     </interface>
 </component>
