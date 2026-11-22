@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/HomeBanner.bs"
 
 ' Settings kept on the Roku (registry), with the same defaults as Cove for macOS (Sources/Settings.swift):
 ' accent / background (read by Theme.bs), "Always load my subtitle language" + the language, skip intros and
@@ -210,6 +211,16 @@ namespace Prefs
     function showUpNextRow() as boolean
         return flagOn("showUpNextRow", true)
     end function
+
+    ' (v1.3.2) Settings → Home → Banner: "Banner shows" (rows / newest / random / favorites; default newest) and
+    ' "Refresh banner" (minutes, 0 = only when Home loads), both in one compact key "banner" ("newest,0")
+    function bannerPref() as object
+        return HomeBanner.decodePref(Util.readText("banner"))
+    end function
+
+    sub setBannerPref(source as string, minutes as integer)
+        Util.writeText("banner", HomeBanner.encodePref(source, minutes))
+    end sub
 
     ' (v1.1) Settings → Home → Row options: Recently Added / Recently Released / Latest without watched titles
     function hideWatchedLatest() as boolean
