@@ -74,6 +74,14 @@ sub init()
     m.navReturn = "hero"
     m.sessionsTimer = m.top.findNode("sessionsTimer")
     m.sessionsTimer.observeField("fire", "loadSessions")
+    ' (v1.3.2) Settings → Home → Banner: its source and refresh, the fetched titles (nodes), the rows' rotation
+    m.bannerPref = Prefs.bannerPref()
+    m.bannerNodes = []
+    m.bannerRound = 0
+    m.bannerLast = 0
+    m.bannerTask = invalid
+    m.bannerTick = m.top.findNode("bannerTick")
+    m.bannerTick.observeField("fire", "onBannerTick")
     buildNav()
     m.top.findNode("hero").visible = false
     m.picker = invalid
@@ -102,6 +110,7 @@ sub load()
         m.task.unobserveField("rowsAdded")
         m.task.unobserveField("error")
         m.task.unobserveField("authFailed")
+        m.task.unobserveField("heroItems")
         m.task.control = "stop"
     end if
     m.task = createObject("roSGNode", "HomeTask")
@@ -114,6 +123,14 @@ sub load()
     m.task.observeField("rowsAdded", "onRowsAdded")
     m.task.observeField("error", "onError")
     m.task.observeField("authFailed", "onAuthFailed")
+    ' (v1.3.2) the banner's own titles, fetched by the task after the rows; a reload (after playback, a
+    ' favourite) keeps Random Picks as they are instead of picking a new set
+    src = m.bannerPref.source
+    if m.reloading = true and src = "random" and m.bannerNodes.count() > 0 then src = ""
+    m.task.bannerSource = src
+    m.task.observeField("heroItems", "onHeroItems")
+    m.bannerLast = bannerNowSecs()
+    m.bannerRound = 0
     m.task.control = "RUN"
     Clock.startupMark("home task started")
     m.watchdog.control = "start"
@@ -208,7 +225,10 @@ sub onContent(ev as object)
     buildNav()
     loadSessions()
     ' (a reload can answer while another screen is on top: polling starts again when Home is back)
-    if m.top.isInFocusChain() then m.sessionsTimer.control = "start"
+    if m.top.isInFocusChain()
+        m.sessionsTimer.control = "start"
+        startBannerTick()
+    end if
     buildHeroes(content)
     ' (SC-2: also from the error panel, which had the focus and is gone now)
     if not wasReload or m.state = "loading" or m.state = "error"
@@ -326,31 +346,142 @@ sub onSessions(ev as object)
     end if
 end sub
 
-' The hero shows up to 8 titles: the first two with a backdrop from each row, as on the Mac
+' The hero shows up to 8 titles: the first two with a backdrop from each row, as on the Mac. (v1.3.2) Or the
+' banner's own titles (Settings → Home → Banner shows) once fetched; a refresh of From Home Rows takes the
+' next two of each row (m.bannerRound, wrapping at the row's end).
 sub buildHeroes(content as object)
-    keep = invalid
-    if m.heroes.count() > 0 then keep = m.heroes[m.heroIndex].itemId
-    m.heroes = []
+    if m.bannerNodes.count() > 0
+        applyHeroes(m.bannerNodes)
+        return
+    end if
+    applyHeroes(rowHeroes(content, m.bannerRound))
+end sub
+
+function rowHeroes(content as object, round as integer) as object
+    out = []
     seen = {}
+    if content = invalid then return out
     for i = 0 to content.getChildCount() - 1
         row = content.getChild(i)
-        taken = 0
+        withArt = []
         for j = 0 to row.getChildCount() - 1
             it = row.getChild(j)
-            if taken < 2 and m.heroes.count() < 8 and it.backdrop <> "" and not isFolderKind(it.itemType) and not isUpcomingCard(it) and not seen.doesExist(it.itemId)
+            if it.backdrop <> "" and not isFolderKind(it.itemType) and not isUpcomingCard(it) and not seen.doesExist(it.itemId) then withArt.push(it)
+        end for
+        n = withArt.count()
+        take = 2
+        if n < take then take = n
+        for k = 0 to take - 1
+            it = withArt[(round * 2 + k) mod n]
+            if out.count() < 8 and not seen.doesExist(it.itemId)
                 seen[it.itemId] = true
-                m.heroes.push(it)
-                taken = taken + 1
+                out.push(it)
             end if
         end for
     end for
+    return out
+end function
+
+' The hero's titles: the one on screen keeps its place when it is still there; while the hero has the focus
+' and a key was pressed (NV-5), a new set keeps the title on screen first, so OK still acts on what is shown
+sub applyHeroes(list as object)
+    keep = invalid
+    if m.heroes.count() > 0 and m.heroIndex < m.heroes.count() then keep = m.heroes[m.heroIndex]
+    heroes = []
+    heroes.append(list)
+    found = -1
+    if keep <> invalid
+        for i = 0 to heroes.count() - 1
+            if heroes[i].itemId = keep.itemId then found = i
+        end for
+        if found < 0 and m.state = "hero" and m.heroHeld and heroes.count() > 0
+            heroes.unshift(keep)
+            if heroes.count() > 8 then heroes.pop()
+            found = 0
+        end if
+    end if
+    m.heroes = heroes
     m.heroIndex = 0
-    for i = 0 to m.heroes.count() - 1
-        if m.heroes[i].itemId = keep then m.heroIndex = i
-    end for
+    if found >= 0 then m.heroIndex = found
     buildDots()
     m.top.findNode("hero").visible = m.heroes.count() > 0
     if m.heroes.count() > 0 then showHero(m.heroIndex)
+end sub
+
+' (v1.3.2) The banner's own titles arrived (load or refresh): only the hero changes, the focus stays where it
+' is. No children: From Home Rows' fallback (nothing found or a failed request), the rows' titles stay.
+sub onHeroItems(ev as object)
+    t = ev.getRoSGNode()
+    fromLoad = m.task <> invalid and t.isSameNode(m.task)
+    fromRefresh = m.bannerTask <> invalid and t.isSameNode(m.bannerTask)
+    if not fromLoad and not fromRefresh then return
+    node = ev.getData()
+    if node = invalid then return
+    nodes = []
+    for i = 0 to node.getChildCount() - 1
+        nodes.push(node.getChild(i))
+    end for
+    if nodes.count() = 0
+        ' (a refresh that found nothing: the rows' next titles, as on the Mac)
+        if fromRefresh and m.rows.content <> invalid and m.bannerNodes.count() = 0
+            m.bannerRound = m.bannerRound + 1
+            applyHeroes(rowHeroes(m.rows.content, m.bannerRound))
+        end if
+        return
+    end if
+    before = ""
+    if m.heroes.count() > 0 then before = m.heroes[m.heroIndex].itemId
+    wasEmpty = m.heroes.count() = 0
+    m.bannerNodes = nodes
+    applyHeroes(nodes)
+    ' (the hero came in where there was none: the rows make room for it unless they have the focus)
+    if wasEmpty and m.state <> "rows" and m.state <> "error" then goTop(false)
+    if m.state = "hero" and m.heroes.count() > 0 and m.heroes[m.heroIndex].itemId <> before then speakHero(true)
+end sub
+
+' ---------------------------------------------------------------- banner refresh (v1.3.2)
+
+function bannerNowSecs() as integer
+    d = createObject("roDateTime")
+    return d.asSeconds()
+end function
+
+' Settings → Home → Refresh banner: a 30 s check while Home is on top (stopped with the other Home timers)
+sub startBannerTick()
+    if m.bannerPref.minutes > 0 then m.bannerTick.control = "start"
+end sub
+
+sub onBannerTick()
+    if not HomeBanner.refreshDue(m.bannerPref.minutes, m.bannerLast, bannerNowSecs()) then return
+    ' (not while Home loads, nor under a remote that is acting on the hero (NV-5): the next check)
+    if m.task <> invalid and m.task.state = "run" then return
+    if m.state = "hero" and m.heroHeld then return
+    if not m.rows.visible then return
+    m.bannerLast = bannerNowSecs()
+    src = m.bannerPref.source
+    if src = "rows"
+        m.bannerRound = m.bannerRound + 1
+        applyHeroes(rowHeroes(m.rows.content, m.bannerRound))
+        print "Cove: home banner rows "; m.heroes.count(); " titles 0 ms (refresh "; m.bannerRound; ")"
+        return
+    end if
+    if m.bannerTask <> invalid
+        m.bannerTask.unobserveField("heroItems")
+        m.bannerTask.control = "stop"
+    end if
+    prev = []
+    for each h in m.heroes
+        prev.push(h.itemId)
+    end for
+    t = createObject("roSGNode", "HomeTask")
+    t.server = m.top.server
+    t.libraries = m.libraries
+    t.bannerSource = src
+    t.bannerPrevious = prev
+    t.bannerOnly = true
+    t.observeField("heroItems", "onHeroItems")
+    m.bannerTask = t
+    t.control = "RUN"
 end sub
 
 function isFolderKind(t as string) as boolean
@@ -767,6 +898,7 @@ sub onFocusChanged()
             m.heroTimer.control = "stop"
             m.sessionsTimer.control = "stop"
             m.backdropTimer.control = "stop"
+            m.bannerTick.control = "stop"
         end if
         return
     end if
@@ -777,6 +909,8 @@ sub onFocusChanged()
         if m.rows.visible
             loadSessions()
             m.sessionsTimer.control = "start"
+            ' (a refresh missed while hidden happens at the first check)
+            startBannerTick()
         end if
         if m.state = "hero" then startHeroTimer()
     end if
@@ -808,6 +942,7 @@ sub onSuspended()
         m.sessionsTimer.control = "stop"
         m.backdropTimer.control = "stop"
         m.watchdog.control = "stop"
+        m.bannerTick.control = "stop"
     else if m.top.isInFocusChain()
         onFocusChanged()
     end if
