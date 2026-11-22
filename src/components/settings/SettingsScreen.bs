@@ -143,6 +143,12 @@ function rowsFor(tabId as string) as object
         ' Settings → Home → Rows (HomeLayout): every Home row with its switch and place, per server
         sid = serverKey()
         srvOn = HomeLayout.useServerLayout(sid)
+        ' (v1.3.2) Settings → Home → Banner, as on the Mac: where its titles come from and how often they change
+        bp = Prefs.bannerPref()
+        out.push(sectionHead("Banner"))
+        out.push(choice("bannerSource", "Banner shows", HomeBanner.sourceOptions(), bp.source))
+        out.push(choice("bannerRefresh", "Refresh banner", HomeBanner.refreshOptions(), bp.minutes.toStr()))
+        out.push(note("Which titles the banner at the top of Home cycles through; From Home Rows is the original mix. Newest: recently added films and shows. Refresh picks a fresh set while Home stays open (not while it's hidden or a video plays)."))
         out.push(sectionHead("Layout"))
         out.push(toggle("homeServerLayout", "", "Use the server's Home layout", srvOn))
         out.push(note("Home follows the Home sections set in the server's web app (Settings > Home): Continue Watching, Next Up, Latest per library and My Media. Sections Cove doesn't have are left out, and Upcoming and Recently Released show only with Cove's layout; a library's row still follows its switch below."))
@@ -1151,6 +1157,15 @@ sub apply(id as string, value as string)
         m.top.themeChanged = true
     else if id = "startQualityHome" or id = "startQualityNet"
         Prefs.setStartQuality(id, value)
+    else if id = "bannerSource" or id = "bannerRefresh"
+        ' (one compact key for both)
+        bp = Prefs.bannerPref()
+        if id = "bannerSource"
+            Prefs.setBannerPref(value, bp.minutes)
+        else
+            Prefs.setBannerPref(bp.source, value.toInt())
+        end if
+        m.top.themeChanged = true
     else if id = "homeServerLayout"
         HomeLayout.setServerLayout(serverKey(), value = "on")
         m.top.themeChanged = true

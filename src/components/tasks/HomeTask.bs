@@ -7,6 +7,7 @@ import "pkg:/source/Dates.bs"
 import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/Clock.bs"
+import "pkg:/source/HomeBanner.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -15,7 +16,17 @@ end sub
 ' Any runtime error must reach the screen (a Task that stops on an error just goes quiet, leaving "Loading...")
 sub work()
     try
-        load()
+        if m.top.bannerOnly
+            ' (v1.3.2) Settings → Home → Refresh banner: only the banner's list, the rows stay
+            m.srv = m.top.server
+            m.h = Api.headers(m.srv, true)
+            loadBanner(m.top.libraries)
+        else
+            m.delivered = false
+            load()
+            ' (v1.3.2) the banner's own titles after the rows are on screen (never slowing them down)
+            if m.delivered and not m.top.authFailed then loadBanner(m.top.libraries)
+        end if
     catch e
         where = ""
         if e.backtrace <> invalid and e.backtrace.count() > 0
@@ -155,6 +166,7 @@ sub load()
             if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch"
             m.top.rowsAdded = m.top.rowsAdded + 1
             m.pendingRows = []
+            m.delivered = true
             return
         end if
     end if
@@ -173,7 +185,91 @@ sub load()
     if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch"
     m.top.partial = false
     m.top.content = root
+    m.delivered = true
 end sub
+
+' (v1.3.2) Settings → Home → Banner shows: Newest / Random Picks / Favorites from the libraries on Home, at
+' most 8 films and shows with a backdrop, delivered as heroItems (a ContentNode of cards). From Home Rows,
+' nothing found or a failed request: heroItems stays empty and Home keeps the rows' titles.
+sub loadBanner(libs as dynamic)
+    source = Util.toText(m.top.bannerSource)
+    if source = "" or source = "rows" then return
+    stopwatch = createObject("roTimespan")
+    parents = []
+    kinds = {}
+    if type(libs) = "roArray"
+        for each l in libs
+            lp = Prefs.library(Util.toText(l.id))
+            ct = Util.toText(l.collectionType)
+            if lp.nav and lp.home and Prefs.hasHomeRow(ct)
+                parents.push(Util.toText(l.id))
+                kinds[Util.toText(l.id)] = ct
+            end if
+        end for
+    end if
+    fetched = invalid
+    if type(libs) = "roArray" and libs.count() > 0 and parents.count() = 0
+        ' (no library on Home: nothing to pick from)
+        fetched = []
+    else
+        paths = HomeBanner.queries(source, Util.toText(m.srv.userId), parents, kinds)
+        reqs = []
+        for each path in paths
+            reqs.push({ url: Util.toText(m.srv.url) + Ratings.withLimit(m.srv, path), headers: m.h })
+        end for
+        ' (the rows are done: at most two at a time, each with its own deadline)
+        answers = Api.executeMany(reqs, 8000, 2)
+        for k = 0 to answers.count() - 1
+            r = answers[k]
+            print "Cove: "; Util.redact(Api.timingLine("GET", paths[k], r.code, r.ms))
+            if r.code = 200 and r.json <> invalid
+                if fetched = invalid then fetched = []
+                list = Util.field(r.json, "Items")
+                if type(list) = "roArray" then fetched.append(list)
+            end if
+        end for
+    end if
+    if fetched <> invalid
+        fetched = Ratings.keepChecked(m.srv, fetched)
+        if source = "newest"
+            fetched = HomeBanner.newestFirst(fetched)
+        else
+            fetched = shuffled(fetched)
+            if source = "random" then fetched = HomeBanner.preferUnwatched(fetched)
+            ' (a refresh: titles not in the banner on screen first)
+            if type(m.top.bannerPrevious) = "roArray" and m.top.bannerPrevious.count() > 0 then fetched = HomeBanner.avoidingPrevious(fetched, m.top.bannerPrevious)
+        end if
+    end if
+    reason = HomeBanner.fallbackReason(source, fetched)
+    ms = stopwatch.totalMilliseconds()
+    if reason <> ""
+        print "Cove: home banner "; source; " fallback to Home rows ("; reason; ") "; ms; " ms"
+        m.top.heroItems = createObject("roSGNode", "ContentNode")
+        return
+    end if
+    picked = HomeBanner.resolveTitles(source, fetched)
+    out = createObject("roSGNode", "ContentNode")
+    for each it in picked
+        out.appendChild(Items.node(m.srv, it, true))
+    end for
+    print "Cove: home banner "; source; " "; out.getChildCount(); " titles "; ms; " ms"
+    m.top.heroItems = out
+end sub
+
+' The list in a random order (Fisher-Yates)
+function shuffled(list as object) as object
+    out = []
+    out.append(list)
+    i = out.count() - 1
+    while i > 0
+        j = Rnd(i + 1) - 1
+        tmp = out[i]
+        out[i] = out[j]
+        out[j] = tmp
+        i = i - 1
+    end while
+    return out
+end function
 
 ' A row to load: "what" is a request from getList ({ path, fallback, ... }) or a list already known (Libraries)
 sub queueRow(title as string, what as object, isLandscape as boolean, isUpcoming = false as boolean)
