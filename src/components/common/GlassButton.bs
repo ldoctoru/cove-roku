@@ -35,6 +35,10 @@ sub layout()
         l.visible = hasText
         l.height = h
     end for
+    ' (v1.4 fix) measure the label unconstrained: a width left from an earlier layout (text set after the
+    ' style) clips boundingRect to it, and the button came out without its label on details pages
+    m.label.width = 0
+    m.label.wrap = false
     tw = 0
     if hasText then tw = Int(m.label.boundingRect().width) + 2
     isz = m.top.iconSize

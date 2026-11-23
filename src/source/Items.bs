@@ -156,7 +156,8 @@ namespace Items
         if t = "Movie" then parts.push("Movie")
         if t = "Series" then parts.push("TV Show")
         if t = "BoxSet" then parts.push("Collection")
-        if t = "Episode" then parts.push(episodeLabel(it))
+        ' (v1.4) an episode's season/number and name are already in the eyebrow and title above
+        if t = "Episode" then parts.push("Episode")
         if type(it.Genres) = "roArray"
             for i = 0 to it.Genres.count() - 1
                 if i < 3 then parts.push(Util.toText(it.Genres[i]))
