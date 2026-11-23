@@ -7,6 +7,8 @@ sub init()
     m.allLines = []
     m.offset = 0
     m.body = m.top.findNode("body")
+    ' (v1.4) the side panels' surface in the page colour
+    if m.global.theme <> invalid then m.top.findNode("panel").uri = m.global.theme.panel
     ' (Cove reads the whole text itself when it opens)
     Speak.mute([m.top])
     f = createObject("roSGNode", "Font")

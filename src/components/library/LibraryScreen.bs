@@ -445,9 +445,10 @@ sub drawBar()
         ch.height = 22
         ch.translation = [w - 44, 15]
         ch.visible = ids[i] <> "shuffle" and ids[i] <> "order" and not isTab
+        ' (v1.4) Glass3D pills: focus = glass + fog with the white ring, the text stays white
         if isFocus
-            bg.uri = "pkg:/images/ui/white_pill.9.png"
-            lab.color = "0x000000FF"
+            bg.uri = "pkg:/images/ui/g3_focus_capsule_44.9.png"
+            lab.color = "0xFFFFFFFF"
         else if isTab
             ' tabs sit together in one glass capsule (drawn below), the chosen one lit as on the Mac
             bg.uri = ""
@@ -457,8 +458,8 @@ sub drawBar()
                 lab.color = "0xFFFFFFFF"
             end if
         else
-            bg.uri = "pkg:/images/ui/glass_pill.9.png"
-            lab.color = "0xFFFFFFD9"
+            bg.uri = "pkg:/images/ui/g3_capsule_44.9.png"
+            lab.color = "0xFFFFFFEB"
             if active
                 bg.uri = "pkg:/images/ui/sel_pill.9.png"
                 lab.color = "0xFFFFFFFF"
@@ -473,7 +474,7 @@ sub drawBar()
             if i + 1 >= ids.count() or not ids[i + 1].startsWith("tab:")
                 ' the capsule behind the tabs, then the usual gap
                 cap = createObject("roSGNode", "Poster")
-                cap.uri = "pkg:/images/ui/glass_pill.9.png"
+                cap.uri = "pkg:/images/ui/g3_capsule.9.png"
                 cap.width = x + 2
                 cap.height = 64
                 cap.translation = [0, -6]

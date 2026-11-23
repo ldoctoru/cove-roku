@@ -70,7 +70,10 @@ sub build()
         w = 0
         if hasText
             l.text = it.label
-            tw = it.label.len() * 15
+            ' (v1.4 VD-10) measured in the bold face the entry gets when current or focused
+            l.font.uri = "font:BoldSystemFontFile"
+            tw = Int(l.boundingRect().width) + 2
+            l.font.uri = "font:MediumSystemFontFile"
             if hasIcon
                 l.translation = [62, 0]
                 w = 62 + tw + 22
@@ -105,19 +108,22 @@ sub paint()
         ic = g.getChild(2)
         isCurrent = m.top.items[i].id = m.top.current
         f = createObject("roSGNode", "Font")
+        bg.blendColor = "0xFFFFFFFF"
         if focused and i = m.index
-            bg.uri = "pkg:/images/ui/white_pill.9.png"
+            bg.uri = "pkg:/images/ui/g3_focus_capsule_44.9.png"
             bg.visible = true
-            l.color = "0x000000FF"
+            l.color = "0xFFFFFFFF"
             f.uri = "font:BoldSystemFontFile"
         else if isCurrent
-            bg.uri = "pkg:/images/ui/sel_pill.9.png"
+            ' the Mac's selected section: accent glass (a 40 % accent band)
+            bg.uri = "pkg:/images/ui/band_r18.9.png"
+            bg.blendColor = m.global.theme.accent.left(8) + "66"
             bg.visible = true
             l.color = "0xFFFFFFFF"
             f.uri = "font:BoldSystemFontFile"
         else
             bg.visible = false
-            l.color = "0xFFFFFFCC"
+            l.color = "0xFFFFFF9E"
             f.uri = "font:MediumSystemFontFile"
         end if
         ic.blendColor = l.color

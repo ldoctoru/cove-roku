@@ -143,12 +143,15 @@ sub drawButtons(w as integer, y as integer, focused as boolean)
         lab.horizAlign = "center"
         lab.vertAlign = "center"
         lab.translation = [x, y]
+        ' (v1.4) Glass3D: clear glass, focus = the fogged-mirror overlay + the white ring (never a white fill)
+        bg.uri = "pkg:/images/ui/g3_capsule.9.png"
+        lab.color = "0xFFFFFFFF"
         if b.focus
-            bg.uri = "pkg:/images/ui/white_pill.9.png"
-            lab.color = "0x000000FF"
-        else
-            bg.uri = "pkg:/images/ui/glass_pill.9.png"
-            lab.color = "0xFFFFFFFF"
+            fogp = m.body.createChild("Poster")
+            fogp.uri = "pkg:/images/ui/fog_capsule.9.png"
+            fogp.width = b.w
+            fogp.height = 60
+            fogp.translation = [x, y]
         end if
         m.body.appendChild(lab)
         x = x + b.w + gap

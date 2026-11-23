@@ -292,7 +292,8 @@ sub buildNav()
     ' Settings → Libraries: Favorites / Now Playing shown; General: Recently Added
     if Prefs.showFavorites() then items.push({ id: "favorites", label: "Favorites", icon: "heart" })
     if Prefs.showNowPlaying() then items.push({ id: "nowplaying", label: "Now Playing", icon: "nowplaying", badge: m.nowPlaying })
-    if m.side then items.push({ header: true, label: "Library" })
+    ' (v1.4 N2) the Mac's sidebar header
+    if m.side then items.push({ header: true, label: "My Media" })
     if Prefs.showRecent() then items.push({ id: "recent", label: "Recently Added", icon: "clock" })
     libs = invalid
     if m.task <> invalid then libs = m.task.libraries
@@ -531,9 +532,16 @@ sub showHero(i as integer)
     m.top.findNode("chipBg").width = it.chip.len() * 14 + 28
     ' (v1.2) the season and episode are on the meta line now (Items.heroMeta): no chip
     m.top.findNode("chip").visible = false
-    label = "Play"
-    if it.resumeAt > 30 then label = "Resume"
-    m.top.findNode("playLabel").text = label
+    ' (v1.4 H1) "Resume 24:10" with the restart arrow when there is a resume point (the Mac's "↻ 24:10"; the
+    ' word stays on TV, the arrow alone reads poorly from the sofa)
+    play = m.top.findNode("btnPlay")
+    if it.resumeAt > 30
+        play.icon = "pkg:/images/ui/icon_restart_28.png"
+        play.text = "Resume " + clockText(it.resumeAt)
+    else
+        play.icon = "pkg:/images/ui/icon_play_28.png"
+        play.text = "Play"
+    end if
     ' title text until the logo has loaded
     m.logoReady = false
     m.heroLogo.visible = false
@@ -582,33 +590,18 @@ sub paintButtons()
     it = invalid
     if m.heroes.count() > 0 then it = m.heroes[m.heroIndex]
     play = m.top.findNode("btnPlay")
-    play.scaleRotateCenter = [127, 34]
-    s = 1.0
-    if focused and m.btn = 0 then s = 1.06
-    play.scale = [s, s]
-    m.top.findNode("playRing").visible = focused and m.btn = 0
-    paintCircle("fav", focused and m.btn = 1)
-    paintCircle("info", focused and m.btn = 2)
-    favIcon = m.top.findNode("favIcon")
-    favIcon.uri = "pkg:/images/ui/icon_plus_28.png"
-    if it <> invalid and it.favorite then favIcon.uri = "pkg:/images/ui/icon_check_28.png"
-end sub
-
-sub paintCircle(name as string, isFocused as boolean)
-    bg = m.top.findNode(name + "Bg")
-    icon = m.top.findNode(name + "Icon")
-    g = m.top.findNode("btn" + UCase(name.left(1)) + name.mid(1))
-    g.scaleRotateCenter = [34, 34]
-    ' (v1.1.1 VD-6) one focus rule: the white ring shows the focus; the circle keeps its glass fill, so it never
-    ' looks like a second Play button
-    bg.uri = "pkg:/images/ui/glass_circle_69.png"
-    icon.blendColor = "0xFFFFFFFF"
-    m.top.findNode(name + "Ring").visible = isFocused
-    if isFocused
-        g.scale = [1.06, 1.06]
-    else
-        g.scale = [1.0, 1.0]
-    end if
+    fav = m.top.findNode("btnFav")
+    info = m.top.findNode("btnInfo")
+    favIcon = "pkg:/images/ui/icon_plus_28.png"
+    if it <> invalid and it.favorite then favIcon = "pkg:/images/ui/icon_check_28.png"
+    if fav.icon <> favIcon then fav.icon = favIcon
+    ' (v1.4 VD-10) the circles follow the Play pill's measured width
+    x = play.buttonWidth + 21
+    fav.translation = [x, 0]
+    info.translation = [x + 90, 0]
+    play.focused = focused and m.btn = 0
+    fav.focused = focused and m.btn = 1
+    info.focused = focused and m.btn = 2
 end sub
 
 sub onHeroTimer()

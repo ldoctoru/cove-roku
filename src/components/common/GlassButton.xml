@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.4) A Glass3D button, as Cove for macOS's ClassicPill.swift, built once and only restyled on focus (VD-18).
+     style "accent": the Play pill, accent-tinted glass fading from left to right, accent rim, white top shine and an
+     accent line at the bottom. style "glass": a clear glass capsule with the 22 % outline. style "circle": a clear
+     glass circle (size = height) with an icon.
+     focused: the fogged-mirror overlay, the white ring and a 1.06 zoom; the fill never turns white.
+     The width is measured from the label (VD-10) and published in buttonWidth; minWidth keeps short labels wide. -->
+<component name="GlassButton" extends="Group">
+    <script type="text/brightscript" uri="GlassButton.bs" />
+    <interface>
+        <field id="style" type="string" value="glass" onChange="layout" />
+        <field id="text" type="string" onChange="layout" />
+        <field id="icon" type="string" onChange="layout" />
+        <field id="iconColor" type="string" value="0xFFFFFFFF" onChange="layout" />
+        <field id="iconSize" type="integer" value="28" onChange="layout" />
+        <field id="textSize" type="integer" value="28" onChange="layout" />
+        <field id="height" type="integer" value="69" onChange="layout" />
+        <field id="minWidth" type="integer" value="0" onChange="layout" />
+        <field id="padX" type="integer" value="-1" onChange="layout" />
+        <field id="focused" type="boolean" onChange="paint" />
+        <field id="dimmed" type="boolean" onChange="paint" />
+        <field id="buttonWidth" type="integer" />
+    </interface>
+    <children>
+        <Group id="body">
+            <Poster id="base" />
+            <Poster id="tintL" uri="pkg:/images/ui/g3_tint_cap_l.png" visible="false" />
+            <Poster id="tintMid" uri="pkg:/images/ui/g3_tint_fade.png" visible="false" />
+            <Poster id="tintR" uri="pkg:/images/ui/g3_tint_cap_r.png" visible="false" />
+            <Poster id="rim" uri="pkg:/images/ui/g3_pill_rim.9.png" visible="false" />
+            <Poster id="shine" uri="pkg:/images/ui/g3_pill_shine.png" height="2" visible="false" />
+            <Rectangle id="baseLine" height="3" visible="false" />
+            <Poster id="fog" visible="false" />
+            <Poster id="ring" visible="false" />
+            <Poster id="iconImg" visible="false" />
+            <Label id="shadowLabel" color="0x00000099" vertAlign="center">
+                <Font role="font" uri="font:BoldSystemFontFile" size="28" />
+            </Label>
+            <Label id="label" color="0xFFFFFFFF" vertAlign="center">
+                <Font role="font" uri="font:BoldSystemFontFile" size="28" />
+            </Label>
+        </Group>
+    </children>
+</component>

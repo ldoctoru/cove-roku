@@ -10,15 +10,16 @@
     </interface>
     <children>
         <Group id="pill" opacity="0">
-            <Poster id="bg" uri="pkg:/images/ui/panel_dark_r18.9.png" height="64" />
-            <Poster id="glass" uri="pkg:/images/ui/glass_pill.9.png" height="64" />
-            <Poster id="icon" width="28" height="28" translation="[26,18]" />
-            <Label id="text" text="Done" height="64" vertAlign="center" color="0xFFFFFFFF">
+            <Poster id="bg" uri="pkg:/images/ui/white_pill.9.png" height="66" blendColor="0x0000008C" />
+            <Poster id="glass" uri="pkg:/images/ui/g3_capsule.9.png" height="66" />
+            <Poster id="icon" width="28" height="28" translation="[26,19]" />
+            <Label id="text" text="Done" height="66" vertAlign="center" color="0xFFFFFFFF">
                 <Font role="font" uri="font:BoldSystemFontFile" size="26" />
             </Label>
         </Group>
-        <Animation id="fadeIn" duration="0.25" easeFunction="outQuad">
+        <Animation id="fadeIn" duration="0.3" easeFunction="outCubic">
             <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[0.0, 1.0]" fieldToInterp="pill.opacity" />
+            <Vector2DFieldInterpolator id="slideIn" key="[0.0, 1.0]" fieldToInterp="pill.translation" />
         </Animation>
         <Animation id="fadeOut" duration="0.3" easeFunction="inQuad">
             <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[1.0, 0.0]" fieldToInterp="pill.opacity" />

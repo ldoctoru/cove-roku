@@ -238,17 +238,13 @@ sub drawFav()
     ic.width = 28
     ic.height = 28
     ic.translation = [28, 18]
-    if m.inHead
-        bg.uri = "pkg:/images/ui/white_pill.9.png"
-        lab.color = "0x000000FF"
-        ic.blendColor = "0x000000FF"
-    else
-        bg.uri = "pkg:/images/ui/glass_pill.9.png"
-        lab.color = "0xFFFFFFFF"
-        ic.blendColor = "0xFFFFFFFF"
-    end if
+    ' (v1.4) Glass3D: focus = glass + fog with the white ring, the text stays white
+    bg.uri = "pkg:/images/ui/g3_capsule.9.png"
+    if m.inHead then bg.uri = "pkg:/images/ui/g3_focus_capsule.9.png"
+    lab.color = "0xFFFFFFFF"
+    ic.blendColor = "0xFFFFFFFF"
     ' a favourite: the heart in the accent colour, as on the Mac
-    if m.isFav and not m.inHead then ic.blendColor = m.global.theme.accent
+    if m.isFav then ic.blendColor = m.global.theme.accent
     ' (right-aligned at the header's edge)
     g.translation = [1724 - w, 14]
     if m.inHead and Speak.isOn()

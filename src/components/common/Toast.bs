@@ -59,7 +59,9 @@ sub showNext()
     w = x + tw + 36
     m.bg.width = w
     m.glass.width = w
-    m.pill.translation = [Int((1920 - w) / 2), 940]
+    px = Int((1920 - w) / 2)
+    m.pill.translation = [px, 988]
+    m.top.findNode("slideIn").keyValue = [[px, 988], [px, 948]]
     m.fadeIn.control = "start"
     m.hold.control = "start"
     ' (queued after what the Audio Guide is saying about the focus)

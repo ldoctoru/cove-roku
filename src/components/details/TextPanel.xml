@@ -11,7 +11,8 @@
     </interface>
     <children>
         <Rectangle width="1920" height="1080" color="0x000000B3" />
-        <Poster uri="pkg:/images/ui/panel_r21.9.png" width="1320" height="820" translation="[300,130]" />
+        <Poster id="panel" uri="pkg:/images/ui/panel_r27_black.9.png" width="1320" height="820" translation="[300,130]" />
+        <Poster uri="pkg:/images/ui/panel_rim_r27.9.png" width="1320" height="820" translation="[300,130]" />
         <Label id="heading" width="1200" height="60" translation="[360,176]" color="0xFFFFFFFF" text="Description">
             <Font role="font" uri="font:BoldSystemFontFile" size="40" />
         </Label>

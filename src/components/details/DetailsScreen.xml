@@ -51,7 +51,7 @@
                 <Label id="kind" height="40" vertAlign="center" color="0xFFFFFFFF">
                     <Font role="font" uri="font:MediumSystemFontFile" size="26" />
                 </Label>
-                <Poster id="ratingBox" uri="pkg:/images/ui/outline_box_r4.9.png" height="32" translation="[0,4]" visible="false" />
+                <Poster id="ratingBox" uri="pkg:/images/ui/outline_box_r6.9.png" height="32" translation="[0,4]" visible="false" />
                 <Label id="rating" height="40" vertAlign="center" color="0xFFFFFFFF">
                     <Font role="font" uri="font:BoldSystemFontFile" size="24" />
                 </Label>

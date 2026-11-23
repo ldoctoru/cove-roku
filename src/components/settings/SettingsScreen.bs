@@ -817,7 +817,7 @@ sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionT
     end if
 end sub
 
-' A value in a glass capsule (with a chevron for choices); white when focused
+' A value in a glass capsule (with a chevron for choices); (v1.4 S3) focused: glass + fog with the white ring
 sub drawPill(c as object, x as integer, y as integer, text as string, isFocus as boolean, faded as boolean, chevron as boolean)
     g = c.createChild("Group")
     g.translation = [x, y]
@@ -831,10 +831,9 @@ sub drawPill(c as object, x as integer, y as integer, text as string, isFocus as
     bgp.height = 46
     col = "0xFFFFFFFF"
     if isFocus
-        bgp.uri = "pkg:/images/ui/white_pill.9.png"
-        col = "0x000000FF"
+        bgp.uri = "pkg:/images/ui/g3_focus_capsule_44.9.png"
     else
-        bgp.uri = "pkg:/images/ui/glass_pill.9.png"
+        bgp.uri = "pkg:/images/ui/g3_capsule_44.9.png"
         if faded then col = "0xFFFFFF59"
     end if
     lab.color = col
@@ -873,24 +872,20 @@ sub drawSwitch(c as object, x as integer, y as integer, isOn as boolean, isFocus
     if isOn then kn.translation = [x + 35, y + 3]
 end sub
 
-' Servers and libraries: icon, name (and a second line), state on the right; white when focused
+' Servers and libraries: icon, name (and a second line), state on the right; (v1.4) focused: fog + white ring
 sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as boolean)
     t = m.global.theme
     h = rowHeight(r) - 8
     w = 1040
     if isFocus
         bgp = c.createChild("Poster")
-        bgp.uri = "pkg:/images/ui/white_rr12.9.png"
+        bgp.uri = "pkg:/images/ui/fog_ring_r12.9.png"
         bgp.width = w
         bgp.height = h
         bgp.translation = [x - 10, y + 2]
     end if
     main = "0xFFFFFFFF"
     second = "0xFFFFFFCC"
-    if isFocus
-        main = "0x000000FF"
-        second = "0x000000A6"
-    end if
     icName = Util.toText(r.icon)
     if r.kind = "server" then icName = "server"
     if r.kind = "profile" then icName = "profile"

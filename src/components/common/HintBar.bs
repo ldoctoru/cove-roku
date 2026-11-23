@@ -18,7 +18,8 @@ sub onShow()
         w = 72 + tw + 30
         m.top.findNode("bg").width = w
         m.top.findNode("glass").width = w
-        m.pill.translation = [Int((1920 - w) / 2), 990]
+        ' (v1.4 VD-14) bottom edge at 1008, inside the action-safe area
+        m.pill.translation = [Int((1920 - w) / 2), 948]
         m.on = true
         fadeTo(1.0)
         m.hold.control = "start"

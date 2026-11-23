@@ -605,6 +605,16 @@ def draw_glass3d():
     save(nine(glass3d(44, 44, 22)), "g3_capsule_44.9.png")
     save(nine(fog(44, 44, 22)), "fog_capsule_44.9.png")
     save(nine(ring(60, 60, 30, 4, WHITE)), "focus_ring_pill_60.9.png")
+    # a focused small pill in one piece (dense rows: library bar, Settings values, About pills, top bar):
+    # glass + fog with the white ring on its edge
+    for size in (60, 44):
+        r = size // 2
+        edge = Image.new("RGBA", (size * S, size * S), (0, 0, 0, 0))
+        ImageDraw.Draw(edge).rounded_rectangle([0, 0, size * S - 1, size * S - 1], r * S, outline=WHITE, width=3 * S)
+        base = Image.new("RGBA", (size * S, size * S), (0, 0, 0, 0))
+        ImageDraw.Draw(base).rounded_rectangle([0, 0, size * S - 1, size * S - 1], r * S, fill=G3_DARK)
+        img = layered(size, size, [base, vfill(size, size, r, [(0, 26), (0.55, 41), (1, 61)]), edge])
+        save(nine(img), "g3_focus_capsule%s.9.png" % ("" if size == 60 else "_44"))
     save(fog(69, 69, 34), "fog_circle_69.png")
     save(nine(fog(36, 36, 12)), "fog_r12.9.png")
     # list focus bar (Picker, menus): fog with the white ring baked in, so a LabelList shows fog + ring

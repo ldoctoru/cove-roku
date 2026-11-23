@@ -9,6 +9,8 @@ sub init()
     m.list.observeField("itemFocused", "onItemFocused")
     m.spokeTitle = false
     Speak.mute([m.list])
+    t = m.global.theme
+    if t <> invalid and Util.toText(t.panel) <> "" then m.top.findNode("panel").uri = t.panel
 end sub
 
 sub onItemFocused()
@@ -30,9 +32,11 @@ sub onWide()
     w = 600
     if m.top.wide then w = 900
     x = 1872 - w
-    panel = m.top.findNode("panel")
-    panel.width = w
-    panel.translation = [x, 54]
+    for each id in ["panel", "panelRim"]
+        panel = m.top.findNode(id)
+        panel.width = w
+        panel.translation = [x, 54]
+    end for
     t = m.top.findNode("title")
     t.width = w - 60
     t.translation = [x + 30, 86]
