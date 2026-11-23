@@ -47,6 +47,13 @@ namespace Theme
             accent: a[accentName],
             onAccent: onAccent,
             text: "0xFFFFFFFF",
+            ' (v1.5 flat) Apple TV / Emby-style flat tokens shared by every screen: a focused control is a plain white
+            ' fill with dark content (no glow, glass, shine or zoom); unfocused controls are a faint white fill.
+            focusFill: "0xFFFFFFFF",
+            onFocus: "0x111111FF",
+            controlFill: "0xFFFFFF1F",
+            rowFill: "0xFFFFFF14",
+            divider: "0xFFFFFF1F",
             ' (v1.4) the Glass3D greys (Glass3DTokens.swift): primary 92 %, secondary 62 %, tertiary 42 % (tertiary
             ' only for disabled items and hints). Overview text over pictures keeps 80 % (no blur on Roku).
             text1: "0xFFFFFFEB",
