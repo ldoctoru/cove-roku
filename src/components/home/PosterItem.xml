@@ -74,9 +74,7 @@
             <Poster id="mask" />
             <Poster id="border" uri="pkg:/images/ui/card_edge_r12.9.png" opacity="0.7" />
             <Poster id="heart" uri="pkg:/images/ui/icon_heart_28.png" width="28" height="28" visible="false" />
-            <Poster id="badgeShadow" uri="pkg:/images/ui/badge_watched_shadow.png" visible="false" />
             <Poster id="badge" visible="false" />
-            <Poster id="badgeRing" uri="pkg:/images/ui/badge_watched_ring.png" visible="false" />
             <Poster id="badgeIcon" uri="pkg:/images/ui/icon_check_28.png" width="22" height="22" visible="false" />
             <Label id="badgeText" horizAlign="center" vertAlign="center" color="0xFFFFFFFF" visible="false">
                 <Font role="font" uri="font:BoldSystemFontFile" size="24" />

@@ -106,15 +106,15 @@ sub paint(flush = true as boolean)
             plus.translation = [78, 78]
             plus.blendColor = "0xFFFFFFCC"
         else
-            ' the accent circle with the first letter, under the server's picture (shown when there is none)
+            ' (v1.5 flat) a neutral grey circle with the first letter, under the server's picture (shown when there is none)
             c = g.createChild("Poster")
             c.uri = "pkg:/images/ui/white_circle_240.png"
             c.width = 220
             c.height = 220
-            c.blendColor = t.accent
+            c.blendColor = "0x48484AFF"
             letter = UCase(Util.toText(p.name).left(1))
             if letter = "" then letter = "?"
-            addLabel(g, letter, 0, 0, 220, 220, 96, true, t.onAccent)
+            addLabel(g, letter, 0, 0, 220, 220, 96, true, "0xFFFFFFFF")
             if Util.toText(p.avatar) <> ""
                 img = g.createChild("Poster")
                 img.width = 220

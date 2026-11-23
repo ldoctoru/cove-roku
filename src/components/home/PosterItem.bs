@@ -9,11 +9,10 @@ sub init()
     m.year = m.top.findNode("year")
     m.top.findNode("ph").color = t.placeholder
     m.top.findNode("mask").uri = t.maskPoster
-    m.top.findNode("barFill").color = t.accent
-    m.top.findNode("heart").blendColor = t.accent
-    ' (v1.4 R3) the focus glow: the accent at 45 %
-    m.top.findNode("shadow").blendColor = t.accent.left(8) + "73"
-    m.top.findNode("resumeArc").blendColor = t.accent
+    ' (v1.5 flat) no accent: the progress bar, the favourite heart and the resume arc are white
+    m.top.findNode("barFill").color = "0xFFFFFFFF"
+    m.top.findNode("heart").blendColor = "0xFFFFFFFF"
+    m.top.findNode("resumeArc").blendColor = "0xFFFFFFFF"
     ' (v1.4 R5) Settings → General → Dim Watched (on by default, as on the Mac)
     m.dimWatched = true
     dv = t.dimWatched
@@ -211,7 +210,7 @@ sub onContent()
     p = 0.0
     if c.hasField("progress") then p = c.progress
     hasProgress = p > 0.01 and p < 0.99
-    ' poster cards: title and year below, accent bar inside the image
+    ' poster cards: title and year below, a white bar inside the image
     m.title.visible = not m.landscape
     m.year.visible = not m.landscape
     if m.person then m.year.visible = true
@@ -337,10 +336,6 @@ sub onContent()
     icon.height = bs - 14
     icon.blendColor = "0xFFFFFFFF"
     badge.blendColor = "0xFFFFFFFF"
-    ring = m.top.findNode("badgeRing")
-    sh = m.top.findNode("badgeShadow")
-    ring.visible = false
-    sh.visible = false
     ' (v1.1.2) 2:3 posters: the check / count in the top-left corner, because many posters carry rating
     ' badges (IMDb, RT, Metacritic) baked into their top-right corner; the heart moves under it.
     ' Wide cards keep them top-right (their heart is top-left).
@@ -349,10 +344,10 @@ sub onContent()
     heart.translation = [14, 14]
     if leftSide and (played or unplayed > 0) then heart.translation = [12 + Int((bs - 28) / 2), 12 + bs + 8]
     if played
-        ' (v1.3.2) more visible: a solid accent disc, white edge and shadow, the check in the on-accent colour
+        ' (v1.5 flat) a solid white disc with a thin dark edge (reads on bright posters) and a dark check
         badge.uri = "pkg:/images/ui/badge_watched.png"
-        badge.blendColor = t.accent
-        icon.blendColor = t.onAccent
+        badge.blendColor = "0xFFFFFFFF"
+        icon.blendColor = t.onFocus
         icon.width = bs - 12
         icon.height = bs - 12
         bx = m.w - 12 - bs
@@ -360,16 +355,8 @@ sub onContent()
         badge.width = bs
         badge.height = bs
         badge.translation = [bx, 12]
-        ring.width = bs
-        ring.height = bs
-        ring.translation = [bx, 12]
-        sh.width = bs + 16
-        sh.height = bs + 16
-        sh.translation = [bx - 8, 14 - 8]
         icon.translation = [bx + 6, 18]
         badge.visible = true
-        ring.visible = true
-        sh.visible = true
         icon.visible = true
         bt.visible = false
     else if unplayed > 0

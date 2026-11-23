@@ -415,8 +415,8 @@ sub drawBar()
         lab.vertAlign = "center"
         lab.translation = [24, 0]
         isTab = ids[i].startsWith("tab:")
-        ' (v1.1.1 VD-23) an active filter: lit fill, white text and an accent dot before the label, readable
-        ' with every accent (the dot has a dark edge for the white one)
+        ' (v1.1.1 VD-23) an active filter: white text and a white dot before the label (v1.5: no accent; the
+        ' dot keeps its dark edge so it reads on the focused white pill too)
         dotW = 0
         if active and not isTab then dotW = 16
         w = lab.boundingRect().width + 84 + dotW
@@ -432,7 +432,7 @@ sub drawBar()
             edge.translation = [19, 20]
             dot = g.createChild("Poster")
             dot.uri = "pkg:/images/ui/dot_10.png"
-            dot.blendColor = m.global.theme.accent
+            dot.blendColor = "0xFFFFFFFF"
             dot.width = 8
             dot.height = 8
             dot.translation = [21, 22]

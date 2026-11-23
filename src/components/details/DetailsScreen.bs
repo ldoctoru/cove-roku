@@ -779,7 +779,7 @@ sub buildButtons()
         btns.push({ id: "playall", text: "Play All" })
         btns.push({ id: "shuffle", text: "Shuffle" })
     end if
-    ' (v1.4 D1) the Mac's Glass3D icons: an outlined heart (a filled accent heart for a favourite) and the
+    ' (v1.4 D1) the Mac's Glass3D icons: an outlined heart (a filled heart for a favourite) and the
     ' check circle, outlined while unwatched, filled once watched (a series: every episode)
     favIcon = "hearto"
     if m.isFav then favIcon = "heart"
@@ -868,10 +868,9 @@ sub drawButtons()
     if focused then speakButton()
 end sub
 
-' Play / Resume (accent glass pill, VD-10 measured width), text pills and glass circles, 18 px apart (21 after Play)
+' Play / Resume (the stronger flat pill, VD-10 measured width), text pills and flat circles, 18 px apart (21 after Play)
 sub buildButtonNodes()
     m.btnGroup.removeChildrenIndex(m.btnGroup.getChildCount(), 0)
-    t = m.global.theme
     x = 0
     for i = 0 to m.btns.count() - 1
         b = m.btns[i]
@@ -888,8 +887,6 @@ sub buildButtonNodes()
         else
             g.style = "circle"
             g.icon = "pkg:/images/ui/icon_" + b.icon + "_28.png"
-            ' a favourite's filled heart in the accent, as on the Mac
-            if b.icon = "heart" then g.iconColor = t.accent
         end if
         g.translation = [x, 0]
         gap = 18
@@ -1867,8 +1864,6 @@ sub drawSeasonBar()
         bg.uri = "pkg:/images/ui/g3_capsule.9.png"
         l.color = "0xFFFFFFFF"
         if not bold and not isFocus then l.color = "0xFFFFFFD9"
-        ' "Show all" / "Hide watched" in the accent colour, like the Mac's tinted button
-        if isFilter then l.color = m.global.theme.accent
         g.insertChild(bg, 0)
         l.translation = [26, 0]
         if ids[i] = "season" then w = addSeasonBadge(g, tw, w)

@@ -662,10 +662,9 @@ def draw_all():
     save(nine(shadow(96, 24, 18, 14, 153)), "card_shadow.9.png")
     save(circle(36, (0, 0, 0, 179), (255, 255, 255, 217), 2), "badge_circle.png")
     save(nine(shape(36, 36, 18, (0, 0, 0, 179), (255, 255, 255, 217), 2)), "badge_capsule.9.png")
-    # (v1.3.2) the watched badge: a white disc tinted with the accent (blendColor), a white edge and a soft shadow
-    save(circle(36, WHITE), "badge_watched.png")
-    save(ring_circle(36, 2), "badge_watched_ring.png")
-    save(shadow(52, 8, 18, 3, 150), "badge_watched_shadow.png")
+    # (v1.5 flat) the watched badge: a solid white disc with a thin 25 % black edge (so it reads on bright
+    # posters) under a dark check; no accent, no shadow
+    save(circle(36, WHITE, (0, 0, 0, 64), 2), "badge_watched.png")
     for name, rgb in BGS.items():
         save(nine(corner_mask(40, 18, rgb)), "mask_r18_%s.9.png" % name)
         save(circle_mask(144, rgb), "mask_circle_%s_144.png" % name)

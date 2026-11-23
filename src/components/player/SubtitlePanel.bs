@@ -116,7 +116,7 @@ function moreText(first as integer, count as integer) as string
 end function
 
 ' One row (v1.4 Glass3D): a faint r12 glass row, the focused one with the fog and a white ring (the text stays
-' white), an optional check in the accent, the label and a value or a chevron on the right
+' white), an optional white check, the label and a value or a chevron on the right
 sub addRow(g as object, slot as integer, w as integer, label as string, value as string, checked as boolean, focused as boolean, chevron as boolean)
     row = g.createChild("Group")
     row.translation = [0, slot * m.STEP]
@@ -140,8 +140,7 @@ sub addRow(g as object, slot as integer, w as integer, label as string, value as
         ck.width = 28
         ck.height = 28
         ck.translation = [18, 17]
-        ck.blendColor = m.global.theme.accent
-        if Util.toText(m.global.theme.accentName) = "white" then ck.blendColor = "0xFFFFFFFF"
+        ck.blendColor = "0xFFFFFFFF"
     end if
     x = 58
     rightX = w - 20

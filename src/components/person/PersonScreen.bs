@@ -243,8 +243,6 @@ sub drawFav()
     if m.inHead then bg.uri = "pkg:/images/ui/g3_focus_capsule.9.png"
     lab.color = "0xFFFFFFFF"
     ic.blendColor = "0xFFFFFFFF"
-    ' a favourite: the heart in the accent colour, as on the Mac
-    if m.isFav then ic.blendColor = m.global.theme.accent
     ' (right-aligned at the header's edge)
     g.translation = [1724 - w, 14]
     if m.inHead and Speak.isOn()
