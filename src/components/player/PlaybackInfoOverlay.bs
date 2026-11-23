@@ -21,7 +21,6 @@ sub onLines()
         y = y + 2
     end for
     m.top.findNode("bg").height = 70 + y + 20
-    m.top.findNode("rim").height = 70 + y + 20
 end sub
 
 sub addRowLabel(text as string, x as integer, y as integer, w as integer, col as string)

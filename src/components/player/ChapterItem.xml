@@ -9,9 +9,8 @@
         <field id="listHasFocus" type="boolean" onChange="onFocus" />
     </interface>
     <children>
-        <!-- (v1.4) the focused row: fog with a white ring inside the row (lists clip their items), text stays white -->
-        <Poster id="bg" uri="pkg:/images/ui/pl_fog_r12.9.png" width="552" height="106" opacity="0" />
-        <Poster id="ring" uri="pkg:/images/ui/pl_ring_r12.9.png" width="552" height="106" opacity="0" />
+        <!-- (v1.5 flat) the focused row: solid white with dark text (no fog or ring) -->
+        <Poster id="bg" uri="pkg:/images/ui/white_rr12.9.png" width="552" height="106" opacity="0" />
         <Rectangle width="160" height="90" translation="[10,8]" color="0xFFFFFF14" />
         <Poster id="thumb" width="160" height="90" translation="[10,8]" loadWidth="160" loadHeight="90" loadDisplayMode="scaleToZoom" />
         <Label id="name" text="Chapter" width="356" height="34" translation="[190,14]" color="0xFFFFFFFF">

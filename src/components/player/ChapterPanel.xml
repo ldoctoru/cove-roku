@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- Chapters side panel in the player (Cove for macOS: PlayerView chaptersPanel): each chapter with its image,
-     name and start time; the one playing now in the accent colour. Set chapters ([{ index, name, start, image }])
+     name and start time; the one playing now in full white. Set chapters ([{ index, name, start, image }])
      and current (row), give it focus; "chosen" = { id, purpose, start } or "cancelled" (Back / Left / *).
      Same fields as Picker, so the player handles it like its other panels. -->
 <component name="ChapterPanel" extends="Group">
@@ -15,9 +15,8 @@
     </interface>
     <children>
         <Rectangle width="1920" height="1080" color="0x00000066" />
-        <!-- (v1.4) a Glass3D side panel: the page colour at 90 %, r27, with a top-lit rim -->
+        <!-- (v1.5 flat) a flat dark side panel: the page colour at 85 %, r27, no rim -->
         <Poster id="panel" uri="pkg:/images/ui/pl_panel_black.9.png" width="600" height="972" translation="[1224,54]" />
-        <Poster uri="pkg:/images/ui/pl_panel_rim.9.png" width="600" height="972" translation="[1224,54]" />
         <Label id="heading" text="Chapters" width="540" height="50" translation="[1254,86]" color="0xFFFFFFFF">
             <Font role="font" uri="font:BoldSystemFontFile" size="32" />
         </Label>
