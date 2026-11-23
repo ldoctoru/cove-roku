@@ -207,7 +207,7 @@ sub onContent(ev as object)
     end if
     hideError()
     signalReady()
-    ' Per row: 16:9 cards for Continue Watching / Next Up / Libraries, 2:3 posters with title and year otherwise
+    ' Per row: 16:9 cards for Continue Watching / Next Up, My Media's library tiles, 2:3 posters with title and year otherwise
     sizeRows(content)
     ' (v1.2) the full rows after a first part: a reload (keep the focus, don't jump to the hero)
     wasReload = m.reloading = true or m.partialShown = true
@@ -1415,13 +1415,18 @@ function clockText(secs as float) as string
     return out + Right("0" + ss.toStr(), 2)
 end function
 
-' Per row: 16:9 cards for Continue Watching / Next Up / Libraries, 2:3 posters with title and year otherwise
+' Per row: 16:9 cards for Continue Watching / Next Up, My Media's library tiles, 2:3 posters with title and year otherwise
 ' (tiles include an 18 px margin around each card for its focus zoom and ring: see PosterItem)
 sub sizeRows(content as object)
     heights = []
     sizes = []
     for i = 0 to content.getChildCount() - 1
-        if content.getChild(i).landscape
+        row = content.getChild(i)
+        if row.hasField("myMedia") and row.myMedia
+            ' (v1.5) My Media: 360 x 202 library tiles with the name under them
+            sizes.push([396, 290])
+            heights.push(290)
+        else if row.landscape
             sizes.push([396, 246])
             heights.push(246)
         else

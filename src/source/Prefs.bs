@@ -386,8 +386,9 @@ namespace Prefs
         Util.writeText(libOrderKey(serverId), Util.join(ids, ","))
     end sub
 
-    ' The library kinds that get a row on Home (HomeTask); the others have no Home setting in Settings
-    function hasHomeRow(collectionType as string) as boolean
+    ' The library kinds that hold films and shows (the banner's Newest / Random / Favorites pick from these).
+    ' (v1.5) No longer gates a library's Home row or its Settings switches: every library has those.
+    function holdsFilmsOrShows(collectionType as string) as boolean
         ct = collectionType
         return ct = "movies" or ct = "tvshows" or ct = "homevideos" or ct = "musicvideos" or ct = "mixed" or ct = ""
     end function

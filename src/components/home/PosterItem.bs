@@ -20,6 +20,7 @@ sub init()
     m.image.observeField("loadStatus", "onLoad")
     m.landscape = false
     m.person = false
+    m.libTile = false
     m.selected = false
     m.phBars = invalid
 end sub
@@ -35,8 +36,11 @@ sub onSize()
     m.landscape = c <> invalid and c.hasField("landscape") and c.landscape
     m.person = c <> invalid and c.hasField("kind") and c.kind = "person"
     m.epCard = c <> invalid and c.hasField("kind") and c.kind = "episode"
+    m.libTile = c <> invalid and c.hasField("kind") and c.kind = "library"
     h = m.top.height - 2 * pad
     if not m.landscape then h = Int(w * 1.5)
+    ' (v1.5) My Media: a 16:9 library picture with the name under it (Emby's My Media row)
+    if m.libTile then h = Int(w * 9 / 16)
     if m.person then h = w
     if h > m.top.height - 2 * pad then h = m.top.height - 2 * pad
     m.card.translation = [pad, pad]
@@ -172,7 +176,8 @@ sub onContent()
     if c = invalid or m.w = invalid then return
     isPerson = c.hasField("kind") and c.kind = "person"
     isEp = c.hasField("kind") and c.kind = "episode"
-    if (c.hasField("landscape") and c.landscape) <> m.landscape or isPerson <> m.person or isEp <> m.epCard
+    isLib = c.hasField("kind") and c.kind = "library"
+    if (c.hasField("landscape") and c.landscape) <> m.landscape or isPerson <> m.person or isEp <> m.epCard or isLib <> m.libTile
         onSize()
         return
     end if

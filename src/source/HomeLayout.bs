@@ -5,7 +5,7 @@ import "pkg:/source/NavPrefs.bs"
 ' Settings → Home → Rows: which Home rows show and in what order, per server.
 ' Row ids: "resume" (Continue Watching), "nextup", "upcoming" (v1.1: episodes not aired yet), "favorites",
 ' "recent" (Recently Added, all libraries), "released" (v1.1: Recently Released, by premiere date),
-' "L<libraryId>" (a library's row) and "libraries" (the library tiles).
+' "L<libraryId>" (a library's row) and "libraries" (v1.5: "My Media", the libraries' own 16:9 tiles as in Emby).
 ' One registry key per server, "homeRows:<serverId>": an optional "@" (use the server's Home layout), then the
 ' ids in order, comma separated; "+" / "-" before resume / upcoming / recent / released / libraries = switched
 ' on / off (no sign: the default, on for resume, upcoming and libraries, off for Recently Added and Recently
@@ -78,18 +78,19 @@ namespace HomeLayout
     end function
 
     ' The rows Cove can show, in the default order. libs: the server's libraries in the Libraries order
-    ' ([{ id, title, collectionType }]); only the kinds that have a Home row get one.
+    ' ([{ id, title, collectionType }]); (v1.5) every library can have a row, whatever its kind, and My Media
+    ' comes right after Continue Watching / Next Up, as on Emby (a saved Row Order keeps its place)
     function defaultIds(libs as object) as object
-        ids = ["resume", "nextup", "upcoming", "favorites", "recent", "released"]
+        ids = ["resume", "nextup", "libraries", "upcoming", "favorites", "recent", "released"]
         for each l in libs
-            if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType))) then ids.push(libRowId(Util.toText(l.id)))
+            id = Util.toText(l.id)
+            if id <> "" then ids.push(libRowId(id))
         end for
-        ids.push("libraries")
         return ids
     end function
 
     ' The saved order with the rows the server no longer has dropped, and new ones (a new library) placed after
-    ' the row that comes before them in the default order
+    ' the row that comes before them in the default order (a saved order keeps My Media where it was)
     function orderedIds(serverId as string, libs as object) as object
         defs = defaultIds(libs)
         known = {}
@@ -104,12 +105,17 @@ namespace HomeLayout
                 used[id] = true
             end if
         end for
+        ' (a saved order that only keeps the default's own order, e.g. after Default Order: the default as it is)
+        if isInOrder(out, defs) then return defs
         for i = 0 to defs.count() - 1
             id = defs[i]
             if not used.doesExist(id)
                 at = 0
                 for j = i - 1 to 0 step -1
-                    k = indexIn(out, defs[j])
+                    ' (v1.5: My Media moved up in the default order; where a saved order has it says nothing
+                    ' about the rows that came after it before, so new rows aren't placed after it)
+                    k = -1
+                    if defs[j] <> "libraries" then k = indexIn(out, defs[j])
                     if k >= 0
                         at = k + 1
                         exit for
@@ -120,6 +126,17 @@ namespace HomeLayout
             end if
         end for
         return out
+    end function
+
+    ' Are the ids of part in the same order as in whole? (every id of part is in whole)
+    function isInOrder(part as object, whole as object) as boolean
+        last = -1
+        for each id in part
+            k = indexIn(whole, id)
+            if k <= last then return false
+            last = k
+        end for
+        return true
     end function
 
     function indexIn(list as object, id as string) as integer
@@ -183,7 +200,7 @@ namespace HomeLayout
     sub resetOrder(serverId as string)
         st = readState(serverId)
         kept = []
-        for each id in ["resume", "upcoming", "recent", "released", "libraries"]
+        for each id in ["resume", "libraries", "upcoming", "recent", "released"]
             if st.flags.doesExist(id) then kept.push(id)
         end for
         st.order = kept
@@ -221,7 +238,7 @@ namespace HomeLayout
                 addOnce(out, "nextup")
             else if s = "latestmedia"
                 for each l in libs
-                    if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType))) then addOnce(out, libRowId(Util.toText(l.id)))
+                    if Util.toText(l.id) <> "" then addOnce(out, libRowId(Util.toText(l.id)))
                 end for
             end if
         end for
@@ -233,6 +250,33 @@ namespace HomeLayout
     end sub
 
     ' ---------------------------------------------------------------- row queries (v1.1)
+
+    ' (v1.5) The kinds whose Latest row uses the server's /Items/Latest (grouped by series); every other kind
+    ' (music, books, photos, box sets, playlists, unknown) lists its items newest first instead
+    function usesLatestRoute(collectionType as string) as boolean
+        ct = LCase(collectionType)
+        return ct = "movies" or ct = "tvshows" or ct = "homevideos" or ct = "musicvideos" or ct = "mixed" or ct = ""
+    end function
+
+    ' (v1.5) A library row's /Items query (without the fields): its items recursively, of the types it holds
+    ' (types: Items.homeTypesFor), in the row's order (latest = newest first, top, random, az)
+    function libraryItemsQuery(libId as string, types as string, style as string) as string
+        sortQ = "SortBy=SortName&SortOrder=Ascending"
+        if style = "latest" then sortQ = "SortBy=DateCreated,SortName&SortOrder=Descending"
+        if style = "top" then sortQ = "SortBy=CommunityRating,SortName&SortOrder=Descending"
+        if style = "random" then sortQ = "SortBy=Random"
+        return "ParentId=" + libId + "&Recursive=true&" + sortQ + "&Limit=20&IncludeItemTypes=" + types
+    end function
+
+    ' (v1.5) My Media: the libraries whose tile is switched on, in the Libraries order. libs: [{ id, ... }]
+    function myMediaLibs(libs as object) as object
+        out = []
+        for each l in libs
+            id = Util.toText(l.id)
+            if id <> "" and NavPrefs.libraryInMyMedia(id) then out.push(l)
+        end for
+        return out
+    end function
 
     ' Settings → Home → Hide watched in Recently Added: "&IsPlayed=false" for Recently Added, Recently Released
     ' and each library's Latest row (switch off: nothing added, so the server's own "Hide played in latest"

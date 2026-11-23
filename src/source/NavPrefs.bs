@@ -259,6 +259,64 @@ namespace NavPrefs
         Util.writeText("lib:" + libId, formatJson(d))
     end sub
 
+    ' (v1.5) A library's tile in Home's My Media row (Emby's My Media), on its own: on by default for every
+    ' library, whatever the top bar / sidebar show (before, the row followed the menu's list; no write is needed
+    ' to migrate, so everyone sees all libraries there until one is switched off)
+    function libraryInMyMedia(libId as string) as boolean
+        return Prefs.library(libId).media <> false
+    end function
+
+    sub setLibraryInMyMedia(libId as string, on as boolean)
+        Prefs.setLibrary(libId, "media", on)
+    end sub
+
+    ' Settings → Libraries → Set All Libraries: "show:<where>" / "hide:<where>", where = top, side, home, media
+    function setAllActions() as object
+        out = []
+        for each a in [["show", "Show"], ["hide", "Hide"]]
+            for each w in [["top", "in the Top Bar"], ["side", "in the Sidebar"], ["home", "Rows on Home"], ["media", "in My Media"]]
+                lbl = a[1] + " All " + w[1]
+                if w[0] = "home" then lbl = a[1] + " All Library Rows on Home"
+                out.push({ id: a[0] + ":" + w[0], label: lbl })
+            end for
+        end for
+        return out
+    end function
+
+    ' Applies one Set All action to every library the server lists; returns how many libraries it set
+    ' (0 for an unknown action or no libraries)
+    function setAllLibraries(action as string, libs as object) as integer
+        parts = action.split(":")
+        if parts.count() <> 2 then return 0
+        if parts[0] <> "show" and parts[0] <> "hide" then return 0
+        on = parts[0] = "show"
+        where = parts[1]
+        n = 0
+        if where = "top" or where = "side"
+            list = NavPrefs.allEntries(where, libs)
+            for each e in list
+                if e.isLibrary and e.known
+                    e.on = on
+                    n = n + 1
+                end if
+            end for
+            if n > 0 then NavPrefs.saveEntries(where, list, libs)
+        else if where = "home" or where = "media"
+            for each l in libs
+                id = Util.toText(l.id)
+                if id <> ""
+                    if where = "home"
+                        NavPrefs.setLibraryOnHome(id, on)
+                    else
+                        NavPrefs.setLibraryInMyMedia(id, on)
+                    end if
+                    n = n + 1
+                end if
+            end for
+        end if
+        return n
+    end function
+
     ' (HomeTask, each load) a library hidden from the sidebar before v1.5 had no Home row: it keeps none now
     ' that the row no longer depends on the sidebar. Writes once per library; returns how many it migrated.
     function migrateHome(libs as object) as integer

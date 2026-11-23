@@ -344,6 +344,45 @@ namespace Items
         return ""
     end function
 
+    ' (v1.5) What a library's Home row lists: typesFor, or for the kinds it leaves open (mixed / unknown) the
+    ' playable kinds, so a row never fills up with folders or every single episode
+    function homeTypesFor(collectionType as string) as string
+        ct = LCase(collectionType)
+        types = typesFor(ct)
+        if types <> "" then return types
+        if ct = "music" then return "MusicAlbum,MusicVideo"
+        if ct = "books" then return "Book"
+        if ct = "photos" then return "PhotoAlbum,Photo"
+        if ct = "playlists" then return "Playlist"
+        return "Movie,Series,Video,MusicVideo"
+    end function
+
+    ' (v1.5) A library's tile in Home's My Media row: the library's own Primary picture (Emby / Jellyfin draw the
+    ' big name on it), else the wide picture the Libraries row used before (Thumb / backdrop), else "" (the
+    ' tile then shows its initial)
+    function viewTileUrl(server as object, view as object, w as integer) as string
+        own = tagOf(view.ImageTags, "Primary")
+        if own <> "" then return imageUrl(server, Util.toText(view.Id), "Primary", own, w)
+        if tagOf(view.ImageTags, "Thumb") <> "" or first(view.BackdropImageTags) <> "" then return landscape(server, view, w)
+        return ""
+    end function
+
+    ' (v1.5) A My Media tile: kind "library", the library's name under the 16:9 picture
+    function libraryTileNode(server as object, view as object, title as string, w as integer) as object
+        c = node(server, view, false)
+        c.addFields({ kind: "library" })
+        c.title = title
+        c.shortDescriptionLine1 = title
+        c.shortDescriptionLine2 = ""
+        c.hdPosterUrl = viewTileUrl(server, view, w)
+        c.backdrop = ""
+        c.played = false
+        c.unplayed = 0
+        c.favorite = false
+        c.progress = 0.0
+        return c
+    end function
+
     function isFolder(itemType as string) as boolean
         return itemType = "CollectionFolder" or itemType = "UserView" or itemType = "Folder" or itemType = "BoxSet"
     end function
