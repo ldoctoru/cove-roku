@@ -9,11 +9,10 @@ sub init()
     m.year = m.top.findNode("year")
     m.top.findNode("ph").color = t.placeholder
     m.top.findNode("mask").uri = t.maskPoster
-    m.top.findNode("barFill").color = t.accent
-    m.top.findNode("heart").blendColor = t.accent
-    ' (v1.4 R3) the focus glow: the accent at 45 %
-    m.top.findNode("shadow").blendColor = t.accent.left(8) + "73"
-    m.top.findNode("resumeArc").blendColor = t.accent
+    ' (v1.5 flat) no accent: the progress bar, the favourite heart and the resume arc are white
+    m.top.findNode("barFill").color = "0xFFFFFFFF"
+    m.top.findNode("heart").blendColor = "0xFFFFFFFF"
+    m.top.findNode("resumeArc").blendColor = "0xFFFFFFFF"
     ' (v1.4 R5) Settings → General → Dim Watched (on by default, as on the Mac)
     m.dimWatched = true
     dv = t.dimWatched
@@ -26,7 +25,7 @@ sub init()
 end sub
 
 ' The tile keeps a margin of PAD around the card, because a list clips each item to its own area: without
-' it the zoomed card, its ring and shadow are cut off (the gap between cards = 2 x PAD + the list's spacing).
+' it the focus ring is cut off (the gap between cards = 2 x PAD + the list's spacing).
 ' Image area: 16:9 cards fill the tile; poster cards keep 2:3 and put title + year underneath.
 sub onSize()
     pad = 18
@@ -65,17 +64,11 @@ sub onSize()
     m.small = w < 230
     m.initials.font.size = 48
     if m.small then m.initials.font.size = 40
-    m.card.scaleRotateCenter = [w / 2, h / 2]
-    for each id in ["ph", "image", "mask", "border", "initials"]
+    for each id in ["ph", "image", "mask", "initials"]
         n = m.top.findNode(id)
         n.width = w
         n.height = h
     end for
-    ' (v1.4 R1) the sheen over the top 40 %, under the corner mask so the mask rounds it
-    sheen = m.top.findNode("sheen")
-    sheen.width = w
-    sheen.height = Int(h * 0.4)
-    sheen.visible = not m.person
     ' (v1.4 R4) the resume ring at the bottom right, 12 px in (54 px; 48 on episode cards, under their text)
     rs = 54
     if m.epCard then rs = 48
@@ -92,25 +85,18 @@ sub onSize()
     rp.translation = [Int((rs - rp.width) / 2) + 2, Int((rs - rp.width) / 2)]
     m.image.loadWidth = w
     m.image.loadHeight = h
-    sh = m.top.findNode("shadow")
-    ' (v1.4 R3) the accent glow around the card (24 px margin in the PNG); people keep the soft shadow
-    sh.uri = "pkg:/images/ui/glow_r12.9.png"
-    sh.translation = [-24, -24]
-    sh.width = w + 48
-    sh.height = h + 48
+    ' (v1.5 flat) one focus rule for every card: a plain white 4 px ring, 4 px outside the edge (r18 around the
+    ' r12 cards, a circle around people), no glow, shadow or zoom
     ring = m.top.findNode("ring")
     ring.uri = "pkg:/images/ui/focus_ring_r18.9.png"
     ring.translation = [-8, -8]
     ring.width = w + 16
     ring.height = h + 16
     if m.person
-        sh.uri = "pkg:/images/ui/card_shadow.9.png"
-        sh.translation = [-24, -14]
-        ' (v1.1.1 VD-7) a round ring around the photo (zoom 6 + ring 10 stays inside the 18 px pad)
         ring.uri = "pkg:/images/ui/ring_circle_256.png"
-        ring.translation = [-10, -10]
-        ring.width = w + 20
-        ring.height = h + 20
+        ring.translation = [-8, -8]
+        ring.width = w + 16
+        ring.height = h + 16
     end if
     m.top.findNode("heart").translation = [14, 14]
     ' poster: progress inside the bottom of the image
@@ -198,7 +184,6 @@ sub onContent()
     else
         mk.uri = t.maskPoster
     end if
-    m.top.findNode("border").visible = not m.person
     if drawPlaceholder(c) then return
     m.initials.text = UCase(Left(c.title, 1))
     m.initials.visible = true
@@ -211,7 +196,7 @@ sub onContent()
     p = 0.0
     if c.hasField("progress") then p = c.progress
     hasProgress = p > 0.01 and p < 0.99
-    ' poster cards: title and year below, accent bar inside the image
+    ' poster cards: title and year below, a white bar inside the image
     m.title.visible = not m.landscape
     m.year.visible = not m.landscape
     if m.person then m.year.visible = true
@@ -337,10 +322,6 @@ sub onContent()
     icon.height = bs - 14
     icon.blendColor = "0xFFFFFFFF"
     badge.blendColor = "0xFFFFFFFF"
-    ring = m.top.findNode("badgeRing")
-    sh = m.top.findNode("badgeShadow")
-    ring.visible = false
-    sh.visible = false
     ' (v1.1.2) 2:3 posters: the check / count in the top-left corner, because many posters carry rating
     ' badges (IMDb, RT, Metacritic) baked into their top-right corner; the heart moves under it.
     ' Wide cards keep them top-right (their heart is top-left).
@@ -349,10 +330,10 @@ sub onContent()
     heart.translation = [14, 14]
     if leftSide and (played or unplayed > 0) then heart.translation = [12 + Int((bs - 28) / 2), 12 + bs + 8]
     if played
-        ' (v1.3.2) more visible: a solid accent disc, white edge and shadow, the check in the on-accent colour
+        ' (v1.5 flat) a solid white disc with a thin dark edge (reads on bright posters) and a dark check
         badge.uri = "pkg:/images/ui/badge_watched.png"
-        badge.blendColor = t.accent
-        icon.blendColor = t.onAccent
+        badge.blendColor = "0xFFFFFFFF"
+        icon.blendColor = t.onFocus
         icon.width = bs - 12
         icon.height = bs - 12
         bx = m.w - 12 - bs
@@ -360,16 +341,8 @@ sub onContent()
         badge.width = bs
         badge.height = bs
         badge.translation = [bx, 12]
-        ring.width = bs
-        ring.height = bs
-        ring.translation = [bx, 12]
-        sh.width = bs + 16
-        sh.height = bs + 16
-        sh.translation = [bx - 8, 14 - 8]
         icon.translation = [bx + 6, 18]
         badge.visible = true
-        ring.visible = true
-        sh.visible = true
         icon.visible = true
         bt.visible = false
     else if unplayed > 0
@@ -448,20 +421,15 @@ sub onLoad()
     m.initials.visible = m.image.loadStatus <> "ready" and m.initials.text <> ""
 end sub
 
-' Poster title and year under the card. (VD-9) Both step down with the focus zoom, so the ring never sits
-' on the title. (v1.1.2) The year follows the title's one or two lines: the wrapped title's height is
+' Poster title and year under the card (v1.5 flat: no zoom, so they stay put; the ring ends 8 px under the
+' card, above the title). (v1.1.2) The year follows the title's one or two lines: the wrapped title's height is
 ' measured (one line: the year 30 px under the title, as before; two lines: 60 to 64 px).
 sub placeText()
     if m.person or m.landscape or m.h = invalid then return
-    f = 0.0
-    if m.focusF <> invalid then f = m.focusF
     gap = 14
-    drop = Int(10 * f)
     yearAt = 30
     if m.twoLine
-        ' (the zoomed card and its ring end 17 px under the card at most; the title starts at 12 + 8)
         gap = 12
-        drop = Int(8 * f)
         tall = m.title.localBoundingRect().height
         if tall > 45
             yearAt = Int(tall)
@@ -469,29 +437,20 @@ sub placeText()
             if yearAt > 64 then yearAt = 64
         end if
     end if
-    top = 18 + m.h + gap + drop
+    top = 18 + m.h + gap
     m.title.translation = [18, top]
     m.year.translation = [18, top + yearAt]
 end sub
 
-' Focus: zoom x1.06, white ring and shadow (Mac HoverLift), title fully white
+' (v1.5 flat) Focus: the plain white ring only (no zoom, glow or shadow), title fully white
 sub onFocus()
     listFocus = m.top.rowListHasFocus or m.top.gridHasFocus
     f = 0.0
     if listFocus then f = m.top.focusPercent * m.top.rowFocusPercent
-    zoom = 0.06
-    if m.landscape then zoom = 0.04
-    s = 1 + zoom * f
-    m.card.scale = [s, s]
     ' a chosen season keeps its ring
     ringOp = f
     if m.selected and ringOp < 1 then ringOp = 1
     m.top.findNode("ring").opacity = ringOp
-    m.top.findNode("shadow").opacity = f
-    ' (v1.4 R1) the light edge at 70 % at rest, 100 % with the focus
-    m.top.findNode("border").opacity = 0.7 + 0.3 * f
-    m.focusF = f
-    placeText()
     if f > 0.5
         m.title.color = "0xFFFFFFFF"
     else

@@ -87,18 +87,15 @@ sub init()
     m.ctlEnd = 96
     m.toolsX = 1824
     m.lineH = 0
-    ' the timeline's filled part and its glow in the accent
-    accent = m.global.theme.accent
-    m.top.findNode("fill").blendColor = accent
-    m.top.findNode("glow").blendColor = accent
-    m.loaderArc.blendColor = accent
-    ' (v1.4) the Glass3D panels in the page colour (Settings → Background), the accents in the accent
+    ' (v1.5 flat) no accent: the timeline's played part and the loading arc are white
+    m.top.findNode("fill").blendColor = "0xFFFFFFFF"
+    m.loaderArc.blendColor = "0xFFFFFFFF"
+    ' the flat panels in the page colour (Settings → Background)
     panelUri = "pkg:/images/ui/pl_panel_" + Util.toText(m.global.theme.bgName) + ".9.png"
     for each id in ["upNextPanel", "stillPanel", "errorGlass"]
         m.top.findNode(id).uri = panelUri
     end for
-    m.top.findNode("upNextFill").color = accent
-    m.top.findNode("upNextPlayTint").blendColor = glassTint()
+    m.top.findNode("upNextFill").color = "0xFFFFFFFF"
     m.video.observeField("state", "onState")
     m.video.observeField("position", "onPosition")
     m.video.notificationInterval = 1
@@ -1124,13 +1121,6 @@ sub showAction(kind as string, label as string)
     focusPlayer()
 end sub
 
-' (v1.4) The accent glass's tint (play / pause, Play Now, Continue watching): the accent; with the white accent
-' a faint white, so the white label and icon stay readable on it
-function glassTint() as string
-    if Util.toText(m.global.theme.accentName) = "white" then return "0xFFFFFF59"
-    return m.global.theme.accent
-end function
-
 ' (v1.4) The chip's place: bottom right over the bare video; above the bottom block (clear of the timeline and
 ' the tool bar) while the controls show
 sub placeAction()
@@ -1139,11 +1129,17 @@ sub placeAction()
     y = 880
     if m.osdShown then y = 620
     m.action.translation = [1824 - w, y]
-    ' (the fog and the ring while it holds the remote: over the bare video)
-    m.top.findNode("actionFog").width = w
-    m.top.findNode("actionRing").width = w + 12
-    m.top.findNode("actionFog").visible = not m.osdShown
-    m.top.findNode("actionRing").visible = not m.osdShown
+    ' (v1.5 flat) solid white with dark text while it holds the remote (over the bare video), else a dark pill
+    bg = m.top.findNode("actionBg")
+    if m.osdShown
+        bg.blendColor = "0x1C1C1CFF"
+        bg.opacity = 0.85
+        m.actionLabel.color = "0xFFFFFFFF"
+    else
+        bg.blendColor = "0xFFFFFFFF"
+        bg.opacity = 1.0
+        m.actionLabel.color = m.global.theme.onFocus
+    end if
 end sub
 
 sub hideAction()
@@ -1388,12 +1384,22 @@ sub drawUpNextCard()
     inCredits = m.cardMode = "credits"
     m.top.findNode("upNextHint").visible = not inCredits
     m.top.findNode("upNextAlt").visible = inCredits
-    ' (v1.4) the focused button: fog and the white ring over its glass (never a white fill)
+    ' (v1.5 flat) the focused button solid white with dark text, the other a faint pill with white text
     playFocused = not inCredits or m.cardBtn = 0
-    m.top.findNode("upNextPlayFog").visible = playFocused
-    m.top.findNode("upNextPlayRing").visible = playFocused
-    m.top.findNode("upNextAltFog").visible = not playFocused
-    m.top.findNode("upNextAltRing").visible = not playFocused
+    dark = m.global.theme.onFocus
+    paintFlat(m.top.findNode("upNextPlayBg"), m.top.findNode("upNextCount"), playFocused, 0.22, dark)
+    paintFlat(m.top.findNode("upNextAltBg"), m.top.findNode("upNextAltLabel"), not playFocused, 0.12, dark)
+end sub
+
+' (v1.5 flat) A flat pill's look: focused = solid white with dark text, else white at rest with white text
+sub paintFlat(bg as object, lab as object, focused as boolean, rest as float, dark as string)
+    if focused
+        bg.opacity = 1.0
+        lab.color = dark
+    else
+        bg.opacity = rest
+        lab.color = "0xFFFFFFFF"
+    end if
 end sub
 
 ' Keys on the credits card: OK uses the focused button, Play = Play Now, Left / Right move, Back = Back to
@@ -2002,8 +2008,9 @@ sub buildTools()
     drawControls()
 end sub
 
-' The row's nodes, built once per set of buttons (VD-18): each button gets its glass, a fog and a ring that
-' show while it has the focus, and its icon (drawControls changes only those)
+' The row's nodes, built once per set of buttons (VD-18): (v1.5 flat) each button is one flat white circle
+' (controlFill at rest, 22 % for play / pause, solid white while it has the focus) and its icon; drawControls
+' changes only those
 sub buildRow()
     row = m.top.findNode("row")
     row.removeChildrenIndex(row.getChildCount(), 0)
@@ -2015,29 +2022,12 @@ sub buildRow()
         sz = PlayerNav.controlSize(id)
         g = row.createChild("Group")
         g.translation = [xs[i], 966 - sz \ 2]
-        if id = "play"
-            ' (the accent glass: the accent fading left to right under the clear glass)
-            tint = g.createChild("Poster")
-            tint.uri = "pkg:/images/ui/pl_tint_90.png"
-            tint.width = sz
-            tint.height = sz
-            tint.blendColor = glassTint()
-        end if
-        gl = g.createChild("Poster")
-        gl.uri = "pkg:/images/ui/pl_glass_" + sz.toStr() + ".png"
-        gl.width = sz
-        gl.height = sz
-        fog = g.createChild("Poster")
-        fog.uri = "pkg:/images/ui/pl_fog_" + sz.toStr() + ".png"
-        fog.width = sz
-        fog.height = sz
-        fog.visible = false
-        rg = g.createChild("Poster")
-        rg.uri = "pkg:/images/ui/pl_ring_" + (sz + 16).toStr() + ".png"
-        rg.width = sz + 16
-        rg.height = sz + 16
-        rg.translation = [-8, -8]
-        rg.visible = false
+        disc = g.createChild("Poster")
+        disc.uri = flatCircle(sz)
+        disc.width = sz
+        disc.height = sz
+        rest = 0.12
+        if id = "play" then rest = 0.22
         isz = 36
         if id = "play" then isz = 40
         if id = "prev" or id = "next" then isz = 30
@@ -2045,11 +2035,12 @@ sub buildRow()
         ic.width = isz
         ic.height = isz
         ic.translation = [(sz - isz) \ 2, (sz - isz) \ 2]
-        m.rowNodes.push({ id: id, fog: fog, ring: rg, icon: ic })
+        m.rowNodes.push({ id: id, bg: disc, rest: rest, icon: ic })
     end for
     m.ctlEnd = 96
     if ctl.count() > 0 then m.ctlEnd = xs[ctl.count() - 1] + PlayerNav.controlSize(ctl[ctl.count() - 1])
-    ' the tool bar: one glass capsule 66 high, right-aligned at x 1824, 72 px cells with 2 px dividers
+    ' the tool bar: one flat capsule 66 high (controlFill), right-aligned at x 1824, 72 px cells with 2 px
+    ' dividers; the focused cell a solid white pill with a dark icon
     tl = m.top.findNode("tools")
     tl.removeChildrenIndex(tl.getChildCount(), 0)
     n = m.toolIds.count()
@@ -2059,7 +2050,8 @@ sub buildRow()
     m.toolsX = 1824 - w
     tl.translation = [m.toolsX, 933]
     cap = tl.createChild("Poster")
-    cap.uri = "pkg:/images/ui/pl_bar.9.png"
+    cap.uri = "pkg:/images/ui/flat_pill_60.9.png"
+    cap.opacity = 0.12
     cap.width = w
     cap.height = 66
     for i = 0 to n - 1
@@ -2071,26 +2063,27 @@ sub buildRow()
             dv.color = "0xFFFFFF2E"
             dv.translation = [cx - 2, 18]
         end if
-        fog = tl.createChild("Poster")
-        fog.uri = "pkg:/images/ui/pl_fog_cell.9.png"
-        fog.width = 64
-        fog.height = 54
-        fog.translation = [cx + 4, 6]
-        fog.visible = false
-        rg = tl.createChild("Poster")
-        rg.uri = "pkg:/images/ui/pl_ring_cell.9.png"
-        rg.width = 72
-        rg.height = 62
-        rg.translation = [cx, 2]
-        rg.visible = false
+        cell = tl.createChild("Poster")
+        cell.uri = "pkg:/images/ui/flat_pill_52.9.png"
+        cell.width = 64
+        cell.height = 54
+        cell.translation = [cx + 4, 6]
+        cell.opacity = 0
         ic = tl.createChild("Poster")
         ic.uri = "pkg:/images/ui/icon_" + toolIcon(m.toolIds[i]) + "_36.png"
         ic.width = 36
         ic.height = 36
         ic.translation = [cx + 18, 15]
-        m.rowNodes.push({ id: m.toolIds[i], fog: fog, ring: rg, icon: ic })
+        m.rowNodes.push({ id: m.toolIds[i], bg: cell, rest: 0.0, icon: ic })
     end for
 end sub
+
+' (v1.5 flat) The flat disc for a round control of size sz (63, 69 or 90 px)
+function flatCircle(sz as integer) as string
+    if sz = 69 then return "pkg:/images/ui/white_circle_69.png"
+    if sz = 63 or sz = 90 then return "pkg:/images/ui/flat_circle_" + sz.toStr() + ".png"
+    return "pkg:/images/ui/white_circle_69.png"
+end function
 
 function toolIcon(id as string) as string
     if id = "subs" then return "subtitles"
@@ -2142,22 +2135,23 @@ function captionWithValue(name as string, value as string) as string
     return t
 end function
 
-' (v1.4) The row's look for the current state: the focused button gets the fog and the ring (never a white
-' fill), play / pause follows the video, a missing previous / next is dimmed, a tool that is on (subtitles,
-' playback info) is in the accent; the caption names the focused button
+' The row's look for the current state: (v1.5 flat) the focused button is solid white with a dark icon,
+' play / pause follows the video, a missing previous / next is dimmed, a tool that is off is at 70 % and one
+' that is on (subtitles, playback info) full white; the caption names the focused button
 sub drawControls()
     if m.rowNodes = invalid then return
     focused = m.osdShown and m.picker = invalid
     playing = m.video.state = "playing" or m.video.state = "buffering"
-    accent = m.global.theme.accent
+    dark = m.global.theme.onFocus
     jump = m.pf.jump.toStr()
     for i = 0 to m.rowNodes.count() - 1
         nd = m.rowNodes[i]
         isFocus = focused and m.area = "row" and m.idx = i
-        nd.fog.visible = isFocus
-        nd.ring.visible = isFocus
+        nd.bg.opacity = nd.rest
+        if isFocus then nd.bg.opacity = 1.0
         id = nd.id
         col = "0xFFFFFFFF"
+        if id = "subs" or id = "info" then col = "0xFFFFFFB3"
         if id = "play"
             uri = "pkg:/images/ui/icon_pause_48.png"
             if not playing then uri = "pkg:/images/ui/icon_play_48.png"
@@ -2170,10 +2164,11 @@ sub drawControls()
         else if id = "jumpFwd"
             nd.icon.uri = "pkg:/images/ui/icon_fwd" + jump + "_36.png"
         else if id = "subs" and m.opts.sub >= 0
-            col = accent
+            col = "0xFFFFFFFF"
         else if id = "info" and m.pbInfo <> invalid
-            col = accent
+            col = "0xFFFFFFFF"
         end if
+        if isFocus then col = dark
         nd.icon.blendColor = col
     end for
     drawCaption(focused and m.area = "row")
@@ -2449,9 +2444,9 @@ sub updateBar(atSec as float)
     if lineH <> m.lineH
         m.lineH = lineH
         hs = lineH.toStr()
-        for each id in ["track", "fill", "sheen"]
+        for each id in ["track", "fill"]
             r = m.top.findNode(id)
-            r.uri = "pkg:/images/ui/pl_" + id + "_" + hs + ".9.png"
+            r.uri = "pkg:/images/ui/pl_fill_" + hs + ".9.png"
             r.height = lineH
             r.translation = [0, -lineH \ 2]
         end for
@@ -2466,9 +2461,6 @@ sub updateBar(atSec as float)
     fw = w
     if fw < lineH then fw = lineH
     m.top.findNode("fill").width = fw
-    m.top.findNode("sheen").width = fw
-    m.top.findNode("glow").width = fw + 26
-    m.top.findNode("glow").visible = frac > 0
     th = m.top.findNode("thumb")
     th.visible = barFocus
     th.translation = [w - 17, -17]
@@ -3406,8 +3398,8 @@ function stillLabels() as object
     return ["Continue watching", leave]
 end function
 
-' (v1.4) Two Glass3D buttons: Continue watching in the accent glass, the other in clear glass; the focused one
-' with the fog and the white ring (as the Up Next card)
+' (v1.5 flat) Two flat pills (Continue watching a little stronger); the focused one solid white with dark text
+' (as the Up Next card)
 sub drawStill()
     g = m.top.findNode("stillBtns")
     g.removeChildrenIndex(g.getChildCount(), 0)
@@ -3415,28 +3407,10 @@ sub drawStill()
     for i = 0 to 1
         b = g.createChild("Group")
         b.translation = [i * 384, 0]
-        if i = 0
-            tint = b.createChild("Poster")
-            tint.uri = "pkg:/images/ui/pl_tint_pill_68.9.png"
-            tint.width = 360
-            tint.height = 68
-            tint.blendColor = glassTint()
-        end if
         bg = b.createChild("Poster")
-        bg.uri = "pkg:/images/ui/pl_pill_68.9.png"
+        bg.uri = "pkg:/images/ui/flat_pill_68.9.png"
         bg.width = 360
         bg.height = 68
-        if i = m.stillBtn
-            fog = b.createChild("Poster")
-            fog.uri = "pkg:/images/ui/pl_fog_pill_68.9.png"
-            fog.width = 360
-            fog.height = 68
-            rg = b.createChild("Poster")
-            rg.uri = "pkg:/images/ui/pl_ring_pill_68.9.png"
-            rg.width = 372
-            rg.height = 80
-            rg.translation = [-6, -6]
-        end if
         l = b.createChild("Label")
         l.width = 360
         l.height = 68
@@ -3447,7 +3421,9 @@ sub drawStill()
         f.uri = "font:BoldSystemFontFile"
         f.size = 28
         l.font = f
-        l.color = "0xFFFFFFFF"
+        rest = 0.12
+        if i = 0 then rest = 0.22
+        paintFlat(bg, l, i = m.stillBtn, rest, m.global.theme.onFocus)
     end for
     text = Speak.button(labels[m.stillBtn]) + Speak.position(m.stillBtn, 2)
     if m.stillSpoken <> true then text = "Are you still watching " + m.top.findNode("stillTitle").text + " " + text

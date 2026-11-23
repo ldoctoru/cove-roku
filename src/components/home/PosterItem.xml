@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- A card in a row or grid, Glass3D style (Cove for macOS ClassicLightCard / PosterCard / ResumeCard):
-     rounded image (r12 corner mask in the page colour), the light glass edge and top sheen (70 % at rest),
-     zoom x1.06 + white ring + accent glow on focus, watched check / unwatched count, accent heart for
+<!-- A card in a row or grid, (v1.5 flat) clean artwork, Apple TV / Emby style: the rounded image
+     (r12 corner mask in the page colour) with no edge, sheen, shadow or glow; focus = a plain white 4 px ring
+     4 px outside the card (round for people), no zoom; white watched disc / unwatched count, white heart for
      favourites; Continue Watching and episode cards carry the resume ring instead of a progress bar.
      Poster cards (2:3) have title and year under the image; landscape cards (16:9, content.landscape)
      carry the title, episode and "42m left" over a dark fade inside the image. -->
@@ -18,7 +18,6 @@
     </interface>
     <children>
         <Group id="card">
-            <Poster id="shadow" uri="pkg:/images/ui/glow_r12.9.png" opacity="0" />
             <Rectangle id="ph" />
             <Label id="initials" horizAlign="center" vertAlign="center" color="0xFFFFFF40">
                 <Font role="font" uri="font:BoldSystemFontFile" size="48" />
@@ -63,20 +62,16 @@
             </Group>
             <Rectangle id="barTrack" height="6" color="0x00000080" visible="false" />
             <Rectangle id="barFill" height="6" visible="false" />
-            <!-- (v1.4 R4) the resume ring: a clear glass circle, the accent arc from 12 o'clock, a play glyph -->
+            <!-- (v1.4 R4) the resume ring: a flat dark disc, the white arc from 12 o'clock, a play glyph -->
             <Group id="resume" visible="false">
-                <Poster id="resumeBg" uri="pkg:/images/ui/g3_circle_69.png" />
+                <Poster id="resumeBg" uri="pkg:/images/ui/white_circle_69.png" blendColor="0x1C1C1CFF" opacity="0.8" />
                 <Poster id="resumeTrack" uri="pkg:/images/ui/load_track.png" />
                 <Poster id="resumeArc" />
                 <Poster id="resumePlay" uri="pkg:/images/ui/icon_play_28.png" />
             </Group>
-            <Poster id="sheen" uri="pkg:/images/ui/sheen_top.png" />
             <Poster id="mask" />
-            <Poster id="border" uri="pkg:/images/ui/card_edge_r12.9.png" opacity="0.7" />
             <Poster id="heart" uri="pkg:/images/ui/icon_heart_28.png" width="28" height="28" visible="false" />
-            <Poster id="badgeShadow" uri="pkg:/images/ui/badge_watched_shadow.png" visible="false" />
             <Poster id="badge" visible="false" />
-            <Poster id="badgeRing" uri="pkg:/images/ui/badge_watched_ring.png" visible="false" />
             <Poster id="badgeIcon" uri="pkg:/images/ui/icon_check_28.png" width="22" height="22" visible="false" />
             <Label id="badgeText" horizAlign="center" vertAlign="center" color="0xFFFFFFFF" visible="false">
                 <Font role="font" uri="font:BoldSystemFontFile" size="24" />

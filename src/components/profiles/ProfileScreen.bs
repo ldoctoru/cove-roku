@@ -96,9 +96,11 @@ sub paint(flush = true as boolean)
         g.translation = [x0 + i * slot + 40, 24]
         if p.id = "add"
             c = g.createChild("Poster")
-            c.uri = "pkg:/images/ui/glass_circle_210.png"
+            ' (v1.5 flat) a faint flat circle (controlFill), no glass
+            c.uri = "pkg:/images/ui/white_circle_240.png"
             c.width = 220
             c.height = 220
+            c.opacity = 0.12
             plus = g.createChild("Poster")
             plus.uri = "pkg:/images/ui/icon_plus_48.png"
             plus.width = 64
@@ -106,15 +108,15 @@ sub paint(flush = true as boolean)
             plus.translation = [78, 78]
             plus.blendColor = "0xFFFFFFCC"
         else
-            ' the accent circle with the first letter, under the server's picture (shown when there is none)
+            ' (v1.5 flat) a neutral grey circle with the first letter, under the server's picture (shown when there is none)
             c = g.createChild("Poster")
             c.uri = "pkg:/images/ui/white_circle_240.png"
             c.width = 220
             c.height = 220
-            c.blendColor = t.accent
+            c.blendColor = "0x48484AFF"
             letter = UCase(Util.toText(p.name).left(1))
             if letter = "" then letter = "?"
-            addLabel(g, letter, 0, 0, 220, 220, 96, true, t.onAccent)
+            addLabel(g, letter, 0, 0, 220, 220, 96, true, "0xFFFFFFFF")
             if Util.toText(p.avatar) <> ""
                 img = g.createChild("Poster")
                 img.width = 220
@@ -130,7 +132,8 @@ sub paint(flush = true as boolean)
             end if
             if p.hasPin = true
                 lk = g.createChild("Poster")
-                lk.uri = "pkg:/images/ui/glass_circle_69.png"
+                lk.uri = "pkg:/images/ui/white_circle_69.png"
+                lk.blendColor = "0x1C1C1CFF"
                 lk.width = 56
                 lk.height = 56
                 lk.translation = [168, 168]
@@ -200,11 +203,12 @@ sub paintOther()
     lab.width = tw + 4
     lab.height = 56
     lab.vertAlign = "center"
+    ' (v1.5 flat) focused = a solid white pill with dark text; otherwise the faint controlFill pill
+    bgp.uri = "pkg:/images/ui/white_pill.9.png"
     if isFocus
-        bgp.uri = "pkg:/images/ui/white_pill.9.png"
-        lab.color = "0x000000FF"
+        lab.color = "0x111111FF"
     else
-        bgp.uri = "pkg:/images/ui/glass_pill.9.png"
+        bgp.opacity = 0.12
         lab.color = "0xFFFFFFCC"
     end if
 end sub

@@ -779,7 +779,7 @@ sub buildButtons()
         btns.push({ id: "playall", text: "Play All" })
         btns.push({ id: "shuffle", text: "Shuffle" })
     end if
-    ' (v1.4 D1) the Mac's Glass3D icons: an outlined heart (a filled accent heart for a favourite) and the
+    ' (v1.4 D1) the Mac's Glass3D icons: an outlined heart (a filled heart for a favourite) and the
     ' check circle, outlined while unwatched, filled once watched (a series: every episode)
     favIcon = "hearto"
     if m.isFav then favIcon = "heart"
@@ -868,10 +868,9 @@ sub drawButtons()
     if focused then speakButton()
 end sub
 
-' Play / Resume (accent glass pill, VD-10 measured width), text pills and glass circles, 18 px apart (21 after Play)
+' Play / Resume (the stronger flat pill, VD-10 measured width), text pills and flat circles, 18 px apart (21 after Play)
 sub buildButtonNodes()
     m.btnGroup.removeChildrenIndex(m.btnGroup.getChildCount(), 0)
-    t = m.global.theme
     x = 0
     for i = 0 to m.btns.count() - 1
         b = m.btns[i]
@@ -888,8 +887,6 @@ sub buildButtonNodes()
         else
             g.style = "circle"
             g.icon = "pkg:/images/ui/icon_" + b.icon + "_28.png"
-            ' a favourite's filled heart in the accent, as on the Mac
-            if b.icon = "heart" then g.iconColor = t.accent
         end if
         g.translation = [x, 0]
         gap = 18
@@ -1863,31 +1860,19 @@ sub drawSeasonBar()
         bg = createObject("roSGNode", "Poster")
         bg.width = w
         bg.height = 60
-        ' (v1.4) Glass3D clear glass; focus = the fogged-mirror overlay + the white ring (VD-6)
-        bg.uri = "pkg:/images/ui/g3_capsule.9.png"
+        ' (v1.5 flat) a flat pill (controlFill); focused = solid white with dark text (no fog, ring or zoom)
+        bg.uri = "pkg:/images/ui/flat_pill_60.9.png"
+        bg.opacity = 0.12
         l.color = "0xFFFFFFFF"
         if not bold and not isFocus then l.color = "0xFFFFFFD9"
-        ' "Show all" / "Hide watched" in the accent colour, like the Mac's tinted button
-        if isFilter then l.color = m.global.theme.accent
+        if isFocus
+            bg.opacity = 1.0
+            l.color = m.global.theme.onFocus
+        end if
         g.insertChild(bg, 0)
         l.translation = [26, 0]
         if ids[i] = "season" then w = addSeasonBadge(g, tw, w)
         bg.width = w
-        if isFocus
-            fogp = createObject("roSGNode", "Poster")
-            fogp.uri = "pkg:/images/ui/fog_capsule.9.png"
-            fogp.width = w
-            fogp.height = 60
-            g.insertChild(fogp, 1)
-        end if
-        if isFocus
-            ring = createObject("roSGNode", "Poster")
-            ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
-            ring.translation = [-8, -8]
-            ring.width = w + 16
-            ring.height = 76
-            g.insertChild(ring, 0)
-        end if
         if not isFilter
             ch = g.createChild("Poster")
             ch.uri = "pkg:/images/ui/icon_chevron_28.png"

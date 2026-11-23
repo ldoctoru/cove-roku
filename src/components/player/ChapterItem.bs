@@ -15,13 +15,18 @@ sub onContent()
     onFocus()
 end sub
 
-' (v1.4) Focused: the Glass3D fog and a white ring, the text stays white; the chapter playing now in the accent
+' (v1.5 flat) Focused: a solid white row with dark text; at rest the chapter playing now in full white, the
+' others at 80 % (no accent)
 sub onFocus()
     f = 0.0
     if m.top.listHasFocus then f = m.top.focusPercent
     m.bg.opacity = f
-    m.top.findNode("ring").opacity = f
+    if f > 0.5
+        m.name.color = "0x111111FF"
+        m.time.color = "0x111111B3"
+        return
+    end if
     m.name.color = "0xFFFFFFFF"
-    if m.isCurrent and f <= 0.5 then m.name.color = m.global.theme.accent
+    if not m.isCurrent then m.name.color = "0xFFFFFFCC"
     m.time.color = "0xFFFFFFCC"
 end sub

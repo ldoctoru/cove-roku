@@ -84,12 +84,13 @@ function addPills(col as object, names as object, y as integer, w as integer) as
         end if
         bg.width = pw
         bg.height = 46
-        ' (v1.4) Glass3D: focus = glass + fog with the white ring, the text stays white
+        ' (v1.5 flat) a flat pill (controlFill); focused = solid white with dark text
+        bg.uri = "pkg:/images/ui/flat_pill_44.9.png"
         if m.pillAt = focusAt
-            bg.uri = "pkg:/images/ui/g3_focus_capsule_44.9.png"
-            lab.color = "0xFFFFFFFF"
+            bg.opacity = 1.0
+            lab.color = m.global.theme.onFocus
         else
-            bg.uri = "pkg:/images/ui/g3_capsule_44.9.png"
+            bg.opacity = 0.12
             lab.color = "0xFFFFFFEB"
         end if
         g.translation = [x, y]

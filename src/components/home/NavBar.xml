@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- The top navigation pill (Cove's top-bar style): a glass capsule centred at the top with Home, Search and the
-     libraries. (v1.4 N4) The current page sits on an accent glass band; the focused item gets the fog and the
-     white ring, its text stays white.
+<!-- The top navigation pill (Cove's top-bar style): a dark flat capsule centred at the top with Home, Search and
+     the libraries. (v1.5 flat) The current page sits on a 22 % white pill; the focused item is a solid white pill
+     with dark text (no glass, fog, ring or accent).
      Set "items" ([{ id, label, icon, pinned }]; pinned = always shown, the rest goes behind More when too wide); OK sets "chosen" = { id }. Left / Right move; other keys go to the screen. -->
 <component name="NavBar" extends="Group">
     <script type="text/brightscript" uri="NavBar.bs" />
@@ -15,7 +15,7 @@
         <field id="overflow" type="array" />
     </interface>
     <children>
-        <Poster id="pill" uri="pkg:/images/ui/g3_capsule.9.png" height="64" />
+        <Poster id="pill" uri="pkg:/images/ui/flat_pill_60.9.png" height="64" blendColor="0x1C1C1CFF" opacity="0.85" />
         <Group id="entries" />
     </children>
 </component>

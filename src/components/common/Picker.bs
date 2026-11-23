@@ -32,11 +32,9 @@ sub onWide()
     w = 600
     if m.top.wide then w = 900
     x = 1872 - w
-    for each id in ["panel", "panelRim"]
-        panel = m.top.findNode(id)
-        panel.width = w
-        panel.translation = [x, 54]
-    end for
+    panel = m.top.findNode("panel")
+    panel.width = w
+    panel.translation = [x, 54]
     t = m.top.findNode("title")
     t.width = w - 60
     t.translation = [x + 30, 86]

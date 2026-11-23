@@ -147,16 +147,16 @@ sub paint()
         ic = g.getChild(2)
         isCurrent = i < m.view.count() and m.view[i].id = m.top.current
         f = createObject("roSGNode", "Font")
+        ' (v1.5 flat) focused = a solid white pill with dark text; the current page = a 22 % white pill
+        bg.uri = "pkg:/images/ui/white_pill.9.png"
         bg.blendColor = "0xFFFFFFFF"
         if focused and i = m.index
-            bg.uri = "pkg:/images/ui/g3_focus_capsule_44.9.png"
+            bg.opacity = 1.0
             bg.visible = true
-            l.color = "0xFFFFFFFF"
+            l.color = m.global.theme.onFocus
             f.uri = "font:BoldSystemFontFile"
         else if isCurrent
-            ' the Mac's selected section: accent glass (a 40 % accent band)
-            bg.uri = "pkg:/images/ui/band_r18.9.png"
-            bg.blendColor = m.global.theme.accent.left(8) + "66"
+            bg.opacity = 0.22
             bg.visible = true
             l.color = "0xFFFFFFFF"
             f.uri = "font:BoldSystemFontFile"

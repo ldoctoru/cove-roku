@@ -14,9 +14,14 @@ import "pkg:/source/Clock.bs"
 
 sub init()
     Clock.startupMark("MainScene init")
-    ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
+    ' Colours and theme images for every component (v1.5 flat: the page colour chosen in Settings, no accent)
     look = Theme.get()
     m.global.addFields({ theme: look })
+    ' (v1.5 flat) the system dialogs (messages, PIN pad, keyboards) in the same flat neutral look: a dark grey
+    ' panel, the focused button solid white with dark text; keyboards keep Roku's own key colours
+    pal = createObject("roSGNode", "RSGPalette")
+    pal.colors = Theme.dialogColors()
+    m.top.palette = pal
     ' (v0.9.1) series ratings looked up this session, for unrated episodes under a rating limit (Ratings.bs)
     m.global.addFields({ seriesRatings: {} })
     m.top.backgroundColor = look.bg.left(8)
