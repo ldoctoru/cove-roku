@@ -1,0 +1,95 @@
+' (v1.5) What each Settings page holds (drawn by SettingsScreen.bs). Every page is a list of rows (see
+' source/SetRows.bs for the kinds); pageInfo gives its title, its fixed glyph and the caption under it.
+
+' ---------------------------------------------------------------- row makers
+
+function rHead(text as string) as object
+    return { kind: "head", text: text }
+end function
+
+function rNote(text as string) as object
+    return { kind: "note", text: text }
+end function
+
+function rLink(id as string, label as string, value as string, target as string) as object
+    return { kind: "link", id: id, label: label, value: value, target: target }
+end function
+
+function rChoice(id as string, label as string, options as object, cur as string) as object
+    return { kind: "choice", id: id, label: label, options: options, cur: cur, value: labelOf(options, cur) }
+end function
+
+function rSwitch(id as string, label as string, isOn as boolean) as object
+    return { kind: "switch", id: id, label: label, on: isOn }
+end function
+
+function rButton(id as string, label as string) as object
+    return { kind: "button", id: id, label: label, value: "" }
+end function
+
+function rInfo(label as string, value as string, second as string) as object
+    return { kind: "info", id: "", label: label, value: value, sub: second }
+end function
+
+' ---------------------------------------------------------------- pages
+
+' { title, icon, caption } of a page
+function pageInfo(entry as object) as object
+    pid = Util.toText(entry.id)
+    if pid = "choice"
+        ' (the list of a choice row: its label, under the glyph of the page it came from)
+        below = m.stack[m.stack.count() - 2]
+        bi = pageInfo(below)
+        return { title: Util.toText(entry.row.label), icon: bi.icon, caption: bi.title }
+    end if
+    if pid = "general" then return { title: "General", icon: "gear", caption: "Colors and posters" }
+    return { title: "Settings", icon: "gear", caption: "Cove for Roku " + m.version }
+end function
+
+function pageRows(entry as object) as object
+    pid = Util.toText(entry.id)
+    out = []
+    if pid = "main"
+        mainRows(out)
+    else if pid = "choice"
+        choiceRows(out, entry.row)
+    else if pid = "general"
+        generalRows(out)
+    end if
+    return out
+end function
+
+' A choice row's values, the current one with a ✓ (colors with a dot of their color)
+sub choiceRows(out as object, src as object)
+    cur = Util.toText(src.cur)
+    for each o in src.options
+        r = { kind: "option", id: Util.toText(o.id), label: Util.toText(o.label), checked: Util.toText(o.id) = cur }
+        if o.swatch <> invalid then r.swatch = o.swatch
+        out.push(r)
+    end for
+end sub
+
+sub mainRows(out as object)
+    t = m.global.theme
+    out.push(rLink("", "General", capital(t.accentName) + " · " + capital(t.bgName), "general"))
+end sub
+
+sub generalRows(out as object)
+    t = m.global.theme
+    out.push(rHead("Appearance"))
+    sw = []
+    for each name in ["red", "orange", "pink", "purple", "blue", "teal", "green", "white"]
+        sw.push({ id: name, label: capital(name), swatch: Theme.accents()[name] })
+    end for
+    out.push(rChoice("accent", "Accent Color", sw, t.accentName))
+    tl = []
+    for each name in ["black", "charcoal", "navy", "plum", "forest"]
+        tl.push({ id: name, label: capital(name), swatch: Theme.backgrounds()[name] })
+    end for
+    out.push(rChoice("background", "Background", tl, t.bgName))
+    out.push(rNote("The accent color marks buttons, switches and the page you're on."))
+    ' (v1.4) the Mac's General → Posters → Watched switch (WatchedDim.swift, on by default)
+    out.push(rHead("Posters"))
+    out.push(rSwitch("dimWatched", "Dim Watched Posters", Util.readText("dimWatched") <> "off"))
+    out.push(rNote("Watched titles are shown a little darker, so unwatched ones stand out."))
+end sub

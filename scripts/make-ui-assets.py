@@ -792,6 +792,7 @@ def main(argv=None):
         del WRITTEN[:]
         draw_all()
         draw_player_v14()
+        draw_settings_v15()
         out = os.path.normpath(args.out)
         if args.check:
             added, changed, removed = compare(tmp, out)
@@ -976,6 +977,57 @@ def draw_player_v14():
     # the tool bar's Speed and Info (Info: the playback info overlay)
     icon("plspeed", 36, pl_speed)
     icon("plinfo", 36, info_ring)
+
+
+# ==================================================================================================== v1.5 settings
+# (v1.5, the settings agent's section: additive, every file starts with "st_" or "icon_st_") Apple TV-style
+# Settings (components/settings): the large fixed page glyph in a rounded glass tile on the left, dark glass rows
+# on the right, the focused row white (with a soft shadow under it), a right chevron for rows that open a page,
+# and the up / down arrows of a row being moved. The glyphs reuse the drawings above where they exist.
+def st_menu(d, n):
+    t = n * 0.075
+    for y in (0.27, 0.5, 0.73):
+        d.rounded_rectangle([n * 0.16, n * y - t, n * 0.84, n * y + t], t, fill=WHITE)
+
+
+def st_gear(d, n):
+    # (the 36 px gear's star outline reads as a flower at 150 px: a body with 8 square teeth and a round hole)
+    import math
+    c = n / 2
+    for i in range(8):
+        a = i * math.pi / 4
+        pts = []
+        for dx, dy in ((-0.075, 0.25), (0.075, 0.25), (0.075, 0.45), (-0.075, 0.45)):
+            x, y = dx * n, dy * n
+            pts.append((c + x * math.cos(a) - y * math.sin(a), c + x * math.sin(a) + y * math.cos(a)))
+        d.polygon(pts, fill=WHITE)
+    d.ellipse([c - n * 0.32, c - n * 0.32, c + n * 0.32, c + n * 0.32], fill=WHITE)
+    d.ellipse([c - n * 0.13, c - n * 0.13, c + n * 0.13, c + n * 0.13], fill=(0, 0, 0, 0))
+
+
+def st_chevron(d, n):
+    d.line([(n * 0.38, n * 0.2), (n * 0.66, n * 0.5), (n * 0.38, n * 0.8)], fill=WHITE, width=int(n * 0.12), joint="curve")
+
+
+def st_updown(d, n):
+    w = int(n * 0.11)
+    d.line([(n * 0.26, n * 0.4), (n * 0.5, n * 0.16), (n * 0.74, n * 0.4)], fill=WHITE, width=w, joint="curve")
+    d.line([(n * 0.26, n * 0.6), (n * 0.5, n * 0.84), (n * 0.74, n * 0.6)], fill=WHITE, width=w, joint="curve")
+
+
+def draw_settings_v15():
+    # the page tile (340 x 340 at runtime) and the rows (r16): white 11 % glass with a faint edge; focus = white
+    save(nine(shape(128, 128, 56, (255, 255, 255, 28), (255, 255, 255, 36), 2)), "st_tile.9.png")
+    save(nine(shape(48, 48, 16, (255, 255, 255, 24))), "st_row.9.png")
+    save(nine(shape(48, 48, 16, WHITE)), "st_row_focus.9.png")
+    # (drawn 24 px bigger on every side, 6 px lower)
+    save(nine(shadow(96, 24, 16, 10, 150)), "st_row_shadow.9.png")
+    for name, fn in (("gear", st_gear), ("house", house_outline), ("menu", st_menu), ("grid", grid_icon),
+                     ("film", film_icon), ("tv", tv_icon), ("captions", captions), ("play", playrect_icon),
+                     ("server", server_icon), ("remote", remote_icon), ("info", info_ring)):
+        icon("st_" + name, 150, fn)
+    icon("st_chevron", 28, st_chevron)
+    icon("st_updown", 28, st_updown)
 
 
 if __name__ == "__main__":

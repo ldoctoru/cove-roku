@@ -1,13 +1,18 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- Settings, built like Cove for macOS (Sources/Settings.swift): (v1.4) no page title, a row of icon tabs (General,
-     Home, Libraries, Subtitles, Playback, Servers, Profiles, Remote, About), then the tab's sections as cards with an
-     UPPERCASE title, a right-aligned "Label:" column, the controls beside it and grey notes under them.
-     Left / Right on the tabs change the tab, Down enters it; Up / Down move between rows, OK changes a setting
-     (choices open in the side panel; colours and tiles change with Left / Right), Back closes. Every change is
-     saved at once. "themeChanged" fires when something on Home must be rebuilt; "action" asks MainScene to
-     switch server ({ id: "connect", serverId }), sign out ({ id: "signout" }) or add one ({ id: "switch" }). -->
+<!-- Settings (v1.5), built like Apple TV Settings: a centred page title, on the left a large fixed glyph in a
+     rounded glass tile with a short caption (the Subtitles page adds the live style preview under it), on the
+     right one list of rows (section headings in small grey caps, dark glass rows, the focused row white and
+     slightly zoomed). Rows open a sub-page (value + ›), open a short list with a ✓ on the current value, flip a
+     switch (accent when on), or run an action. Up / Down move (the list follows the focus), OK uses the row,
+     Left / Right turn a switch off / on, Back goes up one page (on the first page it closes Settings).
+     The page model is in SettingsPages.bs; drawing, keys and actions in SettingsScreen.bs. Each page's nodes are
+     built once when it opens (or after a change); a focus move only repaints the two rows involved.
+     Every change is saved at once. "themeChanged" fires when something on Home must be rebuilt; "action" asks
+     MainScene to switch server ({ id: "connect", serverId }), sign out ({ id: "signout" }) or add one
+     ({ id: "switch" }), and so on (see SettingsScreen.bs). -->
 <component name="SettingsScreen" extends="Group">
     <script type="text/brightscript" uri="SettingsScreen.bs" />
+    <script type="text/brightscript" uri="SettingsPages.bs" />
     <interface>
         <field id="screenId" type="string" value="settings" />
         <field id="server" type="assocarray" />
@@ -16,10 +21,16 @@
     </interface>
     <children>
         <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />
-        <Group id="tabs" translation="[0,54]" />
-        <Rectangle width="1920" height="1" translation="[0,168]" color="0xFFFFFF1F" />
-        <Group id="clip" translation="[0,169]" clippingRect="[0,0,1920,911]">
-            <Group id="content" />
+        <Label id="pageTitle" translation="[0,40]" width="1920" height="90" horizAlign="center" vertAlign="center" color="0xFFFFFFFF" text="Settings" />
+        <Group id="side">
+            <Poster id="tile" uri="pkg:/images/ui/st_tile.9.png" translation="[330,300]" width="340" height="340" />
+            <Poster id="glyph" translation="[425,395]" width="150" height="150" />
+            <Label id="caption" translation="[160,668]" width="680" height="38" horizAlign="center" vertAlign="center" color="0xFFFFFF8C" text="Settings" />
+            <Label id="caption2" translation="[160,706]" width="680" height="38" horizAlign="center" vertAlign="center" color="0xFFFFFF8C" />
+            <Group id="preview" translation="[300,770]" />
+        </Group>
+        <Group id="clip" translation="[0,150]" clippingRect="[0,0,1920,910]">
+            <Group id="list" />
         </Group>
         <Group id="keys" focusable="true" />
         <Timer id="kbTimer" duration="0.4" repeat="false" />

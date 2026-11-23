@@ -1,0 +1,143 @@
+import "pkg:/source/Util.bs"
+
+' (v1.5) Pure helpers for the Apple TV-style Settings (components/settings): which rows take the focus, their
+' heights, the list's scroll position, Title Case labels and what the Audio Guide says for a row.
+' A row is an AA: { kind, id, label, value, sub, on, checked, dim, target, options, cur }; kinds:
+'   head (section heading), note (help text), link (opens a page: value + ›), choice (opens a list with a ✓:
+'   value + ›), switch (on / off), button, option (a value in a choice list), move (a row that can be picked up
+'   and moved), info (label + value), keys (a remote key and what it does), server / profile (two lines).
+namespace SetRows
+
+    ' Rows the focus stops on (headings, notes and dimmed rows are skipped)
+    function takesFocus(r as object) as boolean
+        k = Util.toText(r.kind)
+        if k = "head" or k = "note" or k = "" then return false
+        if r.dim = true then return false
+        return true
+    end function
+
+    ' Characters per line of a help note (Medium 24 in the 860 px list)
+    function noteWidth() as integer
+        return 66
+    end function
+
+    ' Characters per line of a two-line row's second line (Medium 24, 800 px)
+    function subWidth() as integer
+        return 64
+    end function
+
+    function rowHeight(r as object) as integer
+        k = Util.toText(r.kind)
+        if k = "head" then return 62
+        if k = "note" then return 30 * Util.wrapLines(Util.toText(r.text), noteWidth(), 8).count() + 18
+        if k = "keys" or k = "server" or k = "profile" or (k = "info" and Util.toText(r.sub) <> "")
+            n = Util.wrapLines(Util.toText(r.sub), subWidth(), 3).count()
+            if n < 1 then n = 1
+            return 62 + 30 * n + 4
+        end if
+        return 84
+    end function
+
+    ' The gap under a row before the next one
+    function gapAfter(r as object) as integer
+        k = Util.toText(r.kind)
+        if k = "head" or k = "note" then return 0
+        return 14
+    end function
+
+    ' The list's scroll position that keeps a row (y, h) on screen with a margin above and below it
+    function scrollFor(top as integer, y as integer, h as integer, viewH as integer, total as integer, margin as integer) as integer
+        t = top
+        if y - margin < t then t = y - margin
+        if y + h + margin > t + viewH then t = y + h + margin - viewH
+        if t > total - viewH then t = total - viewH
+        if t < 0 then t = 0
+        return t
+    end function
+
+    ' "Text size" -> "Text Size", "Distance from bottom" -> "Distance from Bottom" (small words stay lower case)
+    function titleCase(s as string) as string
+        small = {}
+        for each sw in ["a", "an", "and", "as", "at", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with"]
+            small[sw] = true
+        end for
+        words = s.split(" ")
+        out = []
+        for i = 0 to words.count() - 1
+            w = words[i]
+            if w <> "" and (i = 0 or not small.doesExist(LCase(w)))
+                w = UCase(w.left(1)) + w.mid(1)
+            end if
+            out.push(w)
+        end for
+        return Util.join(out, " ")
+    end function
+
+    ' The fixed page glyph of a library: film, tv or grid
+    function libIcon(collectionType as string) as string
+        ct = LCase(collectionType)
+        if ct = "movies" then return "film"
+        if ct = "tvshows" then return "tv"
+        return "grid"
+    end function
+
+    ' "5 of 6" for a list of { on }
+    function countOn(list as object) as string
+        n = 0
+        for each e in list
+            if e.on = true then n = n + 1
+        end for
+        return n.toStr() + " of " + list.count().toStr()
+    end function
+
+    ' What the Audio Guide says for a focused row (moving: the row being moved)
+    function speech(r as object, moving as boolean) as string
+        k = Util.toText(r.kind)
+        label = Util.toText(r.label)
+        value = Util.toText(r.value)
+        if k = "switch"
+            if r.on = true then return label + ", switch, on"
+            return label + ", switch, off"
+        end if
+        if k = "choice" then return label + ": " + value + ", menu button"
+        if k = "link"
+            if value <> "" then return label + ", " + value + ", button"
+            return label + ", button"
+        end if
+        if k = "button"
+            if value <> "" then return label + ", " + value + ", button"
+            return label + ", button"
+        end if
+        if k = "option"
+            if r.checked = true then return label + ", selected"
+            return label
+        end if
+        if k = "move"
+            if moving then return label + ", moving. Press Up or Down to move it, then OK"
+            text = label
+            if value <> "" then text = text + ", " + value
+            return text + ", press OK to move it"
+        end if
+        if k = "keys" then return label + ": " + Util.toText(r.sub)
+        if k = "server" or k = "profile"
+            text = label + ", " + Util.toText(r.sub)
+            if value <> "" then text = text + ", " + value
+            return text + ", button"
+        end if
+        if k = "info"
+            text = label
+            if value <> "" then text = text + ", " + value
+            if Util.toText(r.sub) <> "" then text = text + ", " + Util.toText(r.sub)
+            return text
+        end if
+        return label
+    end function
+
+    ' A row's key for keeping the focus on it when the page is built again (ids are stable, labels may change)
+    function keyOf(r as object) as string
+        id = Util.toText(r.id)
+        if id <> "" then return Util.toText(r.kind) + "|" + id
+        return Util.toText(r.kind) + "||" + Util.toText(r.label)
+    end function
+
+end namespace
