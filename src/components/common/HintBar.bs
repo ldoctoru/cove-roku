@@ -17,7 +17,6 @@ sub onShow()
         lab.width = tw + 4
         w = 72 + tw + 30
         m.top.findNode("bg").width = w
-        m.top.findNode("glass").width = w
         ' (v1.4 VD-14) bottom edge at 1008, inside the action-safe area
         m.pill.translation = [Int((1920 - w) / 2), 948]
         m.on = true

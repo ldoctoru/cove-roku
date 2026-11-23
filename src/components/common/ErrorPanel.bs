@@ -125,14 +125,6 @@ sub drawButtons(w as integer, y as integer, focused as boolean)
     end for
     x = Int((w - total) / 2)
     for each b in labels
-        ' (v1.1.1 VD-6) the white focus ring, as on the other button rows
-        if b.focus
-            ring = m.body.createChild("Poster")
-            ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
-            ring.width = b.w + 16
-            ring.height = 76
-            ring.translation = [x - 8, y - 8]
-        end if
         bg = m.body.createChild("Poster")
         bg.width = b.w
         bg.height = 60
@@ -143,15 +135,13 @@ sub drawButtons(w as integer, y as integer, focused as boolean)
         lab.horizAlign = "center"
         lab.vertAlign = "center"
         lab.translation = [x, y]
-        ' (v1.4) Glass3D: clear glass, focus = the fogged-mirror overlay + the white ring (never a white fill)
-        bg.uri = "pkg:/images/ui/g3_capsule.9.png"
+        ' (v1.5 flat) a flat pill (controlFill); focused = solid white with dark text
+        bg.uri = "pkg:/images/ui/flat_pill_60.9.png"
+        bg.opacity = 0.12
         lab.color = "0xFFFFFFFF"
         if b.focus
-            fogp = m.body.createChild("Poster")
-            fogp.uri = "pkg:/images/ui/fog_capsule.9.png"
-            fogp.width = b.w
-            fogp.height = 60
-            fogp.translation = [x, y]
+            bg.opacity = 1.0
+            lab.color = "0x111111FF"
         end if
         m.body.appendChild(lab)
         x = x + b.w + gap

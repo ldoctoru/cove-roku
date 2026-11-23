@@ -433,6 +433,7 @@ sub drawBar()
             dot = g.createChild("Poster")
             dot.uri = "pkg:/images/ui/dot_10.png"
             dot.blendColor = "0xFFFFFFFF"
+            if isFocus then dot.blendColor = m.global.theme.onFocus
             dot.width = 8
             dot.height = 8
             dot.translation = [21, 22]
@@ -445,23 +446,26 @@ sub drawBar()
         ch.height = 22
         ch.translation = [w - 44, 15]
         ch.visible = ids[i] <> "shuffle" and ids[i] <> "order" and not isTab
-        ' (v1.4) Glass3D pills: focus = glass + fog with the white ring, the text stays white
+        ' (v1.5 flat) flat pills: controlFill at rest (an active filter or the chosen tab 22 %), focused =
+        ' solid white with dark text; no glass, fog or ring
+        bg.uri = "pkg:/images/ui/flat_pill_52.9.png"
+        bg.opacity = 0.12
         if isFocus
-            bg.uri = "pkg:/images/ui/g3_focus_capsule_44.9.png"
-            lab.color = "0xFFFFFFFF"
+            bg.opacity = 1.0
+            lab.color = m.global.theme.onFocus
         else if isTab
-            ' tabs sit together in one glass capsule (drawn below), the chosen one lit as on the Mac
+            ' tabs sit together in one faint capsule (drawn below), the chosen one lit as on the Mac
             bg.uri = ""
             lab.color = "0xFFFFFFCC"
             if ids[i] = "tab:" + m.tab
-                bg.uri = "pkg:/images/ui/sel_pill.9.png"
+                bg.uri = "pkg:/images/ui/flat_pill_52.9.png"
+                bg.opacity = 0.22
                 lab.color = "0xFFFFFFFF"
             end if
         else
-            bg.uri = "pkg:/images/ui/g3_capsule_44.9.png"
             lab.color = "0xFFFFFFEB"
             if active
-                bg.uri = "pkg:/images/ui/sel_pill.9.png"
+                bg.opacity = 0.22
                 lab.color = "0xFFFFFFFF"
             end if
         end if
@@ -474,7 +478,8 @@ sub drawBar()
             if i + 1 >= ids.count() or not ids[i + 1].startsWith("tab:")
                 ' the capsule behind the tabs, then the usual gap
                 cap = createObject("roSGNode", "Poster")
-                cap.uri = "pkg:/images/ui/g3_capsule.9.png"
+                cap.uri = "pkg:/images/ui/flat_pill_60.9.png"
+                cap.opacity = 0.08
                 cap.width = x + 2
                 cap.height = 64
                 cap.translation = [0, -6]

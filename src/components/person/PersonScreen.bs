@@ -238,11 +238,16 @@ sub drawFav()
     ic.width = 28
     ic.height = 28
     ic.translation = [28, 18]
-    ' (v1.4) Glass3D: focus = glass + fog with the white ring, the text stays white
-    bg.uri = "pkg:/images/ui/g3_capsule.9.png"
-    if m.inHead then bg.uri = "pkg:/images/ui/g3_focus_capsule.9.png"
+    ' (v1.5 flat) a flat pill (controlFill); focused = solid white with dark text and heart
+    bg.uri = "pkg:/images/ui/flat_pill_60.9.png"
+    bg.opacity = 0.12
     lab.color = "0xFFFFFFFF"
     ic.blendColor = "0xFFFFFFFF"
+    if m.inHead
+        bg.opacity = 1.0
+        lab.color = m.global.theme.onFocus
+        ic.blendColor = m.global.theme.onFocus
+    end if
     ' (right-aligned at the header's edge)
     g.translation = [1724 - w, 14]
     if m.inHead and Speak.isOn()

@@ -29,6 +29,21 @@ namespace Theme
         return { poster: 12, card: 12, thumb: 12, banner: 18, field: 12, settingsCard: 21, panel: 27 }
     end function
 
+    ' (v1.5 flat) Scene.palette for the standard dialogs (message, PIN pad, keyboard dialogs): flat and neutral,
+    ' a dark grey panel, white text, the focused button solid white with dark text (keys quoted: case kept)
+    function dialogColors() as object
+        return {
+            "DialogBackgroundColor": "0x1C1C1EFF",
+            "DialogTextColor": "0xFFFFFFEB",
+            "DialogSecondaryTextColor": "0xFFFFFF9E",
+            "DialogItemColor": "0xFFFFFFFF",
+            "DialogSecondaryItemColor": "0xFFFFFF1F",
+            "DialogFocusColor": "0xFFFFFFFF",
+            "DialogFocusItemColor": "0x111111FF",
+            "DialogFootprintColor": "0xFFFFFF33"
+        }
+    end function
+
     ' (v1.5 flat) The background chosen in Settings (default black). There is no accent colour any more: the
     ' stored "accent" key is ignored, and accent / onAccent stay as fields (white with a dark foreground) so
     ' older code keeps compiling, but nothing in the app is tinted.

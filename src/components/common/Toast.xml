@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- Confirmation pill at the bottom centre after an action (Cove for macOS ToastOverlay): a glass capsule with an
+<!-- Confirmation pill at the bottom centre after an action (Cove for macOS ToastOverlay): a dark flat capsule with an
      icon and one line of text, shown for 2 s and spoken by the Audio Guide. Messages that arrive while one is
      shown wait in a short queue (the same text twice in a row is shown once). Set `show` = { text, icon }. -->
 <component name="Toast" extends="Group">
@@ -10,8 +10,8 @@
     </interface>
     <children>
         <Group id="pill" opacity="0">
-            <Poster id="bg" uri="pkg:/images/ui/white_pill.9.png" height="66" blendColor="0x0000008C" />
-            <Poster id="glass" uri="pkg:/images/ui/g3_capsule.9.png" height="66" />
+            <!-- (v1.5 flat) a dark 85 % flat pill, no glass -->
+            <Poster id="bg" uri="pkg:/images/ui/flat_pill_60.9.png" height="66" blendColor="0x1C1C1CFF" opacity="0.85" />
             <Poster id="icon" width="28" height="28" translation="[26,19]" />
             <Label id="text" text="Done" height="66" vertAlign="center" color="0xFFFFFFFF">
                 <Font role="font" uri="font:BoldSystemFontFile" size="26" />

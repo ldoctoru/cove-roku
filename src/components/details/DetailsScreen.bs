@@ -1860,29 +1860,19 @@ sub drawSeasonBar()
         bg = createObject("roSGNode", "Poster")
         bg.width = w
         bg.height = 60
-        ' (v1.4) Glass3D clear glass; focus = the fogged-mirror overlay + the white ring (VD-6)
-        bg.uri = "pkg:/images/ui/g3_capsule.9.png"
+        ' (v1.5 flat) a flat pill (controlFill); focused = solid white with dark text (no fog, ring or zoom)
+        bg.uri = "pkg:/images/ui/flat_pill_60.9.png"
+        bg.opacity = 0.12
         l.color = "0xFFFFFFFF"
         if not bold and not isFocus then l.color = "0xFFFFFFD9"
+        if isFocus
+            bg.opacity = 1.0
+            l.color = m.global.theme.onFocus
+        end if
         g.insertChild(bg, 0)
         l.translation = [26, 0]
         if ids[i] = "season" then w = addSeasonBadge(g, tw, w)
         bg.width = w
-        if isFocus
-            fogp = createObject("roSGNode", "Poster")
-            fogp.uri = "pkg:/images/ui/fog_capsule.9.png"
-            fogp.width = w
-            fogp.height = 60
-            g.insertChild(fogp, 1)
-        end if
-        if isFocus
-            ring = createObject("roSGNode", "Poster")
-            ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
-            ring.translation = [-8, -8]
-            ring.width = w + 16
-            ring.height = 76
-            g.insertChild(ring, 0)
-        end if
         if not isFilter
             ch = g.createChild("Poster")
             ch.uri = "pkg:/images/ui/icon_chevron_28.png"
