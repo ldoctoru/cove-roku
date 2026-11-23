@@ -309,7 +309,8 @@ function rowsFor(tabId as string) as object
         profileRows(out)
     else if tabId = "remote"
         out.push(sectionHead("While a video plays"))
-        for each k in [["OK", "Play or pause; with the controls showing, use the selected button"], ["Left / Right", "Skip back / forward (Settings > Playback); with the controls showing, move along the bar. Hold to move faster"], ["Up / Down", "Show the controls; move between the bar, the round buttons and the buttons on the right"], ["Rewind / Fast fwd", "Jump back / forward (Settings > Playback > Jump buttons); press again quickly to jump further"], ["Instant replay", "Jump 10 s back (with the Roku's captions on Instant replay, subtitles show for a moment)"], ["*", "Audio, subtitles, quality, version and speed"], ["Back", "Hide the controls, or leave the player"]]
+        ' (v1.4 player: the Glass3D bottom block, one row of buttons under the timeline)
+        for each k in [["OK", "Play or pause and show the controls; with them showing, use the selected button"], ["Left / Right", "Skip back / forward (Settings > Playback); with the controls showing, move along the row"], ["Up / Down", "Show the controls; Up selects the timeline, Down goes back to the buttons"], ["On the timeline", "Left / Right move along it (hold to move faster), OK jumps there"], ["Rewind / Fast fwd", "Jump back / forward (Settings > Playback > Jump buttons); press again quickly to jump further"], ["Instant replay", "Jump 10 s back (with the Roku's captions on Instant replay, subtitles show for a moment)"], ["*", "Audio, subtitles, quality, version and speed"], ["Back", "Hide the controls, or leave the player"]]
             out.push({ kind: "keys", key: k[0], text: k[1] })
         end for
         out.push(sectionHead("Home"))
