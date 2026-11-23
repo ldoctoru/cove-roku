@@ -1,6 +1,6 @@
 ' (v1.5) What each Settings page holds (drawn by SettingsScreen.bs). Every page is a list of rows (see
 ' source/SetRows.bs for the kinds); pageInfo gives its title, its fixed glyph and the caption under it.
-' Page ids: main, general, home, homeOrder, nav, libraries, lib:<libraryId>, libOrder, subtitles, playback,
+' Page ids: main, general, home, homeLibRows, homeOrder, nav, libraries, lib:<libraryId>, libOrder, subtitles, playback,
 ' servers, srv:<serverId>, prof:<userId>, remote, about, and choice (a choice row's values).
 
 ' ---------------------------------------------------------------- row makers
@@ -51,6 +51,7 @@ function pageInfo(entry as object) as object
     end if
     if pid = "general" then return { title: "General", icon: "gear", caption: "Colors and posters" }
     if pid = "home" then return { title: "Home", icon: "house", caption: "What Home shows" }
+    if pid = "homeLibRows" then return { title: "Library Rows", icon: "house", caption: "A row on Home for each library" }
     if pid = "homeOrder" then return { title: "Row Order", icon: "house", caption: "OK picks a row up, Up / Down move it, OK puts it down" }
     if pid = "nav" then return { title: "Navigation", icon: "menu", caption: "Choose where each page appears" }
     if pid = "libraries" then return { title: "Libraries", icon: "grid", caption: "Your libraries" }
@@ -99,6 +100,8 @@ function pageRows(entry as object) as object
         homeRows(out)
     else if pid = "homeOrder"
         homeOrderRows(out)
+    else if pid = "homeLibRows"
+        homeLibRowsRows(out)
     else if pid = "nav"
         navRows(out)
     else if pid = "libraries"
@@ -231,6 +234,7 @@ sub homeRows(out as object)
     for each id in ["resume", "nextup", "upcoming", "recent", "released", "favorites", "libraries"]
         out.push(rDim(rSwitch("home:" + id, homeRowLabel(id), HomeLayout.isOn(sid, id)), srvOn))
     end for
+    out.push(rLink("", "Library Rows", SetRows.countOn(libraryHomeEntries()), "homeLibRows"))
     out.push(rDim(rLink("", "Row Order", "", "homeOrder"), srvOn))
     if srvOn
         out.push(rNote("Set by the server's Home layout (below). A library's row still follows its own switch."))
@@ -258,6 +262,27 @@ sub homeRows(out as object)
     else
         out.push(rNote("Rewatching and the Next Up time limit need a Jellyfin server: Emby's Next Up has no such options."))
     end if
+end sub
+
+' The libraries that can have a row on Home, each with its switch: [{ id, label, on }]
+function libraryHomeEntries() as object
+    out = []
+    for each l in homeLibs()
+        if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType)))
+            id = Util.toText(l.id)
+            out.push({ id: id, label: Util.toText(l.title), on: NavPrefs.libraryOnHome(id) })
+        end if
+    end for
+    return out
+end function
+
+' Home → Library Rows: a switch per library that has a Home row (on Home whether or not it's in the sidebar)
+sub homeLibRowsRows(out as object)
+    for each e in libraryHomeEntries()
+        out.push(rSwitch("libHome:" + e.id, e.label, e.on))
+    end for
+    if m.libs.count() = 0 then out.push(rNote(libsState()))
+    out.push(rNote("A library's row on Home no longer depends on the sidebar or the top bar. What the row shows (Latest, Top Rated, ...) is set in Libraries; its place in Row Order."))
 end sub
 
 ' Home → Row Order: every row (on or off) in its order; OK picks one up, Up / Down move it
