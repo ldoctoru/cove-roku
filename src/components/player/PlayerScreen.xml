@@ -2,10 +2,13 @@
 <!-- Full-screen player with Cove's Glass controls (Sources/Views.swift player): the Video node draws only the
      picture (enableUI off); text subtitles are drawn by SubtitleLayer; this component draws the controls.
      Set server + item ({ id, title, subtitle, start, options }); "done" fires when the user leaves.
-     Controls hidden: OK pause / play, Left / Right -10 / +10 s (shows the controls). Controls shown: the progress
-     bar has the focus (Left / Right -10 / +10 s with a thumbnail, OK pause / play); Up: previous, play / pause,
-     next; Down: back / forward (Jump buttons), episodes, subtitles, audio, quality, chapters, previous / next chapter
-     (a caption names the focused one). Back hides the controls.
+     (v1.4 key model, the Mac's Glass3D bottom block) Controls hidden: OK pause / play and shows the controls with
+     play / pause focused; Left / Right -10 / +10 s with the timeline focused; Up / Down show the controls.
+     Controls shown, on the row: Left / Right move along it (previous · back N · play / pause · forward N · next,
+     then the tool bar: episodes, chapters, previous / next chapter, subtitles, audio, quality, speed, info; a
+     caption names the focused one), OK uses it, Up goes to the timeline. On the timeline: Left / Right move
+     along it (presses add up, held they speed up, a thumbnail shows), OK jumps there now and Down returns to the
+     row. Back cancels a pending jump, else hides the controls (leaves the player while paused).
      Rewind / Fast forward: Settings → Playback → Jump buttons (default 30 s). * : audio, subtitles, quality. Skip intro and Up next appear over the video. -->
 <component name="PlayerScreen" extends="Group">
     <script type="text/brightscript" uri="PlayerScreen.bs" />
@@ -44,52 +47,61 @@
             </Label>
         </Group>
 
-        <!-- controls, laid out like Cove for macOS (Sources/Views.swift player) -->
+        <!-- (v1.4) the controls as Cove for macOS's Glass3D bottom block (Classic/ClassicPlayer.swift bottomBar):
+             no centre buttons. Inside the 96 px safe edge: episode line and title, the timeline with the times
+             under it, then one row: the transport controls at the left (previous · back N · play / pause ·
+             forward N · next) and the tool bar at the right (Episodes · Chapters · Subtitles · Audio · Quality ·
+             Speed · Info). The row is built by buildTools / buildRow (PlayerNav), drawn by drawControls. -->
         <Group id="osd" opacity="0">
-            <Poster uri="pkg:/images/ui/scrim_osd.png" width="1920" height="1080" />
-            <!-- centre: previous episode, play / pause, next episode (drawControls) -->
-            <Group id="center" />
-            <!-- bottom-left: episode and title -->
-            <Label id="episode" width="1100" height="34" translation="[24,856]" color="0xFFFFFFD9">
-                <Font role="font" uri="font:MediumSystemFontFile" size="24" />
-            </Label>
-            <Label id="title" width="1100" height="56" translation="[24,888]" color="0xFFFFFFFF">
-                <Font role="font" uri="font:BoldSystemFontFile" size="44" />
-            </Label>
+            <Poster uri="pkg:/images/ui/scrim_top.png" width="1920" height="200" />
+            <Poster uri="pkg:/images/ui/pl_scrim.png" width="1920" height="540" translation="[0,540]" />
             <!-- (v1.0 F-12) top right: the sleep timer's time left -->
-            <Label id="sleepLeft" width="700" height="40" translation="[1196,40]" horizAlign="right" color="0xFFFFFFD9">
+            <Label id="sleepLeft" width="700" height="40" translation="[1124,54]" horizAlign="right" color="0xFFFFFFD9">
                 <Font role="font" uri="font:MediumSystemFontFile" size="26" />
             </Label>
-            <!-- bottom-right: tool buttons in a glass capsule -->
+            <!-- episode line (S1:E3 - Name) over the title -->
+            <Label id="episode" width="1400" height="36" translation="[96,724]" color="0xFFFFFFD9">
+                <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+            </Label>
+            <Label id="title" width="1400" height="56" translation="[96,760]" color="0xFFFFFFFF">
+                <Font role="font" uri="font:BoldSystemFontFile" size="44" />
+            </Label>
+            <!-- the timeline (GlassSlider), x 96 to 1824, its middle at y 852: 12 px glass at rest, 18 px with the
+                 knob while it has the focus; the filled part in the accent with a white top sheen and a glow -->
+            <Group id="bar" translation="[96,852]">
+                <Poster id="glow" uri="pkg:/images/ui/pl_glow.9.png" width="44" height="44" translation="[-13,-22]" opacity="0.55" />
+                <Poster id="track" uri="pkg:/images/ui/pl_track_12.9.png" width="1728" height="12" translation="[0,-6]" />
+                <Poster id="fill" uri="pkg:/images/ui/pl_fill_12.9.png" width="12" height="12" translation="[0,-6]" opacity="0.8" />
+                <Poster id="sheen" uri="pkg:/images/ui/pl_sheen_12.9.png" width="12" height="12" translation="[0,-6]" />
+                <!-- (v1.1) chapter starts: small gaps in the line (drawChapterTicks) -->
+                <Group id="ticks" />
+                <Poster id="thumb" uri="pkg:/images/ui/pl_knob_34.png" width="34" height="34" translation="[-17,-17]" visible="false" />
+            </Group>
+            <!-- the times under the timeline: elapsed at the left; the time left and the Mac's "Ends at" (the Roku's
+                 local time in its clock format, after the time left at the current speed) at the right -->
+            <Label id="elapsed" text="0:00" width="600" height="36" translation="[96,876]" color="0xFFFFFFD9">
+                <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+            </Label>
+            <Label id="timesRight" text="Ends at --:--" width="900" height="36" translation="[924,876]" horizAlign="right" color="0xFFFFFFD9">
+                <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+            </Label>
+            <!-- the row, centred on y 966: transport controls at the left, the tool bar at the right -->
+            <Group id="row" />
             <Group id="tools" />
-            <!-- seek thumbnail above the scrubber (Emby BIF / Jellyfin trickplay) -->
-            <Group id="preview" visible="false" translation="[0,712]">
-                <Poster uri="pkg:/images/ui/panel_dark_r18.9.png" width="336" height="236" />
+            <!-- what the focused button does (and the current value of Subtitles / Audio / Quality / Speed), in
+                 the gap between the controls and the tool bar -->
+            <Label id="caption" width="500" height="40" translation="[600,946]" vertAlign="center" color="0xFFFFFFEB">
+                <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+            </Label>
+            <!-- seek thumbnail above the timeline (Emby BIF / Jellyfin trickplay) -->
+            <Group id="preview" visible="false" translation="[96,595]">
+                <Poster uri="pkg:/images/ui/pl_panel_black.9.png" width="336" height="236" />
+                <Poster uri="pkg:/images/ui/pl_panel_rim.9.png" width="336" height="236" />
                 <Group id="previewClip" translation="[8,8]" clippingRect="[0,0,320,180]">
                     <Poster id="previewImg" width="320" height="180" />
                 </Group>
                 <Label id="previewTime" width="336" height="40" translation="[0,190]" horizAlign="center" vertAlign="center" color="0xFFFFFFFF">
                     <Font role="font" uri="font:BoldSystemFontFile" size="26" />
-                </Label>
-            </Group>
-            <!-- scrubber across the bottom -->
-            <Group id="bar" translation="[24,966]">
-                <Poster uri="pkg:/images/ui/glass_pill.9.png" width="1872" height="66" />
-                <Label id="elapsed" width="110" height="66" translation="[24,0]" vertAlign="center" color="0xFFFFFFD9">
-                    <Font role="font" uri="font:MediumSystemFontFile" size="24" />
-                </Label>
-                <Rectangle id="track" width="1380" height="6" translation="[130,30]" color="0xFFFFFF59" />
-                <Rectangle id="fill" width="0" height="6" translation="[130,30]" color="0xFFFFFFFF" />
-                <!-- (v1.1) chapter starts: small gaps in the line (drawChapterTicks) -->
-                <Group id="ticks" />
-                <Poster id="thumb" uri="pkg:/images/ui/dot_24.png" width="22" height="22" translation="[119,22]" />
-                <!-- (BG-10) 244 wide, right-aligned at the old right edge (1720), so "Ends at 12:55 PM" fits -->
-                <!-- the Mac's "Ends at" (scrubber help label): the Roku's local time in its clock format (12 h / 24 h), after the time left at the current speed -->
-                <Label id="endsAt" text="Ends at --:--" width="244" height="66" translation="[1476,0]" horizAlign="right" vertAlign="center" color="0xFFFFFFCC">
-                    <Font role="font" uri="font:MediumSystemFontFile" size="24" />
-                </Label>
-                <Label id="remaining" width="120" height="66" translation="[1728,0]" horizAlign="right" vertAlign="center" color="0xFFFFFFD9">
-                    <Font role="font" uri="font:MediumSystemFontFile" size="24" />
                 </Label>
             </Group>
         </Group>

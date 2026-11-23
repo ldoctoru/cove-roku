@@ -10,6 +10,7 @@ import "pkg:/source/Speak.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Clock.bs"
 import "pkg:/source/Toasts.bs"
+import "pkg:/source/PlayerNav.bs"
 
 sub init()
     m.video = m.top.findNode("video")
@@ -74,9 +75,23 @@ sub init()
     m.jumpClock = createObject("roTimespan")
     m.seekTarget = -1.0
     m.osdShown = false
-    m.area = "center"
-    m.idx = 1
+    ' (v1.4) the focus while the controls show: "row" (the bottom row, m.idx in m.rowIds) or "bar" (the
+    ' timeline); m.rowBack is the row button Up left from, Down / OK on the timeline return to it
+    m.area = "row"
+    m.idx = 0
+    m.rowBack = -1
     m.toolIds = []
+    m.rowIds = []
+    m.rowSig = ""
+    m.rowNodes = invalid
+    m.ctlEnd = 96
+    m.toolsX = 1824
+    m.lineH = 0
+    ' the timeline's filled part and its glow in the accent
+    accent = m.global.theme.accent
+    m.top.findNode("fill").blendColor = accent
+    m.top.findNode("glow").blendColor = accent
+    m.loaderArc.blendColor = accent
     m.video.observeField("state", "onState")
     m.video.observeField("position", "onPosition")
     m.video.notificationInterval = 1
@@ -114,6 +129,8 @@ sub init()
     m.spokenKey = ""
     Speak.mute([m.keys, m.action, m.upNext, m.still])
     resetState()
+    ' (v1.4) the row from the start (play / pause and the jumps); the tools join as the title's details come
+    buildTools()
 end sub
 
 ' Settings read once per title (P-3: each Prefs read opens the registry, and some ran every second);
@@ -617,7 +634,8 @@ end sub
 ' Settings → Subtitles → Distance from bottom; above the controls while they show (as on the Mac)
 sub liftSubs(controlsShown as boolean)
     base = Int(1080 * m.pf.subBottom / 100)
-    if controlsShown and base < 236 then base = 236
+    ' (v1.4: above the whole bottom block, whose episode line starts at y 724)
+    if controlsShown and base < 380 then base = 380
     m.subLayer.lift = base
     updateSubNote()
 end sub
@@ -1091,11 +1109,22 @@ sub showAction(kind as string, label as string)
     if est > w then w = est
     m.actionLabel.width = w
     m.top.findNode("actionBg").width = w
-    m.action.translation = [1824 - w, 840]
+    m.actionW = w
+    placeAction()
     m.action.visible = true
     ' (PL-2 / PL-4: not over a menu or the controls in use, where OK belongs to them; the button takes the
     ' remote when the controls hide)
     focusPlayer()
+end sub
+
+' (v1.4) The chip's place: bottom right over the bare video; above the bottom block (clear of the timeline and
+' the tool bar) while the controls show
+sub placeAction()
+    w = m.actionW
+    if w = invalid then w = 270
+    y = 880
+    if m.osdShown then y = 620
+    m.action.translation = [1824 - w, y]
 end sub
 
 sub hideAction()
@@ -1798,30 +1827,24 @@ function onKeyEvent(key as string, press as boolean) as boolean
             focusPlayer()
         end if
     else if m.area = "bar" and (key = "left" or key = "right")
-        ' the progress bar has the focus: Left / Right move along it (presses add up, thumbnail shows; held,
-        ' the steps grow: v1.3 U-4)
+        ' the timeline has the focus: Left / Right move along it (presses add up, thumbnail shows; held, the
+        ' steps grow: v1.3 U-4)
         holdSeek(key)
-    else if key = "left"
-        if m.idx > 0 then m.idx = m.idx - 1
+    else if m.area = "bar" and (key = "OK" or key = "down")
+        ' (v1.4) OK jumps to the place chosen now; OK and Down go back to the row, on the button left last
+        if key = "OK" and m.seekTarget >= 0 then applySeek()
+        setArea("row", rowReturnIndex())
+    else if m.area = "row" and (key = "left" or key = "right")
+        ' (v1.4) along the row: the controls, then the tool bar (no wrap)
+        dirn = 1
+        if key = "left" then dirn = -1
+        m.idx = PlayerNav.stepIndex(m.idx, dirn, m.rowIds.count())
         drawControls()
-    else if key = "right"
-        if m.idx < areaSize() - 1 then m.idx = m.idx + 1
-        drawControls()
-    else if key = "down" and m.area = "center"
+    else if m.area = "row" and key = "up"
+        m.rowBack = m.idx
         setArea("bar", 0)
-    else if key = "down" and m.area = "bar" and m.toolIds.count() > 0
-        ' (v1.1 U-3: the first tool, back, not the rightmost)
-        setArea("tools", 0)
-    else if key = "up" and m.area = "tools"
-        setArea("bar", 0)
-    else if key = "up" and m.area = "bar"
-        setArea("center", playIndex())
-    else if key = "OK"
-        if m.area = "bar"
-            togglePause()
-        else
-            useControl()
-        end if
+    else if m.area = "row" and key = "OK"
+        useControl()
     end if
     return true
 end function
@@ -1836,26 +1859,32 @@ sub setArea(area as string, idx as integer)
 end sub
 
 function areaSize() as integer
-    if m.area = "tools" then return m.toolIds.count()
     if m.area = "bar" then return 1
-    return centerIds().count()
+    return m.rowIds.count()
 end function
 
-' Centre buttons: previous episode, play / pause, next episode (episodes); play / pause alone otherwise
-' (an episode found in its series' list: a special outside the list has no previous / next / episodes)
+' Previous / next episode join the row for an episode found in its series' list (a special outside the list
+' has no previous / next / episodes)
 function hasEpisodes() as boolean
     return m.episodes.count() > 0 and m.epIndex >= 0
 end function
 
+' (v1.4) The transport controls at the left of the row (PlayerNav.controlIds)
 function centerIds() as object
-    if hasEpisodes() then return ["prev", "play", "next"]
-    return ["play"]
+    return PlayerNav.controlIds(hasEpisodes())
 end function
 
-' the play / pause button's place in the centre row
+' the play / pause button's place in the row
 function playIndex() as integer
-    if hasEpisodes() then return 1
-    return 0
+    at = PlayerNav.indexOfId(m.rowIds, "play")
+    if at < 0 then at = 0
+    return at
+end function
+
+' Down / OK from the timeline: the button the focus left for it (play / pause when the row changed since)
+function rowReturnIndex() as integer
+    if m.rowBack <> invalid and m.rowBack >= 0 and m.rowBack < m.rowIds.count() then return m.rowBack
+    return playIndex()
 end function
 
 sub togglePause()
@@ -1870,21 +1899,12 @@ sub togglePause()
 end sub
 
 sub useControl()
-    if m.area = "center"
-        ids = centerIds()
-        if m.idx >= ids.count() then m.idx = playIndex()
-        cid = ids[m.idx]
-        if cid = "prev"
-            playEpisode(m.prev)
-        else if cid = "next"
-            playEpisode(m.next)
-        else
-            togglePause()
-        end if
-        return
-    end if
-    id = m.toolIds[m.idx]
-    if id = "jumpBack"
+    if m.idx < 0 or m.idx >= m.rowIds.count() then m.idx = playIndex()
+    if m.rowIds.count() = 0 then return
+    id = m.rowIds[m.idx]
+    if id = "play"
+        togglePause()
+    else if id = "jumpBack"
         seekBy(-m.pf.jump)
     else if id = "jumpFwd"
         seekBy(m.pf.jump)
@@ -1904,6 +1924,15 @@ sub useControl()
         openPicker("audio", "Audio", o, effectiveAudio().toStr())
     else if id = "quality"
         openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
+    else if id = "speed"
+        o = []
+        for each r in speedChoices()
+            o.push({ id: r, label: r + "×" })
+        end for
+        openPicker("speed", "Speed", o, m.speedId)
+    else if id = "info"
+        togglePlaybackInfo()
+        drawControls()
     else if id = "chapters"
         showChapters()
     else if id = "chapPrev"
@@ -1935,55 +1964,162 @@ sub showEpisodes()
     openPicker("episode", Util.toText(m.episodes[m.epIndex].SeasonName), o, m.top.item.id)
 end sub
 
-' Bottom-right buttons: back / forward (Settings → Playback → Jump buttons), episodes (episodes only), subtitles, audio, quality, chapters
-' (previous / next episode are in the centre, beside play)
+' (v1.4) The row: the transport controls at the left, then the tool bar at the right, in the Mac's order
+' (PlayerNav.toolList). Called when what the title has changes (tracks, chapters, the episode list arriving
+' late): the focused button keeps the focus (PlayerNav.carryIndex), and the nodes are rebuilt only when the
+' buttons themselves change.
 sub buildTools()
-    ' (the focused tool stays focused when buttons are added, e.g. the episode list arriving late)
-    keep = ""
-    if m.area = "tools" and m.idx < m.toolIds.count() then keep = m.toolIds[m.idx]
-    ids = ["jumpBack", "jumpFwd"]
-    if hasEpisodes() then ids.push("episodes")
-    if m.tracks.subs.count() > 0 then ids.push("subs")
-    if m.tracks.audio.count() > 1 then ids.push("audio")
-    ids.push("quality")
-    if chapterEntries().count() > 0
-        ids.push("chapters")
-        ' (v1.1) previous / next chapter
-        if chapterEntries().count() > 1
-            ids.push("chapPrev")
-            ids.push("chapNext")
-        end if
+    oldIds = m.rowIds
+    m.toolIds = PlayerNav.toolList({
+        episodes: hasEpisodes(),
+        chapters: chapterEntries().count(),
+        subs: m.tracks.subs.count() > 0,
+        audio: m.tracks.audio.count(),
+        speed: speedSupported(),
+        info: true
+    })
+    ids = PlayerNav.rowList(hasEpisodes(), m.toolIds)
+    if m.area = "row" then m.idx = PlayerNav.carryIndex(oldIds, m.idx, ids)
+    if m.rowBack <> invalid then m.rowBack = PlayerNav.carryIndex(oldIds, m.rowBack, ids)
+    m.rowIds = ids
+    sig = ""
+    for each id in ids
+        sig = sig + id + ","
+    end for
+    if sig <> m.rowSig
+        m.rowSig = sig
+        buildRow()
     end if
-    m.toolIds = ids
-    if keep <> ""
-        for i = 0 to ids.count() - 1
-            if ids[i] = keep then m.idx = i
-        end for
-    end if
-    if m.area = "tools" and m.idx >= ids.count() then m.idx = ids.count() - 1
     drawControls()
+end sub
+
+' The row's nodes, built once per set of buttons (VD-18): each button gets its glass, a fog and a ring that
+' show while it has the focus, and its icon (drawControls changes only those)
+sub buildRow()
+    accent = m.global.theme.accent
+    row = m.top.findNode("row")
+    row.removeChildrenIndex(row.getChildCount(), 0)
+    m.rowNodes = []
+    ctl = centerIds()
+    xs = PlayerNav.controlXs(ctl, 96)
+    for i = 0 to ctl.count() - 1
+        id = ctl[i]
+        sz = PlayerNav.controlSize(id)
+        g = row.createChild("Group")
+        g.translation = [xs[i], 966 - sz \ 2]
+        if id = "play"
+            ' (the accent glass: the accent fading left to right under the clear glass)
+            tint = g.createChild("Poster")
+            tint.uri = "pkg:/images/ui/pl_tint_90.png"
+            tint.width = sz
+            tint.height = sz
+            tint.blendColor = accent
+        end if
+        gl = g.createChild("Poster")
+        gl.uri = "pkg:/images/ui/pl_glass_" + sz.toStr() + ".png"
+        gl.width = sz
+        gl.height = sz
+        fog = g.createChild("Poster")
+        fog.uri = "pkg:/images/ui/pl_fog_" + sz.toStr() + ".png"
+        fog.width = sz
+        fog.height = sz
+        fog.visible = false
+        rg = g.createChild("Poster")
+        rg.uri = "pkg:/images/ui/pl_ring_" + (sz + 16).toStr() + ".png"
+        rg.width = sz + 16
+        rg.height = sz + 16
+        rg.translation = [-8, -8]
+        rg.visible = false
+        isz = 36
+        if id = "play" then isz = 40
+        if id = "prev" or id = "next" then isz = 30
+        ic = g.createChild("Poster")
+        ic.width = isz
+        ic.height = isz
+        ic.translation = [(sz - isz) \ 2, (sz - isz) \ 2]
+        m.rowNodes.push({ id: id, fog: fog, ring: rg, icon: ic })
+    end for
+    m.ctlEnd = 96
+    if ctl.count() > 0 then m.ctlEnd = xs[ctl.count() - 1] + PlayerNav.controlSize(ctl[ctl.count() - 1])
+    ' the tool bar: one glass capsule 66 high, right-aligned at x 1824, 72 px cells with 2 px dividers
+    tl = m.top.findNode("tools")
+    tl.removeChildrenIndex(tl.getChildCount(), 0)
+    n = m.toolIds.count()
+    m.toolsX = 1824
+    if n = 0 then return
+    w = PlayerNav.toolsWidth(n)
+    m.toolsX = 1824 - w
+    tl.translation = [m.toolsX, 933]
+    cap = tl.createChild("Poster")
+    cap.uri = "pkg:/images/ui/pl_bar.9.png"
+    cap.width = w
+    cap.height = 66
+    for i = 0 to n - 1
+        cx = PlayerNav.toolCellX(i)
+        if i > 0
+            dv = tl.createChild("Rectangle")
+            dv.width = 2
+            dv.height = 30
+            dv.color = "0xFFFFFF2E"
+            dv.translation = [cx - 2, 18]
+        end if
+        fog = tl.createChild("Poster")
+        fog.uri = "pkg:/images/ui/pl_fog_cell.9.png"
+        fog.width = 64
+        fog.height = 54
+        fog.translation = [cx + 4, 6]
+        fog.visible = false
+        rg = tl.createChild("Poster")
+        rg.uri = "pkg:/images/ui/pl_ring_cell.9.png"
+        rg.width = 72
+        rg.height = 62
+        rg.translation = [cx, 2]
+        rg.visible = false
+        ic = tl.createChild("Poster")
+        ic.uri = "pkg:/images/ui/icon_" + toolIcon(m.toolIds[i]) + "_36.png"
+        ic.width = 36
+        ic.height = 36
+        ic.translation = [cx + 18, 15]
+        m.rowNodes.push({ id: m.toolIds[i], fog: fog, ring: rg, icon: ic })
+    end for
 end sub
 
 function toolIcon(id as string) as string
     if id = "subs" then return "subtitles"
-    ' (the icon shows the jump length from Settings → Playback → Jump buttons: back10 ... fwd60)
-    if id = "jumpBack" then return "back" + m.pf.jump.toStr()
-    if id = "jumpFwd" then return "fwd" + m.pf.jump.toStr()
     if id = "chapPrev" then return "chapprev"
     if id = "chapNext" then return "chapnext"
+    if id = "speed" then return "plspeed"
+    if id = "info" then return "plinfo"
     return id
 end function
 
-' (v1.1 U-2) The caption over the focused tool: its name, and the current value for subtitles / audio /
-' quality ("Subtitles · English"). It sits above the capsule: the scrubber is right under it.
+' (v1.1 U-2, v1.4) The caption for the focused button: its name, and the current value for subtitles / audio /
+' quality / speed ("Subtitles · English")
 function toolCaption(id as string) as string
     j = m.pf.jump.toStr()
+    if id = "play"
+        if m.video.state = "playing" or m.video.state = "buffering" then return "Pause"
+        return "Play"
+    end if
+    if id = "prev"
+        if m.prev = invalid then return "No Previous Episode"
+        return "Previous Episode"
+    end if
+    if id = "next"
+        if m.next = invalid then return "No Next Episode"
+        return "Next Episode"
+    end if
     if id = "jumpBack" then return "Back " + j + " s"
     if id = "jumpFwd" then return "Forward " + j + " s"
     if id = "episodes" then return "Episodes"
     if id = "subs" then return captionWithValue("Subtitles", Tracks.subLabel(m.tracks, m.opts.sub))
     if id = "audio" then return captionWithValue("Audio", Tracks.audioLabel(m.tracks, effectiveAudio()))
     if id = "quality" then return captionWithValue("Quality", Tracks.qualityLabel(m.opts.maxBitrate))
+    if id = "speed" then return captionWithValue("Speed", m.speedId + "×")
+    if id = "info"
+        if m.pbInfo <> invalid then return "Hide Playback Info"
+        return "Playback Info"
+    end if
     if id = "chapters" then return "Chapters"
     if id = "chapPrev" then return "Previous Chapter"
     if id = "chapNext" then return "Next Chapter"
@@ -1998,142 +2134,79 @@ function captionWithValue(name as string, value as string) as string
     return t
 end function
 
+' (v1.4) The row's look for the current state: the focused button gets the fog and the ring (never a white
+' fill), play / pause follows the video, a missing previous / next is dimmed, a tool that is on (subtitles,
+' playback info) is in the accent; the caption names the focused button
 sub drawControls()
+    if m.rowNodes = invalid then return
     focused = m.osdShown and m.picker = invalid
-    ' centre: 69 px circles for previous / next episode, 105 px for play / pause
-    c = m.top.findNode("center")
-    c.removeChildrenIndex(c.getChildCount(), 0)
     playing = m.video.state = "playing" or m.video.state = "buffering"
-    playIcon = "pause_48"
-    if not playing then playIcon = "play_48"
-    specs = [{ size: 105, icon: playIcon, isz: 48, x: 908, dim: false }]
-    if hasEpisodes()
-        specs = [
-            { size: 69, icon: "prev_36", isz: 36, x: 798, dim: m.prev = invalid },
-            specs[0],
-            { size: 69, icon: "next_36", isz: 36, x: 1053, dim: m.next = invalid }
-        ]
-    end if
-    for i = 0 to specs.count() - 1
-        s = specs[i]
-        isFocus = focused and m.area = "center" and m.idx = i
-        g = c.createChild("Group")
-        y = 540 - s.size / 2
-        g.translation = [s.x, y]
-        g.scaleRotateCenter = [s.size / 2, s.size / 2]
-        bg = g.createChild("Poster")
-        bg.width = s.size
-        bg.height = s.size
-        ic = g.createChild("Poster")
-        ic.uri = "pkg:/images/ui/icon_" + s.icon + ".png"
-        ic.width = s.isz
-        ic.height = s.isz
-        ic.translation = [(s.size - s.isz) / 2, (s.size - s.isz) / 2]
-        if isFocus
-            bg.uri = "pkg:/images/ui/white_circle_" + s.size.toStr() + ".png"
-            ic.blendColor = "0x000000FF"
-            g.scale = [1.08, 1.08]
-        else
-            bg.uri = "pkg:/images/ui/glass_circle_" + s.size.toStr() + ".png"
-            ic.blendColor = "0xFFFFFFFF"
-            ' (no previous / next episode)
-            if s.dim then ic.blendColor = "0xFFFFFF59"
-        end if
-    end for
-    ' bottom-right: icons in a glass capsule, right-aligned above the scrubber
-    tl = m.top.findNode("tools")
-    tl.removeChildrenIndex(tl.getChildCount(), 0)
-    n = m.toolIds.count()
-    if n = 0 then return
-    gap = 62
-    w = n * gap + 14
-    tl.translation = [1896 - w, 878]
-    pill = tl.createChild("Poster")
-    pill.uri = "pkg:/images/ui/glass_pill.9.png"
-    pill.width = w
-    pill.height = 70
     accent = m.global.theme.accent
-    for i = 0 to n - 1
-        id = m.toolIds[i]
-        isFocus = focused and m.area = "tools" and m.idx = i
-        x = 7 + i * gap + 3
-        if isFocus
-            bg = tl.createChild("Poster")
-            bg.uri = "pkg:/images/ui/white_circle_56.png"
-            bg.width = 56
-            bg.height = 56
-            bg.translation = [x, 7]
-        end if
-        ic = tl.createChild("Poster")
-        ic.uri = "pkg:/images/ui/icon_" + toolIcon(id) + "_36.png"
-        ic.width = 36
-        ic.height = 36
-        ic.translation = [x + 10, 17]
+    jump = m.pf.jump.toStr()
+    for i = 0 to m.rowNodes.count() - 1
+        nd = m.rowNodes[i]
+        isFocus = focused and m.area = "row" and m.idx = i
+        nd.fog.visible = isFocus
+        nd.ring.visible = isFocus
+        id = nd.id
         col = "0xFFFFFFFF"
-        if id = "subs" and m.opts.sub >= 0 then col = accent
-        if isFocus then col = "0x000000FF"
-        ic.blendColor = col
-        if isFocus then drawToolCaption(tl, toolCaption(id), x + 28, w)
+        if id = "play"
+            uri = "pkg:/images/ui/icon_pause_48.png"
+            if not playing then uri = "pkg:/images/ui/icon_play_48.png"
+            nd.icon.uri = uri
+        else if id = "prev" or id = "next"
+            nd.icon.uri = "pkg:/images/ui/icon_" + id + "_36.png"
+            if (id = "prev" and m.prev = invalid) or (id = "next" and m.next = invalid) then col = "0xFFFFFF59"
+        else if id = "jumpBack"
+            nd.icon.uri = "pkg:/images/ui/icon_back" + jump + "_36.png"
+        else if id = "jumpFwd"
+            nd.icon.uri = "pkg:/images/ui/icon_fwd" + jump + "_36.png"
+        else if id = "subs" and m.opts.sub >= 0
+            col = accent
+        else if id = "info" and m.pbInfo <> invalid
+            col = accent
+        end if
+        nd.icon.blendColor = col
     end for
+    drawCaption(focused and m.area = "row")
     if focused then speakControl()
 end sub
 
-' (v1.1 U-2) A small caption above the focused tool icon (cx: the icon's centre in the capsule, capW: the
-' capsule's width; the caption stays inside the screen)
-sub drawToolCaption(tl as object, text as string, cx as integer, capW as integer)
-    if text = "" then return
-    w = text.len() * 13 + 32
-    x = cx - w \ 2
-    if x + w > capW then x = capW - w
-    g = tl.createChild("Group")
-    g.translation = [x, -50]
-    bg = g.createChild("Poster")
-    bg.uri = "pkg:/images/ui/panel_dark_r18.9.png"
-    bg.width = w
-    bg.height = 40
-    lb = g.createChild("Label")
+' The focused button's caption in the gap between the controls and the tool bar: after the controls for a
+' control, ending at the tool bar for a tool
+sub drawCaption(show as boolean)
+    lb = m.top.findNode("caption")
+    if not show or m.idx < 0 or m.idx >= m.rowIds.count()
+        lb.visible = false
+        return
+    end if
+    id = m.rowIds[m.idx]
+    x0 = m.ctlEnd + 30
+    w = m.toolsX - 24 - x0
+    if w < 100 then w = 100
     lb.width = w
-    lb.height = 40
-    lb.horizAlign = "center"
-    lb.vertAlign = "center"
-    lb.color = "0xFFFFFFFF"
-    f = createObject("roSGNode", "Font")
-    f.uri = "font:MediumSystemFontFile"
-    f.size = 24
-    lb.font = f
-    lb.text = text
+    lb.translation = [x0, 946]
+    lb.horizAlign = "left"
+    if m.idx >= centerIds().count() then lb.horizAlign = "right"
+    lb.text = toolCaption(id)
+    lb.visible = true
 end sub
 
 ' ---------------------------------------------------------------- Audio Guide
 
-' The focused control: "Pause, button, 2 of 3"; "Subtitles: Romanian, button, 4 of 6"; on the bar the
+' The focused control: "Pause, button, 3 of 9"; "Subtitles: Romanian, button, 7 of 9"; on the timeline the
 ' position, "12 minutes 5 seconds of 45 minutes"
 sub speakControl()
     if not Speak.isOn() then return
     text = ""
     if m.area = "bar"
-        text = "Progress, " + positionSpeech(currentPos()) + ". Left or Right to move, OK to pause"
-        if m.video.state = "paused" then text = "Progress, " + positionSpeech(currentPos()) + ", paused. Left or Right to move, OK to play"
+        text = "Timeline, " + positionSpeech(currentPos()) + ". Left or Right to move, OK to jump, Down for the buttons"
+        if m.video.state = "paused" then text = "Timeline, " + positionSpeech(currentPos()) + ", paused. Left or Right to move, OK to jump, Down for the buttons"
         key = "bar" + m.video.state
-    else if m.area = "center"
-        ids = centerIds()
-        if m.idx >= ids.count() then return
-        cid = ids[m.idx]
-        label = "Pause"
-        if not (m.video.state = "playing" or m.video.state = "buffering") then label = "Play"
-        if cid = "prev"
-            label = "Previous episode"
-            if m.prev = invalid then label = label + ", unavailable"
-        else if cid = "next"
-            label = "Next episode"
-            if m.next = invalid then label = label + ", unavailable"
-        end if
-        text = Speak.button(label) + Speak.position(m.idx, ids.count())
-        key = "c" + text
     else
-        if m.idx >= m.toolIds.count() then return
-        text = Speak.button(toolSpeech(m.toolIds[m.idx])) + Speak.position(m.idx, m.toolIds.count())
-        key = "t" + text
+        if m.idx < 0 or m.idx >= m.rowIds.count() then return
+        text = Speak.button(toolSpeech(m.rowIds[m.idx])) + Speak.position(m.idx, m.rowIds.count())
+        key = "r" + text
     end if
     if key = m.spokenKey then return
     m.spokenKey = key
@@ -2148,26 +2221,46 @@ end function
 
 function toolSpeech(id as string) as string
     j = m.pf.jump.toStr()
+    if id = "play"
+        if m.video.state = "playing" or m.video.state = "buffering" then return "Pause"
+        return "Play"
+    end if
+    if id = "prev"
+        if m.prev = invalid then return "Previous episode, unavailable"
+        return "Previous episode"
+    end if
+    if id = "next"
+        if m.next = invalid then return "Next episode, unavailable"
+        return "Next episode"
+    end if
     if id = "jumpBack" then return "Back " + j + " seconds"
     if id = "jumpFwd" then return "Forward " + j + " seconds"
     if id = "episodes" then return "Episodes"
     if id = "subs" then return "Subtitles: " + Tracks.subLabel(m.tracks, m.opts.sub)
     if id = "audio" then return "Audio: " + Tracks.audioLabel(m.tracks, effectiveAudio())
     if id = "quality" then return "Quality: " + Tracks.qualityLabel(m.opts.maxBitrate)
+    if id = "speed" then return "Speed: " + m.speedId + "x"
+    if id = "info"
+        if m.pbInfo <> invalid then return "Hide playback info"
+        return "Playback info"
+    end if
     if id = "chapters" then return "Chapters"
     if id = "chapPrev" then return "Previous chapter"
     if id = "chapNext" then return "Next chapter"
     return id
 end function
 
-sub showOsd(autoHide as boolean)
+' Show the controls. (v1.4) They appear with play / pause focused; a seek (Left / Right, Rewind / Fast forward
+' while they were hidden) shows them with the timeline focused (area "bar"). Already shown: the focus stays.
+sub showOsd(autoHide as boolean, area = "row" as string)
     ' (v1.3) the Up Next card over the credits hides while the controls show
     pauseCreditsCard()
     if not m.osdShown
         m.osdShown = true
-        ' the progress bar starts with the focus (Left / Right seek), Up: the centre buttons, Down: the tools
-        m.area = "bar"
+        m.area = area
         m.idx = 0
+        m.rowBack = -1
+        if area = "row" then m.idx = playIndex()
         fadeOsd(1.0)
         ' (PL-4: the controls take the remote from the Skip intro / Next button, which stays on screen)
         if m.action.isInFocusChain() then m.keys.setFocus(true)
@@ -2188,6 +2281,7 @@ end sub
 
 sub fadeOsd(target as float)
     liftSubs(target > 0)
+    placeAction()
     a = m.top.findNode("osdAnim")
     a.control = "stop"
     m.top.findNode("osdFade").keyValue = [m.osd.opacity, target]
@@ -2210,7 +2304,8 @@ sub seekBy(delta as integer)
     if target < 0 then target = 0
     if d > 0 and target > d - 5 then target = d - 5
     m.seekTarget = target
-    showOsd(false)
+    ' (v1.4: shown by a seek, the controls come up with the timeline focused)
+    showOsd(false, "bar")
     m.seekTimer.control = "stop"
     m.seekTimer.control = "start"
     ' (each press replaces the last: only where it lands is heard)
@@ -2338,36 +2433,46 @@ sub updateBar(atSec as float)
     if d > 0 then frac = atSec / d
     if frac > 1 then frac = 1
     if frac < 0 then frac = 0
-    ' (the track ends before "Ends at" and the time left)
-    w = Int(1380 * frac)
-    m.top.findNode("fill").width = w
-    ' focused bar: thicker line and a bigger knob
+    ' (v1.4) the timeline, 1728 px from x 96: 12 px at rest, 18 px with the knob while it has the focus
+    w = Int(1728 * frac)
     barFocus = m.osdShown and m.area = "bar" and m.picker = invalid
-    sz = 22
-    lineH = 6
-    if barFocus
-        sz = 36
-        lineH = 10
+    lineH = 12
+    if barFocus then lineH = 18
+    if lineH <> m.lineH
+        m.lineH = lineH
+        hs = lineH.toStr()
+        for each id in ["track", "fill", "sheen"]
+            r = m.top.findNode(id)
+            r.uri = "pkg:/images/ui/pl_" + id + "_" + hs + ".9.png"
+            r.height = lineH
+            r.translation = [0, -lineH \ 2]
+        end for
+        tk = m.top.findNode("ticks")
+        for i = 0 to tk.getChildCount() - 1
+            t = tk.getChild(i)
+            t.height = lineH
+            t.translation = [t.translation[0], -lineH \ 2]
+        end for
     end if
+    ' (the filled part is never narrower than its round ends, as on the Mac)
+    fw = w
+    if fw < lineH then fw = lineH
+    m.top.findNode("fill").width = fw
+    m.top.findNode("sheen").width = fw
+    m.top.findNode("glow").width = fw + 26
+    m.top.findNode("glow").visible = frac > 0
     th = m.top.findNode("thumb")
-    th.width = sz
-    th.height = sz
-    th.translation = [130 + w - sz / 2, 33 - sz / 2]
-    for each id in ["track", "fill"]
-        r = m.top.findNode(id)
-        r.height = lineH
-        r.translation = [130, 33 - lineH / 2]
-    end for
+    th.visible = barFocus
+    th.translation = [w - 17, -17]
     m.top.findNode("elapsed").text = Playback.clock(atSec)
-    showPreview(atSec, 154 + w)
+    showPreview(atSec, 96 + w)
     remain = d - atSec
     if remain < 0 then remain = 0
+    ' (the Mac's "-39:22  /  Ends at 10:41 PM")
     if d > 0
-        m.top.findNode("remaining").text = "-" + Playback.clock(remain)
-        m.top.findNode("endsAt").text = endsAtClock(remain)
+        m.top.findNode("timesRight").text = "-" + Playback.clock(remain) + "  /  " + endsAtClock(remain)
     else
-        m.top.findNode("remaining").text = ""
-        m.top.findNode("endsAt").text = ""
+        m.top.findNode("timesRight").text = ""
     end if
 end sub
 
@@ -2453,10 +2558,11 @@ sub showPreview(atSec as float, x as integer)
         pv.visible = false
         return
     end if
+    ' (v1.4: above the timeline, inside the 96 px safe edge)
     px = x - 168
-    if px < 24 then px = 24
-    if px > 1896 - 336 then px = 1896 - 336
-    pv.translation = [px, 712]
+    if px < 96 then px = 96
+    if px > 1824 - 336 then px = 1824 - 336
+    pv.translation = [px, 595]
     m.top.findNode("previewTime").text = Playback.clock(atSec)
     img = m.top.findNode("previewImg")
     if th.kind = "bif"
@@ -2701,8 +2807,7 @@ sub useEpisodes(fullList as object)
         end if
     end for
     useQueue()
-    ' (prev / next join the centre row: keep the focus on play)
-    if m.area = "center" then m.idx = playIndex()
+    ' (prev / next join the row: buildTools keeps the focus on the same button)
     buildTools()
     ' (v1.2 SP-14) the Episodes panel was asked for while only the neighbours were known
     if m.epFull and m.epPanelWanted
@@ -2862,11 +2967,14 @@ sub drawChapterTicks(d as float)
     g.removeChildrenIndex(g.getChildCount(), 0)
     for each ch in chapterEntries()
         if ch.start > 1 and ch.start < d - 1
+            ' (v1.4: across the timeline's current thickness, updateBar follows it)
+            lh = m.lineH
+            if lh <= 0 then lh = 12
             r = g.createChild("Rectangle")
             r.width = 4
-            r.height = 12
+            r.height = lh
             r.color = "0x000000B3"
-            r.translation = [130 + Int(1380 * ch.start / d) - 2, 27]
+            r.translation = [Int(1728 * ch.start / d) - 2, -lh \ 2]
         end if
     end for
 end sub
@@ -2926,6 +3034,7 @@ sub useMenuExtra(id as string)
         showChapters()
     else if id = "pbinfo"
         togglePlaybackInfo()
+        drawControls()
         closePicker()
         focusPlayer()
         resumeAfterPicker()
@@ -2944,7 +3053,7 @@ sub togglePlaybackInfo()
         return
     end if
     m.pbInfo = createObject("roSGNode", "PlaybackInfoOverlay")
-    m.pbInfo.translation = [24, 36]
+    m.pbInfo.translation = [96, 54]
     ' above the controls, under the status text, Skip intro, Up next and the side panels
     at = 0
     for i = 0 to m.top.getChildCount() - 1

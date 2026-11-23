@@ -762,9 +762,9 @@ def draw_player_v14():
     # the timeline (GlassSlider): black 35 % glass, the accent fill with a white top sheen and an accent glow,
     # 12 px at rest and 18 px while it has the focus; the knob shows only then
     for h in (12, 18):
-        save(pl_hnine(pl_glass(24, h, h // 2, dark=89, outline=40)), "pl_track_%d.9.png" % h)
-        save(pl_hnine(pl_flat(24, h, h // 2, 255)), "pl_fill_%d.9.png" % h)
-        save(pl_hnine(pl_tint(24, h, h // 2, [(0, 102), (0.5, 0), (1, 0)], horizontal=False)), "pl_sheen_%d.9.png" % h)
+        save(pl_hnine(pl_glass(h, h, h // 2, dark=89, outline=40)), "pl_track_%d.9.png" % h)
+        save(pl_hnine(pl_flat(h, h, h // 2, 255)), "pl_fill_%d.9.png" % h)
+        save(pl_hnine(pl_tint(h, h, h // 2, [(0, 102), (0.5, 0), (1, 0)], horizontal=False)), "pl_sheen_%d.9.png" % h)
     # (the glow: white, tinted with the accent; 44 high, the line's 18 px in the middle, 13 px of blur around)
     glow_a = Image.new("L", (64, 44), 0)
     ImageDraw.Draw(glow_a).rounded_rectangle([13, 13, 50, 30], 9, fill=200)
