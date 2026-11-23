@@ -16,6 +16,8 @@ sub init()
     m.oi = 0
     m.left = []
     m.top.observeField("focusedChild", "onFocusChanged")
+    ' (v1.4) the panel in the page colour (Settings → Background)
+    m.top.findNode("bg").uri = "pkg:/images/ui/pl_panel_" + Util.toText(m.global.theme.bgName) + ".9.png"
 end sub
 
 sub onReady()
@@ -62,6 +64,7 @@ sub fitHeight()
     bottom = rowsBottom + 30
     if more then bottom = rowsBottom + 56
     m.top.findNode("bg").height = bottom - 40
+    m.top.findNode("rim").height = bottom - 40
     m.top.findNode("divider").height = rowsBottom - 140
 end sub
 
@@ -112,28 +115,33 @@ function moreText(first as integer, count as integer) as string
     return "Up for more"
 end function
 
-' One row: a glass pill (white when focused), an optional check, the label and a value or a chevron on the right
+' One row (v1.4 Glass3D): a faint r12 glass row, the focused one with the fog and a white ring (the text stays
+' white), an optional check in the accent, the label and a value or a chevron on the right
 sub addRow(g as object, slot as integer, w as integer, label as string, value as string, checked as boolean, focused as boolean, chevron as boolean)
     row = g.createChild("Group")
     row.translation = [0, slot * m.STEP]
     bg = row.createChild("Poster")
-    bg.uri = "pkg:/images/ui/white_rr12.9.png"
     bg.width = w
     bg.height = 62
     if focused
-        bg.opacity = 1.0
+        bg.uri = "pkg:/images/ui/pl_fog_r12.9.png"
+        rg = row.createChild("Poster")
+        rg.uri = "pkg:/images/ui/pl_ring_r12.9.png"
+        rg.width = w
+        rg.height = 62
     else
-        bg.opacity = 0.08
+        bg.uri = "pkg:/images/ui/white_rr12.9.png"
+        bg.opacity = 0.06
     end if
     textCol = "0xFFFFFFFF"
-    if focused then textCol = "0x000000FF"
     if checked
         ck = row.createChild("Poster")
         ck.uri = "pkg:/images/ui/icon_check_28.png"
         ck.width = 28
         ck.height = 28
         ck.translation = [18, 17]
-        if focused then ck.blendColor = "0x000000FF"
+        ck.blendColor = m.global.theme.accent
+        if Util.toText(m.global.theme.accentName) = "white" then ck.blendColor = "0xFFFFFFFF"
     end if
     x = 58
     rightX = w - 20
@@ -143,7 +151,6 @@ sub addRow(g as object, slot as integer, w as integer, label as string, value as
         ch.width = 28
         ch.height = 28
         ch.translation = [w - 44, 17]
-        if focused then ch.blendColor = "0x000000FF"
         rightX = w - 52
     end if
     valW = 0

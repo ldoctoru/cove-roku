@@ -6,6 +6,8 @@ sub init()
     m.list.content = createObject("roSGNode", "ContentNode")
     m.list.observeField("itemSelected", "onSelected")
     m.top.observeField("focusedChild", "onFocusChanged")
+    ' (v1.4) the panel in the page colour (Settings → Background)
+    m.top.findNode("panel").uri = "pkg:/images/ui/pl_panel_" + Util.toText(m.global.theme.bgName) + ".9.png"
 end sub
 
 sub onChapters()

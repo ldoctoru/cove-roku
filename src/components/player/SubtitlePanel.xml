@@ -21,7 +21,10 @@
         <field id="ready" type="boolean" alwaysNotify="true" onChange="onReady" />
     </interface>
     <children>
-        <Poster id="bg" uri="pkg:/images/ui/panel_r21.9.png" width="1300" height="780" translation="[574,40]" />
+        <!-- (v1.4) a Glass3D panel: the page colour at 90 %, r27, with a top-lit rim; the focused row is fog with a
+             white ring and keeps its white text -->
+        <Poster id="bg" uri="pkg:/images/ui/pl_panel_black.9.png" width="1300" height="780" translation="[574,40]" />
+        <Poster id="rim" uri="pkg:/images/ui/pl_panel_rim.9.png" width="1300" height="780" translation="[574,40]" />
         <Label text="Subtitles" width="600" height="50" translation="[620,70]" color="0xFFFFFFFF">
             <Font role="font" uri="font:BoldSystemFontFile" size="38" />
         </Label>
