@@ -1,0 +1,670 @@
+' (v1.5) What each Settings page holds (drawn by SettingsScreen.bs). Every page is a list of rows (see
+' source/SetRows.bs for the kinds); pageInfo gives its title, its fixed glyph and the caption under it.
+' Page ids: main, general, home, homeLibRows, homeOrder, nav, navPlace:<top|side>, libraries, lib:<libraryId>, libOrder, subtitles, playback,
+' servers, srv:<serverId>, prof:<userId>, remote, about, and choice (a choice row's values).
+
+' ---------------------------------------------------------------- row makers
+
+function rHead(text as string) as object
+    return { kind: "head", text: text }
+end function
+
+function rNote(text as string) as object
+    return { kind: "note", text: text }
+end function
+
+function rLink(id as string, label as string, value as string, target as string) as object
+    return { kind: "link", id: id, label: label, value: value, target: target }
+end function
+
+function rChoice(id as string, label as string, options as object, cur as string) as object
+    return { kind: "choice", id: id, label: label, options: options, cur: cur, value: labelOf(options, cur) }
+end function
+
+function rSwitch(id as string, label as string, isOn as boolean) as object
+    return { kind: "switch", id: id, label: label, on: isOn }
+end function
+
+function rButton(id as string, label as string) as object
+    return { kind: "button", id: id, label: label, value: "" }
+end function
+
+function rInfo(label as string, value as string, second as string) as object
+    return { kind: "info", id: "", label: label, value: value, sub: second }
+end function
+
+function rDim(r as object, isDim as boolean) as object
+    r.dim = isDim
+    return r
+end function
+
+' ---------------------------------------------------------------- pages
+
+' { title, icon, caption } of a page
+function pageInfo(entry as object) as object
+    pid = Util.toText(entry.id)
+    if pid = "choice"
+        ' (the list of a choice row: its label, under the glyph of the page it came from)
+        below = m.stack[m.stack.count() - 2]
+        bi = pageInfo(below)
+        return { title: Util.toText(entry.row.label), icon: bi.icon, caption: bi.title }
+    end if
+    if pid = "general" then return { title: "General", icon: "gear", caption: "Colors and posters" }
+    if pid = "home" then return { title: "Home", icon: "house", caption: "What Home shows" }
+    if pid = "homeLibRows" then return { title: "Library Rows", icon: "house", caption: "A row on Home for each library" }
+    if pid = "homeOrder" then return { title: "Row Order", icon: "house", caption: "OK picks a row up, Up / Down move it, OK puts it down" }
+    if pid = "nav" then return { title: "Navigation", icon: "menu", caption: "Choose where each page appears" }
+    if pid.startsWith("navPlace:")
+        place = pid.mid(9)
+        if entry.order = true then return { title: placeName(place) + " Order", icon: "menu", caption: "OK picks an entry up, Up / Down move it, OK puts it down" }
+        return { title: placeName(place), icon: "menu", caption: "What the " + LCase(placeName(place)) + " shows" }
+    end if
+    if pid = "libraries" then return { title: "Libraries", icon: "grid", caption: "Your libraries" }
+    if pid = "libOrder" then return { title: "Library Order", icon: "grid", caption: "OK picks a library up, Up / Down move it, OK puts it down" }
+    if pid.startsWith("lib:")
+        libId = pid.mid(4)
+        ct = libKindName(libId)
+        cap = "Library"
+        if ct = "movies" then cap = "Movies library"
+        if ct = "tvshows" then cap = "Shows library"
+        return { title: libTitle(libId), icon: SetRows.libIcon(ct), caption: cap }
+    end if
+    if pid = "subtitles" then return { title: "Subtitles", icon: "captions", caption: "Language and style" }
+    if pid = "playback" then return { title: "Playback", icon: "play", caption: "How videos play" }
+    if pid = "servers" then return { title: "Servers & Profiles", icon: "server", caption: "Servers, profiles and PINs" }
+    if pid.startsWith("srv:")
+        s = Servers.find(pid.mid(4))
+        name = "Server"
+        if s <> invalid then name = Util.toText(s.name)
+        return { title: name, icon: "server", caption: "Saved server" }
+    end if
+    if pid.startsWith("prof:")
+        name = "Profile"
+        srv = currentServer()
+        if srv <> invalid
+            u = Servers.userOf(srv, pid.mid(5))
+            if u <> invalid then name = Util.toText(u.n)
+        end if
+        return { title: name, icon: "server", caption: "Profile" }
+    end if
+    if pid = "remote" then return { title: "Remote", icon: "remote", caption: "What each key does" }
+    if pid = "about" then return { title: "About", icon: "info", caption: "Cove for Roku " + m.version }
+    return { title: "Settings", icon: "gear", caption: "Cove for Roku " + m.version }
+end function
+
+function pageRows(entry as object) as object
+    pid = Util.toText(entry.id)
+    out = []
+    if pid = "main"
+        mainRows(out)
+    else if pid = "choice"
+        choiceRows(out, entry.row)
+    else if pid = "general"
+        generalRows(out)
+    else if pid = "home"
+        homeRows(out)
+    else if pid = "homeOrder"
+        homeOrderRows(out)
+    else if pid = "homeLibRows"
+        homeLibRowsRows(out)
+    else if pid = "nav"
+        navRows(out)
+    else if pid.startsWith("navPlace:")
+        navPlaceRows(out, pid.mid(9), entry.order = true)
+    else if pid = "libraries"
+        librariesRows(out)
+    else if pid = "libOrder"
+        libOrderRows(out)
+    else if pid.startsWith("lib:")
+        libraryRows(out, pid.mid(4))
+    else if pid = "subtitles"
+        subtitleRows(out)
+    else if pid = "playback"
+        playbackRows(out)
+    else if pid = "servers"
+        serverRows(out)
+    else if pid.startsWith("srv:")
+        savedServerRows(out, pid.mid(4))
+    else if pid.startsWith("prof:")
+        profileRows(out, pid.mid(5))
+    else if pid = "remote"
+        remoteRows(out)
+    else if pid = "about"
+        aboutRows(out)
+    end if
+    return out
+end function
+
+' A choice row's values, the current one with a ✓ (colors with a dot of their color)
+sub choiceRows(out as object, src as object)
+    cur = Util.toText(src.cur)
+    for each o in src.options
+        r = { kind: "option", id: Util.toText(o.id), label: Util.toText(o.label), checked: Util.toText(o.id) = cur }
+        if o.swatch <> invalid then r.swatch = o.swatch
+        out.push(r)
+    end for
+end sub
+
+' ---------------------------------------------------------------- Settings (the first page)
+
+sub mainRows(out as object)
+    t = m.global.theme
+    out.push(rLink("", "General", capital(t.accentName) + " · " + capital(t.bgName), "general"))
+    out.push(rLink("", "Home", homeSummary(), "home"))
+    navValue = "Sidebar"
+    if NavPrefs.menuStyle() = "topbar" then navValue = "Top Bar"
+    out.push(rLink("", "Navigation", navValue, "nav"))
+    libValue = ""
+    if m.libs.count() > 0 then libValue = m.libs.count().toStr()
+    out.push(rLink("", "Libraries", libValue, "libraries"))
+    subValue = "Off"
+    if Prefs.subAlways() then subValue = capital(Prefs.subLang())
+    out.push(rLink("", "Subtitles", subValue, "subtitles"))
+    qKey = "startQualityHome"
+    srv = m.top.server
+    if srv <> invalid and not Util.isPrivateHost(Util.hostOf(Util.toText(srv.url))) then qKey = "startQualityNet"
+    out.push(rLink("", "Playback", labelOf(Tracks.qualities(), Prefs.startQualityOf(qKey).toStr()), "playback"))
+    srvValue = ""
+    if srv <> invalid then srvValue = Util.toText(srv.name)
+    out.push(rLink("", "Servers & Profiles", srvValue, "servers"))
+    out.push(rLink("", "Remote", "", "remote"))
+    out.push(rLink("", "About", m.version, "about"))
+end sub
+
+' "6 rows" on Home (built-in rows and library rows that are on)
+function homeSummary() as string
+    if HomeLayout.useServerLayout(serverKey()) then return "Server Layout"
+    n = 0
+    for each id in HomeLayout.orderedIds(serverKey(), homeLibs())
+        if homeRowOn(id) then n = n + 1
+    end for
+    if n = 1 then return "1 row"
+    return n.toStr() + " rows"
+end function
+
+' ---------------------------------------------------------------- General
+
+sub generalRows(out as object)
+    t = m.global.theme
+    out.push(rHead("Appearance"))
+    sw = []
+    for each name in ["red", "orange", "pink", "purple", "blue", "teal", "green", "white"]
+        sw.push({ id: name, label: capital(name), swatch: Theme.accents()[name] })
+    end for
+    out.push(rChoice("accent", "Accent Color", sw, t.accentName))
+    tl = []
+    for each name in ["black", "charcoal", "navy", "plum", "forest"]
+        tl.push({ id: name, label: capital(name), swatch: Theme.backgrounds()[name] })
+    end for
+    out.push(rChoice("background", "Background", tl, t.bgName))
+    out.push(rNote("The accent color marks buttons, switches and the page you're on."))
+    ' (v1.4) the Mac's General → Posters → Watched switch (WatchedDim.swift, on by default)
+    out.push(rHead("Posters"))
+    out.push(rSwitch("dimWatched", "Dim Watched Posters", Util.readText("dimWatched") <> "off"))
+    out.push(rNote("Watched titles are shown a little darker, so unwatched ones stand out."))
+end sub
+
+' ---------------------------------------------------------------- Home
+
+' A Home row's name ("resume" -> Continue Watching, "L<id>" -> the library's name)
+function homeRowLabel(id as string) as string
+    if id = "resume" then return "Continue Watching"
+    if id = "nextup" then return "Next Up"
+    if id = "upcoming" then return "Upcoming Episodes"
+    if id = "favorites" then return "Favorites"
+    if id = "recent" then return "Recently Added"
+    if id = "released" then return "Recently Released"
+    if id = "libraries" then return "Libraries Row"
+    if id.left(1) = "L"
+        t = libTitle(id.mid(1))
+        if t <> "" then return t
+    end if
+    return id
+end function
+
+' Is a Home row on? (a library's row: its own switch, NavPrefs.libraryOnHome)
+function homeRowOn(id as string) as boolean
+    if id.left(1) = "L" then return NavPrefs.libraryOnHome(id.mid(1))
+    return HomeLayout.isOn(serverKey(), id)
+end function
+
+sub homeRows(out as object)
+    sid = serverKey()
+    srvOn = HomeLayout.useServerLayout(sid)
+    ' (v1.3.2) Banner, as on the Mac: where its titles come from and how often they change
+    bp = Prefs.bannerPref()
+    out.push(rHead("Banner"))
+    out.push(rChoice("bannerSource", "Banner Shows", HomeBanner.sourceOptions(), bp.source))
+    out.push(rChoice("bannerRefresh", "Refresh Banner", HomeBanner.refreshOptions(), bp.minutes.toStr()))
+    out.push(rNote("Which titles the banner at the top of Home cycles through; From Home Rows is the original mix. Newest: recently added films and shows. Refresh picks a fresh set while Home stays open (not while it's hidden or a video plays)."))
+    out.push(rHead("Rows"))
+    for each id in ["resume", "nextup", "upcoming", "recent", "released", "favorites", "libraries"]
+        out.push(rDim(rSwitch("home:" + id, homeRowLabel(id), HomeLayout.isOn(sid, id)), srvOn))
+    end for
+    out.push(rLink("", "Library Rows", SetRows.countOn(libraryHomeEntries()), "homeLibRows"))
+    out.push(rDim(rLink("", "Row Order", "", "homeOrder"), srvOn))
+    if srvOn
+        out.push(rNote("Set by the server's Home layout (below). A library's row still follows its own switch."))
+    else
+        out.push(rNote("Upcoming Episodes shows only when the server has episodes that haven't aired yet. What a library's row shows (Latest, Top Rated, ...) is set in Libraries."))
+    end if
+    out.push(rHead("Layout"))
+    out.push(rSwitch("homeServerLayout", "Use the Server's Home Layout", srvOn))
+    out.push(rNote("Home follows the Home sections set in the server's web app (Settings > Home): Continue Watching, Next Up, Latest per library and My Media. Sections Cove doesn't have are left out, and Upcoming and Recently Released show only with Cove's layout. Saved for this server."))
+    ' (v1.1) watched titles in the Latest rows, and Next Up's Jellyfin options
+    out.push(rHead("Row Options"))
+    out.push(rSwitch("hideWatchedLatest", "Hide Watched in Recently Added", Prefs.hideWatchedLatest()))
+    out.push(rNote("Leaves out what you've watched in Recently Added, Recently Released and each library's Latest row. Off: the server's own Hide played in latest setting still applies."))
+    isJf = m.top.server <> invalid and Servers.isJellyfin(m.top.server)
+    out.push(rDim(rSwitch("nextUpRewatch", "Next Up: Include Rewatching", Prefs.nextUpRewatch() and isJf), not isJf))
+    days = []
+    for each d in [["0", "Any Time"], ["30", "Last Month"], ["90", "Last 3 Months"], ["365", "Last Year"]]
+        days.push({ id: d[0], label: d[1] })
+    end for
+    cur = Prefs.nextUpDays().toStr()
+    if not isJf then cur = "0"
+    out.push(rDim(rChoice("nextUpDays", "Next Up: Shows Watched", days, cur), not isJf))
+    if isJf
+        out.push(rNote("Include Rewatching also offers the next episode of a series you finished and started again (Jellyfin 10.9 or later). Shows you haven't watched within the time chosen leave Next Up."))
+    else
+        out.push(rNote("Rewatching and the Next Up time limit need a Jellyfin server: Emby's Next Up has no such options."))
+    end if
+end sub
+
+' The libraries that can have a row on Home, each with its switch: [{ id, label, on }]
+function libraryHomeEntries() as object
+    out = []
+    for each l in homeLibs()
+        if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType)))
+            id = Util.toText(l.id)
+            out.push({ id: id, label: Util.toText(l.title), on: NavPrefs.libraryOnHome(id) })
+        end if
+    end for
+    return out
+end function
+
+' Home → Library Rows: a switch per library that has a Home row (on Home whether or not it's in the sidebar)
+sub homeLibRowsRows(out as object)
+    for each e in libraryHomeEntries()
+        out.push(rSwitch("libHome:" + e.id, e.label, e.on))
+    end for
+    if m.libs.count() = 0 then out.push(rNote(libsState()))
+    out.push(rNote("A library's row on Home no longer depends on the sidebar or the top bar. What the row shows (Latest, Top Rated, ...) is set in Libraries; its place in Row Order."))
+end sub
+
+' Home → Row Order: every row (on or off) in its order; OK picks one up, Up / Down move it
+sub homeOrderRows(out as object)
+    sid = serverKey()
+    for each id in HomeLayout.orderedIds(sid, homeLibs())
+        v = ""
+        if not homeRowOn(id) then v = "Hidden"
+        out.push({ kind: "move", id: id, label: homeRowLabel(id), value: v })
+    end for
+    if m.libs.count() = 0 then out.push(rNote(libsState()))
+    out.push(rButton("homeDefaultOrder", "Default Order"))
+    out.push(rNote("Rows marked Hidden are switched off. Saved for this server."))
+end sub
+
+' ---------------------------------------------------------------- Navigation
+
+sub navRows(out as object)
+    style = NavPrefs.menuStyle()
+    libs = navLibs()
+    out.push(rChoice("navStyle", "Menu Style", [{ id: "sidebar", label: "Sidebar" }, { id: "topbar", label: "Top Bar" }], style))
+    out.push(rNote("One or the other: the sidebar on the left of Home, or a bar across the top (Up from the banner reaches it)."))
+    out.push(rHead("What Each Shows"))
+    out.push(rLink("", "Top Bar", SetRows.countOn(NavPrefs.entries("top", libs)), "navPlace:top"))
+    out.push(rLink("", "Sidebar", SetRows.countOn(NavPrefs.entries("side", libs)), "navPlace:side"))
+    out.push(rNote("The top bar and the sidebar each have their own list and order. Home and Settings are always there."))
+    out.push(rHead("Top Bar"))
+    out.push(rDim(rChoice("topBarLabels", "Top Bar Labels", [{ id: "both", label: "Icons and Names" }, { id: "names", label: "Names" }, { id: "icons", label: "Icons" }], Prefs.topBarLabels()), style <> "topbar"))
+end sub
+
+' "top" -> "Top Bar", "side" -> "Sidebar"
+function placeName(place as string) as string
+    if place = "top" then return "Top Bar"
+    return "Sidebar"
+end function
+
+' Navigation → Top Bar / Sidebar: a switch per entry, or (Change Order) the entries to move
+sub navPlaceRows(out as object, place as string, ordering as boolean)
+    list = NavPrefs.entries(place, navLibs())
+    if ordering
+        out.push(rButton("navOrderDone", "Done"))
+        out.push(rHead("Order"))
+        for each e in list
+            v = ""
+            if not e.on then v = "Hidden"
+            out.push({ kind: "move", id: e.id, label: e.label, value: v })
+        end for
+        out.push(rNote("OK on an entry picks it up, Up / Down move it, OK puts it down."))
+        return
+    end if
+    out.push(rButton("navOrderStart", "Change Order"))
+    out.push(rHead("Shown in the " + placeName(place)))
+    for each e in list
+        out.push(rSwitch("nav:" + place + ":" + e.id, e.label, e.on))
+    end for
+    if m.libs.count() = 0 then out.push(rNote(libsState()))
+    out.push(rNote("Home and Settings are always there and aren't in this list. A library can also be switched here or on its own page in Libraries."))
+end sub
+
+' ---------------------------------------------------------------- Libraries
+
+' "Loading your libraries..." or why they didn't load
+function libsState() as string
+    if m.libError <> "" then return m.libError
+    return "Loading your libraries..."
+end function
+
+sub librariesRows(out as object)
+    out.push(rHead("Your Libraries"))
+    for each l in homeLibs()
+        out.push(rLink("", Util.toText(l.title), libSummary(l), "lib:" + Util.toText(l.id)))
+    end for
+    if m.libs.count() = 0
+        out.push(rNote(libsState()))
+        if m.libError <> "" then out.push(rButton("retryLibs", "Try Again"))
+    else
+        out.push(rLink("", "Library Order", "", "libOrder"))
+    end if
+    out.push(rNote("OK on a library: where it shows, its row on Home, how it opens and its name."))
+    out.push(rHead("Movie and Show Pages"))
+    out.push(rChoice("castSize", "Cast & Crew", [{ id: "normal", label: "Normal" }, { id: "large", label: "Large" }], Prefs.text("castSize", "normal")))
+    out.push(rNote("Large shows bigger actor photos and names."))
+    out.push(rSwitch("showEpisodeDescription", "Show Episode Descriptions", Prefs.showEpisodeDescription()))
+    out.push(rSwitch("hideSpoilers", "Hide Spoilers for Unwatched Episodes", Prefs.hideSpoilers()))
+    out.push(rNote("Episodes you haven't watched show the series' picture instead of their own, and no description, on Home, the series page, the episode's page and Up Next."))
+end sub
+
+' A library's value on the Libraries page: where it shows ("Top Bar · Sidebar · Home", or Hidden)
+function libSummary(l as object) as string
+    id = Util.toText(l.id)
+    libs = navLibs()
+    parts = []
+    if NavPrefs.isShown("top", "L" + id, libs) then parts.push("Top Bar")
+    if NavPrefs.isShown("side", "L" + id, libs) then parts.push("Sidebar")
+    if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType))) and NavPrefs.libraryOnHome(id) then parts.push("Home")
+    if parts.count() = 0 then return "Hidden"
+    return Util.join(parts, " · ")
+end function
+
+sub libOrderRows(out as object)
+    for each l in homeLibs()
+        out.push({ kind: "move", id: Util.toText(l.id), label: Util.toText(l.title), value: "" })
+    end for
+    out.push(rNote("The order of the libraries here and in Home's Libraries row, and where a new library goes. The top bar, the sidebar and Home's rows each keep their own order (Navigation, Home > Row Order). Saved for this server."))
+end sub
+
+' A library's page: where it shows (top bar, sidebar, Home: each on its own), its Home row, how it opens, its name
+sub libraryRows(out as object, libId as string)
+    lp = Prefs.library(libId)
+    libs = navLibs()
+    entryId = "L" + libId
+    out.push(rSwitch("nav:top:" + entryId, "Show in Top Bar", NavPrefs.isShown("top", entryId, libs)))
+    out.push(rSwitch("nav:side:" + entryId, "Show in Sidebar", NavPrefs.isShown("side", entryId, libs)))
+    if Prefs.hasHomeRow(libKindName(libId))
+        onHome = NavPrefs.libraryOnHome(libId)
+        out.push(rSwitch("libHome:" + libId, "Row on Home", onHome))
+        out.push(rDim(rChoice("libset:style:" + libId, "Home Row Shows", libStyleOptions(), lp.style), not onHome))
+    end if
+    out.push(rInfo("Open As", "Grid", ""))
+    out.push(rChoice("libset:sort:" + libId, "Sort By", libSortOptions(), lp.sort))
+    out.push(rChoice("libset:show:" + libId, "Show", libShowOptions(), lp.show))
+    nm = rButton("libRename", "Name")
+    nm.value = libTitle(libId)
+    out.push(nm)
+    out.push(rNote("The top bar, the sidebar and Home are set separately: a library can have a row on Home without being in the sidebar. A library opens as a poster grid. Sort By and Show are where its page starts; you can still change them there. Name: leave it empty to use the server's name."))
+end sub
+
+function libStyleOptions() as object
+    return [{ id: "latest", label: "Latest" }, { id: "top", label: "Top Rated" }, { id: "random", label: "Random" }, { id: "az", label: "A-Z" }]
+end function
+
+function libSortOptions() as object
+    return [{ id: "name", label: "Name" }, { id: "latest", label: "Recently Added" }, { id: "release", label: "Release Date" }, { id: "top", label: "Rating" }]
+end function
+
+function libShowOptions() as object
+    return [{ id: "all", label: "All" }, { id: "unwatched", label: "Unwatched" }, { id: "watched", label: "Watched" }]
+end function
+
+' ---------------------------------------------------------------- Subtitles
+
+sub subtitleRows(out as object)
+    out.push(rHead("Language"))
+    out.push(rSwitch("subAlways", "Always Load My Subtitle Language", Prefs.subAlways()))
+    langs = []
+    for each l in Prefs.languages()
+        langs.push({ id: LCase(l.name), label: l.name })
+    end for
+    out.push(rDim(rChoice("subLang", "Language", langs, Prefs.subLang()), not Prefs.subAlways()))
+    out.push(rNote("Movies and episodes start with subtitles in this language when they have them. You can still turn them off in the player."))
+    out.push(rHead("Style"))
+    for each ch in Subs.styleChoices()
+        out.push(rChoice(ch.key, SetRows.titleCase(ch.label), ch.options, Subs.current(ch)))
+    end for
+    out.push(rButton("subDefaults", "Restore Defaults"))
+    out.push(rNote("The picture on the left shows the style. Roku Setting follows the Roku's caption style (Roku Settings > Accessibility > Caption style), including its font, opacity and window. With the Roku's captions On, titles start with subtitles in this language unless you chose others for them."))
+end sub
+
+' ---------------------------------------------------------------- Playback
+
+' Start With: which of the two the current server uses
+function networkNote() as string
+    t = "The player's Quality button changes it for one video. "
+    srv = m.top.server
+    if srv = invalid then return t + "Home network: a server address on your network (192.168..., 10..., .local)."
+    if Util.isPrivateHost(Util.hostOf(Util.toText(srv.url))) then return t + Util.toText(srv.name) + " is on your home network."
+    return t + Util.toText(srv.name) + " is reached over the internet."
+end function
+
+function secondsOptions(list as object) as object
+    out = []
+    for each v in list
+        out.push({ id: v.toStr(), label: v.toStr() + " s" })
+    end for
+    return out
+end function
+
+sub playbackRows(out as object)
+    out.push(rHead("Start With"))
+    out.push(rChoice("startQualityHome", "Home Network", Tracks.qualities(), Prefs.startQualityOf("startQualityHome").toStr()))
+    out.push(rChoice("startQualityNet", "Internet", Tracks.qualities(), Prefs.startQualityOf("startQualityNet").toStr()))
+    out.push(rNote(networkNote()))
+    out.push(rChoice("skipSeconds", "Skip Back / Forward", secondsOptions([5, 10, 15, 30]), Prefs.skipSeconds().toStr()))
+    out.push(rNote("Left / Right in the player, moving along the bar."))
+    out.push(rChoice("jumpSeconds", "Jump Buttons", secondsOptions([10, 15, 30, 60]), Prefs.jumpSeconds().toStr()))
+    out.push(rNote("The back / forward buttons in the player and the Rewind / Fast forward keys."))
+    out.push(rChoice("rewindOnResume", "Rewind on Resume", [{ id: "off", label: "Off" }, { id: "5", label: "5 s" }, { id: "10", label: "10 s" }, { id: "30", label: "30 s" }], Prefs.text("rewindOnResume", "5")))
+    out.push(rNote("Goes back a little when a title resumes where you left it, or after a pause of 5 minutes or more."))
+    ' (v1.0 F-3) the speed every title starts at (the player's * menu still changes it for one title)
+    sp = []
+    for each v in ["0.5", "0.75", "1", "1.25", "1.5", "1.75", "2"]
+        lb = v + "×"
+        if v = "1" then lb = "Normal (1×)"
+        sp.push({ id: v, label: lb })
+    end for
+    out.push(rChoice("defaultSpeed", "Default Speed", sp, Prefs.defaultSpeed()))
+    out.push(rNote("Titles start at this speed on Rokus that can change it. The player's * menu changes it for one title."))
+    out.push(rHead("Audio"))
+    out.push(rChoice("audioChannels", "Maximum Channels", [{ id: "auto", label: "Automatic" }, { id: "2", label: "Stereo (2.0)" }, { id: "6", label: "5.1" }, { id: "8", label: "7.1" }], Prefs.text("audioChannels", "auto")))
+    ac = [{ id: "auto", label: "Automatic" }, { id: "aac", label: "AAC" }]
+    if Util.flag(m.caps, "ac3") then ac.push({ id: "ac3", label: "Dolby Digital (AC3)" })
+    if Util.flag(m.caps, "eac3") then ac.push({ id: "eac3", label: "Dolby Digital Plus (E-AC3)" })
+    out.push(rChoice("audioCodec", "Preferred Audio", ac, Prefs.audioCodec()))
+    hasDts = Util.flag(m.caps, "dts")
+    out.push(rDim(rSwitch("dtsPassthrough", "DTS Passthrough", Prefs.dtsPassthrough() and hasDts), not hasDts))
+    dtsNote = "DTS Passthrough sends DTS unchanged to your receiver."
+    if not hasDts then dtsNote = "This Roku reports no DTS decoder (a receiver or TV that takes DTS) on its HDMI, so the server converts DTS."
+    out.push(rNote("Stereo makes the server mix surround tracks down to 2 channels. Preferred Audio is what the server converts to when the Roku can't play a track as it is (e.g. TrueHD, DTS). " + dtsNote))
+    out.push(rHead("Automatically"))
+    out.push(rSwitch("autoNext", "Play the Next Episode", Prefs.autoNext()))
+    ' (v1.0 F-11) how long Up Next counts down before the next episode
+    un = rChoice("upNextSecs", "Up Next Countdown", [{ id: "off", label: "Off" }, { id: "5", label: "5 s" }, { id: "10", label: "10 s" }, { id: "15", label: "15 s" }], Prefs.text("upNextSecs", "10"))
+    out.push(rDim(un, not Prefs.autoNext()))
+    out.push(rNote("The Up Next card shows during an episode's credits (or its last 30 seconds) and plays the next episode when the countdown ends. Off starts the next episode as soon as one ends, without the card."))
+    ' (v1.3) one row per kind of part the servers mark: Ask (the Skip button), Skip automatically, Don't show
+    out.push(rHead("Skip"))
+    segOpts = [{ id: "ask", label: "Ask (Skip Button)" }, { id: "auto", label: "Skip Automatically" }, { id: "off", label: "Don't Show" }]
+    segNow = Prefs.segmentSkipAll()
+    for each sr in [["intro", "Intros"], ["recap", "Recaps"], ["preview", "Previews"], ["commercial", "Ads"], ["credits", "Credits"]]
+        out.push(rChoice("seg:" + sr[0], sr[1], segOpts, segNow[sr[0]]))
+    end for
+    out.push(rNote("Intros and credits come from the server's markers; recaps, previews and ads only from Jellyfin media segments. Skip Automatically skips them with a short notice; an episode's credits then go straight to the next episode. With Credits on Ask, an episode shows the Up Next card."))
+    out.push(rHead("Are You Still Watching?"))
+    out.push(rChoice("stillWatching", "Ask After", [{ id: "off", label: "Off" }, { id: "2", label: "2 Episodes" }, { id: "3", label: "3 Episodes" }, { id: "5", label: "5 Episodes" }], Prefs.text("stillWatching", "3")))
+    ' (v1.0 F-11) replaces the fixed 2 hours
+    out.push(rChoice("stillIdle", "Or After Playing", [{ id: "off", label: "Off" }, { id: "1", label: "1 Hour" }, { id: "2", label: "2 Hours" }, { id: "3", label: "3 Hours" }], Prefs.text("stillIdle", "2")))
+    out.push(rNote("Cove pauses and asks after this many episodes in a row, or after this long of playing an episode, without a key press. Movies are never interrupted."))
+    ' (v1.0 F-10) the server's intros before a film
+    out.push(rHead("Cinema Mode"))
+    out.push(rSwitch("cinemaMode", "Play Intros Before a Movie", Prefs.cinemaMode()))
+    out.push(rNote("Plays the trailers and pre-rolls your server sets up (Cinema Mode / intros) before a movie you start from the beginning."))
+end sub
+
+' ---------------------------------------------------------------- Servers & Profiles
+
+sub serverRows(out as object)
+    srv = m.top.server
+    out.push(rHead("Current Server"))
+    if srv <> invalid then out.push(rInfo("Connected To", Util.toText(srv.name), Util.toText(srv.userName) + "  ·  " + Util.toText(srv.url)))
+    out.push(rButton("signout", "Sign Out"))
+    out.push(rHead("Saved Servers"))
+    for each s in Servers.all()
+        kind = "Emby"
+        if Servers.isJellyfin(s) then kind = "Jellyfin"
+        cur = srv <> invalid and Util.toText(s.id) = Util.toText(srv.id)
+        ' (as the Mac's ConnectionBadge: plain http is flagged, more strongly when it leaves the home network)
+        srvSub = Util.toText(s.url) + "  ·  " + kind
+        if Util.toText(s.userName) <> "" then srvSub = Util.toText(s.userName) + "  ·  " + srvSub
+        if Util.isPlainRemote(Util.toText(s.url))
+            srvSub = srvSub + "  ·  Not encrypted (internet)"
+        else if Util.isPlainHttp(Util.toText(s.url))
+            srvSub = srvSub + "  ·  Not encrypted"
+        end if
+        v = ""
+        if cur then v = "Connected"
+        out.push({ kind: "server", id: Util.toText(s.id), label: Util.toText(s.name), sub: srvSub, value: v })
+    end for
+    out.push(rButton("addServer", "Add Server..."))
+    out.push(rNote("OK on a server: connect to it, rename it or remove it. Add Server opens the sign-in screen."))
+    profileListRows(out)
+    if isRestricted() then out.push(rNote(restrictedNote()))
+end sub
+
+'' (v0.9.0) Profiles: the current server's saved profiles, Who's watching? at start, add / switch, and the parent
+' PIN that guards the rating limits
+sub profileListRows(out as object)
+    srv = currentServer()
+    if srv = invalid
+        out.push(rHead("Profiles"))
+        out.push(rNote("Sign in to a server to see its profiles."))
+        return
+    end if
+    out.push(rHead("Profiles on " + Util.toText(srv.name)))
+    for each p in Servers.profiles(srv)
+        v = ""
+        if p.id = Util.toText(srv.userId) then v = "Watching"
+        out.push({ kind: "profile", id: p.id, label: p.name, sub: profileSub(srv, p), value: v })
+    end for
+    out.push(rSwitch("askWho", "Ask Who's Watching at Start", Servers.asksWho(srv)))
+    out.push(rNote("With 2 or more profiles on this server, Cove starts with Who's watching?. The profile entry at the bottom of the sidebar switches at any time."))
+    out.push(rButton("switchProfile", "Switch Profile..."))
+    out.push(rButton("addProfile", "Add Profile..."))
+    out.push(rNote("Add Profile signs in another user of this server; each profile keeps its own sign-in, Continue Watching and favorites. OK on a profile: its PIN, Maximum Rating and Hide Unrated Titles."))
+    out.push(rHead("Parental Controls"))
+    parents = Servers.parentIds(srv).count()
+    state = "No parent PIN yet"
+    if parents = 1 then state = "1 profile without a limit has a PIN"
+    if parents > 1 then state = parents.toStr() + " profiles without a limit have a PIN"
+    out.push(rInfo("Parent PIN", "", state))
+    out.push(rNote("A rating limit is changed only with a parent PIN: the PIN of a profile without a limit. Titles rated above the limit are hidden, and an episode without its own rating takes its series' rating. The server's own parental controls still apply on top."))
+end sub
+
+' A saved server's page: Connect, Rename, Remove (or Sign Out for the current one)
+sub savedServerRows(out as object, id as string)
+    s = Servers.find(id)
+    if s = invalid
+        out.push(rNote("This server was removed."))
+        return
+    end if
+    cur = m.top.server <> invalid and Util.toText(m.top.server.id) = id
+    kind = "Emby"
+    if Servers.isJellyfin(s) then kind = "Jellyfin"
+    out.push(rInfo("Address", kind, Util.toText(s.url)))
+    if Util.toText(s.userName) <> "" then out.push(rInfo("Signed In As", Util.toText(s.userName), ""))
+    if not cur then out.push(rButton("srvConnect", "Connect"))
+    out.push(rButton("srvRename", "Rename..."))
+    if cur
+        out.push(rButton("srvSignout", "Sign Out"))
+    else
+        out.push(rButton("srvRemove", "Remove"))
+    end if
+    out.push(rNote("Remove forgets the server and signs its profiles out there."))
+end sub
+
+'' A profile's page: switch to it, its PIN, its rating limit, or sign it out
+sub profileRows(out as object, userId as string)
+    srv = currentServer()
+    if srv = invalid then return
+    u = Servers.userOf(srv, userId)
+    if u = invalid
+        out.push(rNote("This profile was signed out."))
+        return
+    end if
+    cur = userId = Util.toText(srv.userId)
+    if not cur then out.push(rButton("prof:use", "Switch to " + Util.toText(u.n)))
+    out.push(rHead("PIN"))
+    if Util.toText(u.p) = ""
+        b = rButton("prof:pinSet", "Set PIN...")
+        b.value = "Off"
+        out.push(b)
+    else
+        b = rButton("prof:pinChange", "Change PIN...")
+        b.value = "On"
+        out.push(b)
+        out.push(rButton("prof:pinRemove", "Remove PIN"))
+    end if
+    out.push(rNote("Cove asks for the PIN when someone picks this profile."))
+    out.push(rHead("Parental Controls"))
+    rt = rButton("prof:rating", "Maximum Rating")
+    rt.value = Ratings.labelFor(Util.toText(u.r))
+    out.push(rt)
+    if Util.toText(u.r) <> "" then out.push(rSwitch("profHideUnrated", "Hide Unrated Titles", Util.toText(u.h) = "1"))
+    out.push(rNote("Changing these asks for a parent PIN (the PIN of a profile without a limit)."))
+    out.push(rButton("prof:signout", "Sign Out"))
+    if isRestricted() then out.push(rNote(restrictedNote()))
+end sub
+
+' ---------------------------------------------------------------- Remote
+
+sub keyRows(out as object, keys as object)
+    for each k in keys
+        out.push({ kind: "keys", id: "", label: k[0], sub: k[1] })
+    end for
+end sub
+
+sub remoteRows(out as object)
+    out.push(rHead("While a Video Plays"))
+    ' (v1.4 player: the Glass3D bottom block, one row of buttons under the timeline)
+    keyRows(out, [["OK", "Play or pause and show the controls; with them showing, use the selected button"], ["Left / Right", "Skip back / forward (Settings > Playback); with the controls showing, move along the row"], ["Up / Down", "Show the controls; Up selects the timeline, Down goes back to the buttons"], ["On the timeline", "Left / Right move along it (hold to move faster), OK jumps there"], ["Rewind / Fast fwd", "Jump back / forward (Settings > Playback > Jump Buttons); press again quickly to jump further"], ["Instant replay", "Jump 10 s back (with the Roku's captions on Instant replay, subtitles show for a moment)"], ["*", "Audio, subtitles, quality, version and speed"], ["Back", "Hide the controls, or leave the player"]])
+    out.push(rHead("Home"))
+    keyRows(out, [["Left", "Open the sidebar (from the first button or the first card of a row)"], ["Up", "With the top bar: reach it from the banner"], ["Rewind / Fast fwd", "Previous / next title in the banner"], ["*", "On a card: play, mark as watched, Favorites, remove from Continue Watching; elsewhere: the app options"]])
+    out.push(rHead("Other Pages"))
+    keyRows(out, [["Play", "On any card: play it right away (a series or season: its next episode; a collection: its next film)"], ["Up", "Library: the Sort, Order, Genre, A-Z and Show filters"], ["*", "Series page: options for the selected episode"], ["Back", "The page before"]])
+    out.push(rHead("In Settings"))
+    keyRows(out, [["Up / Down", "Move between rows (the list follows)"], ["OK", "Open a page, pick a value, flip a switch; on an order page, pick a row up and put it down"], ["Left / Right", "Turn a switch off / on"], ["Back", "Up one page; on the first page, close Settings (changes are kept)"]])
+end sub
+
+' ---------------------------------------------------------------- About
+
+sub aboutRows(out as object)
+    out.push(rHead("Cove"))
+    out.push(rInfo("Version", "Cove for Roku " + m.version, ""))
+    out.push(rInfo("Source", "", "github.com/ldoctoru/cove-roku  ·  the TV companion to Cove for macOS (github.com/J0n4e/cove)"))
+    if m.device <> "" then out.push(rInfo("This Roku", "", m.device))
+    out.push(rHead("Reset"))
+    out.push(rButton("reset", "Reset All Settings..."))
+    out.push(rNote("Puts every setting back to its default. Your servers, profiles, PINs and rating limits are kept."))
+end sub
