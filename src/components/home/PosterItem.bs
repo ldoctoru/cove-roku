@@ -8,9 +8,16 @@ sub init()
     m.title = m.top.findNode("title")
     m.year = m.top.findNode("year")
     m.top.findNode("ph").color = t.placeholder
-    m.top.findNode("mask").uri = t.maskCard
+    m.top.findNode("mask").uri = t.maskPoster
     m.top.findNode("barFill").color = t.accent
     m.top.findNode("heart").blendColor = t.accent
+    ' (v1.4 R3) the focus glow: the accent at 45 %
+    m.top.findNode("shadow").blendColor = t.accent.left(8) + "73"
+    m.top.findNode("resumeArc").blendColor = t.accent
+    ' (v1.4 R5) Settings → General → Dim Watched (on by default, as on the Mac)
+    m.dimWatched = true
+    dv = t.dimWatched
+    if dv <> invalid and not dv then m.dimWatched = false
     m.image.observeField("loadStatus", "onLoad")
     m.landscape = false
     m.person = false
@@ -64,18 +71,41 @@ sub onSize()
         n.width = w
         n.height = h
     end for
+    ' (v1.4 R1) the sheen over the top 40 %, under the corner mask so the mask rounds it
+    sheen = m.top.findNode("sheen")
+    sheen.width = w
+    sheen.height = Int(h * 0.4)
+    sheen.visible = not m.person
+    ' (v1.4 R4) the resume ring at the bottom right, 12 px in (54 px; 48 on episode cards, under their text)
+    rs = 54
+    if m.epCard then rs = 48
+    rg = m.top.findNode("resume")
+    rg.translation = [w - 12 - rs, h - 12 - rs]
+    for each id in ["resumeBg", "resumeTrack", "resumeArc"]
+        n = m.top.findNode(id)
+        n.width = rs
+        n.height = rs
+    end for
+    rp = m.top.findNode("resumePlay")
+    rp.width = Int(rs * 0.41)
+    rp.height = rp.width
+    rp.translation = [Int((rs - rp.width) / 2) + 2, Int((rs - rp.width) / 2)]
     m.image.loadWidth = w
     m.image.loadHeight = h
     sh = m.top.findNode("shadow")
-    sh.translation = [-24, -14]
+    ' (v1.4 R3) the accent glow around the card (24 px margin in the PNG); people keep the soft shadow
+    sh.uri = "pkg:/images/ui/glow_r12.9.png"
+    sh.translation = [-24, -24]
     sh.width = w + 48
     sh.height = h + 48
     ring = m.top.findNode("ring")
-    ring.uri = "pkg:/images/ui/focus_ring_r26.9.png"
+    ring.uri = "pkg:/images/ui/focus_ring_r18.9.png"
     ring.translation = [-8, -8]
     ring.width = w + 16
     ring.height = h + 16
     if m.person
+        sh.uri = "pkg:/images/ui/card_shadow.9.png"
+        sh.translation = [-24, -14]
         ' (v1.1.1 VD-7) a round ring around the photo (zoom 6 + ring 10 stays inside the 18 px pad)
         ring.uri = "pkg:/images/ui/ring_circle_256.png"
         ring.translation = [-10, -10]
@@ -87,12 +117,21 @@ sub onSize()
     m.top.findNode("barTrack").translation = [12, h - 18]
     m.top.findNode("barTrack").width = w - 24
     m.top.findNode("barFill").translation = [12, h - 18]
-    ' landscape overlay
+    ' landscape overlay: (v1.4) the Mac's thumbnail scrim, dark at the top and the bottom
     sc = m.top.findNode("scrim")
-    sc.translation = [0, h - 150]
+    sc.uri = "pkg:/images/ui/scrim_thumb.png"
+    sc.translation = [0, 0]
     sc.width = w
-    sc.height = 150
+    sc.height = h
+    for each id in ["overTop", "overTopShadow"]
+        n = m.top.findNode(id)
+        n.width = w - 42
+        n.height = 34
+    end for
+    m.top.findNode("overTop").translation = [21, 16]
+    m.top.findNode("overTopShadow").translation = [22, 19]
     if m.epCard
+        sc.uri = "pkg:/images/ui/scrim_card.png"
         sc.translation = [0, h - 270]
         sc.height = 270
         lw = w - 40
@@ -157,7 +196,7 @@ sub onContent()
     if m.person
         mk.uri = t.maskCircle
     else
-        mk.uri = t.maskCard
+        mk.uri = t.maskPoster
     end if
     m.top.findNode("border").visible = not m.person
     if drawPlaceholder(c) then return
@@ -166,7 +205,8 @@ sub onContent()
     m.image.uri = c.hdPosterUrl
     played = c.hasField("played") and c.played
     m.image.opacity = 1.0
-    if played and not m.landscape then m.image.opacity = 0.6
+    ' (v1.4 R5) watched posters, wide cards and episodes at 60 % (Settings → General → Dim Watched)
+    if played and m.dimWatched and not m.person then m.image.opacity = 0.6
     m.selected = c.hasField("selected") and c.selected
     p = 0.0
     if c.hasField("progress") then p = c.progress
@@ -198,26 +238,45 @@ sub onContent()
     ot.visible = m.landscape
     ot.text = c.title
     os = m.top.findNode("overSub")
-    os.visible = m.landscape and c.hasField("episode") and c.episode <> ""
-    if c.hasField("episode") then os.text = c.episode
     remain = ""
     if c.hasField("timeLeft") then remain = c.timeLeft
-    showMini = m.landscape and hasProgress
-    m.top.findNode("miniTrack").visible = showMini
-    mf = m.top.findNode("miniFill")
-    mf.visible = showMini
-    mf.width = 64 * p
-    ml = m.top.findNode("miniLeft")
-    ml.visible = showMini and remain <> ""
-    ml.text = remain
-    if showMini
-        ot.translation = [21, m.h - 118]
-        os.translation = [21, m.h - 84]
-    else
-        ot.translation = [21, m.h - 60]
-        if os.visible then ot.translation = [21, m.h - 92]
-        os.translation = [21, m.h - 56]
+    ' (v1.4 R4) as the Mac's Continue Watching card: "S3:E3  ·  42m left" at the top left, the title at the
+    ' bottom left and the resume ring at the bottom right (no progress bar). Upcoming cards keep their
+    ' "Tomorrow  ·  S1:E2  ·  Name" line over the title.
+    epText = ""
+    if c.hasField("episode") then epText = c.episode
+    upcoming = c.hasField("airLabel")
+    topParts = []
+    if not upcoming and epText <> ""
+        se = epText
+        cut = Instr(1, se, "  ·  ")
+        if cut > 0 then se = se.left(cut - 1)
+        topParts.push(se)
     end if
+    if hasProgress and remain <> "" then topParts.push(remain)
+    topText = Util.join(topParts, "  ·  ")
+    for each id in ["overTop", "overTopShadow"]
+        n = m.top.findNode(id)
+        n.text = topText
+        n.visible = m.landscape and topText <> ""
+    end for
+    os.visible = m.landscape and upcoming and epText <> ""
+    os.text = epText
+    showRing = m.landscape and hasProgress
+    showResumeRing(showRing, p)
+    m.top.findNode("miniTrack").visible = false
+    mf = m.top.findNode("miniFill")
+    mf.visible = false
+    ml = m.top.findNode("miniLeft")
+    ml.visible = false
+    ' (the title keeps clear of the ring)
+    ow = m.w - 42
+    if showRing then ow = m.w - 42 - 66
+    ot.width = ow
+    os.width = ow
+    ot.translation = [21, m.h - 56]
+    if os.visible then ot.translation = [21, m.h - 92]
+    os.translation = [21, m.h - 52]
     ' episode card: its own text block replaces the wide-card overlay
     epG = m.top.findNode("ep")
     epG.visible = m.epCard
@@ -228,6 +287,8 @@ sub onContent()
         mf.visible = false
         ml.visible = false
         m.top.findNode("scrim").visible = true
+        m.top.findNode("overTop").visible = false
+        m.top.findNode("overTopShadow").visible = false
         m.top.findNode("epEyebrow").text = UCase(c.episode)
         m.top.findNode("epTitle").text = c.title
         lines = Util.wrapLines(c.overview, 35, 3)
@@ -244,17 +305,18 @@ sub onContent()
         foot = m.top.findNode("epFoot")
         ' (v1.3.2) watched shows as the corner badge (below), not a small check by the runtime
         check.visible = false
-        track.visible = hasProgress and not played
-        fill.visible = track.visible
-        fill.width = 64 * p
-        if track.visible
-            foot.translation = [96, m.h - 42]
-            foot.text = remain
-            if foot.text = "" then foot.text = runtime
-        else
-            foot.translation = [20, m.h - 42]
-            foot.text = runtime
-        end if
+        ' (v1.4 D5) the resume ring at the bottom right replaces the progress bar
+        track.visible = false
+        fill.visible = false
+        inProgress = hasProgress and not played
+        showResumeRing(inProgress, p)
+        foot.translation = [20, m.h - 42]
+        foot.text = runtime
+        if inProgress and remain <> "" then foot.text = remain
+        ' (the last overview line keeps clear of the ring)
+        ol = m.top.findNode("epOv2")
+        ol.width = m.w - 40
+        if inProgress then ol.width = m.w - 40 - 60
         unplayed = 0
     end if
     ' favourite heart, watched check / unwatched count
@@ -361,11 +423,26 @@ function drawPlaceholder(c as object) as boolean
     m.initials.visible = false
     m.title.visible = false
     m.year.visible = false
-    for each id in ["barTrack", "barFill", "scrim", "overTitle", "overSub", "miniTrack", "miniFill", "miniLeft", "ep", "heart", "badge", "badgeIcon", "badgeText"]
+    for each id in ["barTrack", "barFill", "scrim", "overTitle", "overSub", "overTop", "overTopShadow", "resume", "miniTrack", "miniFill", "miniLeft", "ep", "heart", "badge", "badgeIcon", "badgeText"]
         m.top.findNode(id).visible = false
     end for
     return true
 end function
+
+' (v1.4 R4) The resume ring: the accent arc drawn from the 4 % frames of the player's loading ring
+sub showResumeRing(show as boolean, p as float)
+    rg = m.top.findNode("resume")
+    rg.visible = show
+    if not show then return
+    frame = Int(p * 25 + 0.5) * 4
+    if frame < 4 then frame = 4
+    if frame > 100 then frame = 100
+    s = frame.toStr()
+    while s.len() < 3
+        s = "0" + s
+    end while
+    m.top.findNode("resumeArc").uri = "pkg:/images/ui/load_arc_" + s + ".png"
+end sub
 
 sub onLoad()
     m.initials.visible = m.image.loadStatus <> "ready" and m.initials.text <> ""
@@ -411,11 +488,13 @@ sub onFocus()
     if m.selected and ringOp < 1 then ringOp = 1
     m.top.findNode("ring").opacity = ringOp
     m.top.findNode("shadow").opacity = f
+    ' (v1.4 R1) the light edge at 70 % at rest, 100 % with the focus
+    m.top.findNode("border").opacity = 0.7 + 0.3 * f
     m.focusF = f
     placeText()
     if f > 0.5
         m.title.color = "0xFFFFFFFF"
     else
-        m.title.color = "0xFFFFFFD9"
+        m.title.color = "0xFFFFFFEB"
     end if
 end sub

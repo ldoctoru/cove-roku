@@ -637,6 +637,8 @@ def draw_glass3d():
     save(nine(shape(48, 48, 18, WHITE)), "band_r18.9.png")
     save(nine(ring(48, 48, 18, 2, (255, 255, 255, 64))), "band_rim_r18.9.png")
     save(nine(ring(24, 24, 6, 2, (255, 255, 255, 191))), "outline_box_r6.9.png")
+    # library skeleton cards with the posters' r12 corners (white, tinted faint at runtime)
+    save(nine(shape(48, 48, 12, WHITE)), "white_r12.9.png")
     icon("checkc", 28, check_circle(False))
     icon("checkcf", 28, check_circle(True))
     icon("hearto", 28, heart_outline)

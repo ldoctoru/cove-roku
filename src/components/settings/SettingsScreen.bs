@@ -139,6 +139,10 @@ function rowsFor(tabId as string) as object
         out.push(note("Top Bar replaces the sidebar with a bar across the top of Home (Up from the banner reaches it)."))
         out.push(toggle("showRecent", "Also show", "Recently Added", Prefs.showRecent()))
         out.push(note("Home is always there. Libraries, Favorites and Now Playing are chosen in Libraries."))
+        ' (v1.4) the Mac's General → Posters → Watched switch (WatchedDim.swift, on by default)
+        out.push(sectionHead("Posters"))
+        out.push(toggle("dimWatched", "Watched", "Dim watched posters", Util.readText("dimWatched") <> "off"))
+        out.push(note("Watched movies, shows and episodes are shown a little darker, so unwatched ones stand out. The check shows it either way."))
     else if tabId = "home"
         ' Settings → Home → Rows (HomeLayout): every Home row with its switch and place, per server
         sid = serverKey()
@@ -1146,7 +1150,7 @@ sub apply(id as string, value as string)
         ' profile with a rating limit is watching)
         guarded({ do: "askWho", on: value = "on" })
         return
-    else if id = "accent" or id = "background"
+    else if id = "accent" or id = "background" or id = "dimWatched"
         Util.writeText(id, value)
         m.global.theme = Theme.get()
         m.top.themeChanged = true

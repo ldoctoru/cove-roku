@@ -45,7 +45,7 @@ sub draw()
             y = r * m.top.stepY
             ' (the same r18 corners as the cards, so nothing changes shape when they arrive)
             card = m.cards.createChild("Poster")
-            card.uri = "pkg:/images/ui/white_r18.9.png"
+            card.uri = "pkg:/images/ui/white_r12.9.png"
             card.blendColor = "0xFFFFFF1F"
             card.width = w
             card.height = m.top.cardH

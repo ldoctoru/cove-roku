@@ -60,6 +60,8 @@ namespace Theme
             radius: radii(),
             animFast: 0.15,
             animSlow: 0.3,
+            ' (v1.4) Settings → General → Dim Watched: watched cards at 60 % (on unless switched off, as on the Mac)
+            dimWatched: Util.readText("dimWatched") <> "off",
             maskPoster: ui + "mask_r12_" + bgName + ".9.png",
             panel: ui + "panel_r27_" + bgName + ".9.png",
             maskCard: ui + "mask_r18_" + bgName + ".9.png",
