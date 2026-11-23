@@ -130,7 +130,7 @@ function rowsFor(tabId as string) as object
             tl.push({ id: name, label: capital(name), color: Theme.backgrounds()[name] })
         end for
         out.push({ kind: "tiles", id: "background", label: "Background", options: tl, cur: t.bgName })
-        out.push(note("Cove for Roku uses the Glass theme. The accent color marks buttons, switches and the page you're on."))
+        out.push(note("The accent color marks buttons, switches and the page you're on."))
         out.push(sectionHead("Navigation"))
         out.push(choice("navStyle", "Style", [{ id: "sidebar", label: "Sidebar" }, { id: "topbar", label: "Top Bar" }], Prefs.navStyle()))
         c = choice("topBarLabels", "Top bar shows", [{ id: "both", label: "Icons and Names" }, { id: "names", label: "Names" }, { id: "icons", label: "Icons" }], Prefs.topBarLabels())
@@ -142,7 +142,8 @@ function rowsFor(tabId as string) as object
         ' (v1.4) the Mac's General → Posters → Watched switch (WatchedDim.swift, on by default)
         out.push(sectionHead("Posters"))
         out.push(toggle("dimWatched", "Watched", "Dim watched posters", Util.readText("dimWatched") <> "off"))
-        out.push(note("Watched movies, shows and episodes are shown a little darker, so unwatched ones stand out. The check shows it either way."))
+        ' (one note line, so General still fits on one screen)
+        out.push(note("Watched titles are shown a little darker, so unwatched ones stand out."))
     else if tabId = "home"
         ' Settings → Home → Rows (HomeLayout): every Home row with its switch and place, per server
         sid = serverKey()
@@ -582,7 +583,7 @@ end function
 sub drawTabs()
     t = m.global.theme
     tabs = tabList()
-    m.top.findNode("tabTitle").text = tabs[m.tab].label
+    ' (v1.4 S1) no page title: the selected tab names the page, as on the Mac
     g = m.top.findNode("tabs")
     g.removeChildrenIndex(g.getChildCount(), 0)
     w = 140
@@ -592,27 +593,24 @@ sub drawTabs()
         isFocus = isCur and m.area = "tabs" and m.picker = invalid
         cell = g.createChild("Group")
         cell.translation = [x0 + i * (w + 8), 0]
+        ' (v1.4 S1) the Mac's Glass3D tab: the current one on white 10 % glass with a 22 % edge, its icon in
+        ' the accent and its name bold white; the others grey. Focus = the fog with the white ring.
         if isFocus or isCur
             bgp = cell.createChild("Poster")
             bgp.width = w
             bgp.height = 104
-            bgp.uri = "pkg:/images/ui/white_rr12.9.png"
-            if isFocus
-                bgp.blendColor = "0xFFFFFFFF"
-            else
-                ' the Mac's current tab: accent at 15 % behind, accent icon and name
-                bgp.blendColor = t.accent.left(8) + "33"
-            end if
+            bgp.uri = "pkg:/images/ui/tab_sel_r15.9.png"
+            if isFocus then bgp.uri = "pkg:/images/ui/fog_ring_r12.9.png"
         end if
-        col = "0xFFFFFFCC"
-        if isCur then col = t.accent
-        if isFocus then col = "0x000000FF"
+        col = "0xFFFFFF9E"
+        if isCur then col = "0xFFFFFFFF"
         ic = cell.createChild("Poster")
         ic.uri = "pkg:/images/ui/icon_tab_" + tabs[i].id + "_44.png"
         ic.width = 40
         ic.height = 40
         ic.translation = [(w - 40) / 2, 14]
         ic.blendColor = col
+        if isCur then ic.blendColor = t.accent
         l = cell.createChild("Label")
         l.font = mkFont(isCur, 24)
         l.text = tabs[i].label
@@ -675,7 +673,8 @@ sub drawContent()
             addLabel(c, UCase(r.text), 210, y, 1400, 32, 24, true, "0xFFFFFFCC")
             y = y + 38
             card = c.createChild("Poster")
-            card.uri = "pkg:/images/ui/card_r18.9.png"
+            ' (v1.4 S2) the Mac's Glass3D card: white 8 % with a 15 % edge, r21; the title sits above it
+            card.uri = "pkg:/images/ui/card_r21.9.png"
             card.translation = [200, y]
             card.width = 1520
             cardTop = y
@@ -791,7 +790,7 @@ sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionT
             tile.translation = [tx, y + 8]
             tile.blendColor = o.color
             edge = c.createChild("Poster")
-            edge.uri = "pkg:/images/ui/card_border_r18.9.png"
+            edge.uri = "pkg:/images/ui/card_edge_r12.9.png"
             edge.width = 132
             edge.height = 72
             edge.translation = [tx, y + 8]
