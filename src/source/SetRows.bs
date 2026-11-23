@@ -1,48 +1,56 @@
 import "pkg:/source/Util.bs"
 
-' (v1.5) Pure helpers for the Apple TV-style Settings (components/settings): which rows take the focus, their
-' heights, the list's scroll position, Title Case labels and what the Audio Guide says for a row.
-' A row is an AA: { kind, id, label, value, sub, on, checked, dim, target, options, cur }; kinds:
-'   head (section heading), note (help text), link (opens a page: value + ›), choice (opens a list with a ✓:
-'   value + ›), switch (on / off), button, option (a value in a choice list), move (a row that can be picked up
-'   and moved), info (label + value), keys (a remote key and what it does), server / profile (two lines).
+' (v1.5) Pure helpers for Settings in the Cove for Mac format (components/settings): tabs across the top, the
+' selected tab's sections under them. Which rows take the focus, their heights, the list's scroll position,
+' the choice list's place, Title Case labels and what the Audio Guide says for a row.
+' A row is an AA: { kind, id, label, value, sub, on, checked, dim, target, options, cur, cols }; kinds:
+'   head (section heading, grey caps), note (help text), link (opens a sub-list: value + ›), choice (opens a
+'   small list with a check: value + ›), switch (on / off), button, option (a value in a choice list), move (a
+'   row that can be picked up and moved), info (label + value), keys (a remote key and what it does),
+'   server / profile (two lines), lib (a library in the Libraries table: Top Bar / Sidebar / Home columns) and
+'   cols (the table's column titles).
 namespace SetRows
 
-    ' Rows the focus stops on (headings, notes and dimmed rows are skipped)
+    ' Rows the focus stops on (headings, notes, column titles and dimmed rows are skipped)
     function takesFocus(r as object) as boolean
         k = Util.toText(r.kind)
-        if k = "head" or k = "note" or k = "" then return false
-        if r.dim = true then return false
+        if k = "head" or k = "note" or k = "cols" or k = "" then return false
+        if Util.flag(r, "dim") then return false
         return true
     end function
 
-    ' Characters per line of a help note (Medium 24 in the 860 px list)
-    function noteWidth() as integer
-        return 66
+    ' Characters per line of grey text (Medium 24) in a column this wide
+    function charsFor(widthPx as integer) as integer
+        n = Int(widthPx / 13)
+        if n < 30 then n = 30
+        return n
     end function
 
-    ' Characters per line of a two-line row's second line (Medium 24, 800 px)
-    function subWidth() as integer
-        return 64
-    end function
-
-    function rowHeight(r as object) as integer
+    function isTwoLine(r as object) as boolean
         k = Util.toText(r.kind)
-        if k = "head" then return 62
-        if k = "note" then return 30 * Util.wrapLines(Util.toText(r.text), noteWidth(), 8).count() + 18
-        if k = "keys" or k = "server" or k = "profile" or (k = "info" and Util.toText(r.sub) <> "")
-            n = Util.wrapLines(Util.toText(r.sub), subWidth(), 3).count()
+        if k = "keys" or k = "server" or k = "profile" then return true
+        return k = "info" and Util.toText(r.sub) <> ""
+    end function
+
+    ' A row's height; chars: characters per line of its notes and second lines
+    function rowHeight(r as object, chars as integer) as integer
+        k = Util.toText(r.kind)
+        if k = "head" then return 70
+        if k = "cols" then return 44
+        if k = "note" then return 30 * Util.wrapLines(Util.toText(r.text), chars, 8).count() + 14
+        if isTwoLine(r)
+            n = Util.wrapLines(Util.toText(r.sub), chars, 3).count()
             if n < 1 then n = 1
-            return 62 + 30 * n + 4
+            return 56 + 30 * n + 10
         end if
-        return 84
+        return 72
     end function
 
     ' The gap under a row before the next one
     function gapAfter(r as object) as integer
         k = Util.toText(r.kind)
-        if k = "head" or k = "note" then return 0
-        return 14
+        if k = "head" or k = "cols" then return 0
+        return 8
     end function
 
     ' The list's scroll position that keeps a row (y, h) on screen with a margin above and below it
@@ -53,6 +61,22 @@ namespace SetRows
         if t > total - viewH then t = total - viewH
         if t < 0 then t = 0
         return t
+    end function
+
+    ' The next tab to the left (delta -1) or right (+1); stays on the first / last one
+    function tabStep(cur as integer, delta as integer, count as integer) as integer
+        n = cur + delta
+        if n < 0 then n = 0
+        if n > count - 1 then n = count - 1
+        return n
+    end function
+
+    ' The top of a choice list popH high next to a row at rowY (screen), kept between minY and maxY
+    function popTop(rowY as integer, rowH as integer, popH as integer, minY as integer, maxY as integer) as integer
+        y = rowY + Int(rowH / 2) - Int(popH / 2)
+        if y + popH > maxY then y = maxY - popH
+        if y < minY then y = minY
+        return y
     end function
 
     ' "Text size" -> "Text Size", "Distance from bottom" -> "Distance from Bottom" (small words stay lower case)
@@ -73,21 +97,26 @@ namespace SetRows
         return Util.join(out, " ")
     end function
 
-    ' The fixed page glyph of a library: film, tv or grid
+    ' The 36 px icon of a library in the Libraries table: film, tv or folder
     function libIcon(collectionType as string) as string
         ct = LCase(collectionType)
         if ct = "movies" then return "film"
         if ct = "tvshows" then return "tv"
-        return "grid"
+        return "folder"
     end function
 
     ' "5 of 6" for a list of { on }
     function countOn(list as object) as string
         n = 0
         for each e in list
-            if e.on = true then n = n + 1
+            if Util.flag(e, "on") then n = n + 1
         end for
         return n.toStr() + " of " + list.count().toStr()
+    end function
+
+    ' What the Audio Guide says for a tab ("Home, tab, 2 of 9")
+    function tabSpeech(label as string, index as integer, count as integer) as string
+        return label + ", tab, " + (index + 1).toStr() + " of " + count.toStr()
     end function
 
     ' What the Audio Guide says for a focused row (moving: the row being moved)
@@ -96,20 +125,16 @@ namespace SetRows
         label = Util.toText(r.label)
         value = Util.toText(r.value)
         if k = "switch"
-            if r.on = true then return label + ", switch, on"
+            if Util.flag(r, "on") then return label + ", switch, on"
             return label + ", switch, off"
         end if
         if k = "choice" then return label + ": " + value + ", menu button"
-        if k = "link"
-            if value <> "" then return label + ", " + value + ", button"
-            return label + ", button"
-        end if
-        if k = "button"
+        if k = "link" or k = "button" or k = "lib"
             if value <> "" then return label + ", " + value + ", button"
             return label + ", button"
         end if
         if k = "option"
-            if r.checked = true then return label + ", selected"
+            if Util.flag(r, "checked") then return label + ", selected"
             return label
         end if
         if k = "move"

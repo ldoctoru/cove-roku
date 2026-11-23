@@ -1,7 +1,8 @@
-' (v1.5) What each Settings page holds (drawn by SettingsScreen.bs). Every page is a list of rows (see
-' source/SetRows.bs for the kinds); pageInfo gives its title, its fixed glyph and the caption under it.
-' Page ids: main, general, home, homeLibRows, homeOrder, nav, navPlace:<top|side>, libraries, lib:<libraryId>, libOrder, subtitles, playback,
-' servers, srv:<serverId>, prof:<userId>, remote, about, and choice (a choice row's values).
+' (v1.5) What each Settings tab holds (drawn by SettingsScreen.bs), in the Cove for Mac format: a tab is a list of
+' rows in sections (see source/SetRows.bs for the kinds). A few rows open a sub-list inside the same tab (the
+' top bar's / sidebar's entries, Home's library rows and row order, the library order, a server, a profile).
+' Page ids: the tabs (general, home, libraries, subtitles, playback, connect, profiles, remote, about) and the
+' sub-lists navPlace:<top|side>, homeLibRows, homeOrder, libOrder, srv:<serverId>, prof:<userId>.
 
 ' ---------------------------------------------------------------- row makers
 
@@ -38,68 +39,56 @@ function rDim(r as object, isDim as boolean) as object
     return r
 end function
 
-' ---------------------------------------------------------------- pages
+' ---------------------------------------------------------------- tabs and pages
 
-' { title, icon, caption } of a page
-function pageInfo(entry as object) as object
+' The tabs across the top, as on the Mac (Connect = servers; Roku adds Profiles, and Remote instead of Shortcuts)
+function settingsTabs() as object
+    return [
+        { id: "general", label: "General", icon: "general" },
+        { id: "home", label: "Home", icon: "home" },
+        { id: "libraries", label: "Libraries", icon: "libraries" },
+        { id: "subtitles", label: "Subtitles", icon: "subtitles" },
+        { id: "playback", label: "Playback", icon: "playback" },
+        { id: "connect", label: "Connect", icon: "servers" },
+        { id: "profiles", label: "Profiles", icon: "profiles" },
+        { id: "remote", label: "Remote", icon: "remote" },
+        { id: "about", label: "About", icon: "about" }
+    ]
+end function
+
+' A page's title (the tab's name; a sub-list's heading), for the Audio Guide and the sub-list's heading
+function pageTitle(entry as object) as string
     pid = Util.toText(entry.id)
-    if pid = "choice"
-        ' (the list of a choice row: its label, under the glyph of the page it came from)
-        below = m.stack[m.stack.count() - 2]
-        bi = pageInfo(below)
-        return { title: Util.toText(entry.row.label), icon: bi.icon, caption: bi.title }
-    end if
-    if pid = "general" then return { title: "General", icon: "gear", caption: "Colors and posters" }
-    if pid = "home" then return { title: "Home", icon: "house", caption: "What Home shows" }
-    if pid = "homeLibRows" then return { title: "Library Rows", icon: "house", caption: "A row on Home for each library" }
-    if pid = "homeOrder" then return { title: "Row Order", icon: "house", caption: "OK picks a row up, Up / Down move it, OK puts it down" }
-    if pid = "nav" then return { title: "Navigation", icon: "menu", caption: "Choose where each page appears" }
+    for each tb in settingsTabs()
+        if tb.id = pid then return tb.label
+    end for
+    if pid = "homeLibRows" then return "Library Rows"
+    if pid = "homeOrder" then return "Row Order"
     if pid.startsWith("navPlace:")
-        place = pid.mid(9)
-        if entry.order = true then return { title: placeName(place) + " Order", icon: "menu", caption: "OK picks an entry up, Up / Down move it, OK puts it down" }
-        return { title: placeName(place), icon: "menu", caption: "What the " + LCase(placeName(place)) + " shows" }
+        if Util.flag(entry, "order") then return placeName(pid.mid(9)) + " Order"
+        return placeName(pid.mid(9))
     end if
-    if pid = "libraries" then return { title: "Libraries", icon: "grid", caption: "Your libraries" }
-    if pid = "libOrder" then return { title: "Library Order", icon: "grid", caption: "OK picks a library up, Up / Down move it, OK puts it down" }
-    if pid.startsWith("lib:")
-        libId = pid.mid(4)
-        ct = libKindName(libId)
-        cap = "Library"
-        if ct = "movies" then cap = "Movies library"
-        if ct = "tvshows" then cap = "Shows library"
-        return { title: libTitle(libId), icon: SetRows.libIcon(ct), caption: cap }
-    end if
-    if pid = "subtitles" then return { title: "Subtitles", icon: "captions", caption: "Language and style" }
-    if pid = "playback" then return { title: "Playback", icon: "play", caption: "How videos play" }
-    if pid = "servers" then return { title: "Servers & Profiles", icon: "server", caption: "Servers, profiles and PINs" }
+    if pid = "libOrder" then return "Library Order"
     if pid.startsWith("srv:")
         s = Servers.find(pid.mid(4))
-        name = "Server"
-        if s <> invalid then name = Util.toText(s.name)
-        return { title: name, icon: "server", caption: "Saved server" }
+        if s <> invalid then return Util.toText(s.name)
+        return "Server"
     end if
     if pid.startsWith("prof:")
-        name = "Profile"
         srv = currentServer()
         if srv <> invalid
             u = Servers.userOf(srv, pid.mid(5))
-            if u <> invalid then name = Util.toText(u.n)
+            if u <> invalid then return Util.toText(u.n)
         end if
-        return { title: name, icon: "server", caption: "Profile" }
+        return "Profile"
     end if
-    if pid = "remote" then return { title: "Remote", icon: "remote", caption: "What each key does" }
-    if pid = "about" then return { title: "About", icon: "info", caption: "Cove for Roku " + m.version }
-    return { title: "Settings", icon: "gear", caption: "Cove for Roku " + m.version }
+    return "Settings"
 end function
 
 function pageRows(entry as object) as object
     pid = Util.toText(entry.id)
     out = []
-    if pid = "main"
-        mainRows(out)
-    else if pid = "choice"
-        choiceRows(out, entry.row)
-    else if pid = "general"
+    if pid = "general"
         generalRows(out)
     else if pid = "home"
         homeRows(out)
@@ -107,22 +96,20 @@ function pageRows(entry as object) as object
         homeOrderRows(out)
     else if pid = "homeLibRows"
         homeLibRowsRows(out)
-    else if pid = "nav"
-        navRows(out)
     else if pid.startsWith("navPlace:")
-        navPlaceRows(out, pid.mid(9), entry.order = true)
+        navPlaceRows(out, pid.mid(9), Util.flag(entry, "order"))
     else if pid = "libraries"
         librariesRows(out)
     else if pid = "libOrder"
         libOrderRows(out)
-    else if pid.startsWith("lib:")
-        libraryRows(out, pid.mid(4))
     else if pid = "subtitles"
         subtitleRows(out)
     else if pid = "playback"
         playbackRows(out)
-    else if pid = "servers"
+    else if pid = "connect"
         serverRows(out)
+    else if pid = "profiles"
+        profileListRows(out)
     else if pid.startsWith("srv:")
         savedServerRows(out, pid.mid(4))
     else if pid.startsWith("prof:")
@@ -132,54 +119,21 @@ function pageRows(entry as object) as object
     else if pid = "about"
         aboutRows(out)
     end if
+    ' (a sub-list starts with its own heading, e.g. TOP BAR)
+    if m.stack.count() > 1 and out.count() > 0 and out[0].kind <> "head" then out.unshift(rHead(pageTitle(entry)))
     return out
 end function
 
-' A choice row's values, the current one with a ✓ (colors with a dot of their color)
-sub choiceRows(out as object, src as object)
+' A choice row's values, the current one with a check (colors with a dot of their color)
+function choiceRows(src as object) as object
+    out = []
     cur = Util.toText(src.cur)
     for each o in src.options
         r = { kind: "option", id: Util.toText(o.id), label: Util.toText(o.label), checked: Util.toText(o.id) = cur }
         if o.swatch <> invalid then r.swatch = o.swatch
         out.push(r)
     end for
-end sub
-
-' ---------------------------------------------------------------- Settings (the first page)
-
-sub mainRows(out as object)
-    t = m.global.theme
-    out.push(rLink("", "General", capital(t.accentName) + " · " + capital(t.bgName), "general"))
-    out.push(rLink("", "Home", homeSummary(), "home"))
-    navValue = "Sidebar"
-    if NavPrefs.menuStyle() = "topbar" then navValue = "Top Bar"
-    out.push(rLink("", "Navigation", navValue, "nav"))
-    libValue = ""
-    if m.libs.count() > 0 then libValue = m.libs.count().toStr()
-    out.push(rLink("", "Libraries", libValue, "libraries"))
-    subValue = "Off"
-    if Prefs.subAlways() then subValue = capital(Prefs.subLang())
-    out.push(rLink("", "Subtitles", subValue, "subtitles"))
-    qKey = "startQualityHome"
-    srv = m.top.server
-    if srv <> invalid and not Util.isPrivateHost(Util.hostOf(Util.toText(srv.url))) then qKey = "startQualityNet"
-    out.push(rLink("", "Playback", labelOf(Tracks.qualities(), Prefs.startQualityOf(qKey).toStr()), "playback"))
-    srvValue = ""
-    if srv <> invalid then srvValue = Util.toText(srv.name)
-    out.push(rLink("", "Servers & Profiles", srvValue, "servers"))
-    out.push(rLink("", "Remote", "", "remote"))
-    out.push(rLink("", "About", m.version, "about"))
-end sub
-
-' "6 rows" on Home (built-in rows and library rows that are on)
-function homeSummary() as string
-    if HomeLayout.useServerLayout(serverKey()) then return "Server Layout"
-    n = 0
-    for each id in HomeLayout.orderedIds(serverKey(), homeLibs())
-        if homeRowOn(id) then n = n + 1
-    end for
-    if n = 1 then return "1 row"
-    return n.toStr() + " rows"
+    return out
 end function
 
 ' ---------------------------------------------------------------- General
@@ -187,21 +141,26 @@ end function
 sub generalRows(out as object)
     t = m.global.theme
     out.push(rHead("Appearance"))
-    sw = []
-    for each name in ["red", "orange", "pink", "purple", "blue", "teal", "green", "white"]
-        sw.push({ id: name, label: capital(name), swatch: Theme.accents()[name] })
-    end for
-    out.push(rChoice("accent", "Accent Color", sw, t.accentName))
     tl = []
     for each name in ["black", "charcoal", "navy", "plum", "forest"]
         tl.push({ id: name, label: capital(name), swatch: Theme.backgrounds()[name] })
     end for
     out.push(rChoice("background", "Background", tl, t.bgName))
-    out.push(rNote("The accent color marks buttons, switches and the page you're on."))
+    out.push(rNote("The color behind every page."))
+    ' (the Mac's General → Navigation; the top bar and the sidebar each keep their own list, NavPrefs)
+    style = NavPrefs.menuStyle()
+    libs = navLibs()
+    out.push(rHead("Navigation"))
+    out.push(rChoice("navStyle", "Menu Style", [{ id: "sidebar", label: "Sidebar" }, { id: "topbar", label: "Top Bar" }], style))
+    out.push(rDim(rChoice("topBarLabels", "Top Bar Labels", [{ id: "both", label: "Icons and Names" }, { id: "names", label: "Names" }, { id: "icons", label: "Icons" }], Prefs.topBarLabels()), style <> "topbar"))
+    out.push(rNote("Top bar replaces the sidebar with a bar across the top (Up from the banner reaches it). One or the other is shown."))
+    out.push(rLink("", "Top Bar", SetRows.countOn(NavPrefs.entries("top", libs)), "navPlace:top"))
+    out.push(rLink("", "Sidebar", SetRows.countOn(NavPrefs.entries("side", libs)), "navPlace:side"))
+    out.push(rNote("The top bar and the sidebar each have their own list and order. Home and Settings are always there. A library can also be switched in Libraries."))
     ' (v1.4) the Mac's General → Posters → Watched switch (WatchedDim.swift, on by default)
     out.push(rHead("Posters"))
     out.push(rSwitch("dimWatched", "Dim Watched Posters", Util.readText("dimWatched") <> "off"))
-    out.push(rNote("Watched titles are shown a little darker, so unwatched ones stand out."))
+    out.push(rNote("Watched movies, shows and episodes are shown a little darker, so unwatched ones stand out. The check mark shows it either way."))
 end sub
 
 ' ---------------------------------------------------------------- Home
@@ -236,21 +195,22 @@ sub homeRows(out as object)
     out.push(rHead("Banner"))
     out.push(rChoice("bannerSource", "Banner Shows", HomeBanner.sourceOptions(), bp.source))
     out.push(rChoice("bannerRefresh", "Refresh Banner", HomeBanner.refreshOptions(), bp.minutes.toStr()))
-    out.push(rNote("Which titles the banner at the top of Home cycles through; From Home Rows is the original mix. Newest: recently added films and shows. Refresh picks a fresh set while Home stays open (not while it's hidden or a video plays)."))
+    out.push(rNote("Which titles the banner at the top of Home cycles through; From Home Rows is the original mix. Refresh picks a fresh set while Home stays open (not while it's hidden or a video plays)."))
+    out.push(rHead("Layout"))
+    out.push(rSwitch("homeServerLayout", "Use the Server's Home Layout", srvOn))
+    out.push(rNote("Home follows the Home sections set in the server's web app (Settings > Home): Continue Watching, Next Up, Latest per library and My Media. Sections Cove doesn't have are left out, and Upcoming and Recently Released show only with Cove's layout. Saved for this server."))
     out.push(rHead("Rows"))
     for each id in ["resume", "nextup", "upcoming", "recent", "released", "favorites", "libraries"]
         out.push(rDim(rSwitch("home:" + id, homeRowLabel(id), HomeLayout.isOn(sid, id)), srvOn))
     end for
+    if srvOn
+        out.push(rNote("Set by the server's Home layout (above). A library's row still follows its own switch."))
+    else
+        out.push(rNote("Next Up: the next episode of each show you're watching. Upcoming Episodes shows only when the server has episodes that haven't aired yet."))
+    end if
     out.push(rLink("", "Library Rows", SetRows.countOn(libraryHomeEntries()), "homeLibRows"))
     out.push(rDim(rLink("", "Row Order", "", "homeOrder"), srvOn))
-    if srvOn
-        out.push(rNote("Set by the server's Home layout (below). A library's row still follows its own switch."))
-    else
-        out.push(rNote("Upcoming Episodes shows only when the server has episodes that haven't aired yet. What a library's row shows (Latest, Top Rated, ...) is set in Libraries."))
-    end if
-    out.push(rHead("Layout"))
-    out.push(rSwitch("homeServerLayout", "Use the Server's Home Layout", srvOn))
-    out.push(rNote("Home follows the Home sections set in the server's web app (Settings > Home): Continue Watching, Next Up, Latest per library and My Media. Sections Cove doesn't have are left out, and Upcoming and Recently Released show only with Cove's layout. Saved for this server."))
+    out.push(rNote("Which libraries get a row on Home, and what each row shows, is also set per library in Libraries."))
     ' (v1.1) watched titles in the Latest rows, and Next Up's Jellyfin options
     out.push(rHead("Row Options"))
     out.push(rSwitch("hideWatchedLatest", "Hide Watched in Recently Added", Prefs.hideWatchedLatest()))
@@ -305,20 +265,7 @@ sub homeOrderRows(out as object)
     out.push(rNote("Rows marked Hidden are switched off. Saved for this server."))
 end sub
 
-' ---------------------------------------------------------------- Navigation
-
-sub navRows(out as object)
-    style = NavPrefs.menuStyle()
-    libs = navLibs()
-    out.push(rChoice("navStyle", "Menu Style", [{ id: "sidebar", label: "Sidebar" }, { id: "topbar", label: "Top Bar" }], style))
-    out.push(rNote("One or the other: the sidebar on the left of Home, or a bar across the top (Up from the banner reaches it)."))
-    out.push(rHead("What Each Shows"))
-    out.push(rLink("", "Top Bar", SetRows.countOn(NavPrefs.entries("top", libs)), "navPlace:top"))
-    out.push(rLink("", "Sidebar", SetRows.countOn(NavPrefs.entries("side", libs)), "navPlace:side"))
-    out.push(rNote("The top bar and the sidebar each have their own list and order. Home and Settings are always there."))
-    out.push(rHead("Top Bar"))
-    out.push(rDim(rChoice("topBarLabels", "Top Bar Labels", [{ id: "both", label: "Icons and Names" }, { id: "names", label: "Names" }, { id: "icons", label: "Icons" }], Prefs.topBarLabels()), style <> "topbar"))
-end sub
+' ---------------------------------------------------------------- Navigation (General → Top Bar / Sidebar)
 
 ' "top" -> "Top Bar", "side" -> "Sidebar"
 function placeName(place as string) as string
@@ -346,7 +293,7 @@ sub navPlaceRows(out as object, place as string, ordering as boolean)
         out.push(rSwitch("nav:" + place + ":" + e.id, e.label, e.on))
     end for
     if m.libs.count() = 0 then out.push(rNote(libsState()))
-    out.push(rNote("Home and Settings are always there and aren't in this list. A library can also be switched here or on its own page in Libraries."))
+    out.push(rNote("Home and Settings are always there and aren't in this list. A library can also be switched in Libraries."))
 end sub
 
 ' ---------------------------------------------------------------- Libraries
@@ -358,26 +305,50 @@ function libsState() as string
 end function
 
 sub librariesRows(out as object)
+    ' (the Mac's table: a line per library with its Top Bar, Sidebar and Home ticks; OK picks the library whose
+    ' options show in the section under it)
     out.push(rHead("Your Libraries"))
-    for each l in homeLibs()
-        out.push(rLink("", Util.toText(l.title), libSummary(l), "lib:" + Util.toText(l.id)))
-    end for
-    if m.libs.count() = 0
+    list = homeLibs()
+    if list.count() > 0
+        out.push({ kind: "cols", cols: ["Top Bar", "Sidebar", "Home"] })
+        sel = selectedLibrary()
+        libs = navLibs()
+        for each l in list
+            id = Util.toText(l.id)
+            entryId = "L" + id
+            homeCol = invalid
+            if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType))) then homeCol = NavPrefs.libraryOnHome(id)
+            out.push({ kind: "lib", id: id, label: Util.toText(l.title), value: libSummary(l), icon: SetRows.libIcon(Util.toText(l.collectionType)), cols: [NavPrefs.isShown("top", entryId, libs), NavPrefs.isShown("side", entryId, libs), homeCol], selected: id = sel })
+        end for
+        out.push(rLink("", "Library Order", "", "libOrder"))
+        out.push(rNote("OK on a library shows its options below: where it shows, its row on Home, how it opens and its name."))
+        libraryRows(out, sel)
+    else
         out.push(rNote(libsState()))
         if m.libError <> "" then out.push(rButton("retryLibs", "Try Again"))
-    else
-        out.push(rLink("", "Library Order", "", "libOrder"))
     end if
-    out.push(rNote("OK on a library: where it shows, its row on Home, how it opens and its name."))
     out.push(rHead("Movie and Show Pages"))
     out.push(rChoice("castSize", "Cast & Crew", [{ id: "normal", label: "Normal" }, { id: "large", label: "Large" }], Prefs.text("castSize", "normal")))
     out.push(rNote("Large shows bigger actor photos and names."))
     out.push(rSwitch("showEpisodeDescription", "Show Episode Descriptions", Prefs.showEpisodeDescription()))
     out.push(rSwitch("hideSpoilers", "Hide Spoilers for Unwatched Episodes", Prefs.hideSpoilers()))
     out.push(rNote("Episodes you haven't watched show the series' picture instead of their own, and no description, on Home, the series page, the episode's page and Up Next."))
+    out.push(rHead("New Libraries"))
+    out.push(rInfo("Open As", "Grid", ""))
+    out.push(rNote("A new library opens as a poster grid and is added at the end of the library order."))
 end sub
 
-' A library's value on the Libraries page: where it shows ("Top Bar · Sidebar · Home", or Hidden)
+' The library whose options show under the table: the one picked last, else the first
+function selectedLibrary() as string
+    list = homeLibs()
+    for each l in list
+        if Util.toText(l.id) = m.menuLib then return m.menuLib
+    end for
+    if list.count() > 0 then return Util.toText(list[0].id)
+    return ""
+end function
+
+' A library's state in words: where it shows ("Top Bar · Sidebar · Home", or Hidden), for the Audio Guide
 function libSummary(l as object) as string
     id = Util.toText(l.id)
     libs = navLibs()
@@ -393,14 +364,23 @@ sub libOrderRows(out as object)
     for each l in homeLibs()
         out.push({ kind: "move", id: Util.toText(l.id), label: Util.toText(l.title), value: "" })
     end for
-    out.push(rNote("The order of the libraries here and in Home's Libraries row, and where a new library goes. The top bar, the sidebar and Home's rows each keep their own order (Navigation, Home > Row Order). Saved for this server."))
+    out.push(rNote("OK on a library picks it up, Up / Down move it, OK puts it down. The order of the libraries in Libraries and in Home's Libraries row, and where a new library goes. The top bar, the sidebar and Home's rows each keep their own order (General, Home > Row Order). Saved for this server."))
 end sub
 
-' A library's page: where it shows (top bar, sidebar, Home: each on its own), its Home row, how it opens, its name
+' The selected library's section (the Mac's section named after the library): where it shows (top bar,
+' sidebar, Home: each on its own), its Home row, how it opens, its name
 sub libraryRows(out as object, libId as string)
+    if libId = "" then return
     lp = Prefs.library(libId)
     libs = navLibs()
     entryId = "L" + libId
+    out.push(rHead(libTitle(libId)))
+    nm = rButton("libRename", "Name")
+    nm.value = libTitle(libId)
+    out.push(nm)
+    out.push(rInfo("View", "Grid", ""))
+    out.push(rChoice("libset:sort:" + libId, "Sort By", libSortOptions(), lp.sort))
+    out.push(rChoice("libset:show:" + libId, "Show", libShowOptions(), lp.show))
     out.push(rSwitch("nav:top:" + entryId, "Show in Top Bar", NavPrefs.isShown("top", entryId, libs)))
     out.push(rSwitch("nav:side:" + entryId, "Show in Sidebar", NavPrefs.isShown("side", entryId, libs)))
     if Prefs.hasHomeRow(libKindName(libId))
@@ -408,13 +388,7 @@ sub libraryRows(out as object, libId as string)
         out.push(rSwitch("libHome:" + libId, "Row on Home", onHome))
         out.push(rDim(rChoice("libset:style:" + libId, "Home Row Shows", libStyleOptions(), lp.style), not onHome))
     end if
-    out.push(rInfo("Open As", "Grid", ""))
-    out.push(rChoice("libset:sort:" + libId, "Sort By", libSortOptions(), lp.sort))
-    out.push(rChoice("libset:show:" + libId, "Show", libShowOptions(), lp.show))
-    nm = rButton("libRename", "Name")
-    nm.value = libTitle(libId)
-    out.push(nm)
-    out.push(rNote("The top bar, the sidebar and Home are set separately: a library can have a row on Home without being in the sidebar. A library opens as a poster grid. Sort By and Show are where its page starts; you can still change them there. Name: leave it empty to use the server's name."))
+    out.push(rNote("The top bar, the sidebar and Home are set separately: a library can have a row on Home without being in the sidebar. Sort By and Show are where its page starts; you can still change them there. Name: leave it empty to use the server's name."))
 end sub
 
 function libStyleOptions() as object
@@ -445,7 +419,7 @@ sub subtitleRows(out as object)
         out.push(rChoice(ch.key, SetRows.titleCase(ch.label), ch.options, Subs.current(ch)))
     end for
     out.push(rButton("subDefaults", "Restore Defaults"))
-    out.push(rNote("The picture on the left shows the style. Roku Setting follows the Roku's caption style (Roku Settings > Accessibility > Caption style), including its font, opacity and window. With the Roku's captions On, titles start with subtitles in this language unless you chose others for them."))
+    out.push(rNote("The picture on the right shows the style. Roku Setting follows the Roku's caption style (Roku Settings > Accessibility > Caption style), including its font, opacity and window. With the Roku's captions On, titles start with subtitles in this language unless you chose others for them."))
 end sub
 
 ' ---------------------------------------------------------------- Playback
@@ -523,7 +497,7 @@ sub playbackRows(out as object)
     out.push(rNote("Plays the trailers and pre-rolls your server sets up (Cinema Mode / intros) before a movie you start from the beginning."))
 end sub
 
-' ---------------------------------------------------------------- Servers & Profiles
+' ---------------------------------------------------------------- Connect (servers) and Profiles
 
 sub serverRows(out as object)
     srv = m.top.server
@@ -549,7 +523,6 @@ sub serverRows(out as object)
     end for
     out.push(rButton("addServer", "Add Server..."))
     out.push(rNote("OK on a server: connect to it, rename it or remove it. Add Server opens the sign-in screen."))
-    profileListRows(out)
     if isRestricted() then out.push(rNote(restrictedNote()))
 end sub
 
@@ -580,6 +553,7 @@ sub profileListRows(out as object)
     if parents > 1 then state = parents.toStr() + " profiles without a limit have a PIN"
     out.push(rInfo("Parent PIN", "", state))
     out.push(rNote("A rating limit is changed only with a parent PIN: the PIN of a profile without a limit. Titles rated above the limit are hidden, and an episode without its own rating takes its series' rating. The server's own parental controls still apply on top."))
+    if isRestricted() then out.push(rNote(restrictedNote()))
 end sub
 
 ' A saved server's page: Connect, Rename, Remove (or Sign Out for the current one)
@@ -654,7 +628,7 @@ sub remoteRows(out as object)
     out.push(rHead("Other Pages"))
     keyRows(out, [["Play", "On any card: play it right away (a series or season: its next episode; a collection: its next film)"], ["Up", "Library: the Sort, Order, Genre, A-Z and Show filters"], ["*", "Series page: options for the selected episode"], ["Back", "The page before"]])
     out.push(rHead("In Settings"))
-    keyRows(out, [["Up / Down", "Move between rows (the list follows)"], ["OK", "Open a page, pick a value, flip a switch; on an order page, pick a row up and put it down"], ["Left / Right", "Turn a switch off / on"], ["Back", "Up one page; on the first page, close Settings (changes are kept)"]])
+    keyRows(out, [["Left / Right", "On the tabs: the next tab (its settings show at once); on a switch: turn it off / on"], ["Down", "From the tabs into the settings; then the next row (the list follows)"], ["Up", "The row above; from the first row, back to the tabs"], ["OK", "Open a list of values or a sub-list, flip a switch; in an order list, pick a row up and put it down"], ["Back", "Close a list or sub-list, then back to the tabs; on the tabs, close Settings (changes are kept)"]])
 end sub
 
 ' ---------------------------------------------------------------- About

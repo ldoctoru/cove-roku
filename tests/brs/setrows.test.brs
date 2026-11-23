@@ -1,4 +1,5 @@
-' SetRows (source/SetRows.bs): the v1.5 Settings rows (focus, heights, scrolling, labels, Audio Guide speech)
+' SetRows (source/SetRows.bs): the v1.5 Mac-format Settings rows (focus, heights, scrolling, tabs, the choice
+' list's place, labels, Audio Guide speech)
 
 sub test_takesFocus()
     t_ok(not SetRows_takesFocus({ kind: "head", text: "Rows" }), "heading")
@@ -7,16 +8,31 @@ sub test_takesFocus()
     t_ok(not SetRows_takesFocus({ kind: "switch", id: "x", label: "X", on: true, dim: true }), "dimmed switch")
     t_ok(SetRows_takesFocus({ kind: "keys", label: "OK", sub: "Play" }), "a remote key")
     t_ok(not SetRows_takesFocus({}), "no kind")
+    t_ok(not SetRows_takesFocus({ kind: "cols", cols: ["Top Bar"] }), "table column titles")
+    t_ok(SetRows_takesFocus({ kind: "lib", id: "1", label: "Movies" }), "a library line")
 end sub
 
 sub test_rowHeight()
-    t_eq(SetRows_rowHeight({ kind: "link", label: "Home" }), 84, "one-line row")
-    t_eq(SetRows_rowHeight({ kind: "head", text: "Rows" }), 62, "heading")
-    t_eq(SetRows_rowHeight({ kind: "note", text: "Short." }), 48, "one-line note")
-    t_eq(SetRows_rowHeight({ kind: "server", label: "Emby", sub: "liviu  ·  http://10.0.0.2:8096" }), 96, "two-line row")
-    t_eq(SetRows_rowHeight({ kind: "info", label: "Version", value: "1.5.0", sub: "" }), 84, "info without a second line")
+    t_eq(SetRows_rowHeight({ kind: "link", label: "Home" }, 100), 72, "one-line row")
+    t_eq(SetRows_rowHeight({ kind: "head", text: "Rows" }, 100), 70, "heading")
+    t_eq(SetRows_rowHeight({ kind: "cols", cols: [] }, 100), 44, "column titles")
+    t_eq(SetRows_rowHeight({ kind: "note", text: "Short." }, 100), 44, "one-line note")
+    t_eq(SetRows_rowHeight({ kind: "server", label: "Emby", sub: "liviu  ·  http://10.0.0.2:8096" }, 100), 96, "two-line row")
+    t_eq(SetRows_rowHeight({ kind: "info", label: "Version", value: "1.5.0", sub: "" }, 100), 72, "info without a second line")
     t_eq(SetRows_gapAfter({ kind: "head" }), 0, "no gap under a heading")
-    t_eq(SetRows_gapAfter({ kind: "switch" }), 14, "gap under a row")
+    t_eq(SetRows_gapAfter({ kind: "switch" }), 8, "gap under a row")
+    t_eq(SetRows_charsFor(1384), 106, "characters in the wide column")
+    t_eq(SetRows_charsFor(100), 30, "never under 30")
+end sub
+
+sub test_tabStep_popTop()
+    t_eq(SetRows_tabStep(0, -1, 9), 0, "stays on the first tab")
+    t_eq(SetRows_tabStep(3, 1, 9), 4, "next tab")
+    t_eq(SetRows_tabStep(8, 1, 9), 8, "stays on the last tab")
+    t_eq(SetRows_popTop(500, 72, 200, 40, 1040), 436, "centred on its row")
+    t_eq(SetRows_popTop(1000, 72, 400, 40, 1040), 640, "kept above the bottom")
+    t_eq(SetRows_popTop(20, 72, 400, 40, 1040), 40, "kept below the top")
+    t_eq(SetRows_tabSpeech("Home", 1, 9), "Home, tab, 2 of 9", "tab speech")
 end sub
 
 sub test_scrollFor()
@@ -37,7 +53,7 @@ end sub
 sub test_libIcon_countOn()
     t_eq(SetRows_libIcon("movies"), "film", "movies")
     t_eq(SetRows_libIcon("TVShows"), "tv", "shows")
-    t_eq(SetRows_libIcon("music"), "grid", "others")
+    t_eq(SetRows_libIcon("music"), "folder", "others")
     t_eq(SetRows_countOn([{ on: true }, { on: false }, { on: true }]), "2 of 3", "count")
     t_eq(SetRows_countOn([]), "0 of 0", "empty")
 end sub
@@ -52,6 +68,7 @@ sub test_speech()
     t_eq(SetRows_speech({ kind: "move", label: "Movies", value: "" }, true), "Movies, moving. Press Up or Down to move it, then OK", "moving")
     t_eq(SetRows_speech({ kind: "move", label: "Movies", value: "Hidden" }, false), "Movies, Hidden, press OK to move it", "move row")
     t_eq(SetRows_speech({ kind: "info", label: "Version", value: "1.5.0", sub: "" }, false), "Version, 1.5.0", "info")
+    t_eq(SetRows_speech({ kind: "lib", label: "Movies", value: "Sidebar · Home" }, false), "Movies, Sidebar · Home, button", "library line")
 end sub
 
 sub test_keyOf()

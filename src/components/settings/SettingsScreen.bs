@@ -13,40 +13,45 @@ import "pkg:/source/Toasts.bs"
 import "pkg:/source/NavPrefs.bs"
 import "pkg:/source/SetRows.bs"
 
-' (v1.5) Apple TV-style Settings: a stack of pages (SettingsPages.bs builds each page's rows), drawn here.
-' Layout (1920 x 1080): the title centred at the top; the glyph tile at x 330-670, y 300-640, its caption under
-' it; the list at x 900-1780 in a 910 px window from y 150 that follows the focus.
+' (v1.5) Settings in the Cove for Mac format (SettingsPages.bs builds each tab's rows), drawn here, flat.
+' Layout (1920 x 1080): 9 tabs of 150 x 108 across the top (y 36), a line at y 162, then the tab's rows in a
+' 904 px window from y 176 that follows the focus: x 260-1660 (Subtitles: 260-1160, the live preview at 1260).
+' Focus zones: "tabs" (Left / Right switch tab), "content" (the rows), "pop" (a choice's small list).
 
 sub init()
     m.bgRect = m.top.findNode("bg")
-    m.pageTitle = m.top.findNode("pageTitle")
-    m.glyph = m.top.findNode("glyph")
-    m.caption = m.top.findNode("caption")
-    m.caption2 = m.top.findNode("caption2")
+    m.tabsGroup = m.top.findNode("tabs")
+    m.lineRect = m.top.findNode("line")
     m.preview = m.top.findNode("preview")
     m.list = m.top.findNode("list")
     m.keys = m.top.findNode("keys")
+    m.popLayer = m.top.findNode("popLayer")
+    m.popPanel = m.top.findNode("popPanel")
+    m.popTitle = m.top.findNode("popTitle")
+    m.popClip = m.top.findNode("popClip")
+    m.popList = m.top.findNode("popList")
     m.kbTimer = m.top.findNode("kbTimer")
     m.kbTimer.observeField("fire", "focusKeyboard")
     ' fonts, made once and shared by every row
-    m.fTitle = mkFont(true, 50)
-    m.fRow = mkFont(false, 30)
-    m.fRowBold = mkFont(true, 30)
+    m.fRow = mkFont(false, 28)
     m.fValue = mkFont(false, 28)
     m.fSub = mkFont(false, 24)
     m.fHead = mkFont(true, 22)
-    m.fCaption = mkFont(false, 26)
-    m.pageTitle.font = m.fTitle
-    m.caption.font = m.fCaption
-    m.caption2.font = m.fCaption
+    m.fCols = mkFont(true, 20)
+    m.fTab = mkFont(false, 24)
+    m.popTitle.font = m.fHead
     ' (v0.9.1) the profile PIN steps (components/profiles/PinFlow): parent PIN, profile PIN, new PIN
     m.pinFlow = createObject("roSGNode", "PinFlow")
     m.pinFlow.focusBack = m.keys
     m.pinFlow.observeField("result", "onPinResult")
     m.top.appendChild(m.pinFlow)
-    ' the page stack: { id, focus (index among the focusable rows), key (the focused row's key), top (scroll),
-    ' row (a choice page: the row it changes), order (Navigation → Top Bar / Sidebar: the Change Order mode) }
-    m.stack = [{ id: "main", focus: 0, key: "", top: 0, row: invalid, order: false }]
+    m.tabList = settingsTabs()
+    m.tab = 0
+    m.zone = "tabs"
+    ' the page stack inside the tab: { id, focus (index among the focusable rows), key (the focused row's key),
+    ' top (scroll), order (General → Top Bar / Sidebar: the Change Order mode) }
+    m.stack = [newEntry(m.tabList[0].id)]
+    m.pop = invalid
     m.rows = []
     m.nodes = []
     m.focusables = []
@@ -78,8 +83,13 @@ sub init()
     m.spokenHead = ""
     m.spokenPage = ""
     Speak.mute([m.keys])
+    makeTabs()
     draw()
 end sub
+
+function newEntry(id as string) as object
+    return { id: id, focus: 0, key: "", top: 0, order: false }
+end function
 
 ' The server's libraries (Libraries, Home rows, top bar and sidebar lists)
 sub onServer()
@@ -112,12 +122,7 @@ sub onViews(ev as object)
     draw()
 end sub
 
-' ---------------------------------------------------------------- building a page
-
-' Builds the page on top of the stack again (after a change), keeping the focus on the same row
-sub draw()
-    buildPage()
-end sub
+' ---------------------------------------------------------------- drawing
 
 function mkFont(bold as boolean, size as integer) as object
     f = createObject("roSGNode", "Font")
@@ -139,18 +144,75 @@ function addLabel(parent as object, text as string, x as integer, y as integer, 
     return l
 end function
 
-sub buildPage()
+function addPoster(parent as object, uri as string, x as integer, y as integer, w as integer, h as integer) as object
+    p = parent.createChild("Poster")
+    p.uri = uri
+    p.translation = [x, y]
+    p.width = w
+    p.height = h
+    return p
+end function
+
+' The content column: x and width (Subtitles leaves room for the preview on the right)
+function contentX() as integer
+    return 260
+end function
+
+function contentW() as integer
+    if m.stack[0].id = "subtitles" then return 900
+    return 1400
+end function
+
+' The tabs across the top, built once: { grp, bg, icon, lab } each
+sub makeTabs()
+    m.tabNodes = []
+    n = m.tabList.count()
+    tw = 150
+    gap = 8
+    x0 = Int((1920 - (n * tw + (n - 1) * gap)) / 2)
+    for i = 0 to n - 1
+        tb = m.tabList[i]
+        g = m.tabsGroup.createChild("Group")
+        g.translation = [x0 + i * (tw + gap), 0]
+        bgp = addPoster(g, "pkg:/images/ui/set_r12.9.png", 0, 0, tw, 108)
+        ic = addPoster(g, "pkg:/images/ui/icon_tab_" + tb.icon + "_44.png", 53, 14, 44, 44)
+        lab = addLabel(g, tb.label, 0, 64, tw, 34, m.fTab, "0xFFFFFF9E")
+        lab.horizAlign = "center"
+        m.tabNodes.push({ grp: g, bg: bgp, icon: ic, lab: lab })
+    end for
+end sub
+
+' Selected tab: white fill with dark icon and label while the tabs have the focus, a faint 12 % fill when the
+' focus is in its settings; the others plain grey
+sub paintTabs()
+    t = m.global.theme
+    for i = 0 to m.tabNodes.count() - 1
+        n = m.tabNodes[i]
+        if i = m.tab and m.zone = "tabs"
+            n.bg.visible = true
+            n.bg.blendColor = t.focusFill
+            n.icon.blendColor = t.onFocus
+            n.lab.color = t.onFocus
+        else if i = m.tab
+            n.bg.visible = true
+            n.bg.blendColor = t.controlFill
+            n.icon.blendColor = t.text
+            n.lab.color = t.text
+        else
+            n.bg.visible = false
+            n.icon.blendColor = t.text2
+            n.lab.color = t.text2
+        end if
+    end for
+end sub
+
+' Builds the page on top of the stack again (after a change), keeping the focus on the same row
+sub draw()
     t = m.global.theme
     m.bgRect.color = t.bg
+    m.lineRect.color = t.divider
+    paintTabs()
     entry = m.stack.peek()
-    pinfo = pageInfo(entry)
-    m.pageTitle.text = pinfo.title
-    m.glyph.uri = "pkg:/images/ui/icon_st_" + pinfo.icon + "_150.png"
-    capLines = Util.wrapLines(pinfo.caption, 40, 2)
-    m.caption.text = ""
-    m.caption2.text = ""
-    if capLines.count() > 0 then m.caption.text = capLines[0]
-    if capLines.count() > 1 then m.caption2.text = capLines[1]
     m.preview.removeChildrenIndex(m.preview.getChildCount(), 0)
     if entry.id = "subtitles" then drawPreview(m.preview)
     rows = pageRows(entry)
@@ -159,19 +221,21 @@ sub buildPage()
     m.focusables = []
     m.rowY = []
     m.rowH = []
+    cw = contentW()
+    chars = SetRows.charsFor(cw - 16)
     lst = m.list
     lst.removeChildrenIndex(lst.getChildCount(), 0)
-    y = 16
+    y = 0
     for i = 0 to rows.count() - 1
         r = rows[i]
-        h = SetRows.rowHeight(r)
+        h = SetRows.rowHeight(r, chars)
         m.rowY.push(y)
         m.rowH.push(h)
-        m.nodes.push(makeRow(lst, r, y, h))
+        m.nodes.push(makeRow(lst, r, y, h, cw, chars))
         if SetRows.takesFocus(r) then m.focusables.push(i)
         y = y + h + SetRows.gapAfter(r)
     end for
-    m.listH = y + 16
+    m.listH = y + 40
     ' the focus: the row it was on (by key), else the same place
     f = -1
     if Util.toText(entry.key) <> ""
@@ -185,109 +249,88 @@ sub buildPage()
     m.focus = f
     entry.focus = f
     if f >= 0
-        paintRow(m.focusables[f], true)
         entry.key = SetRows.keyOf(rows[m.focusables[f]])
+        if m.zone = "content" then paintRow(m.focusables[f], true)
     end if
+    if m.zone = "content" and f < 0 then m.zone = "tabs"
+    paintTabs()
     scrollToFocus()
+    if m.pop <> invalid then drawPop()
     speakFocus()
 end sub
 
-' The nodes of one row, painted as not focused: { grp, bg, shadow, lab, val, chev, check, track, knob, subs, updown }
-function makeRow(parent as object, r as object, y as integer, h as integer) as object
+' The nodes of one row, painted as not focused: { grp, bg, lab, val, chev, check, track, knob, subs, updown, cells }
+function makeRow(parent as object, r as object, y as integer, h as integer, w as integer, chars as integer) as object
+    t = m.global.theme
     k = r.kind
     g = parent.createChild("Group")
-    g.translation = [900, y]
-    n = { grp: g, bg: invalid, subs: [] }
+    g.translation = [contentX(), y]
+    n = { grp: g, bg: invalid, subs: [], cells: [] }
     if k = "head"
-        addLabel(g, UCase(Util.toText(r.text)), 8, 22, 860, 36, m.fHead, "0xFFFFFF80")
+        addLabel(g, UCase(Util.toText(r.text)), 8, 28, w, 36, m.fHead, t.text2)
         return n
     end if
     if k = "note"
-        lines = Util.wrapLines(Util.toText(r.text), SetRows.noteWidth(), 8)
+        lines = Util.wrapLines(Util.toText(r.text), chars, 8)
         for i = 0 to lines.count() - 1
-            addLabel(g, lines[i], 8, 6 + i * 30, 860, 30, m.fSub, "0xFFFFFF8C")
+            addLabel(g, lines[i], 8, 4 + i * 30, w - 16, 30, m.fSub, t.text2)
         end for
         return n
     end if
-    w = 880
-    g.scaleRotateCenter = [w / 2, h / 2]
-    sh = g.createChild("Poster")
-    sh.uri = "pkg:/images/ui/st_row_shadow.9.png"
-    sh.translation = [-24, -18]
-    sh.width = w + 48
-    sh.height = h + 48
-    sh.visible = false
-    bgp = g.createChild("Poster")
-    bgp.uri = "pkg:/images/ui/st_row.9.png"
-    bgp.width = w
-    bgp.height = h
-    n.shadow = sh
-    n.bg = bgp
-    twoLine = k = "keys" or k = "server" or k = "profile" or (k = "info" and Util.toText(r.sub) <> "")
-    rightEdge = w - 34
+    if k = "cols"
+        for i = 0 to r.cols.count() - 1
+            c = addLabel(g, UCase(r.cols[i]), libColX(w, i) - 80, 4, 160, 36, m.fCols, t.text3)
+            c.horizAlign = "center"
+        end for
+        return n
+    end if
+    n.bg = addPoster(g, "pkg:/images/ui/set_r12.9.png", 0, 0, w, h)
+    rightEdge = w - 28
     if k = "link" or k = "choice"
-        ch = g.createChild("Poster")
-        ch.uri = "pkg:/images/ui/icon_st_chevron_28.png"
-        ch.width = 28
-        ch.height = 28
-        ch.translation = [rightEdge - 28, Int((h - 28) / 2)]
-        n.chev = ch
-        rightEdge = rightEdge - 28 - 14
+        n.chev = addPoster(g, "pkg:/images/ui/icon_st_chevron_28.png", rightEdge - 28, Int((h - 28) / 2), 28, 28)
+        rightEdge = rightEdge - 28 - 12
     else if k = "switch"
-        tr = g.createChild("Poster")
-        tr.uri = "pkg:/images/ui/switch_track.9.png"
-        tr.width = 68
-        tr.height = 36
-        tr.translation = [rightEdge - 68, Int((h - 36) / 2)]
-        kn = g.createChild("Poster")
-        kn.uri = "pkg:/images/ui/switch_knob.png"
-        kn.width = 30
-        kn.height = 30
-        kx = rightEdge - 68 + 3
-        if r.on = true then kx = rightEdge - 68 + 35
-        kn.translation = [kx, Int((h - 30) / 2)]
-        n.track = tr
-        n.knob = kn
-        rightEdge = rightEdge - 68 - 20
-    else if k = "option"
-        ck = g.createChild("Poster")
-        ck.uri = "pkg:/images/ui/icon_check_28.png"
-        ck.width = 32
-        ck.height = 32
-        ck.translation = [rightEdge - 32, Int((h - 32) / 2)]
-        ck.visible = r.checked = true
-        n.check = ck
-        rightEdge = rightEdge - 32 - 16
+        n.track = addPoster(g, "pkg:/images/ui/set_pill.9.png", rightEdge - 64, Int((h - 36) / 2), 64, 36)
+        kx = rightEdge - 64 + 4
+        if Util.flag(r, "on") then kx = rightEdge - 64 + 32
+        n.knob = addPoster(g, "pkg:/images/ui/set_knob.png", kx, Int((h - 28) / 2), 28, 28)
+        rightEdge = rightEdge - 64 - 20
     else if k = "move"
-        ud = g.createChild("Poster")
-        ud.uri = "pkg:/images/ui/icon_st_updown_28.png"
-        ud.width = 28
-        ud.height = 28
-        ud.translation = [rightEdge - 28, Int((h - 28) / 2)]
-        ud.visible = false
-        n.updown = ud
-        rightEdge = rightEdge - 28 - 14
+        n.updown = addPoster(g, "pkg:/images/ui/icon_st_updown_28.png", rightEdge - 28, Int((h - 28) / 2), 28, 28)
+        n.updown.visible = false
+        rightEdge = rightEdge - 28 - 12
+    else if k = "lib"
+        ' (the Top Bar, Sidebar and Home columns: a check when on, "Off" when not, empty without a Home row)
+        for i = 0 to r.cols.count() - 1
+            cx = libColX(w, i)
+            v = r.cols[i]
+            if type(v) <> "roBoolean" and type(v) <> "Boolean"
+                ' (no Home row for this kind of library: an empty cell)
+            else if v
+                n.cells.push(addPoster(g, "pkg:/images/ui/icon_check_28.png", cx - 14, Int((h - 28) / 2), 28, 28))
+            else
+                c = addLabel(g, "Off", cx - 60, 0, 120, h, m.fSub, t.text3)
+                c.horizAlign = "center"
+                n.cells.push(c)
+            end if
+        end for
+        rightEdge = libColX(w, 0) - 100
     end if
-    lx = 34
-    if r.swatch <> invalid
-        ' (a color choice: its color as a dot before the name)
-        dot = g.createChild("Poster")
-        dot.uri = "pkg:/images/ui/white_circle_56.png"
-        dot.width = 36
-        dot.height = 36
-        dot.translation = [34, Int((h - 36) / 2)]
-        dot.blendColor = r.swatch
-        lx = 34 + 54
+    lx = 28
+    if k = "lib"
+        n.kindIcon = addPoster(g, "pkg:/images/ui/icon_" + Util.toText(r.icon) + "_36.png", 24, Int((h - 36) / 2), 36, 36)
+        lx = 80
     end if
+    twoLine = SetRows.isTwoLine(r)
     lineH = h
-    if twoLine then lineH = 62
+    if twoLine then lineH = 56
     vw = 0
     value = Util.toText(r.value)
-    if value <> ""
-        v = addLabel(g, value, 0, 0, 0, lineH, m.fValue, "0xFFFFFF8C")
+    if value <> "" and k <> "lib"
+        v = addLabel(g, value, 0, 0, 0, lineH, m.fValue, t.text2)
         v.horizAlign = "right"
         vw = v.boundingRect().width
-        if vw > 420 then vw = 420
+        if vw > Int(w / 2) then vw = Int(w / 2)
         v.width = vw + 4
         v.translation = [rightEdge - vw - 4, 0]
         if twoLine then v.translation = [rightEdge - vw - 4, Int((h - lineH) / 2)]
@@ -297,19 +340,25 @@ function makeRow(parent as object, r as object, y as integer, h as integer) as o
     if vw > 0 then labW = labW - vw - 20
     if labW < 200 then labW = 200
     ly = 0
-    if twoLine then ly = 4
-    n.lab = addLabel(g, Util.toText(r.label), lx, ly, labW, lineH, m.fRow, "0xFFFFFFFF")
+    if twoLine then ly = 6
+    n.lab = addLabel(g, Util.toText(r.label), lx, ly, labW, lineH, m.fRow, t.text1)
     if twoLine
-        subLines = Util.wrapLines(Util.toText(r.sub), SetRows.subWidth(), 3)
+        subLines = Util.wrapLines(Util.toText(r.sub), chars, 3)
         for i = 0 to subLines.count() - 1
-            n.subs.push(addLabel(g, subLines[i], lx, 58 + i * 30, rightEdge - lx - vw - 24, 30, m.fSub, "0xFFFFFF99"))
+            n.subs.push(addLabel(g, subLines[i], lx, 56 + i * 30, rightEdge - lx - vw - 24, 30, m.fSub, t.text2))
         end for
     end if
     paintRow(-1, false, n, r)
     return n
 end function
 
-' Paints row i focused or not (n / r: a row being made, before it is in m.nodes)
+' The centre of a Libraries table column (0 Top Bar, 1 Sidebar, 2 Home) in a row w wide
+function libColX(w as integer, col as integer) as integer
+    return w - 430 + col * 170
+end function
+
+' Paints row i focused or not (n / r: a row being made, before it is in m.nodes): focused = solid white with
+' dark text; not focused = the flat 8 % row fill (a picked library: 12 %) with white text
 sub paintRow(i as integer, isFocus as boolean, n = invalid as dynamic, r = invalid as dynamic)
     if n = invalid
         if i < 0 or i >= m.nodes.count() then return
@@ -318,73 +367,86 @@ sub paintRow(i as integer, isFocus as boolean, n = invalid as dynamic, r = inval
     end if
     if n.bg = invalid then return
     t = m.global.theme
-    dark = "0x1C1C1EFF"
-    soft = "0x1C1C1EA6"
-    isMoving = isFocus and m.moving <> "" and r.kind = "move"
+    dark = t.onFocus
+    soft = "0x111111A6"
     if isFocus
-        n.bg.uri = "pkg:/images/ui/st_row_focus.9.png"
-        n.shadow.visible = true
-        n.grp.scale = [1.03, 1.03]
-        n.lab.font = m.fRowBold
+        n.bg.blendColor = t.focusFill
         n.lab.color = dark
         if n.val <> invalid then n.val.color = soft
         if n.chev <> invalid then n.chev.blendColor = soft
         for each s in n.subs
-            s.color = "0x1C1C1EB3"
+            s.color = soft
         end for
     else
-        n.bg.uri = "pkg:/images/ui/st_row.9.png"
-        n.shadow.visible = false
-        n.grp.scale = [1.0, 1.0]
-        n.lab.font = m.fRow
-        n.lab.color = "0xFFFFFFFF"
-        if r.dim = true then n.lab.color = "0xFFFFFF59"
+        n.bg.blendColor = t.rowFill
+        if Util.flag(r, "selected") then n.bg.blendColor = t.controlFill
+        n.lab.color = t.text1
+        if Util.flag(r, "dim") then n.lab.color = t.text3
         if n.val <> invalid
-            n.val.color = "0xFFFFFF8C"
-            if r.dim = true then n.val.color = "0xFFFFFF40"
+            n.val.color = t.text2
+            if Util.flag(r, "dim") then n.val.color = t.text3
         end if
-        if n.chev <> invalid then n.chev.blendColor = "0xFFFFFF8C"
+        if n.chev <> invalid then n.chev.blendColor = t.text2
         for each s in n.subs
-            s.color = "0xFFFFFF99"
+            s.color = t.text2
         end for
     end if
+    if n.kindIcon <> invalid
+        n.kindIcon.blendColor = t.text
+        if isFocus then n.kindIcon.blendColor = dark
+    end if
+    for each c in n.cells
+        if c.subtype() = "Poster"
+            c.blendColor = t.text
+            if isFocus then c.blendColor = dark
+        else
+            c.color = t.text3
+            if isFocus then c.color = soft
+        end if
+    end for
     if n.track <> invalid
-        if r.on = true
-            n.track.blendColor = t.accent
-        else if isFocus
-            n.track.blendColor = "0x0000004D"
+        ' on: white track, dark knob; off: 25 % white track, white knob (on a focused white row: dark track)
+        if Util.flag(r, "on")
+            n.track.blendColor = t.text
+            n.knob.blendColor = dark
+            if isFocus
+                n.track.blendColor = dark
+                n.knob.blendColor = t.text
+            end if
         else
             n.track.blendColor = "0xFFFFFF40"
+            if isFocus then n.track.blendColor = "0x11111140"
+            n.knob.blendColor = t.text
         end if
-        if r.dim = true then n.track.opacity = 0.4
-    end if
-    if n.check <> invalid
-        n.check.blendColor = t.accent
-        if isFocus and t.accentName = "white" then n.check.blendColor = dark
+        n.track.opacity = 1.0
+        n.knob.opacity = 1.0
+        if Util.flag(r, "dim")
+            n.track.opacity = 0.4
+            n.knob.opacity = 0.4
+        end if
     end if
     if n.updown <> invalid
-        n.updown.visible = isMoving
+        n.updown.visible = isFocus and m.moving <> ""
         n.updown.blendColor = dark
-    end if
-    if isMoving
-        ' (a row picked up: the accent behind it, white text)
-        n.bg.uri = "pkg:/images/ui/st_row_focus.9.png"
-        n.bg.blendColor = t.accent
-        n.lab.color = t.onAccent
-        if n.val <> invalid then n.val.color = t.onAccent
-        n.updown.blendColor = t.onAccent
-    else
-        n.bg.blendColor = "0xFFFFFFFF"
     end if
 end sub
 
-' Keeps the focused row inside the window, with a margin above and below
+' Keeps the focused row inside the window, with a margin above and below (a tab's first row shows its heading)
 sub scrollToFocus()
     entry = m.stack.peek()
     top = 0
-    if m.focus >= 0
+    if m.focus >= 0 and m.zone <> "tabs"
         idx = m.focusables[m.focus]
-        top = SetRows.scrollFor(entry.top, m.rowY[idx], m.rowH[idx], 910, m.listH, 90)
+        y = m.rowY[idx]
+        ' (the heading and the notes above the first row of a section scroll in with it)
+        j = idx - 1
+        while j >= 0 and not SetRows.takesFocus(m.rows[j]) and m.rows[j].kind <> "note"
+            y = m.rowY[j]
+            j = j - 1
+        end while
+        top = SetRows.scrollFor(entry.top, y, m.rowY[idx] + m.rowH[idx] - y, 904, m.listH, 70)
+    else if m.zone = "tabs"
+        top = 0
     end if
     entry.top = top
     m.list.translation = [0, -top]
@@ -409,33 +471,166 @@ function focusedRow() as dynamic
     return m.rows[m.focusables[m.focus]]
 end function
 
-sub pushPage(id as string)
+' ---------------------------------------------------------------- tabs, sub-lists, the choice list
+
+sub selectTab(i as integer)
+    if i = m.tab then return
+    m.tab = i
     m.moving = ""
-    m.stack.push({ id: id, focus: 0, key: "", top: 0, row: invalid, order: false })
-    buildPage()
+    m.stack = [newEntry(m.tabList[i].id)]
+    m.spokenPage = ""
+    draw()
 end sub
 
-' A choice row's list of values, focused on the current one
-sub pushChoice(r as object)
+' From the tabs into the tab's settings (its first row, or where the focus was)
+sub enterContent()
+    if m.focusables.count() = 0 then return
+    m.zone = "content"
+    if m.focus < 0 then m.focus = 0
+    paintTabs()
+    paintRow(m.focusables[m.focus], true)
+    m.spokenPage = ""
+    scrollToFocus()
+    speakFocus()
+end sub
+
+sub toTabs()
+    if m.focus >= 0 then paintRow(m.focusables[m.focus], false)
+    m.zone = "tabs"
     m.moving = ""
-    m.stack.push({ id: "choice", focus: 0, key: "option|" + Util.toText(r.cur), top: 0, row: r, order: false })
-    buildPage()
+    paintTabs()
+    scrollToFocus()
+    speakFocus()
+end sub
+
+sub pushPage(id as string)
+    m.moving = ""
+    m.stack.push(newEntry(id))
+    draw()
 end sub
 
 sub popPage()
     m.moving = ""
     if m.stack.count() > 1 then m.stack.pop()
-    buildPage()
+    draw()
 end sub
 
-' Back to the page with this id (after removing the server the page was about)
-sub popTo(id as string)
-    while m.stack.count() > 1 and m.stack.peek().id <> id
+' Back to the tab's own page (after removing the server or profile a sub-list was about)
+sub popToTab()
+    while m.stack.count() > 1
         m.stack.pop()
     end while
 end sub
 
-' "Subtitles look like this." on a sample picture, under the Subtitles glyph (the player's own style function)
+' A choice's values in a small flat list next to its row (r need not be on the page: Reset's confirmation)
+sub openPop(r as object)
+    opts = choiceRows(r)
+    f = 0
+    for i = 0 to opts.count() - 1
+        if Util.flag(opts[i], "checked") then f = i
+    end for
+    m.pop = { row: r, opts: opts, focus: f, top: 0 }
+    m.zone = "pop"
+    m.popLayer.visible = true
+    drawPop()
+    m.spokenKey = ""
+    speakFocus()
+end sub
+
+sub closePop()
+    m.pop = invalid
+    m.popLayer.visible = false
+    m.zone = "content"
+    if m.focusables.count() = 0 then m.zone = "tabs"
+    paintTabs()
+    if m.zone = "content" and m.focus >= 0 then paintRow(m.focusables[m.focus], true)
+end sub
+
+' Builds the choice list: 560 wide, at the right of the content column, beside the row it changes
+sub drawPop()
+    p = m.pop
+    t = m.global.theme
+    itemH = 64
+    visible = p.opts.count()
+    if visible > 11 then visible = 11
+    pw = 560
+    ph = 12 + 48 + visible * itemH + 12
+    rowY = 540
+    rowH = 0
+    idx = -1
+    for i = 0 to m.rows.count() - 1
+        if m.rows[i].kind = p.row.kind and Util.toText(m.rows[i].id) = Util.toText(p.row.id) and Util.toText(m.rows[i].label) = Util.toText(p.row.label) then idx = i
+    end for
+    if idx >= 0
+        rowY = 176 + m.rowY[idx] - m.stack.peek().top
+        rowH = m.rowH[idx]
+    end if
+    px = contentX() + contentW() - pw - 20
+    py = SetRows.popTop(rowY, rowH, ph, 40, 1040)
+    m.popPanel.translation = [px, py]
+    m.popPanel.width = pw
+    m.popPanel.height = ph
+    m.popTitle.translation = [px + 28, py + 12]
+    m.popTitle.width = pw - 56
+    m.popTitle.text = UCase(Util.toText(p.row.label))
+    m.popTitle.color = t.text2
+    ' (scrolled so the focused value shows)
+    if p.focus < p.top then p.top = p.focus
+    if p.focus > p.top + visible - 1 then p.top = p.focus - visible + 1
+    m.popClip.translation = [px + 12, py + 60]
+    m.popClip.clippingRect = [0, 0, pw - 24, visible * itemH]
+    pl = m.popList
+    pl.removeChildrenIndex(pl.getChildCount(), 0)
+    pl.translation = [0, -p.top * itemH]
+    for i = 0 to p.opts.count() - 1
+        o = p.opts[i]
+        isFocus = i = p.focus
+        g = pl.createChild("Group")
+        g.translation = [0, i * itemH]
+        bgp = addPoster(g, "pkg:/images/ui/set_r12.9.png", 0, 2, pw - 24, itemH - 4)
+        bgp.blendColor = t.focusFill
+        bgp.visible = isFocus
+        fg = t.text1
+        if isFocus then fg = t.onFocus
+        if Util.flag(o, "checked")
+            ck = addPoster(g, "pkg:/images/ui/icon_check_28.png", 18, Int((itemH - 28) / 2), 28, 28)
+            ck.blendColor = fg
+        end if
+        lx = 62
+        if o.swatch <> invalid
+            dot = addPoster(g, "pkg:/images/ui/set_knob.png", lx, Int((itemH - 28) / 2), 28, 28)
+            dot.blendColor = o.swatch
+            lx = lx + 44
+        end if
+        addLabel(g, o.label, lx, 0, pw - 24 - lx - 16, itemH, m.fRow, fg)
+    end for
+end sub
+
+function popKey(key as string) as boolean
+    p = m.pop
+    if key = "up" or key = "down"
+        d = 1
+        if key = "up" then d = -1
+        nf = p.focus + d
+        if nf >= 0 and nf < p.opts.count()
+            p.focus = nf
+            drawPop()
+            speakFocus()
+        end if
+    else if key = "OK"
+        src = p.row
+        pick = p.opts[p.focus]
+        closePop()
+        applyValue(Util.toText(src.id), Util.toText(pick.id))
+    else if key = "back"
+        closePop()
+        m.spokenKey = ""
+        speakFocus()
+    end if
+    return true
+end function
+
+' "This is how subtitles will look." on a sample picture, right of the Subtitles rows (the player's own style)
 sub drawPreview(g as object)
     pw = 400
     ph = 225
@@ -474,42 +669,57 @@ sub drawPreview(g as object)
         addLabel(g, text, tx + o[0], ty + o[1], tw + 4, th, fnt, st.shade)
     end for
     addLabel(g, text, tx, ty, tw + 4, th, fnt, tc)
+    cap = addLabel(g, "Preview", 0, ph + 8, pw, 32, m.fSub, m.global.theme.text2)
+    cap.horizAlign = "center"
 end sub
 
 ' ---------------------------------------------------------------- Audio Guide
 
-' The focused row, said once per focus move: the page's title when it opens, the section when the focus enters
-' a new one, the row ("Next Up, switch, on"; "Banner Shows: Newest, menu button"), and the help note under it
+' Said once per focus move: on the tabs, the tab ("Home, tab, 2 of 9"); in a tab, the page's title when the
+' focus enters it, the section when the focus enters a new one, the row ("Next Up, switch, on"; "Banner
+' Shows: Newest, menu button") and the help note under it; in a choice list, the value and its place
 sub speakFocus()
     if not Speak.isOn() then return
-    entry = m.stack.peek()
-    sig = entry.id + "/" + m.stack.count().toStr()
     text = ""
-    if sig <> m.spokenPage
-        m.spokenPage = sig
-        m.spokenHead = ""
-        text = pageInfo(entry).title + ". "
-    end if
-    r = focusedRow()
-    if r <> invalid
-        idx = m.focusables[m.focus]
-        head = ""
-        for i = idx to 0 step -1
-            if m.rows[i].kind = "head"
-                head = Util.toText(m.rows[i].text)
-                exit for
-            end if
-        end for
-        if head <> m.spokenHead
-            m.spokenHead = head
-            if head <> "" then text = text + head + ". "
+    sig = m.zone
+    if m.zone = "tabs"
+        text = SetRows.tabSpeech(m.tabList[m.tab].label, m.tab, m.tabList.count())
+        sig = "tabs/" + m.tab.toStr()
+        m.spokenPage = ""
+    else if m.zone = "pop"
+        o = m.pop.opts[m.pop.focus]
+        r = { kind: "option", label: o.label, checked: o.checked }
+        text = SetRows.speech(r, false) + Speak.position(m.pop.focus, m.pop.opts.count())
+        sig = "pop/" + m.pop.focus.toStr()
+    else
+        entry = m.stack.peek()
+        sig = entry.id + "/" + m.stack.count().toStr()
+        if sig <> m.spokenPage
+            m.spokenPage = sig
+            m.spokenHead = ""
+            if m.stack.count() > 1 then text = pageTitle(entry) + ". "
         end if
-        text = text + SetRows.speech(r, m.moving <> "")
-        if r.kind = "option" then text = text + Speak.position(m.focus, m.focusables.count())
-        if idx + 1 < m.rows.count() and m.rows[idx + 1].kind = "note" then text = text + ". " + Util.toText(m.rows[idx + 1].text)
+        r = focusedRow()
+        if r <> invalid
+            idx = m.focusables[m.focus]
+            head = ""
+            for i = idx to 0 step -1
+                if m.rows[i].kind = "head"
+                    head = Util.toText(m.rows[i].text)
+                    exit for
+                end if
+            end for
+            if head <> m.spokenHead
+                m.spokenHead = head
+                if head <> "" then text = text + head + ". "
+            end if
+            text = text + SetRows.speech(r, m.moving <> "")
+            if idx + 1 < m.rows.count() and m.rows[idx + 1].kind = "note" then text = text + ". " + Util.toText(m.rows[idx + 1].text)
+        end if
+        sig = sig + "/" + m.focus.toStr()
     end if
     text = Speak.clean(text)
-    key = sig + "/" + m.focus.toStr() + "/" + text
+    key = sig + "/" + text
     if key = m.spokenKey then return
     m.spokenKey = key
     Speak.say(text)
@@ -519,9 +729,15 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
+    if m.zone = "pop" then return popKey(key)
+    if m.zone = "tabs" then return tabsKey(key)
     if m.moving <> "" then return movingKey(key)
     if key = "up"
-        moveFocus(-1)
+        if m.focus <= 0
+            toTabs()
+        else
+            moveFocus(-1)
+        end if
         return true
     else if key = "down"
         moveFocus(1)
@@ -531,22 +747,38 @@ function onKeyEvent(key as string, press as boolean) as boolean
         return true
     else if key = "left" or key = "right"
         r = focusedRow()
-        if r <> invalid and r.kind = "switch" and (r.on = true) <> (key = "right") then applyValue(r.id, onOff(key = "right"))
+        if r <> invalid and r.kind = "switch" and (Util.flag(r, "on")) <> (key = "right") then applyValue(r.id, onOff(key = "right"))
         return true
     else if key = "back"
-        if m.stack.peek().order = true
+        if Util.flag(m.stack.peek(), "order")
             useButton({ id: "navOrderDone" })
-            return true
         else if m.stack.count() > 1
             popPage()
-            return true
+        else
+            toTabs()
         end if
-        return false
+        return true
     end if
     return false
 end function
 
-' A row picked up in an order page: Up / Down move it, OK or Back put it down
+' The tab row: Left / Right switch tab (its settings show at once), Down or OK go in, Back closes Settings
+function tabsKey(key as string) as boolean
+    if key = "left" or key = "right"
+        d = 1
+        if key = "left" then d = -1
+        selectTab(SetRows.tabStep(m.tab, d, m.tabList.count()))
+        return true
+    else if key = "down" or key = "OK"
+        enterContent()
+        return true
+    else if key = "up"
+        return true
+    end if
+    return false
+end function
+
+' A row picked up in an order list: Up / Down move it, OK or Back put it down
 function movingKey(key as string) as boolean
     if key = "up" or key = "down"
         delta = 1
@@ -571,20 +803,18 @@ sub useFocused()
     if r = invalid then return
     k = r.kind
     if k = "link"
-        rememberTarget(r)
         pushPage(Util.toText(r.target))
     else if k = "choice"
-        pushChoice(r)
+        openPop(r)
     else if k = "switch"
-        applyValue(r.id, onOff(not (r.on = true)))
-    else if k = "option"
-        ' pick it and go back to the page the choice is on
-        src = m.stack.peek().row
-        m.stack.pop()
-        m.moving = ""
-        applyValue(Util.toText(src.id), Util.toText(r.id))
+        applyValue(r.id, onOff(not (Util.flag(r, "on"))))
     else if k = "button"
         useButton(r)
+    else if k = "lib"
+        ' (the library's options in the section under the table; the focus goes to its first row)
+        m.menuLib = Util.toText(r.id)
+        m.stack.peek().key = "button|libRename"
+        draw()
     else if k = "move"
         m.moving = Util.toText(r.id)
         paintRow(m.focusables[m.focus], true)
@@ -599,12 +829,6 @@ sub useFocused()
     end if
 end sub
 
-' A link to a library page: the library the page is about
-sub rememberTarget(r as object)
-    tg = Util.toText(r.target)
-    if tg.startsWith("lib:") then m.menuLib = tg.mid(4)
-end sub
-
 ' ---------------------------------------------------------------- changes
 
 ' Saves one setting and builds the page again; Home is rebuilt when Settings closes if it changed something there
@@ -616,7 +840,7 @@ sub applyValue(id as string, value as string)
         ' profile with a rating limit is watching)
         guarded({ do: "askWho", on: isOn })
         return
-    else if id = "accent" or id = "background" or id = "dimWatched"
+    else if id = "background" or id = "dimWatched"
         Util.writeText(id, value)
         m.global.theme = Theme.get()
         m.top.themeChanged = true
@@ -926,7 +1150,7 @@ sub runAct(act as object)
     if srv = invalid then return
     sid = Util.toText(srv.id)
     if what = "reset"
-        pushChoice({ kind: "choice", id: "resetConfirm", label: "Reset All Settings?", options: [{ id: "yes", label: "Reset" }, { id: "no", label: "Cancel" }], cur: "no" })
+        openPop({ kind: "choice", id: "resetConfirm", label: "Reset All Settings?", options: [{ id: "yes", label: "Reset" }, { id: "no", label: "Cancel" }], cur: "no" })
         return
     else if what = "askWho"
         Servers.setAsk(sid, Util.flag(act, "on"))
@@ -968,7 +1192,7 @@ sub openRatingChoice()
     if srv = invalid then return
     u = Servers.userOf(srv, m.menuProfile)
     if u = invalid then return
-    pushChoice({ kind: "choice", id: "rating:" + m.menuProfile, label: "Maximum Rating for " + Util.toText(u.n), options: Ratings.choices(), cur: Util.toText(u.r) })
+    openPop({ kind: "choice", id: "rating:" + m.menuProfile, label: "Maximum Rating for " + Util.toText(u.n), options: Ratings.choices(), cur: Util.toText(u.r) })
 end sub
 
 sub setRating(userId as string, value as string)
@@ -1038,8 +1262,8 @@ sub signOutProfile(userId as string)
     if us = invalid then return
     if Util.toText(us.token) <> "" then sendLogout(us)
     Servers.removeUser(Util.toText(srv.id), userId)
-    ' (its page is gone: back to Servers & Profiles)
-    popTo("servers")
+    ' (its sub-list is gone: back to the Profiles tab)
+    popToTab()
 end sub
 
 ' Forgets a server and ends its session there (best effort)
@@ -1053,7 +1277,7 @@ sub removeServer(id as string)
     Servers.forgetAll(id)
     Servers.remove(id)
     HomeLayout.forget(id)
-    popTo("servers")
+    popToTab()
 end sub
 
 ' ---------------------------------------------------------------- rename (the Roku keyboard)
