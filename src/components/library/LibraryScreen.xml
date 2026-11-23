@@ -15,6 +15,19 @@
         <field id="stale" type="boolean" value="false" />
     </interface>
     <children>
+        <!-- (v1.5) the focused title's backdrop behind the grid, faint and faded into the page so it blends with the
+             posters (never over them): two pictures cross-fade when the focus rests on another title -->
+        <Group id="bdGroup">
+            <Poster id="bdA" width="1920" height="1080" loadDisplayMode="scaleToZoom" opacity="0" />
+            <Poster id="bdB" width="1920" height="1080" loadDisplayMode="scaleToZoom" opacity="0" />
+            <Poster id="bdScrim" width="1920" height="1080" />
+            <Rectangle id="bdShade" width="1920" height="1080" color="0x00000000" />
+        </Group>
+        <Animation id="bdFade" duration="0.6" easeFunction="linear">
+            <FloatFieldInterpolator id="bdIn" key="[0.0, 1.0]" keyValue="[0.0, 0.4]" fieldToInterp="bdA.opacity" />
+            <FloatFieldInterpolator id="bdOut" key="[0.0, 1.0]" keyValue="[0.4, 0.0]" fieldToInterp="bdB.opacity" />
+        </Animation>
+        <Timer id="bdTimer" duration="0.45" repeat="false" />
         <!-- (VD-1) header in one line: logo, title, and the info line after the title on its baseline -->
         <Poster id="logo" uri="pkg:/images/logo.png" width="56" height="56" translation="[96,36]" />
         <Label id="title" height="60" translation="[172,34]" vertAlign="bottom" color="0xFFFFFFFF">
