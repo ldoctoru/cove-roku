@@ -141,11 +141,20 @@ namespace QuickPlay
         if Util.toText(f.itemId) = "" or t = "" or t = "Person" then return invalid
         p = { itemType: t, title: Util.toText(f.title), eyebrow: "", backdrop: Util.toText(f.backdrop), logo: Util.toText(f.logo), overview: Util.toText(f.overview), meta: Util.toText(f.heroMeta), played: Util.flag(f, "played"), full: full }
         if p.meta = "" then p.meta = Util.toText(f.meta)
+        ' (v1.5 details) the card's own picture (already loaded: shown under the full-size artwork while it loads),
+        ' whether it is a wide one, and the resume progress (the progress line is there at once)
+        p.image = Util.toText(f.hdPosterUrl)
+        p.imageWide = Util.flag(f, "landscape")
+        p.progress = Util.toNumber(f.progress)
         if t = "Episode"
             ' the details page: series name and number above the episode's own title, no logo
             chip = Util.toText(f.chip)
             p.eyebrow = p.title
             if chip <> "" then p.eyebrow = p.eyebrow + "  ·  " + chip
+            ' (v1.5 details) the series' logo (or name) with "S4:E2 - The Trip" under it
+            p.seriesName = p.title
+            p.seriesLogo = p.logo
+            p.epLine = Util.toText(f.episode).replace("  ·  ", " - ")
             p.title = episodeNameOf(Util.toText(f.episode))
             p.logo = ""
         end if

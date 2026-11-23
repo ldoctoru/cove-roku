@@ -661,6 +661,7 @@ def main(argv=None):
         draw_all()
         draw_player_v14()
         draw_settings_v15()
+        draw_details_v15()
         out = os.path.normpath(args.out)
         if args.check:
             added, changed, removed = compare(tmp, out)
@@ -775,6 +776,46 @@ def draw_macset():
     save(circle(28, WHITE), "set_knob.png")
     icon("st_chevron", 28, st_chevron)
     icon("st_updown", 28, st_updown)
+
+
+# ==================================================================================================== v1.5 details
+# (v1.5 round 3, every file starts with "icon_dt_") The Emby-style details page (components/details): the ⋯ More
+# button, and the More menu's right-hand glyphs not drawn elsewhere at 28 px (add to collection / playlist, refresh,
+# go to collection / series, quality). White, tinted with blendColor at runtime (dark on a focused white row).
+def dt_more(d, n):
+    r = n * 0.085
+    for x in (0.22, 0.5, 0.78):
+        d.ellipse([n * x - r, n * 0.5 - r, n * x + r, n * 0.5 + r], fill=WHITE)
+
+
+def dt_listadd(d, n):
+    w = int(n * 0.09)
+    for y, x2 in ((0.24, 0.84), (0.46, 0.84), (0.68, 0.5)):
+        d.line([(n * 0.1, n * y), (n * x2, n * y)], fill=WHITE, width=w)
+    d.line([(n * 0.74, n * 0.56), (n * 0.74, n * 0.92)], fill=WHITE, width=w)
+    d.line([(n * 0.56, n * 0.74), (n * 0.92, n * 0.74)], fill=WHITE, width=w)
+
+
+def dt_refresh(d, n):
+    w = int(n * 0.1)
+    import math
+    d.arc([n * 0.16, n * 0.16, n * 0.84, n * 0.84], -40, 245, fill=WHITE, width=w)
+    # the arrow head at the arc's end (about 11 o'clock), pointing clockwise (to the right)
+    a = math.radians(248)
+    ex, ey = 0.5 + 0.34 * math.cos(a), 0.5 + 0.34 * math.sin(a)
+    dx, dy = -math.sin(a), math.cos(a)
+    px, py = -dy, dx
+    tip = (n * (ex + 0.2 * dx), n * (ey + 0.2 * dy))
+    d.polygon([tip, (n * (ex + 0.15 * px), n * (ey + 0.15 * py)), (n * (ex - 0.15 * px), n * (ey - 0.15 * py))], fill=WHITE)
+
+
+def draw_details_v15():
+    icon("dt_more", 28, dt_more)
+    icon("dt_listadd", 28, dt_listadd)
+    icon("dt_refresh", 28, dt_refresh)
+    icon("dt_folder", 28, folder_icon)
+    icon("dt_tv", 28, tv_icon)
+    icon("dt_quality", 28, quality)
 
 
 if __name__ == "__main__":
