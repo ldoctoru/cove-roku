@@ -179,7 +179,7 @@ sub showPreview(p as object)
         m.top.findNode(n).text = ""
     end for
     ov = Util.toText(p.overview)
-    lines = Util.wrapLines(ov, 72, 3)
+    lines = wrapOverview(ov, 3)
     if Util.flag(p, "full") and ov = "" and Items.hidesSpoilers({ Type: t, UserData: { Played: Util.flag(p, "played") } }) then lines = ["Description hidden until you watch this episode."]
     skeletonLines = 0
     ' (a slim list has no description: three placeholder bars, the common length)
@@ -459,7 +459,7 @@ sub showItem(it as object)
         m.logo.uri = logoUrl
     end if
     buildKind(it)
-    lines = Util.wrapLines(Util.toText(it.Overview), 72, 3)
+    lines = wrapOverview(Util.toText(it.Overview), 3)
     ' Settings → Hide spoilers: no description until the episode is watched
     if Items.hidesSpoilers(it) and Util.toText(it.Overview) <> "" then lines = ["Description hidden until you watch this episode."]
     m.lines = lines.count()
@@ -621,12 +621,55 @@ end sub
 
 ' ---------------------------------------------------------------- the whole description
 
+' (v1.4 VD-21) The description in lines of up to 980 px, measured with the hidden ovMeasure label (the same
+' font), instead of 72 characters; a cut text ends in "..." with room left for MORE
+function wrapOverview(text as string, maxLines as integer) as object
+    meas = m.top.findNode("ovMeasure")
+    limit = 980
+    lines = []
+    words = text.replace(chr(13), " ").replace(chr(10), " ").split(" ")
+    line = ""
+    cut = false
+    for each w in words
+        if w <> ""
+            candidate = w
+            if line <> "" then candidate = line + " " + w
+            meas.text = candidate
+            if line = "" or meas.boundingRect().width <= limit
+                line = candidate
+            else
+                lines.push(line)
+                line = w
+                if lines.count() = maxLines
+                    cut = true
+                    exit for
+                end if
+            end if
+        end if
+    end for
+    if not cut
+        if line <> "" then lines.push(line)
+        return lines
+    end if
+    ' (shorten the last line word by word until it fits with "..." and MORE)
+    parts = lines[maxLines - 1].split(" ")
+    last = ""
+    while parts.count() > 0
+        last = Util.join(parts, " ")
+        meas.text = last + "..."
+        if meas.boundingRect().width <= limit - 110 then exit while
+        parts.pop()
+    end while
+    lines[maxLines - 1] = last + "..."
+    return lines
+end function
+
 ' A description longer than the three lines ends in "... MORE"; Up from the buttons highlights it and OK opens
 ' the whole text in a panel (Cove for macOS shows it all in the header, which a TV page has no room for)
 sub placeMore(it as object, lines as object)
     full = Util.toText(it.Overview).trim()
     m.ovMore = false
-    if full <> "" and not Items.hidesSpoilers(it) and lines.count() = 3 then m.ovMore = Util.wrapLines(full, 72, 4).count() > 3
+    if full <> "" and not Items.hidesSpoilers(it) and lines.count() = 3 then m.ovMore = wrapOverview(full, 4).count() > 3
     more = m.top.findNode("ovMore")
     more.visible = m.ovMore
     m.ovWidth = 0

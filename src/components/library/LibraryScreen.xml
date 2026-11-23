@@ -32,7 +32,7 @@
         <MarkupGrid id="grid" translation="[78,168]" itemComponentName="PosterItem" itemSize="[232,432]"
                     itemSpacing="[22,0]" numColumns="7" numRows="2" vertFocusAnimationStyle="fixedFocus"
                     drawFocusFeedback="false" />
-        <Label id="status" width="1720" height="44" translation="[100,520]" color="0xFFFFFFCC" text="Loading...">
+        <Label id="status" width="1728" height="44" translation="[96,520]" color="0xFFFFFFCC" text="Loading...">
             <Font role="font" uri="font:MediumSystemFontFile" size="32" />
         </Label>
         <!-- placeholder cards while the first page loads -->
@@ -48,6 +48,6 @@
         <!-- (v1.2 NV-14) the focused card is kept for the session once the focus rests -->
         <Timer id="posTimer" duration="0.5" repeat="false" />
         <!-- the load failed or nothing to show: Try Again / Clear Filters / ... (Up still reaches the pills) -->
-        <ErrorPanel id="errorPanel" translation="[100,340]" width="1720" visible="false" />
+        <ErrorPanel id="errorPanel" translation="[96,340]" width="1728" visible="false" />
     </children>
 </component>

@@ -161,7 +161,7 @@ sub buildRows()
     end if
     if root.getChildCount() = 0
         m.status.text = "No movies or shows with " + Util.toText(m.top.person.name) + " on this server."
-        m.status.translation = [100, 420]
+        m.status.translation = [96, 420]
         m.status.visible = true
         if m.favKnown and m.top.isInFocusChain() then enterHead()
         return

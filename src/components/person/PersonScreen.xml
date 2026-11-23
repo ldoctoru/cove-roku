@@ -41,12 +41,12 @@
                  drawFocusFeedback="false" visible="false">
             <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="34" />
         </RowList>
-        <Label id="status" width="1720" height="44" translation="[100,520]" color="0xFFFFFFCC" text="Loading...">
+        <Label id="status" width="1728" height="44" translation="[96,520]" color="0xFFFFFFCC" text="Loading...">
             <Font role="font" uri="font:MediumSystemFontFile" size="32" />
         </Label>
         <!-- placeholder cards while the titles load -->
         <Skeleton id="skeleton" translation="[96,430]" rows="1" cols="6" stepX="276" />
         <!-- the titles couldn't be loaded: Try Again / Switch Server / Settings (Up still reaches the heart) -->
-        <ErrorPanel id="errorPanel" translation="[100,440]" width="1720" visible="false" />
+        <ErrorPanel id="errorPanel" translation="[96,440]" width="1728" visible="false" />
     </children>
 </component>

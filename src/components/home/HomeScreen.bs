@@ -529,7 +529,7 @@ sub showHero(i as integer)
     m.lines = lines.count()
     chip = m.top.findNode("chipText")
     chip.text = it.chip
-    m.top.findNode("chipBg").width = it.chip.len() * 14 + 28
+    m.top.findNode("chipBg").width = Int(chip.boundingRect().width) + 28
     ' (v1.2) the season and episode are on the meta line now (Items.heroMeta): no chip
     m.top.findNode("chip").visible = false
     ' (v1.4 H1) "Resume 24:10" with the restart arrow when there is a resume point (the Mac's "↻ 24:10"; the
