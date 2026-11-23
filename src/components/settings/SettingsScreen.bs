@@ -639,12 +639,7 @@ sub applyValue(id as string, value as string)
     else if id.startsWith("libset:")
         ' "libset:<key>:<library id>": Home Row Shows (style), Sort By (sort), Show (show)
         parts = id.split(":")
-        libId = id.mid(8 + parts[1].len())
-        if parts[1] = "nav" or parts[1] = "home"
-            Prefs.setLibrary(libId, parts[1], isOn)
-        else
-            Prefs.setLibrary(libId, parts[1], value)
-        end if
+        Prefs.setLibrary(id.mid(8 + parts[1].len()), parts[1], value)
         m.top.themeChanged = true
     else if id.startsWith("rating:")
         setRating(id.mid(7), value)

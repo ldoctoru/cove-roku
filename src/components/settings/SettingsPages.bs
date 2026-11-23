@@ -377,12 +377,14 @@ sub librariesRows(out as object)
     out.push(rNote("Episodes you haven't watched show the series' picture instead of their own, and no description, on Home, the series page, the episode's page and Up Next."))
 end sub
 
-' A library's value on the Libraries page: where it shows
+' A library's value on the Libraries page: where it shows ("Top Bar · Sidebar · Home", or Hidden)
 function libSummary(l as object) as string
-    lp = Prefs.library(Util.toText(l.id))
+    id = Util.toText(l.id)
+    libs = navLibs()
     parts = []
-    if lp.nav then parts.push("Sidebar")
-    if lp.nav and lp.home and Prefs.hasHomeRow(Util.toText(l.collectionType)) then parts.push("Home")
+    if NavPrefs.isShown("top", "L" + id, libs) then parts.push("Top Bar")
+    if NavPrefs.isShown("side", "L" + id, libs) then parts.push("Sidebar")
+    if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType))) and NavPrefs.libraryOnHome(id) then parts.push("Home")
     if parts.count() = 0 then return "Hidden"
     return Util.join(parts, " · ")
 end function
@@ -391,23 +393,28 @@ sub libOrderRows(out as object)
     for each l in homeLibs()
         out.push({ kind: "move", id: Util.toText(l.id), label: Util.toText(l.title), value: "" })
     end for
-    out.push(rNote("The order of the libraries in the sidebar, the top bar and Home. Saved for this server."))
+    out.push(rNote("The order of the libraries here and in Home's Libraries row, and where a new library goes. The top bar, the sidebar and Home's rows each keep their own order (Navigation, Home > Row Order). Saved for this server."))
 end sub
 
+' A library's page: where it shows (top bar, sidebar, Home: each on its own), its Home row, how it opens, its name
 sub libraryRows(out as object, libId as string)
     lp = Prefs.library(libId)
-    homeRow = Prefs.hasHomeRow(libKindName(libId))
-    out.push(rSwitch("libset:nav:" + libId, "Show in the Sidebar", lp.nav))
-    if homeRow
-        out.push(rDim(rSwitch("libset:home:" + libId, "Row on Home", lp.nav and lp.home), not lp.nav))
-        out.push(rDim(rChoice("libset:style:" + libId, "Home Row Shows", libStyleOptions(), lp.style), not (lp.nav and lp.home)))
+    libs = navLibs()
+    entryId = "L" + libId
+    out.push(rSwitch("nav:top:" + entryId, "Show in Top Bar", NavPrefs.isShown("top", entryId, libs)))
+    out.push(rSwitch("nav:side:" + entryId, "Show in Sidebar", NavPrefs.isShown("side", entryId, libs)))
+    if Prefs.hasHomeRow(libKindName(libId))
+        onHome = NavPrefs.libraryOnHome(libId)
+        out.push(rSwitch("libHome:" + libId, "Row on Home", onHome))
+        out.push(rDim(rChoice("libset:style:" + libId, "Home Row Shows", libStyleOptions(), lp.style), not onHome))
     end if
+    out.push(rInfo("Open As", "Grid", ""))
     out.push(rChoice("libset:sort:" + libId, "Sort By", libSortOptions(), lp.sort))
     out.push(rChoice("libset:show:" + libId, "Show", libShowOptions(), lp.show))
     nm = rButton("libRename", "Name")
     nm.value = libTitle(libId)
     out.push(nm)
-    out.push(rNote("Sort By and Show are where the library page starts; you can still change them there. Name: leave it empty to use the server's name."))
+    out.push(rNote("The top bar, the sidebar and Home are set separately: a library can have a row on Home without being in the sidebar. A library opens as a poster grid. Sort By and Show are where its page starts; you can still change them there. Name: leave it empty to use the server's name."))
 end sub
 
 function libStyleOptions() as object
