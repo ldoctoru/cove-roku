@@ -104,3 +104,35 @@ sub test_nextUpQuerySeriesPlay()
     t_eq(HomeLayout_nextUpQuery(true, true, ""), "&enableRewatching=true", "Jellyfin + rewatch, no cutoff")
     t_eq(HomeLayout_nextUpQuery(true, false, ""), "", "Jellyfin without rewatch")
 end sub
+
+' (v1.5) a library's Home row no longer depends on the sidebar
+sub test_libraryRow_independent_of_sidebar()
+    libs = t_libs()
+    t_ok(HomeLayout_isOn("v15", "Lm1"), "on by default")
+    ' switched off and on again: the sidebar switch is left alone
+    Prefs_setLibrary("m1", "nav", false)
+    HomeLayout_setOn("v15", libs, "Lm1", true)
+    t_ok(HomeLayout_isOn("v15", "Lm1"), "row on while hidden from the sidebar")
+    t_eq(Prefs_library("m1").nav, false, "setOn no longer puts it in the sidebar")
+    HomeLayout_setOn("v15", libs, "Lm1", false)
+    t_ok(not HomeLayout_isOn("v15", "Lm1"), "row off")
+    t_ok(NavPrefs_isShown("side", "Lt1", libs), "Shows still in the sidebar")
+    HomeLayout_setOn("v15", libs, "Lt1", false)
+    t_ok(not HomeLayout_isOn("v15", "Lt1"), "Shows row off")
+    t_ok(NavPrefs_isShown("side", "Lt1", libs), "and still in the sidebar")
+end sub
+
+' (v1.5 migration) hidden from the sidebar with home = true had no row before the update: still none after
+sub test_libraryRow_migration()
+    libs = [{ id: "a1", collectionType: "movies" }, { id: "b1", collectionType: "movies" }]
+    Prefs_setLibrary("a1", "nav", false)
+    t_eq(Prefs_library("a1").home, true, "saved home = true")
+    t_ok(not HomeLayout_isOn("mig", "La1"), "no row before the migration ran")
+    t_ok(HomeLayout_isOn("mig", "Lb1"), "the shown library keeps its row")
+    t_eq(NavPrefs_migrateHome(libs), 1, "one library migrated")
+    t_eq(Prefs_library("a1").home, false, "home set false once")
+    t_ok(not HomeLayout_isOn("mig", "La1"), "still no row")
+    HomeLayout_setOn("mig", libs, "La1", true)
+    t_eq(NavPrefs_migrateHome(libs), 0, "not again")
+    t_ok(HomeLayout_isOn("mig", "La1"), "switched on by the user: stays on")
+end sub

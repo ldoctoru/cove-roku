@@ -3,6 +3,7 @@ import "pkg:/source/Items.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/HomeLayout.bs"
+import "pkg:/source/NavPrefs.bs"
 import "pkg:/source/Dates.bs"
 import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/Servers.bs"
@@ -62,13 +63,21 @@ sub load()
     end for
     sid = Util.toText(srv.id)
     libs = Prefs.orderLibraries(libs, sid)
+    ' (v1.5) a library hidden from the sidebar had no Home row before: it keeps none (once per library)
+    migrated = NavPrefs.migrateHome(libs)
+    if migrated > 0 then print "Cove: home migration: "; migrated.toStr(); " libraries hidden from the sidebar keep no Home row"
+    ' the Libraries tiles row: the libraries the menu shows (the current menu style's list), as before
+    inMenu = {}
+    for each e in NavPrefs.entries(NavPrefs.activePlace(), libs)
+        if e.isLibrary and e.on then inMenu[e.id] = true
+    end for
     shown = []
     byId = {}
     for each l in libs
         lp = Prefs.library(l.id)
-        l.nav = lp.nav
+        l.nav = inMenu.doesExist(HomeLayout.libRowId(l.id))
         byId[HomeLayout.libRowId(l.id)] = l
-        if lp.nav
+        if l.nav
             v = l.view
             v.Name = l.title
             shown.push(v)
@@ -103,12 +112,9 @@ sub load()
     for each id in ids
         isShown = false
         if serverMode
-            ' (the server decides the sections; a library's row still needs it in the sidebar and on Home)
+            ' (the server decides the sections; a library's row still needs its Home switch on)
             isShown = true
-            if id.left(1) = "L"
-                lp = Prefs.library(id.mid(1))
-                isShown = lp.nav and lp.home
-            end if
+            if id.left(1) = "L" then isShown = NavPrefs.libraryOnHome(id.mid(1))
         else
             isShown = HomeLayout.isOn(sid, id)
         end if
@@ -132,7 +138,10 @@ sub load()
             else if byId.doesExist(id)
                 l = byId[id]
                 lp = Prefs.library(l.id)
-                if Prefs.hasHomeRow(l.collectionType) then queueRow(rowTitle(lp.style, l.title), libraryRow(uid, l, lp.style, f, unw), false)
+                if Prefs.hasHomeRow(l.collectionType)
+                    queueRow(rowTitle(lp.style, l.title), libraryRow(uid, l, lp.style, f, unw), false)
+                    m.pendingRows.peek().libRow = true
+                end if
             end if
         end if
     end for
@@ -150,7 +159,7 @@ sub load()
         buildRows(first, true)
         shownFirst = first.getChildCount() > 0
         if shownFirst
-            print "Cove: home rows "; first.getChildCount(); " (Upcoming still loading)"
+            print "Cove: home rows " + first.getChildCount().toStr() + " (library rows " + m.libRowsShown.toStr() + ", Upcoming still loading)"
             if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch (without Upcoming)"
             m.top.partial = true
             m.top.content = first
@@ -162,7 +171,7 @@ sub load()
         ' and drawn again (~0.45 s on the Streambar)
         if shownFirst
             insertLateRows(first)
-            print "Cove: home rows "; first.getChildCount()
+            print "Cove: home rows " + first.getChildCount().toStr() + " (library rows " + m.libRowsShown.toStr() + ")"
             if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch"
             m.top.rowsAdded = m.top.rowsAdded + 1
             m.pendingRows = []
@@ -181,7 +190,7 @@ sub load()
         end if
         return
     end if
-    print "Cove: home rows "; root.getChildCount()
+    print "Cove: home rows " + root.getChildCount().toStr() + " (library rows " + m.libRowsShown.toStr() + ")"
     if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch"
     m.top.partial = false
     m.top.content = root
@@ -199,9 +208,8 @@ sub loadBanner(libs as dynamic)
     kinds = {}
     if type(libs) = "roArray"
         for each l in libs
-            lp = Prefs.library(Util.toText(l.id))
             ct = Util.toText(l.collectionType)
-            if lp.nav and lp.home and Prefs.hasHomeRow(ct)
+            if NavPrefs.libraryOnHome(Util.toText(l.id)) and Prefs.hasHomeRow(ct)
                 parents.push(Util.toText(l.id))
                 kinds[Util.toText(l.id)] = ct
             end if
@@ -338,13 +346,16 @@ sub buildRows(root as object, skipLate = false as boolean)
         end for
         Ratings.prefetchSeries(m.srv, everything)
     end if
+    m.libRowsShown = 0
     for each p in m.pendingRows
         if skipLate and p.spec <> invalid and not p.spec.done
             ' (still loading)
         else if p.upcoming
             addUpcomingRow(root, p.list)
         else
+            before = root.getChildCount()
             addRow(root, p.title, p.list, p.landscape)
+            if Util.flag(p, "libRow") and root.getChildCount() > before then m.libRowsShown = m.libRowsShown + 1
         end if
     end for
     if not skipLate then m.pendingRows = []

@@ -348,7 +348,7 @@ sub buildNav()
     sig = place + ":" + shownList.count().toStr()
     if sig <> m.navLogged
         m.navLogged = sig
-        print "Cove: nav "; place; " "; shownList.count(); " entries"
+        print "Cove: nav " + place + " " + shownList.count().toStr() + " entries"
     end if
     m.nav.items = items
 end sub

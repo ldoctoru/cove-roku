@@ -1,5 +1,6 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Prefs.bs"
+import "pkg:/source/NavPrefs.bs"
 
 ' Settings → Home → Rows: which Home rows show and in what order, per server.
 ' Row ids: "resume" (Continue Watching), "nextup", "upcoming" (v1.1: episodes not aired yet), "favorites",
@@ -10,7 +11,8 @@ import "pkg:/source/Prefs.bs"
 ' on / off (no sign: the default, on for resume, upcoming and libraries, off for Recently Added and Recently
 ' Released; Upcoming shows only when the server has upcoming episodes). The other switches keep their
 ' existing keys, so Settings → Libraries and Home → Rows can't disagree: Next Up = "showUpNextRow",
-' Favorites = "homeFavorites", a library's row = its "Row on Home" (lib:<id>.home, with the library shown).
+' Favorites = "homeFavorites", a library's row = its "Row on Home" (v1.5: NavPrefs.libraryOnHome, no longer tied
+' to the sidebar).
 namespace HomeLayout
 
     function regKey(serverId as string) as string
@@ -137,14 +139,11 @@ namespace HomeLayout
         list[at] = id
     end sub
 
-    ' Is the row switched on? (a library's row also needs the library in the sidebar, as before)
+    ' Is the row switched on? (v1.5: a library's row on its own, whether or not the menus show the library)
     function isOn(serverId as string, id as string) as boolean
         if id = "nextup" then return Prefs.showUpNextRow()
         if id = "favorites" then return Prefs.flagOn("homeFavorites", true)
-        if id.left(1) = "L"
-            lp = Prefs.library(id.mid(1))
-            return lp.nav and lp.home
-        end if
+        if id.left(1) = "L" then return NavPrefs.libraryOnHome(id.mid(1))
         st = readState(serverId)
         if st.flags.doesExist(id) then return st.flags[id] = true
         ' (Recently Added and Recently Released are off until switched on, so Home looks as before)
@@ -157,8 +156,7 @@ namespace HomeLayout
         else if id = "favorites"
             Prefs.setFlag("homeFavorites", on)
         else if id.left(1) = "L"
-            Prefs.setLibrary(id.mid(1), "home", on)
-            if on then Prefs.setLibrary(id.mid(1), "nav", true)
+            NavPrefs.setLibraryOnHome(id.mid(1), on)
         else
             st = readState(serverId)
             st.order = orderedIds(serverId, libs)
