@@ -279,7 +279,7 @@ function makeRow(parent as object, r as object, y as integer, h as integer, w as
     end if
     if k = "cols"
         for i = 0 to r.cols.count() - 1
-            c = addLabel(g, UCase(r.cols[i]), libColX(w, i) - 80, 4, 160, 36, m.fCols, t.text3)
+            c = addLabel(g, UCase(r.cols[i]), libColX(w, i) - 72, 4, 144, 36, m.fCols, t.text3)
             c.horizAlign = "center"
         end for
         return n
@@ -300,7 +300,7 @@ function makeRow(parent as object, r as object, y as integer, h as integer, w as
         n.updown.visible = false
         rightEdge = rightEdge - 28 - 12
     else if k = "lib"
-        ' (the Top Bar, Sidebar and Home columns: a check when on, "Off" when not, empty without a Home row)
+        ' (the Top Bar, Sidebar, Home Row and My Media columns: a check when on, "Off" when not)
         for i = 0 to r.cols.count() - 1
             cx = libColX(w, i)
             v = r.cols[i]
@@ -353,8 +353,9 @@ function makeRow(parent as object, r as object, y as integer, h as integer, w as
 end function
 
 ' The centre of a Libraries table column (0 Top Bar, 1 Sidebar, 2 Home) in a row w wide
+' (v1.5) four columns: Top Bar, Sidebar, Home Row, My Media
 function libColX(w as integer, col as integer) as integer
-    return w - 430 + col * 170
+    return w - 540 + col * 150
 end function
 
 ' Paints row i focused or not (n / r: a row being made, before it is in m.nodes): focused = solid white with
@@ -860,6 +861,15 @@ sub applyValue(id as string, value as string)
         ' a library's row on Home (no longer tied to the sidebar)
         NavPrefs.setLibraryOnHome(id.mid(8), isOn)
         m.top.themeChanged = true
+    else if id.startsWith("libMedia:")
+        ' (v1.5) a library's tile in Home's My Media row
+        NavPrefs.setLibraryInMyMedia(id.mid(9), isOn)
+        m.top.themeChanged = true
+    else if id = "libSetAll"
+        ' (v1.5) Libraries → Set All Libraries: one place for every library at once
+        n = NavPrefs.setAllLibraries(value, navLibs())
+        m.top.themeChanged = true
+        if n > 0 then Toasts.notify(labelOf(NavPrefs.setAllActions(), value), "check")
     else if id.startsWith("libset:")
         ' "libset:<key>:<library id>": Home Row Shows (style), Sort By (sort), Show (show)
         parts = id.split(":")
@@ -960,13 +970,6 @@ sub useButton(r as object)
 end sub
 
 ' ---------------------------------------------------------------- libraries and servers
-
-function libKindName(id as string) as string
-    for each l in m.libs
-        if l.id = id then return l.kind
-    end for
-    return ""
-end function
 
 ' The current server's id, for its own library order
 function serverKey() as string

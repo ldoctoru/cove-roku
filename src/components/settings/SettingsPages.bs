@@ -2,7 +2,7 @@
 ' rows in sections (see source/SetRows.bs for the kinds). A few rows open a sub-list inside the same tab (the
 ' top bar's / sidebar's entries, Home's library rows and row order, the library order, a server, a profile).
 ' Page ids: the tabs (general, home, libraries, subtitles, playback, connect, profiles, remote, about) and the
-' sub-lists navPlace:<top|side>, homeLibRows, homeOrder, libOrder, srv:<serverId>, prof:<userId>.
+' sub-lists navPlace:<top|side>, homeLibRows, homeMyMedia, homeOrder, libOrder, srv:<serverId>, prof:<userId>.
 
 ' ---------------------------------------------------------------- row makers
 
@@ -63,6 +63,7 @@ function pageTitle(entry as object) as string
         if tb.id = pid then return tb.label
     end for
     if pid = "homeLibRows" then return "Library Rows"
+    if pid = "homeMyMedia" then return "My Media Libraries"
     if pid = "homeOrder" then return "Row Order"
     if pid.startsWith("navPlace:")
         if Util.flag(entry, "order") then return placeName(pid.mid(9)) + " Order"
@@ -96,6 +97,8 @@ function pageRows(entry as object) as object
         homeOrderRows(out)
     else if pid = "homeLibRows"
         homeLibRowsRows(out)
+    else if pid = "homeMyMedia"
+        homeMyMediaRows(out)
     else if pid.startsWith("navPlace:")
         navPlaceRows(out, pid.mid(9), Util.flag(entry, "order"))
     else if pid = "libraries"
@@ -173,7 +176,7 @@ function homeRowLabel(id as string) as string
     if id = "favorites" then return "Favorites"
     if id = "recent" then return "Recently Added"
     if id = "released" then return "Recently Released"
-    if id = "libraries" then return "Libraries Row"
+    if id = "libraries" then return "My Media"
     if id.left(1) = "L"
         t = libTitle(id.mid(1))
         if t <> "" then return t
@@ -200,13 +203,14 @@ sub homeRows(out as object)
     out.push(rSwitch("homeServerLayout", "Use the Server's Home Layout", srvOn))
     out.push(rNote("Home follows the Home sections set in the server's web app (Settings > Home): Continue Watching, Next Up, Latest per library and My Media. Sections Cove doesn't have are left out, and Upcoming and Recently Released show only with Cove's layout. Saved for this server."))
     out.push(rHead("Rows"))
-    for each id in ["resume", "nextup", "upcoming", "recent", "released", "favorites", "libraries"]
+    for each id in ["resume", "nextup", "libraries", "upcoming", "recent", "released", "favorites"]
         out.push(rDim(rSwitch("home:" + id, homeRowLabel(id), HomeLayout.isOn(sid, id)), srvOn))
     end for
+    out.push(rLink("", "My Media Libraries", SetRows.countOn(libraryMyMediaEntries()), "homeMyMedia"))
     if srvOn
         out.push(rNote("Set by the server's Home layout (above). A library's row still follows its own switch."))
     else
-        out.push(rNote("Next Up: the next episode of each show you're watching. Upcoming Episodes shows only when the server has episodes that haven't aired yet."))
+        out.push(rNote("Next Up: the next episode of each show you're watching. My Media: a tile for each library, as in Emby. Upcoming Episodes shows only when the server has episodes that haven't aired yet."))
     end if
     out.push(rLink("", "Library Rows", SetRows.countOn(libraryHomeEntries()), "homeLibRows"))
     out.push(rDim(rLink("", "Row Order", "", "homeOrder"), srvOn))
@@ -231,19 +235,36 @@ sub homeRows(out as object)
     end if
 end sub
 
-' The libraries that can have a row on Home, each with its switch: [{ id, label, on }]
+' Every library with its Home row switch (v1.5: every kind of library has one): [{ id, label, on }]
 function libraryHomeEntries() as object
     out = []
     for each l in homeLibs()
-        if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType)))
-            id = Util.toText(l.id)
-            out.push({ id: id, label: Util.toText(l.title), on: NavPrefs.libraryOnHome(id) })
-        end if
+        id = Util.toText(l.id)
+        out.push({ id: id, label: Util.toText(l.title), on: NavPrefs.libraryOnHome(id) })
     end for
     return out
 end function
 
-' Home → Library Rows: a switch per library that has a Home row (on Home whether or not it's in the sidebar)
+' (v1.5) Every library with its My Media switch: [{ id, label, on }]
+function libraryMyMediaEntries() as object
+    out = []
+    for each l in homeLibs()
+        id = Util.toText(l.id)
+        out.push({ id: id, label: Util.toText(l.title), on: NavPrefs.libraryInMyMedia(id) })
+    end for
+    return out
+end function
+
+' Home → My Media Libraries: a switch per library for its tile in the My Media row
+sub homeMyMediaRows(out as object)
+    for each e in libraryMyMediaEntries()
+        out.push(rSwitch("libMedia:" + e.id, e.label, e.on))
+    end for
+    if m.libs.count() = 0 then out.push(rNote(libsState()))
+    out.push(rNote("Which libraries have a tile in Home's My Media row, in the Library Order. It doesn't depend on the top bar, the sidebar or the library's own row on Home."))
+end sub
+
+' Home → Library Rows: a switch per library (on Home whether or not it's in the sidebar)
 sub homeLibRowsRows(out as object)
     for each e in libraryHomeEntries()
         out.push(rSwitch("libHome:" + e.id, e.label, e.on))
@@ -310,18 +331,18 @@ sub librariesRows(out as object)
     out.push(rHead("Your Libraries"))
     list = homeLibs()
     if list.count() > 0
-        out.push({ kind: "cols", cols: ["Top Bar", "Sidebar", "Home"] })
+        ' (v1.5) one choice for all libraries at once: show / hide in the top bar, sidebar, Home rows, My Media
+        out.push(rChoice("libSetAll", "Set All Libraries", NavPrefs.setAllActions(), ""))
+        out.push({ kind: "cols", cols: ["Top Bar", "Sidebar", "Home Row", "My Media"] })
         sel = selectedLibrary()
         libs = navLibs()
         for each l in list
             id = Util.toText(l.id)
             entryId = "L" + id
-            homeCol = invalid
-            if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType))) then homeCol = NavPrefs.libraryOnHome(id)
-            out.push({ kind: "lib", id: id, label: Util.toText(l.title), value: libSummary(l), icon: SetRows.libIcon(Util.toText(l.collectionType)), cols: [NavPrefs.isShown("top", entryId, libs), NavPrefs.isShown("side", entryId, libs), homeCol], selected: id = sel })
+            out.push({ kind: "lib", id: id, label: Util.toText(l.title), value: libSummary(l), icon: SetRows.libIcon(Util.toText(l.collectionType)), cols: [NavPrefs.isShown("top", entryId, libs), NavPrefs.isShown("side", entryId, libs), NavPrefs.libraryOnHome(id), NavPrefs.libraryInMyMedia(id)], selected: id = sel })
         end for
         out.push(rLink("", "Library Order", "", "libOrder"))
-        out.push(rNote("OK on a library shows its options below: where it shows, its row on Home, how it opens and its name."))
+        out.push(rNote("OK on a library shows its options below: where it shows, its row on Home, its My Media tile, how it opens and its name. Set All Libraries shows or hides every library in one place at once."))
         libraryRows(out, sel)
     else
         out.push(rNote(libsState()))
@@ -348,14 +369,15 @@ function selectedLibrary() as string
     return ""
 end function
 
-' A library's state in words: where it shows ("Top Bar · Sidebar · Home", or Hidden), for the Audio Guide
+' A library's state in words: where it shows ("Top Bar · Sidebar · Home Row · My Media", or Hidden), for the Audio Guide
 function libSummary(l as object) as string
     id = Util.toText(l.id)
     libs = navLibs()
     parts = []
     if NavPrefs.isShown("top", "L" + id, libs) then parts.push("Top Bar")
     if NavPrefs.isShown("side", "L" + id, libs) then parts.push("Sidebar")
-    if Prefs.hasHomeRow(LCase(Util.toText(l.collectionType))) and NavPrefs.libraryOnHome(id) then parts.push("Home")
+    if NavPrefs.libraryOnHome(id) then parts.push("Home Row")
+    if NavPrefs.libraryInMyMedia(id) then parts.push("My Media")
     if parts.count() = 0 then return "Hidden"
     return Util.join(parts, " · ")
 end function
@@ -364,7 +386,7 @@ sub libOrderRows(out as object)
     for each l in homeLibs()
         out.push({ kind: "move", id: Util.toText(l.id), label: Util.toText(l.title), value: "" })
     end for
-    out.push(rNote("OK on a library picks it up, Up / Down move it, OK puts it down. The order of the libraries in Libraries and in Home's Libraries row, and where a new library goes. The top bar, the sidebar and Home's rows each keep their own order (General, Home > Row Order). Saved for this server."))
+    out.push(rNote("OK on a library picks it up, Up / Down move it, OK puts it down. The order of the libraries in Libraries and in Home's My Media row, and where a new library goes. The top bar, the sidebar and Home's rows each keep their own order (General, Home > Row Order). Saved for this server."))
 end sub
 
 ' The selected library's section (the Mac's section named after the library): where it shows (top bar,
@@ -383,12 +405,11 @@ sub libraryRows(out as object, libId as string)
     out.push(rChoice("libset:show:" + libId, "Show", libShowOptions(), lp.show))
     out.push(rSwitch("nav:top:" + entryId, "Show in Top Bar", NavPrefs.isShown("top", entryId, libs)))
     out.push(rSwitch("nav:side:" + entryId, "Show in Sidebar", NavPrefs.isShown("side", entryId, libs)))
-    if Prefs.hasHomeRow(libKindName(libId))
-        onHome = NavPrefs.libraryOnHome(libId)
-        out.push(rSwitch("libHome:" + libId, "Row on Home", onHome))
-        out.push(rDim(rChoice("libset:style:" + libId, "Home Row Shows", libStyleOptions(), lp.style), not onHome))
-    end if
-    out.push(rNote("The top bar, the sidebar and Home are set separately: a library can have a row on Home without being in the sidebar. Sort By and Show are where its page starts; you can still change them there. Name: leave it empty to use the server's name."))
+    onHome = NavPrefs.libraryOnHome(libId)
+    out.push(rSwitch("libHome:" + libId, "Row on Home", onHome))
+    out.push(rDim(rChoice("libset:style:" + libId, "Home Row Shows", libStyleOptions(), lp.style), not onHome))
+    out.push(rSwitch("libMedia:" + libId, "Show in My Media", NavPrefs.libraryInMyMedia(libId)))
+    out.push(rNote("The top bar, the sidebar, its row on Home and its My Media tile are set separately: a library can have a row on Home without being in the sidebar. Sort By and Show are where its page starts; you can still change them there. Name: leave it empty to use the server's name."))
 end sub
 
 function libStyleOptions() as object
