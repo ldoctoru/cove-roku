@@ -92,6 +92,13 @@ sub init()
     m.top.findNode("fill").blendColor = accent
     m.top.findNode("glow").blendColor = accent
     m.loaderArc.blendColor = accent
+    ' (v1.4) the Glass3D panels in the page colour (Settings → Background), the accents in the accent
+    panelUri = "pkg:/images/ui/pl_panel_" + Util.toText(m.global.theme.bgName) + ".9.png"
+    for each id in ["upNextPanel", "stillPanel", "errorGlass"]
+        m.top.findNode(id).uri = panelUri
+    end for
+    m.top.findNode("upNextFill").color = accent
+    m.top.findNode("upNextPlayTint").blendColor = glassTint()
     m.video.observeField("state", "onState")
     m.video.observeField("position", "onPosition")
     m.video.notificationInterval = 1
@@ -1117,6 +1124,13 @@ sub showAction(kind as string, label as string)
     focusPlayer()
 end sub
 
+' (v1.4) The accent glass's tint (play / pause, Play Now, Continue watching): the accent; with the white accent
+' a faint white, so the white label and icon stay readable on it
+function glassTint() as string
+    if Util.toText(m.global.theme.accentName) = "white" then return "0xFFFFFF59"
+    return m.global.theme.accent
+end function
+
 ' (v1.4) The chip's place: bottom right over the bare video; above the bottom block (clear of the timeline and
 ' the tool bar) while the controls show
 sub placeAction()
@@ -1125,6 +1139,11 @@ sub placeAction()
     y = 880
     if m.osdShown then y = 620
     m.action.translation = [1824 - w, y]
+    ' (the fog and the ring while it holds the remote: over the bare video)
+    m.top.findNode("actionFog").width = w
+    m.top.findNode("actionRing").width = w + 12
+    m.top.findNode("actionFog").visible = not m.osdShown
+    m.top.findNode("actionRing").visible = not m.osdShown
 end sub
 
 sub hideAction()
@@ -1369,22 +1388,12 @@ sub drawUpNextCard()
     inCredits = m.cardMode = "credits"
     m.top.findNode("upNextHint").visible = not inCredits
     m.top.findNode("upNextAlt").visible = inCredits
+    ' (v1.4) the focused button: fog and the white ring over its glass (never a white fill)
     playFocused = not inCredits or m.cardBtn = 0
-    pb = m.top.findNode("upNextPlayBg")
-    pl = m.top.findNode("upNextCount")
-    ab = m.top.findNode("upNextAltBg")
-    al = m.top.findNode("upNextAltLabel")
-    if playFocused
-        pb.uri = "pkg:/images/ui/white_rr12.9.png"
-        pl.color = "0x000000FF"
-        ab.uri = "pkg:/images/ui/glass_pill.9.png"
-        al.color = "0xFFFFFFFF"
-    else
-        pb.uri = "pkg:/images/ui/glass_pill.9.png"
-        pl.color = "0xFFFFFFFF"
-        ab.uri = "pkg:/images/ui/white_rr12.9.png"
-        al.color = "0x000000FF"
-    end if
+    m.top.findNode("upNextPlayFog").visible = playFocused
+    m.top.findNode("upNextPlayRing").visible = playFocused
+    m.top.findNode("upNextAltFog").visible = not playFocused
+    m.top.findNode("upNextAltRing").visible = not playFocused
 end sub
 
 ' Keys on the credits card: OK uses the focused button, Play = Play Now, Left / Right move, Back = Back to
@@ -1996,7 +2005,6 @@ end sub
 ' The row's nodes, built once per set of buttons (VD-18): each button gets its glass, a fog and a ring that
 ' show while it has the focus, and its icon (drawControls changes only those)
 sub buildRow()
-    accent = m.global.theme.accent
     row = m.top.findNode("row")
     row.removeChildrenIndex(row.getChildCount(), 0)
     m.rowNodes = []
@@ -2013,7 +2021,7 @@ sub buildRow()
             tint.uri = "pkg:/images/ui/pl_tint_90.png"
             tint.width = sz
             tint.height = sz
-            tint.blendColor = accent
+            tint.blendColor = glassTint()
         end if
         gl = g.createChild("Poster")
         gl.uri = "pkg:/images/ui/pl_glass_" + sz.toStr() + ".png"
@@ -3398,7 +3406,8 @@ function stillLabels() as object
     return ["Continue watching", leave]
 end function
 
-' Two buttons: white when focused, glass otherwise (as Up next and the Glass dialogs)
+' (v1.4) Two Glass3D buttons: Continue watching in the accent glass, the other in clear glass; the focused one
+' with the fog and the white ring (as the Up Next card)
 sub drawStill()
     g = m.top.findNode("stillBtns")
     g.removeChildrenIndex(g.getChildCount(), 0)
@@ -3406,9 +3415,28 @@ sub drawStill()
     for i = 0 to 1
         b = g.createChild("Group")
         b.translation = [i * 384, 0]
+        if i = 0
+            tint = b.createChild("Poster")
+            tint.uri = "pkg:/images/ui/pl_tint_pill_68.9.png"
+            tint.width = 360
+            tint.height = 68
+            tint.blendColor = glassTint()
+        end if
         bg = b.createChild("Poster")
+        bg.uri = "pkg:/images/ui/pl_pill_68.9.png"
         bg.width = 360
         bg.height = 68
+        if i = m.stillBtn
+            fog = b.createChild("Poster")
+            fog.uri = "pkg:/images/ui/pl_fog_pill_68.9.png"
+            fog.width = 360
+            fog.height = 68
+            rg = b.createChild("Poster")
+            rg.uri = "pkg:/images/ui/pl_ring_pill_68.9.png"
+            rg.width = 372
+            rg.height = 80
+            rg.translation = [-6, -6]
+        end if
         l = b.createChild("Label")
         l.width = 360
         l.height = 68
@@ -3419,13 +3447,7 @@ sub drawStill()
         f.uri = "font:BoldSystemFontFile"
         f.size = 28
         l.font = f
-        if i = m.stillBtn
-            bg.uri = "pkg:/images/ui/white_rr12.9.png"
-            l.color = "0x000000FF"
-        else
-            bg.uri = "pkg:/images/ui/glass_pill.9.png"
-            l.color = "0xFFFFFFFF"
-        end if
+        l.color = "0xFFFFFFFF"
     end for
     text = Speak.button(labels[m.stillBtn]) + Speak.position(m.stillBtn, 2)
     if m.stillSpoken <> true then text = "Are you still watching " + m.top.findNode("stillTitle").text + " " + text

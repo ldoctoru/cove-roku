@@ -41,7 +41,7 @@
         <Timer id="subTimer" duration="0.1" repeat="true" />
         <!-- (v1.3.1 E-3) past the part of the subtitles downloaded so far, while the rest is still coming -->
         <Group id="subNote" visible="false" translation="[790,924]">
-            <Poster uri="pkg:/images/ui/glass_pill.9.png" width="340" height="52" />
+            <Poster uri="pkg:/images/ui/pl_pill_52.9.png" width="340" height="52" />
             <Label text="Loading subtitles..." width="340" height="52" horizAlign="center" vertAlign="center" color="0xFFFFFFE6">
                 <Font role="font" uri="font:MediumSystemFontFile" size="24" />
             </Label>
@@ -107,7 +107,9 @@
         </Group>
 
         <!-- loading the video: a progress ring with the percentage (and a line under it when there is something to say) -->
+        <!-- (v1.4) on a clear-glass disc, the arc in the accent -->
         <Group id="loader" visible="false">
+            <Poster uri="pkg:/images/ui/pl_glass_90.png" width="164" height="164" translation="[878,458]" />
             <Poster uri="pkg:/images/ui/load_track.png" width="132" height="132" translation="[894,474]" />
             <Poster id="loaderArc" width="132" height="132" translation="[894,474]" />
             <Label id="loaderPct" width="132" height="132" translation="[894,474]" horizAlign="center" vertAlign="center" color="0xFFFFFFFF">
@@ -122,26 +124,37 @@
              subtitle was burned in); Back leaves the player -->
         <Group id="errorBox" visible="false">
             <Rectangle width="1920" height="1080" color="0x000000B3" />
+            <!-- (v1.4) the reason and its buttons on a Glass3D panel -->
+            <Poster id="errorGlass" uri="pkg:/images/ui/pl_panel_black.9.png" width="1680" height="360" translation="[120,352]" />
+            <Poster uri="pkg:/images/ui/pl_panel_rim.9.png" width="1680" height="360" translation="[120,352]" />
             <ErrorPanel id="errorPanel" translation="[160,400]" width="1600" />
         </Group>
 
-        <!-- Skip intro / Next episode: a white button over the video (OK uses it, any other key dismisses it) -->
-        <Group id="action" translation="[1554,840]" visible="false">
-            <Poster id="actionBg" uri="pkg:/images/ui/white_rr12.9.png" width="270" height="72" />
-            <Label id="actionLabel" width="270" height="72" horizAlign="center" vertAlign="center" color="0x000000FF">
+        <!-- Skip intro / Next episode / Watch Intro: a button over the video (OK uses it, any other key dismisses it) -->
+        <!-- (v1.4) a Glass3D chip: clear glass, with the fog and the white ring while it holds the remote (over the
+             bare video); placeAction moves it above the bottom block while the controls show -->
+        <Group id="action" translation="[1554,880]" visible="false">
+            <Poster id="actionBg" uri="pkg:/images/ui/pl_pill_72.9.png" width="270" height="72" />
+            <Poster id="actionFog" uri="pkg:/images/ui/pl_fog_pill_72.9.png" width="270" height="72" />
+            <Poster id="actionRing" uri="pkg:/images/ui/pl_ring_pill_72.9.png" width="282" height="84" translation="[-6,-6]" />
+            <Label id="actionLabel" width="270" height="72" horizAlign="center" vertAlign="center" color="0xFFFFFFFF">
                 <Font role="font" uri="font:BoldSystemFontFile" size="28" />
             </Label>
         </Group>
 
         <!-- Up Next, a card bottom-right: (v1.3) over an episode's credits (or its last 30 s) with Play Now and
              Back to Credits, counting down while they play; and after an episode, the next one starts by itself -->
-        <Group id="upNext" translation="[1164,766]" visible="false">
-            <Poster uri="pkg:/images/ui/panel_dark_r18.9.png" width="660" height="230" />
+        <!-- (v1.4) a Glass3D panel (the page colour at 90 %, r27, top-lit rim); the still r10 with the countdown in
+             the accent under it; Play Now in the accent glass, Back to Credits in clear glass, the focused one with
+             the fog and the white ring (drawUpNextCard) -->
+        <Group id="upNext" translation="[1164,758]" visible="false">
+            <Poster id="upNextPanel" uri="pkg:/images/ui/pl_panel_black.9.png" width="660" height="238" />
+            <Poster uri="pkg:/images/ui/pl_panel_rim.9.png" width="660" height="238" />
             <Poster id="upNextStill" width="240" height="135" translation="[24,24]" loadWidth="240" loadHeight="135" loadDisplayMode="scaleToZoom" />
             <!-- the countdown: a bar along the still's bottom edge that empties -->
             <Rectangle width="240" height="5" translation="[24,154]" color="0xFFFFFF40" />
             <Rectangle id="upNextFill" width="240" height="5" translation="[24,154]" color="0xFFFFFFFF" />
-            <Label text="Up Next" width="350" height="32" translation="[288,20]" color="0xFFFFFFCC">
+            <Label text="UP NEXT" width="350" height="32" translation="[288,20]" color="0xFFFFFFCC">
                 <Font role="font" uri="font:BoldSystemFontFile" size="24" />
             </Label>
             <Label id="upNextTitle" width="350" height="36" translation="[288,54]" color="0xFFFFFFFF">
@@ -150,15 +163,22 @@
             <Label id="upNextEpisode" width="350" height="34" translation="[288,92]" color="0xFFFFFFD9">
                 <Font role="font" uri="font:MediumSystemFontFile" size="24" />
             </Label>
-            <Poster id="upNextPlayBg" uri="pkg:/images/ui/white_rr12.9.png" width="250" height="52" translation="[24,166]" />
-            <Label id="upNextCount" width="250" height="52" translation="[24,166]" horizAlign="center" vertAlign="center" color="0x000000FF">
-                <Font role="font" uri="font:BoldSystemFontFile" size="24" />
-            </Label>
-            <Label id="upNextHint" text="Back: stop" width="350" height="52" translation="[288,166]" vertAlign="center" color="0xFFFFFFCC">
+            <Group translation="[24,170]">
+                <Poster id="upNextPlayTint" uri="pkg:/images/ui/pl_tint_pill_52.9.png" width="250" height="52" />
+                <Poster uri="pkg:/images/ui/pl_pill_52.9.png" width="250" height="52" />
+                <Poster id="upNextPlayFog" uri="pkg:/images/ui/pl_fog_pill_52.9.png" width="250" height="52" />
+                <Poster id="upNextPlayRing" uri="pkg:/images/ui/pl_ring_pill_52.9.png" width="262" height="64" translation="[-6,-6]" />
+                <Label id="upNextCount" width="250" height="52" horizAlign="center" vertAlign="center" color="0xFFFFFFFF">
+                    <Font role="font" uri="font:BoldSystemFontFile" size="24" />
+                </Label>
+            </Group>
+            <Label id="upNextHint" text="Back: stop" width="350" height="52" translation="[288,170]" vertAlign="center" color="0xFFFFFFCC">
                 <Font role="font" uri="font:MediumSystemFontFile" size="24" />
             </Label>
-            <Group id="upNextAlt" translation="[288,166]" visible="false">
-                <Poster id="upNextAltBg" uri="pkg:/images/ui/glass_pill.9.png" width="348" height="52" />
+            <Group id="upNextAlt" translation="[288,170]" visible="false">
+                <Poster id="upNextAltBg" uri="pkg:/images/ui/pl_pill_52.9.png" width="348" height="52" />
+                <Poster id="upNextAltFog" uri="pkg:/images/ui/pl_fog_pill_52.9.png" width="348" height="52" visible="false" />
+                <Poster id="upNextAltRing" uri="pkg:/images/ui/pl_ring_pill_52.9.png" width="360" height="64" translation="[-6,-6]" visible="false" />
                 <Label id="upNextAltLabel" text="Back to Credits" width="348" height="52" horizAlign="center" vertAlign="center" color="0xFFFFFFFF">
                     <Font role="font" uri="font:BoldSystemFontFile" size="24" />
                 </Label>
@@ -169,8 +189,11 @@
              without a key press. Left / Right choose, OK uses the button, Back leaves the player. -->
         <Group id="still" visible="false">
             <Rectangle width="1920" height="1080" color="0x000000A6" />
+            <!-- (v1.4) a Glass3D panel; Continue watching in the accent glass, the other in clear glass, the focused
+                 one with the fog and the white ring (drawStill) -->
             <Group translation="[540,370]">
-                <Poster uri="pkg:/images/ui/panel_dark_r18.9.png" width="840" height="340" />
+                <Poster id="stillPanel" uri="pkg:/images/ui/pl_panel_black.9.png" width="840" height="340" />
+                <Poster uri="pkg:/images/ui/pl_panel_rim.9.png" width="840" height="340" />
                 <Label text="Are you still watching" width="840" height="40" translation="[0,40]" horizAlign="center" color="0xFFFFFFCC">
                     <Font role="font" uri="font:MediumSystemFontFile" size="30" />
                 </Label>

@@ -8,7 +8,9 @@
         <field id="lines" type="array" onChange="onLines" />
     </interface>
     <children>
-        <Poster id="bg" uri="pkg:/images/ui/panel_dark_r18.9.png" width="940" height="120" />
+        <!-- (v1.4) a Glass3D panel (the page colour at 90 %, r27, top-lit rim) -->
+        <Poster id="bg" uri="pkg:/images/ui/pl_panel_black.9.png" width="940" height="120" />
+        <Poster id="rim" uri="pkg:/images/ui/pl_panel_rim.9.png" width="940" height="120" />
         <Label text="Playback info" width="880" height="40" translation="[28,20]" color="0xFFFFFFFF">
             <Font role="font" uri="font:BoldSystemFontFile" size="28" />
         </Label>
