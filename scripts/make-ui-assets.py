@@ -461,7 +461,179 @@ def bubble_icon(d, n):
         d.line([(n * 0.24, n * y), (n * 0.76, n * y)], fill=WHITE, width=w)
 
 
+# ---- v1.4 Glass3D look (Cove for macOS Classic/Glass3DTokens.swift, ClassicPill.swift; review4/design.md §3).
+# Clear glass = black 30 % + a top-lit white sheen (12 -> 3 %) + a gradient rim (35 -> 8 -> 20 %) + a 22 % outline.
+# The accent pill is layered (a horizontal fade can't live in a 9-patch): dark base, accent-tinted left cap,
+# stretched fade strip and right cap, an accent rim, a white top shine and an accent bottom line.
+# Focus is the "fogged mirror": white 10 -> 16 -> 24 % settling low with a lit top rim, plus the white ring.
+G3_DARK = (0, 0, 0, 77)
+G3_OUTLINE = (255, 255, 255, 56)
+G3_TINT_L = 170   # accent fill alpha at the left end of the Play pill (67 %)
+G3_TINT_R = 20    # ... and at the right end (8 %)
+
+
+def vfill(w, h, radius, stops, rgb=(255, 255, 255)):
+    """A rounded shape filled with a vertical alpha ramp (drawn at 4x)."""
+    f = ramp(stops)
+    grad = Image.new("RGBA", (w * S, h * S))
+    for y in range(h * S):
+        a = int(round(f(y / (h * S - 1))))
+        ImageDraw.Draw(grad).line([(0, y), (w * S, y)], fill=rgb + (a,))
+    m = Image.new("L", (w * S, h * S), 0)
+    ImageDraw.Draw(m).rounded_rectangle([0, 0, w * S - 1, h * S - 1], radius * S, fill=255)
+    out = Image.new("RGBA", (w * S, h * S), (0, 0, 0, 0))
+    out.paste(grad, (0, 0), m)
+    return out
+
+
+def vrim(w, h, radius, width, stops):
+    """A rounded outline whose alpha follows a vertical ramp (top-lit rim), at 4x."""
+    f = ramp(stops)
+    m = Image.new("L", (w * S, h * S), 0)
+    ImageDraw.Draw(m).rounded_rectangle([0, 0, w * S - 1, h * S - 1], radius * S, outline=255, width=width * S)
+    out = Image.new("RGBA", (w * S, h * S), (255, 255, 255, 0))
+    px = out.load()
+    mp = m.load()
+    for y in range(h * S):
+        a = f(y / (h * S - 1))
+        for x in range(w * S):
+            if mp[x, y]:
+                px[x, y] = (255, 255, 255, int(round(a * mp[x, y] / 255)))
+    return out
+
+
+def layered(w, h, layers):
+    out = Image.new("RGBA", (w * S, h * S), (0, 0, 0, 0))
+    for layer in layers:
+        out = Image.alpha_composite(out, layer)
+    return down(out, w, h)
+
+
+def glass3d(w, h, radius):
+    """Clear glass with the 22 % outline (Mac ClassicClearGlass + ClassicGlassBacking + glass3DRoundOutline)."""
+    base = Image.new("RGBA", (w * S, h * S), (0, 0, 0, 0))
+    ImageDraw.Draw(base).rounded_rectangle([0, 0, w * S - 1, h * S - 1], radius * S, fill=G3_DARK)
+    return layered(w, h, [base, vfill(w, h, radius, [(0, 31), (1, 8)]),
+                          vrim(w, h, radius, 2, [(0, 110), (0.5, 56), (1, 70)])])
+
+
+def fog(w, h, radius, rim=True, ring_w=0):
+    """The fogged-mirror focus: milky white settling low, a lit 2 px top rim (and optionally a white ring)."""
+    layers = [vfill(w, h, radius, [(0, 26), (0.55, 41), (1, 61)])]
+    if rim:
+        layers.append(vrim(w, h, radius, 2, [(0, 150), (0.35, 0), (1, 0)]))
+    if ring_w:
+        r = Image.new("RGBA", (w * S, h * S), (0, 0, 0, 0))
+        ImageDraw.Draw(r).rounded_rectangle([0, 0, w * S - 1, h * S - 1], radius * S, outline=WHITE, width=ring_w * S)
+        layers.append(r)
+    return layered(w, h, layers)
+
+
+def half_disc(h, alpha, left):
+    """A pill end cap: half of a circle of diameter h, white at alpha (tinted with the accent at runtime)."""
+    w = h // 2
+    big = Image.new("RGBA", (w * S, h * S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(big)
+    if left:
+        d.ellipse([0, 0, h * S - 1, h * S - 1], fill=(255, 255, 255, alpha))
+    else:
+        d.ellipse([-w * S, 0, w * S - 1, h * S - 1], fill=(255, 255, 255, alpha))
+    return down(big, w, h)
+
+
+def edge_card(size, radius, corner):
+    """The Mac's light glass edge (ClassicLightCard): a 2 px rim, bright (90 %) in the top-left and bottom-right
+    corners and fading to about 10 % inside the corner patch, so the stretched sides stay faint."""
+    big = Image.new("L", (size * S, size * S), 0)
+    ImageDraw.Draw(big).rounded_rectangle([0, 0, size * S - 1, size * S - 1], radius * S, outline=255, width=2 * S)
+    m = down(big.convert("RGBA"), size, size).split()[0]
+    out = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+    px = out.load()
+    mp = m.load()
+    for y in range(size):
+        for x in range(size):
+            if not mp[x, y]:
+                continue
+            tl = (x + y) / float(corner)
+            br = ((size - 1 - x) + (size - 1 - y)) / float(corner)
+            near = min(tl, br)
+            v = 26 + (230 - 26) * max(0.0, 1 - near)
+            px[x, y] = (255, 255, 255, int(round(v * mp[x, y] / 255)))
+    return out
+
+
+def glow(size, inset, radius, blur):
+    """A soft white glow (tinted with the accent at runtime) around a card: Mac HoverGlow."""
+    img = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+    m = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(m).rounded_rectangle([inset - 6, inset - 6, size - 1 - inset + 6, size - 1 - inset + 6], radius + 6, fill=255)
+    img.putalpha(m.filter(ImageFilter.GaussianBlur(blur)))
+    return img
+
+
+def check_circle(filled):
+    def draw(d, n):
+        if filled:
+            d.ellipse([n * 0.06, n * 0.06, n * 0.94, n * 0.94], fill=WHITE)
+            d.line([(n * 0.28, n * 0.52), (n * 0.44, n * 0.68), (n * 0.72, n * 0.36)], fill=(0, 0, 0, 0), width=int(n * 0.11), joint="curve")
+        else:
+            d.ellipse([n * 0.06, n * 0.06, n * 0.94, n * 0.94], outline=WHITE, width=int(n * 0.08))
+            d.line([(n * 0.28, n * 0.52), (n * 0.44, n * 0.68), (n * 0.72, n * 0.36)], fill=WHITE, width=int(n * 0.09), joint="curve")
+    return draw
+
+
+def heart_outline(d, n):
+    heart(d, n)
+    k = 0.13
+    d.ellipse([n * (0.1 + k), n * (0.16 + k), n * (0.52 - k * 0.5), n * (0.58 - k * 0.5)], fill=(0, 0, 0, 0))
+    d.ellipse([n * (0.48 + k * 0.5), n * (0.16 + k), n * (0.9 - k), n * (0.58 - k * 0.5)], fill=(0, 0, 0, 0))
+    d.polygon([(n * 0.24, n * 0.47), (n * 0.76, n * 0.47), (n * 0.5, n * 0.75)], fill=(0, 0, 0, 0))
+    d.rectangle([n * 0.3, n * 0.36, n * 0.7, n * 0.5], fill=(0, 0, 0, 0))
+
+
+def draw_glass3d():
+    save(nine(glass3d(60, 60, 30)), "g3_capsule.9.png")
+    save(glass3d(69, 69, 34), "g3_circle_69.png")
+    save(nine(shape(60, 60, 30, (0, 0, 0, 90))), "g3_dark_pill.9.png")
+    save(half_disc(72, G3_TINT_L, True), "g3_tint_cap_l.png")
+    save(strip(512, 4, ramp([(0, G3_TINT_L), (1, G3_TINT_R)]), (255, 255, 255), vertical=False), "g3_tint_fade.png")
+    save(half_disc(72, G3_TINT_R, False), "g3_tint_cap_r.png")
+    save(nine(ring(60, 60, 30, 2, WHITE)), "g3_pill_rim.9.png")
+    save(strip(512, 4, ramp([(0, 0), (0.5, 140), (1, 0)]), (255, 255, 255), vertical=False), "g3_pill_shine.png")
+    save(nine(fog(60, 60, 30)), "fog_capsule.9.png")
+    # (a 9-patch can't shrink below its corners: pills 44-59 px high use the 44 px pieces and a 60 px ring)
+    save(nine(glass3d(44, 44, 22)), "g3_capsule_44.9.png")
+    save(nine(fog(44, 44, 22)), "fog_capsule_44.9.png")
+    save(nine(ring(60, 60, 30, 4, WHITE)), "focus_ring_pill_60.9.png")
+    save(fog(69, 69, 34), "fog_circle_69.png")
+    save(nine(fog(36, 36, 12)), "fog_r12.9.png")
+    # list focus bar (Picker, menus): fog with the white ring baked in, so a LabelList shows fog + ring
+    save(nine(fog(36, 36, 12, rim=False, ring_w=3)), "fog_ring_r12.9.png")
+    # cards: the light glass edge, the top sheen, r12 corners, a ring for r12 cards (6 px gap) and the glow
+    save(nine(edge_card(84, 12, 40)), "card_edge_r12.9.png")
+    save(strip(4, 128, ramp([(0, 31), (1, 0)]), (255, 255, 255)), "sheen_top.png")
+    for name, rgb in BGS.items():
+        save(nine(corner_mask(40, 12, rgb)), "mask_r12_%s.9.png" % name)
+        save(nine(shape(60, 60, 27, rgb + (230,))), "panel_r27_%s.9.png" % name)
+    save(nine(vrim(60, 60, 27, 2, [(0, 89), (0.5, 20), (1, 51)]).resize((60, 60), Image.LANCZOS)), "panel_rim_r27.9.png")
+    save(nine(ring(60, 60, 18, 4, WHITE)), "focus_ring_r18.9.png")
+    save(nine(glow(96, 24, 12, 10)), "glow_r12.9.png")
+    # thumbnails (Continue Watching, episodes): top black 55 % -> clear, bottom clear -> 70 % (ThumbnailScrim)
+    save(strip(4, 256, ramp([(0, 140), (0.38, 0), (0.55, 0), (1, 179)])), "scrim_thumb.png")
+    # Settings: r21 cards (white 8 % + 15 % edge) and the selected tab (white 10 % + 22 % edge, r15)
+    save(nine(shape(48, 48, 21, (255, 255, 255, 20), (255, 255, 255, 38), 2)), "card_r21.9.png")
+    save(nine(shape(48, 48, 15, (255, 255, 255, 26), (255, 255, 255, 56), 2)), "tab_sel_r15.9.png")
+    # sidebar: the current page as an accent band (white, tinted 40 %) with a white 25 % hairline
+    save(nine(shape(48, 48, 18, WHITE)), "band_r18.9.png")
+    save(nine(ring(48, 48, 18, 2, (255, 255, 255, 64))), "band_rim_r18.9.png")
+    save(nine(ring(24, 24, 6, 2, (255, 255, 255, 191))), "outline_box_r6.9.png")
+    icon("checkc", 28, check_circle(False))
+    icon("checkcf", 28, check_circle(True))
+    icon("hearto", 28, heart_outline)
+
+
 def draw_all():
+    draw_glass3d()
     save(nine(shape(60, 60, 30, GLASS_FILL, GLASS_STROKE, 2)), "glass_pill.9.png")
     save(nine(shape(48, 48, 24, (255, 255, 255, 56))), "sel_pill.9.png")
     save(nine(shape(48, 48, 24, WHITE)), "white_pill.9.png")
@@ -489,7 +661,8 @@ def draw_all():
         save(strip(4, 512, ramp([(0, 0), (0.5, 0), (0.75, 153), (1, 255)]), rgb), "scrim_bottom_%s.png" % name)
         # a plain clear -> bg fade (under the rows when the backdrop follows the focused title)
         save(strip(4, 256, ramp([(0, 0), (1, 255)]), rgb), "fade_%s.png" % name)
-    save(strip(512, 4, ramp([(0, 166), (1, 0)]), vertical=False), "scrim_left.png")
+    # (v1.4 H5) the Mac's left fade: black 75 % -> clear at 60 % of the width (drawn full width)
+    save(strip(512, 4, ramp([(0, 191), (0.6, 0), (1, 0)]), vertical=False), "scrim_left.png")
     save(strip(512, 4, ramp([(0, 0), (1, 166)]), vertical=False), "scrim_right.png")
     save(strip(4, 128, ramp([(0, 0), (1, 204)])), "scrim_card.png")
     save(strip(4, 256, ramp([(0, 166), (1, 0)])), "scrim_top.png")

@@ -28,7 +28,7 @@
     </interface>
     <children>
         <Poster id="backdrop" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" />
-        <Poster id="scrimLeft" uri="pkg:/images/ui/scrim_left.png" width="1248" height="1080" />
+        <Poster id="scrimLeft" uri="pkg:/images/ui/scrim_left.png" width="1920" height="1080" />
         <Poster id="scrimBottom" width="1920" height="1080" />
         <Group id="rowsBg" opacity="0">
             <Poster uri="pkg:/images/ui/scrim_top.png" width="1920" height="300" />
@@ -102,7 +102,7 @@
                      itemSpacing="[0,44]" showRowLabel="[true]" rowLabelOffset="[[18,0]]" rowLabelColor="0xFFFFFFFF"
                      focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
                      drawFocusFeedback="false" visible="false">
-                <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />
+                <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="34" />
             </RowList>
         </Group>
 

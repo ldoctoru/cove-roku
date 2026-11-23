@@ -39,7 +39,7 @@
                  itemSpacing="[0,20]" showRowLabel="[true]" rowLabelOffset="[[18,8]]" rowLabelColor="0xFFFFFFFF"
                  focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
                  drawFocusFeedback="false" visible="false">
-            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />
+            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="34" />
         </RowList>
         <Label id="status" width="1720" height="44" translation="[100,520]" color="0xFFFFFFCC" text="Loading...">
             <Font role="font" uri="font:MediumSystemFontFile" size="32" />
