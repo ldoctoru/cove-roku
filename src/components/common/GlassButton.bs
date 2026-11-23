@@ -2,19 +2,13 @@ sub init()
     m.body = m.top.findNode("body")
     m.base = m.top.findNode("base")
     m.label = m.top.findNode("label")
-    m.shadowLabel = m.top.findNode("shadowLabel")
     m.iconImg = m.top.findNode("iconImg")
-    m.fog = m.top.findNode("fog")
-    m.ring = m.top.findNode("ring")
+    m.onFocus = "0x111111FF"
     t = m.global.theme
-    m.accent = "0xE60A14FF"
-    m.whiteAccent = false
-    if t <> invalid
-        m.accent = t.accent
-        m.whiteAccent = t.accentName = "white"
-    end if
+    if t <> invalid and t.onFocus <> invalid then m.onFocus = t.onFocus
     m.w = 0
     m.h = 69
+    m.rest = 0.12
     layout()
 end sub
 
@@ -24,17 +18,13 @@ sub layout()
     h = m.top.height
     if h <= 0 then h = 69
     m.h = h
-    isAccent = style = "accent"
     isCircle = style = "circle"
     hasText = m.top.text <> "" and not isCircle
     hasIcon = m.top.icon <> ""
-    ts = m.top.textSize
-    for each l in [m.label, m.shadowLabel]
-        l.font.size = ts
-        l.text = m.top.text
-        l.visible = hasText
-        l.height = h
-    end for
+    m.label.font.size = m.top.textSize
+    m.label.text = m.top.text
+    m.label.visible = hasText
+    m.label.height = h
     ' (v1.4 fix) measure the label unconstrained: a width left from an earlier layout (text set after the
     ' style) clips boundingRect to it, and the button came out without its label on details pages
     m.label.width = 0
@@ -68,97 +58,46 @@ sub layout()
         m.iconImg.width = isz
         m.iconImg.height = isz
         m.iconImg.translation = [x, Int((h - isz) / 2)]
-        m.iconImg.blendColor = m.top.iconColor
         x = x + isz + gap
     end if
     m.label.width = tw + 4
-    m.shadowLabel.width = tw + 4
     m.label.translation = [x, 0]
-    m.shadowLabel.translation = [x + 1, 3]
-    ' backgrounds
+    ' the flat shape: a circle, or a pill whose round ends are half its height
     m.base.width = w
     m.base.height = h
-    m.fog.width = w
-    m.fog.height = h
-    small = h < 60
     if isCircle
-        m.base.uri = "pkg:/images/ui/g3_circle_69.png"
-        m.fog.uri = "pkg:/images/ui/fog_circle_69.png"
-        m.ring.uri = "pkg:/images/ui/focus_ring_circle_85.png"
-        rg = Int(h * 8 / 69 + 0.5)
-        m.ring.translation = [-rg, -rg]
-        m.ring.width = h + 2 * rg
-        m.ring.height = h + 2 * rg
+        m.base.uri = "pkg:/images/ui/white_circle_69.png"
     else
-        if isAccent
-            m.base.uri = "pkg:/images/ui/g3_dark_pill.9.png"
-        else if small
-            m.base.uri = "pkg:/images/ui/g3_capsule_44.9.png"
-        else
-            m.base.uri = "pkg:/images/ui/g3_capsule.9.png"
-        end if
-        m.fog.uri = "pkg:/images/ui/fog_capsule.9.png"
-        m.ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
-        if small
-            m.fog.uri = "pkg:/images/ui/fog_capsule_44.9.png"
-            m.ring.uri = "pkg:/images/ui/focus_ring_pill_60.9.png"
-        end if
-        m.ring.translation = [-8, -8]
-        m.ring.width = w + 16
-        m.ring.height = h + 16
+        m.base.uri = flatPill(h)
     end if
-    layoutAccent(isAccent, w, h)
-    m.body.scaleRotateCenter = [w / 2, h / 2]
+    ' the Play pill reads a little stronger than the other controls
+    m.rest = 0.12
+    if style = "accent" then m.rest = 0.22
     m.top.buttonWidth = w
     paint()
 end sub
 
-' The accent pill's layers: tinted caps and the stretched fade between them, rim, shine and the bottom line
-sub layoutAccent(isAccent as boolean, w as integer, h as integer)
-    half = Int(h / 2)
-    tintOp = 1.0
-    if m.whiteAccent then tintOp = 0.45
-    for each id in ["tintL", "tintMid", "tintR", "rim", "shine", "baseLine"]
-        n = m.top.findNode(id)
-        n.visible = isAccent
-    end for
-    if not isAccent then return
-    tl = m.top.findNode("tintL")
-    tm = m.top.findNode("tintMid")
-    tr = m.top.findNode("tintR")
-    tl.width = half
-    tl.height = h
-    tm.translation = [half, 0]
-    tm.width = w - 2 * half
-    tm.height = h
-    tr.translation = [w - half, 0]
-    tr.width = half
-    tr.height = h
-    for each n in [tl, tm, tr]
-        n.blendColor = m.accent
-        n.opacity = tintOp
-    end for
-    rim = m.top.findNode("rim")
-    rim.width = w
-    rim.height = h
-    rim.blendColor = m.accent.left(8) + "CC"
-    sh = m.top.findNode("shine")
-    sh.width = Int(w * 0.6)
-    sh.translation = [Int(w * 0.2), 2]
-    bl = m.top.findNode("baseLine")
-    bl.width = Int(w * 0.6)
-    bl.translation = [Int(w * 0.2), h - 4]
-    bl.color = m.accent
-end sub
-
-' Focus and dimming only: nothing is rebuilt
+' Focus and dimming only: nothing is rebuilt. Focused = solid white with dark content.
 sub paint()
     f = m.top.focused
-    m.fog.visible = f
-    m.ring.visible = f
-    s = 1.0
-    if f then s = 1.06
-    m.body.scale = [s, s]
+    if f
+        m.base.opacity = 1.0
+        m.label.color = m.onFocus
+        m.iconImg.blendColor = m.onFocus
+    else
+        m.base.opacity = m.rest
+        m.label.color = "0xFFFFFFFF"
+        m.iconImg.blendColor = m.top.iconColor
+    end if
     m.body.opacity = 1.0
     if m.top.dimmed and not f then m.body.opacity = 0.35
 end sub
+
+' The flat pill drawn at height h: the tallest generated one that isn't taller than h (round ends = half height)
+function flatPill(h as integer) as string
+    size = 44
+    for each n in [52, 60, 69]
+        if h >= n then size = n
+    end for
+    return "pkg:/images/ui/flat_pill_" + size.toStr() + ".9.png"
+end function

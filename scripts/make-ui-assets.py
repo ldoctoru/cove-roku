@@ -463,13 +463,11 @@ def bubble_icon(d, n):
 
 # ---- v1.4 Glass3D look (Cove for macOS Classic/Glass3DTokens.swift, ClassicPill.swift; review4/design.md §3).
 # Clear glass = black 30 % + a top-lit white sheen (12 -> 3 %) + a gradient rim (35 -> 8 -> 20 %) + a 22 % outline.
-# The accent pill is layered (a horizontal fade can't live in a 9-patch): dark base, accent-tinted left cap,
-# stretched fade strip and right cap, an accent rim, a white top shine and an accent bottom line.
+# (v1.5 flat: the layered accent Play pill, its tint caps / fade / rim / shine and the button fog / rings are gone;
+# GlassButton is a flat pill now, see draw_flat_v15.)
 # Focus is the "fogged mirror": white 10 -> 16 -> 24 % settling low with a lit top rim, plus the white ring.
 G3_DARK = (0, 0, 0, 77)
 G3_OUTLINE = (255, 255, 255, 56)
-G3_TINT_L = 170   # accent fill alpha at the left end of the Play pill (67 %)
-G3_TINT_R = 20    # ... and at the right end (8 %)
 
 
 def vfill(w, h, radius, stops, rgb=(255, 255, 255)):
@@ -529,18 +527,6 @@ def fog(w, h, radius, rim=True, ring_w=0):
     return layered(w, h, layers)
 
 
-def half_disc(h, alpha, left):
-    """A pill end cap: half of a circle of diameter h, white at alpha (tinted with the accent at runtime)."""
-    w = h // 2
-    big = Image.new("RGBA", (w * S, h * S), (0, 0, 0, 0))
-    d = ImageDraw.Draw(big)
-    if left:
-        d.ellipse([0, 0, h * S - 1, h * S - 1], fill=(255, 255, 255, alpha))
-    else:
-        d.ellipse([-w * S, 0, w * S - 1, h * S - 1], fill=(255, 255, 255, alpha))
-    return down(big, w, h)
-
-
 def edge_card(size, radius, corner):
     """The Mac's light glass edge (ClassicLightCard): a 2 px rim, bright (90 %) in the top-left and bottom-right
     corners and fading to about 10 % inside the corner patch, so the stretched sides stay faint."""
@@ -594,17 +580,9 @@ def heart_outline(d, n):
 def draw_glass3d():
     save(nine(glass3d(60, 60, 30)), "g3_capsule.9.png")
     save(glass3d(69, 69, 34), "g3_circle_69.png")
-    save(nine(shape(60, 60, 30, (0, 0, 0, 90))), "g3_dark_pill.9.png")
-    save(half_disc(72, G3_TINT_L, True), "g3_tint_cap_l.png")
-    save(strip(512, 4, ramp([(0, G3_TINT_L), (1, G3_TINT_R)]), (255, 255, 255), vertical=False), "g3_tint_fade.png")
-    save(half_disc(72, G3_TINT_R, False), "g3_tint_cap_r.png")
-    save(nine(ring(60, 60, 30, 2, WHITE)), "g3_pill_rim.9.png")
-    save(strip(512, 4, ramp([(0, 0), (0.5, 140), (1, 0)]), (255, 255, 255), vertical=False), "g3_pill_shine.png")
     save(nine(fog(60, 60, 30)), "fog_capsule.9.png")
     # (a 9-patch can't shrink below its corners: pills 44-59 px high use the 44 px pieces and a 60 px ring)
     save(nine(glass3d(44, 44, 22)), "g3_capsule_44.9.png")
-    save(nine(fog(44, 44, 22)), "fog_capsule_44.9.png")
-    save(nine(ring(60, 60, 30, 4, WHITE)), "focus_ring_pill_60.9.png")
     # a focused small pill in one piece (dense rows: library bar, Settings values, About pills, top bar):
     # glass + fog with the white ring on its edge
     for size in (60, 44):
@@ -615,7 +593,6 @@ def draw_glass3d():
         ImageDraw.Draw(base).rounded_rectangle([0, 0, size * S - 1, size * S - 1], r * S, fill=G3_DARK)
         img = layered(size, size, [base, vfill(size, size, r, [(0, 26), (0.55, 41), (1, 61)]), edge])
         save(nine(img), "g3_focus_capsule%s.9.png" % ("" if size == 60 else "_44"))
-    save(fog(69, 69, 34), "fog_circle_69.png")
     save(nine(fog(36, 36, 12)), "fog_r12.9.png")
     # list focus bar (Picker, menus): fog with the white ring baked in, so a LabelList shows fog + ring
     save(nine(fog(36, 36, 12, rim=False, ring_w=3)), "fog_ring_r12.9.png")
@@ -644,8 +621,20 @@ def draw_glass3d():
     icon("hearto", 28, heart_outline)
 
 
+# ---- v1.5 flat look (Apple TV / Emby): one white shape per control, tinted faint (opacity / blendColor) at rest
+# and solid white with dark content when focused. Pills are half their height: one sideways-only 9-patch per
+# height the app draws (a 9-patch can't shrink below its corners).
+FLAT_PILLS = (44, 52, 60, 69)
+
+
+def draw_flat_v15():
+    for h in FLAT_PILLS:
+        save(pl_hnine(shape(h + 4, h, h / 2, WHITE)), "flat_pill_%d.9.png" % h)
+
+
 def draw_all():
     draw_glass3d()
+    draw_flat_v15()
     save(nine(shape(60, 60, 30, GLASS_FILL, GLASS_STROKE, 2)), "glass_pill.9.png")
     save(nine(shape(48, 48, 24, (255, 255, 255, 56))), "sel_pill.9.png")
     save(nine(shape(48, 48, 24, WHITE)), "white_pill.9.png")
@@ -654,8 +643,6 @@ def draw_all():
     save(nine(shape(48, 48, 21, (38, 38, 38, 235))), "panel_r21.9.png")
     save(circle(69, GLASS_FILL, GLASS_STROKE, 2), "glass_circle_69.png")
     save(circle(69, WHITE), "white_circle_69.png")
-    # (v1.1.1 VD-6) the focus ring of a 69 px circle button: 4 px stroke, 4 px gap, drawn at [-8, -8]
-    save(ring_circle(85, 4), "focus_ring_circle_85.png")
     save(circle(10, WHITE), "dot_10.png")
     save(nine(ring(60, 60, 26, 4, WHITE)), "focus_ring_r26.9.png")
     save(nine(ring(40, 40, 18, 2, (255, 255, 255, 31))), "card_border_r18.9.png")

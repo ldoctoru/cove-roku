@@ -51,7 +51,7 @@
                 <Label id="hov2" width="760" height="38" translation="[0,76]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
             </Group>
             <Group id="buttons" translation="[96,0]">
-                <!-- (v1.4) Glass3D: the accent glass Play pill and clear glass circles; focus = fog + ring + zoom -->
+                <!-- (v1.5 flat) the Play pill (22 % white) and flat circles; focus = solid white with a dark icon / label -->
                 <GlassButton id="btnPlay" style="accent" icon="pkg:/images/ui/icon_play_28.png" text="Play" minWidth="220" />
                 <GlassButton id="btnFav" style="circle" icon="pkg:/images/ui/icon_plus_28.png" />
                 <GlassButton id="btnInfo" style="circle" icon="pkg:/images/ui/icon_info_28.png" />
