@@ -606,6 +606,7 @@ def main(argv=None):
         OUT = tmp
         del WRITTEN[:]
         draw_all()
+        draw_player_v14()
         out = os.path.normpath(args.out)
         if args.check:
             added, changed, removed = compare(tmp, out)
@@ -626,6 +627,170 @@ def main(argv=None):
     print("make-ui-assets: generated %d files into %s: %d new, %d changed, %d unchanged, %d stale removed"
           % (len(WRITTEN), out, len(added), len(changed), len(same), len(removed)))
     return 0
+
+
+# ==================================================================================================== v1.4 player
+# (v1.4, the player agent's section: additive, every file starts with "pl_" or "icon_pl") The Glass3D player of
+# Cove for macOS (Classic/ClassicPlayer.swift bottomBar, Glass3DPlayerPanels.swift Glass3DControlBar), at 1.5x:
+# clear-glass circles with the 22 % outline, the accent glass play / pause, the tool bar capsule, the slim
+# timeline, fog + ring focus, and the page-colour glass panels. Without a live blur the glass gets a black 30 %
+# fill under its top-lit sheen (Glass3DTokens: sheen white 12 -> 3 %, rim 35 -> 8 -> 20 %, outline 22 %).
+from PIL import ImageChops  # noqa: E402 (kept in this section so the shared header stays untouched)
+
+PL_DARK = 77
+PL_SHEEN = [(0, 31), (1, 8)]
+PL_RIM = [(0, 89), (0.5, 20), (1, 51)]
+PL_OUTLINE = 56
+PL_FOG = [(0, 26), (0.5, 41), (1, 61)]
+
+
+def pl_vgrad(w, h, stops):
+    """An L image w x h whose value follows stops (ramp) from top to bottom."""
+    col = Image.new("L", (1, h))
+    f = ramp(stops)
+    for y in range(h):
+        col.putpixel((0, y), int(round(f(y / max(h - 1, 1)))))
+    return col.resize((w, h))
+
+
+def pl_hgrad(w, h, stops):
+    row = Image.new("L", (w, 1))
+    f = ramp(stops)
+    for x in range(w):
+        row.putpixel((x, 0), int(round(f(x / max(w - 1, 1)))))
+    return row.resize((w, h))
+
+
+def pl_masks(w, h, r, edge):
+    """The shape at 4x, its inside (edge px in) and the rim between them, as L masks."""
+    W, H = w * S, h * S
+    outer = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(outer).rounded_rectangle([0, 0, W - 1, H - 1], r * S, fill=255)
+    inner = Image.new("L", (W, H), 0)
+    e = edge * S
+    ImageDraw.Draw(inner).rounded_rectangle([e, e, W - 1 - e, H - 1 - e], max(r - edge, 0) * S, fill=255)
+    rim = ImageChops.subtract(outer, inner)
+    return outer, inner, rim
+
+
+def pl_layer(rgb, alpha, mask):
+    """rgb at alpha (an L image) inside mask."""
+    img = Image.new("RGBA", alpha.size, rgb + (0,))
+    img.putalpha(ImageChops.multiply(alpha, mask))
+    return img
+
+
+def pl_glass(w, h, r, dark=PL_DARK, outline=PL_OUTLINE):
+    """Clear glass: a dark fill, the top-lit sheen, a 2 px gradient rim no fainter than the outline."""
+    W, H = w * S, h * S
+    outer, inner, rim = pl_masks(w, h, r, 2)
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    if dark:
+        img = Image.alpha_composite(img, pl_layer((0, 0, 0), Image.new("L", (W, H), dark), inner))
+    img = Image.alpha_composite(img, pl_layer((255, 255, 255), pl_vgrad(W, H, PL_SHEEN), inner))
+    rim_a = pl_vgrad(W, H, [(t, max(a, outline)) for t, a in PL_RIM])
+    img = Image.alpha_composite(img, pl_layer((255, 255, 255), rim_a, rim))
+    return down(img, w, h)
+
+
+def pl_fog(w, h, r):
+    """The focus fog (Fogged mirror): milky white settling low, with a lit top rim."""
+    W, H = w * S, h * S
+    outer, inner, rim = pl_masks(w, h, r, 2)
+    img = pl_layer((255, 255, 255), pl_vgrad(W, H, PL_FOG), outer)
+    img = Image.alpha_composite(img, pl_layer((255, 255, 255), pl_vgrad(W, H, [(0, 150), (0.35, 0), (1, 0)]), rim))
+    return down(img, w, h)
+
+
+def pl_tint(w, h, r, stops, horizontal=True):
+    """White (tinted with the accent at runtime) with a left -> right (or top -> bottom) alpha fade."""
+    W, H = w * S, h * S
+    outer = pl_masks(w, h, r, 2)[0]
+    a = pl_hgrad(W, H, stops) if horizontal else pl_vgrad(W, H, stops)
+    return down(pl_layer((255, 255, 255), a, outer), w, h)
+
+
+def pl_flat(w, h, r, alpha):
+    W, H = w * S, h * S
+    outer = pl_masks(w, h, r, 2)[0]
+    return down(pl_layer((255, 255, 255), Image.new("L", (W, H), alpha), outer), w, h)
+
+
+def pl_hnine(img):
+    """A 9-patch that stretches only sideways (the Poster is drawn at the image's own height)."""
+    w, h = img.size
+    return nine(img, stretch_y=(h // 2 - 1, h // 2 + 1))
+
+
+def pl_rim_panel(w, h, r):
+    W, H = w * S, h * S
+    rim = pl_masks(w, h, r, 2)[2]
+    return down(pl_layer((255, 255, 255), pl_vgrad(W, H, PL_RIM), rim), w, h)
+
+
+def pl_knob(size, disc):
+    """The timeline knob: a white disc over a soft shadow."""
+    img = shadow(size, (size - disc) // 2, disc // 2, 2, 140)
+    d = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d.paste(circle(disc, WHITE), ((size - disc) // 2, (size - disc) // 2 - 1))
+    return Image.alpha_composite(img, d)
+
+
+def pl_speed(d, n):
+    """A speedometer (the Mac's Quality & speed gauge)."""
+    w = int(n * 0.08)
+    d.arc([n * 0.08, n * 0.14, n * 0.92, n * 0.98], 180, 360, fill=WHITE, width=w)
+    d.line([(n * 0.08 + w / 2, n * 0.56), (n * 0.08 + w / 2, n * 0.72)], fill=WHITE, width=w)
+    d.line([(n * 0.92 - w / 2, n * 0.56), (n * 0.92 - w / 2, n * 0.72)], fill=WHITE, width=w)
+    d.line([(n * 0.5, n * 0.58), (n * 0.7, n * 0.32)], fill=WHITE, width=w)
+    d.ellipse([n * 0.42, n * 0.5, n * 0.58, n * 0.66], fill=WHITE)
+
+
+def draw_player_v14():
+    # round buttons: clear glass (previous / next 63, jumps 69, play / pause 90 over the accent tint), the focus
+    # fog and the white focus ring (4 px, 4 px gap: drawn at [-8, -8])
+    for size in (63, 69, 90):
+        save(pl_glass(size, size, size // 2), "pl_glass_%d.png" % size)
+        save(pl_fog(size, size, size // 2), "pl_fog_%d.png" % size)
+        save(ring_circle(size + 16, 4), "pl_ring_%d.png" % (size + 16))
+    # the accent glass (ClassicGlassPill): accent fading left to right, 67 % -> 8 %, tinted with blendColor
+    save(pl_tint(90, 90, 45, [(0, 171), (1, 20)]), "pl_tint_90.png")
+    # the tool bar: one glass capsule 66 high, the focused cell's fog (60 x 54) and its ring (68 x 62)
+    save(pl_hnine(pl_glass(66, 66, 33, dark=96)), "pl_bar.9.png")
+    save(pl_hnine(pl_fog(60, 54, 27)), "pl_fog_cell.9.png")
+    save(pl_hnine(ring(68, 62, 31, 4, WHITE)), "pl_ring_cell.9.png")
+    # the timeline (GlassSlider): black 35 % glass, the accent fill with a white top sheen and an accent glow,
+    # 12 px at rest and 18 px while it has the focus; the knob shows only then
+    for h in (12, 18):
+        save(pl_hnine(pl_glass(24, h, h // 2, dark=89, outline=40)), "pl_track_%d.9.png" % h)
+        save(pl_hnine(pl_flat(24, h, h // 2, 255)), "pl_fill_%d.9.png" % h)
+        save(pl_hnine(pl_tint(24, h, h // 2, [(0, 102), (0.5, 0), (1, 0)], horizontal=False)), "pl_sheen_%d.9.png" % h)
+    # (the glow: white, tinted with the accent; 44 high, the line's 18 px in the middle, 13 px of blur around)
+    glow_a = Image.new("L", (64, 44), 0)
+    ImageDraw.Draw(glow_a).rounded_rectangle([13, 13, 50, 30], 9, fill=200)
+    glow = Image.new("RGBA", (64, 44), (255, 255, 255, 0))
+    glow.putalpha(glow_a.filter(ImageFilter.GaussianBlur(5)))
+    save(pl_hnine(glow), "pl_glow.9.png")
+    save(pl_knob(34, 26), "pl_knob_34.png")
+    # the scrim under the bottom block (black, clear at the top)
+    save(strip(4, 540, ramp([(0, 0), (0.3, 64), (0.65, 166), (1, 217)])), "pl_scrim.png")
+    # pills for the chips and the cards' buttons (52 / 68 / 72 high): clear glass, the accent glass (a vertical
+    # fade here: a horizontal one can't stretch), fog and the ring around them (drawn at [-6, -6])
+    for h in (52, 68, 72):
+        save(pl_hnine(pl_glass(h + 8, h, h // 2)), "pl_pill_%d.9.png" % h)
+        save(pl_hnine(pl_tint(h + 8, h, h // 2, [(0, 190), (1, 120)], horizontal=False)), "pl_tint_pill_%d.9.png" % h)
+        save(pl_hnine(pl_fog(h + 8, h, h // 2)), "pl_fog_pill_%d.9.png" % h)
+        save(pl_hnine(ring(h + 20, h + 12, (h + 12) // 2, 4, WHITE)), "pl_ring_pill_%d.9.png" % h)
+    # panels (PanelSurface, r18 x 1.5 = r27): the page colour at 90 % (no blur on Roku) and a top-lit rim
+    for name, rgb in BGS.items():
+        save(nine(shape(60, 60, 27, rgb + (230,))), "pl_panel_%s.9.png" % name)
+    save(nine(pl_rim_panel(60, 60, 27)), "pl_panel_rim.9.png")
+    # list rows in the panels (r12): fog and an inner 3 px ring (inside the row: lists clip their items)
+    save(nine(pl_fog(36, 36, 12)), "pl_fog_r12.9.png")
+    save(nine(ring(36, 36, 12, 3, WHITE)), "pl_ring_r12.9.png")
+    # the tool bar's Speed and Info (Info: the playback info overlay)
+    icon("plspeed", 36, pl_speed)
+    icon("plinfo", 36, info_ring)
 
 
 if __name__ == "__main__":
