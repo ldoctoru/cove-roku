@@ -527,36 +527,6 @@ def fog(w, h, radius, rim=True, ring_w=0):
     return layered(w, h, layers)
 
 
-def edge_card(size, radius, corner):
-    """The Mac's light glass edge (ClassicLightCard): a 2 px rim, bright (90 %) in the top-left and bottom-right
-    corners and fading to about 10 % inside the corner patch, so the stretched sides stay faint."""
-    big = Image.new("L", (size * S, size * S), 0)
-    ImageDraw.Draw(big).rounded_rectangle([0, 0, size * S - 1, size * S - 1], radius * S, outline=255, width=2 * S)
-    m = down(big.convert("RGBA"), size, size).split()[0]
-    out = Image.new("RGBA", (size, size), (255, 255, 255, 0))
-    px = out.load()
-    mp = m.load()
-    for y in range(size):
-        for x in range(size):
-            if not mp[x, y]:
-                continue
-            tl = (x + y) / float(corner)
-            br = ((size - 1 - x) + (size - 1 - y)) / float(corner)
-            near = min(tl, br)
-            v = 26 + (230 - 26) * max(0.0, 1 - near)
-            px[x, y] = (255, 255, 255, int(round(v * mp[x, y] / 255)))
-    return out
-
-
-def glow(size, inset, radius, blur):
-    """A soft white glow (tinted with the accent at runtime) around a card: Mac HoverGlow."""
-    img = Image.new("RGBA", (size, size), (255, 255, 255, 0))
-    m = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(m).rounded_rectangle([inset - 6, inset - 6, size - 1 - inset + 6, size - 1 - inset + 6], radius + 6, fill=255)
-    img.putalpha(m.filter(ImageFilter.GaussianBlur(blur)))
-    return img
-
-
 def check_circle(filled):
     def draw(d, n):
         if filled:
@@ -579,7 +549,6 @@ def heart_outline(d, n):
 
 def draw_glass3d():
     save(nine(glass3d(60, 60, 30)), "g3_capsule.9.png")
-    save(glass3d(69, 69, 34), "g3_circle_69.png")
     save(nine(fog(60, 60, 30)), "fog_capsule.9.png")
     # (a 9-patch can't shrink below its corners: pills 44-59 px high use the 44 px pieces and a 60 px ring)
     save(nine(glass3d(44, 44, 22)), "g3_capsule_44.9.png")
@@ -596,15 +565,12 @@ def draw_glass3d():
     save(nine(fog(36, 36, 12)), "fog_r12.9.png")
     # list focus bar (Picker, menus): fog with the white ring baked in, so a LabelList shows fog + ring
     save(nine(fog(36, 36, 12, rim=False, ring_w=3)), "fog_ring_r12.9.png")
-    # cards: the light glass edge, the top sheen, r12 corners, a ring for r12 cards (6 px gap) and the glow
-    save(nine(edge_card(84, 12, 40)), "card_edge_r12.9.png")
-    save(strip(4, 128, ramp([(0, 31), (1, 0)]), (255, 255, 255)), "sheen_top.png")
+    # cards: r12 corner masks and the plain ring for r12 cards (v1.5 flat: no glass edge, sheen or glow)
     for name, rgb in BGS.items():
         save(nine(corner_mask(40, 12, rgb)), "mask_r12_%s.9.png" % name)
         save(nine(shape(60, 60, 27, rgb + (230,))), "panel_r27_%s.9.png" % name)
     save(nine(vrim(60, 60, 27, 2, [(0, 89), (0.5, 20), (1, 51)]).resize((60, 60), Image.LANCZOS)), "panel_rim_r27.9.png")
     save(nine(ring(60, 60, 18, 4, WHITE)), "focus_ring_r18.9.png")
-    save(nine(glow(96, 24, 12, 10)), "glow_r12.9.png")
     # thumbnails (Continue Watching, episodes): top black 55 % -> clear, bottom clear -> 70 % (ThumbnailScrim)
     save(strip(4, 256, ramp([(0, 140), (0.38, 0), (0.55, 0), (1, 179)])), "scrim_thumb.png")
     # Settings: r21 cards (white 8 % + 15 % edge) and the selected tab (white 10 % + 22 % edge, r15)
@@ -646,7 +612,6 @@ def draw_all():
     save(circle(10, WHITE), "dot_10.png")
     save(nine(ring(60, 60, 26, 4, WHITE)), "focus_ring_r26.9.png")
     save(nine(ring(40, 40, 18, 2, (255, 255, 255, 31))), "card_border_r18.9.png")
-    save(nine(shadow(96, 24, 18, 14, 153)), "card_shadow.9.png")
     save(circle(36, (0, 0, 0, 179), (255, 255, 255, 217), 2), "badge_circle.png")
     save(nine(shape(36, 36, 18, (0, 0, 0, 179), (255, 255, 255, 217), 2)), "badge_capsule.9.png")
     # (v1.5 flat) the watched badge: a solid white disc with a thin 25 % black edge (so it reads on bright
@@ -713,7 +678,8 @@ def draw_all():
     save(arc(132, 8, 100, (255, 255, 255, 46)), "load_track.png")
     # "Who's watching?" profile picker: avatar circle and its focus ring
     save(circle(240, WHITE), "white_circle_240.png")
-    save(ring_circle(256, 7), "ring_circle_256.png")
+    # (v1.5 flat) the round focus ring (cast photos, Who's watching?): a plain 5 px stroke (~4 px at cast size)
+    save(ring_circle(256, 5), "ring_circle_256.png")
 
 
 def sync(src, dst):
