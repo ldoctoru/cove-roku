@@ -12,7 +12,9 @@ sub init()
     ' (v1.5 flat) no accent: the progress bar, the favourite heart and the resume arc are white
     m.top.findNode("barFill").color = "0xFFFFFFFF"
     m.top.findNode("heart").blendColor = "0xFFFFFFFF"
-    m.top.findNode("resumeArc").blendColor = "0xFFFFFFFF"
+    ' (v1.5) Liviu: the resume arc in a colour, easier to see on Continue Watching (Emby's green; the one
+    ' coloured element left besides rating icons)
+    m.top.findNode("resumeArc").blendColor = "0x52B54BFF"
     ' (v1.4 R5) Settings → General → Dim Watched (on by default, as on the Mac)
     m.dimWatched = true
     dv = t.dimWatched
