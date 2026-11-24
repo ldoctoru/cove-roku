@@ -1,0 +1,158 @@
+import "pkg:/source/Api.bs"
+import "pkg:/source/MissingArt.bs"
+
+sub init()
+    m.top.functionName = "work"
+end sub
+
+sub work()
+    try
+        mode = m.top.mode
+        if mode = "admin"
+            checkAdmin()
+        else if mode = "scan"
+            scanLibrary()
+        else if mode = "refresh"
+            refreshRows()
+        end if
+    catch e
+        msg = Util.toText(e.message)
+        where = ""
+        if type(e.backtrace) = "roArray" and e.backtrace.count() > 0
+            frame = e.backtrace[e.backtrace.count() - 1]
+            if Util.isAA(frame) then where = " (" + Util.toText(frame.filename) + ":" + Util.toText(frame.line_number) + ")"
+        end if
+        print "Cove: MissingArtTask failed: "; Util.redact(msg + where)
+        m.top.result = { error: "Something went wrong: " + msg, rows: [], scanned: 0, total: -1, fixed: 0, count: 0, isAdmin: false }
+    end try
+end sub
+
+function getJson(path as string, timeoutMs as integer) as object
+    srv = m.top.server
+    return Api.execute({ method: "GET", url: Util.toText(srv.url) + path, headers: Api.headers(srv, true), timeout: timeoutMs })
+end function
+
+sub checkAdmin()
+    srv = m.top.server
+    r = getJson("/Users/" + Util.toText(srv.userId), 15000)
+    isAdmin = false
+    if r.code = 200 then isAdmin = Util.flag(Util.field(r.json, "Policy"), "IsAdministrator")
+    print "Cove: admin check -> "; r.code; " "; isAdmin
+    m.top.result = { isAdmin: isAdmin, code: r.code }
+end sub
+
+sub scanLibrary()
+    srv = m.top.server
+    kind = MissingArt.kindOf(m.top.kind)
+    uid = Util.toText(srv.userId)
+    lib = Util.toText(m.top.libraryId)
+    spent = createObject("roTimespan")
+    rows = []
+    scanned = 0
+    total = -1
+    start = 0
+    err = ""
+    limit = MissingArt.pageSize()
+    while not m.top.cancel
+        r = getJson(MissingArt.scanPath(uid, lib, start, limit), 60000)
+        if r.code <> 200 or not Util.isAA(r.json)
+            err = "Couldn't read the library. " + Api.describeFailure(r)
+            exit while
+        end if
+        page = MissingArt.rowsOfPage(r.json, kind)
+        rows.append(page.rows)
+        scanned = scanned + page.pageCount
+        if page.total >= 0 then total = page.total
+        start = start + page.pageCount
+        m.top.progress = { scanned: scanned, total: total, found: rows.count() }
+        if not MissingArt.scanContinues(page.pageCount, start, total) then exit while
+    end while
+    ms = spent.TotalMilliseconds()
+    shownTotal = total
+    if shownTotal < 0 then shownTotal = scanned
+    print "Cove: missing art "; kind; " "; rows.count(); " of "; shownTotal; " "; ms; " ms"
+    m.top.result = { rows: rows, scanned: scanned, total: total, ms: ms, error: err }
+end sub
+
+' Two at a time, as on the Mac: each pair is refreshed together and watched until both changed (or ~60 s)
+sub refreshRows()
+    srv = m.top.server
+    kind = MissingArt.kindOf(m.top.kind)
+    uid = Util.toText(srv.userId)
+    list = m.top.rows
+    if type(list) <> "roArray" then list = []
+    h = Api.headers(srv, true)
+    base = Util.toText(srv.url)
+    fixedCount = 0
+    spent = createObject("roTimespan")
+    i = 0
+    while i < list.count() and not m.top.cancel
+        batch = [list[i]]
+        if i + 1 < list.count() then batch.push(list[i + 1])
+        i = i + batch.count()
+        ' before: the records (refresh date + image tags)
+        reads = []
+        for each row in batch
+            reads.push({ url: base + MissingArt.recordPath(uid, Util.toText(row.id)), headers: h })
+        end for
+        before = Api.executeMany(reads, 15000, 2)
+        snaps = []
+        for each res in before
+            if res.code = 200 then snaps.push(MissingArt.snapshotOf(res.json)) else snaps.push("")
+        end for
+        for each row in batch
+            p = Api.execute({ method: "POST", url: base + MissingArt.refreshMissingPath(Util.toText(row.id)), headers: h, body: "", timeout: 20000 })
+            print "Cove: missing art refresh "; Util.toText(row.id); " -> "; p.code
+        end for
+        ' then every 3 s until each record changed (2 s more once it did), at most ~60 s
+        changed = []
+        latest = []
+        for each row in batch
+            changed.push(false)
+            latest.push(invalid)
+        end for
+        waited = 0
+        while waited < 60000 and not m.top.cancel
+            pause(3000)
+            waited = waited + 3000
+            now = Api.executeMany(reads, 15000, 2)
+            allDone = true
+            for k = 0 to batch.count() - 1
+                if now[k].code = 200 and Util.isAA(now[k].json)
+                    latest[k] = now[k].json
+                    s = MissingArt.snapshotOf(now[k].json)
+                    if snaps[k] = ""
+                        if waited >= 6000 then changed[k] = true
+                    else if s <> snaps[k]
+                        changed[k] = true
+                    end if
+                end if
+                if not changed[k] then allDone = false
+            end for
+            if allDone then exit while
+        end while
+        if not m.top.cancel
+            ' (the server may still be saving the picture when the refresh date moves: one more look)
+            pause(2000)
+            again = Api.executeMany(reads, 15000, 2)
+            for k = 0 to batch.count() - 1
+                rec = latest[k]
+                if again[k].code = 200 and Util.isAA(again[k].json) then rec = again[k].json
+                ok = rec <> invalid and not MissingArt.isMissing(rec, kind)
+                if ok then fixedCount = fixedCount + 1
+                m.top.itemDone = { id: Util.toText(batch[k].id), fixed: ok }
+            end for
+        end if
+    end while
+    print "Cove: missing art refreshed "; kind; " "; fixedCount; " of "; list.count(); " "; spent.TotalMilliseconds(); " ms"
+    m.top.result = { fixed: fixedCount, count: list.count(), cancelled: m.top.cancel }
+end sub
+
+' sleep in small steps, so a cancel is seen within half a second
+sub pause(ms as integer)
+    waited = 0
+    while waited < ms and not m.top.cancel
+        sleep(500)
+        waited = waited + 500
+    end while
+end sub

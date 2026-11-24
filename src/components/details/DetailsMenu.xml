@@ -11,6 +11,8 @@
     <script type="text/brightscript" uri="DetailsMenu.bs" />
     <interface>
         <field id="heading" type="assocarray" />
+        <!-- (v1.5.1) a small grey caps heading over the rows instead (e.g. "ADMIN" on a library page) -->
+        <field id="caption" type="string" />
         <field id="options" type="array" onChange="onOptions" />
         <field id="anchor" type="array" value="[1200, 200]" />
         <field id="panelWidth" type="integer" value="560" />
@@ -33,6 +35,9 @@
                 </Label>
                 <Rectangle id="headLine" height="2" translation="[24,146]" color="0xFFFFFF1F" />
             </Group>
+            <Label id="caption" height="40" translation="[32,18]" color="0xFFFFFF8C" visible="false">
+                <Font role="font" uri="font:BoldSystemFontFile" size="22" />
+            </Label>
             <Group id="rows" />
             <!-- more rows above / below the visible ones -->
             <Label id="moreUp" text="..." height="20" color="0xFFFFFF9E" visible="false"><Font role="font" uri="font:BoldSystemFontFile" size="24" /></Label>
