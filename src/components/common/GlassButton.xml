@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.5 flat) Cove's button, Apple TV / Emby style: one flat shape, no glass, tint, rim, shine, fog, focus ring
+     or zoom. The name and the fields stay as in v1.4 so the callers don't change.
+     style "accent": the Play pill, a slightly stronger fill (22 % white). style "glass": a pill in the Theme's
+     controlFill (12 % white). style "circle": a controlFill circle (size = height) with an icon.
+     Unfocused: the faint fill with white text / icon (iconColor). Focused: a solid white fill (focusFill) with the
+     text and icon in onFocus (dark). dimmed: 35 % while not focused.
+     The width is measured from the label (VD-10) and published in buttonWidth; minWidth keeps short labels wide. -->
+<component name="GlassButton" extends="Group">
+    <script type="text/brightscript" uri="GlassButton.bs" />
+    <interface>
+        <field id="style" type="string" value="glass" onChange="layout" />
+        <field id="text" type="string" onChange="layout" />
+        <field id="icon" type="string" onChange="layout" />
+        <field id="iconColor" type="string" value="0xFFFFFFFF" onChange="layout" />
+        <field id="iconSize" type="integer" value="28" onChange="layout" />
+        <field id="textSize" type="integer" value="28" onChange="layout" />
+        <field id="height" type="integer" value="69" onChange="layout" />
+        <field id="minWidth" type="integer" value="0" onChange="layout" />
+        <field id="padX" type="integer" value="-1" onChange="layout" />
+        <field id="focused" type="boolean" onChange="paint" />
+        <field id="dimmed" type="boolean" onChange="paint" />
+        <field id="buttonWidth" type="integer" />
+    </interface>
+    <children>
+        <Group id="body">
+            <Poster id="base" />
+            <Poster id="iconImg" visible="false" />
+            <Label id="label" color="0xFFFFFFFF" vertAlign="center">
+                <Font role="font" uri="font:BoldSystemFontFile" size="28" />
+            </Label>
+        </Group>
+    </children>
+</component>

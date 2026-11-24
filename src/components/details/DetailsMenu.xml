@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.5 details) A flat dark panel opened in place on the details page, as Emby's: the Audio / Subtitles track list
+     under its pill, and the ⋯ More menu next to its button (a header with a small poster, the title and the year,
+     then rows with a right-aligned icon). No glass, glow or shadow: a dark panel at 85 %, the focused row a solid
+     white fill with dark text and icon.
+     Set heading (optional { poster, title, sub }), options ([{ id, label, icon, checked, divider }]; icon = a file
+     in images/ui, checked = a check on the right), anchor ([x, y] of the panel's top-left; the panel moves up when
+     it would leave the screen), panelWidth, selectedId (the focused row at first), title (spoken), purpose. Up / Down
+     move, OK sets chosen ({ id, purpose }), Back / Left / * set cancelled. -->
+<component name="DetailsMenu" extends="Group">
+    <script type="text/brightscript" uri="DetailsMenu.bs" />
+    <interface>
+        <field id="heading" type="assocarray" />
+        <field id="options" type="array" onChange="onOptions" />
+        <field id="anchor" type="array" value="[1200, 200]" />
+        <field id="panelWidth" type="integer" value="560" />
+        <field id="selectedId" type="string" />
+        <field id="title" type="string" />
+        <field id="purpose" type="string" />
+        <field id="chosen" type="assocarray" alwaysNotify="true" />
+        <field id="cancelled" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Group id="panelGroup">
+            <Poster id="bg" uri="pkg:/images/ui/white_r18.9.png" blendColor="0x1C1C1EFF" opacity="0.85" />
+            <Group id="head" visible="false">
+                <Poster id="headPoster" width="70" height="105" translation="[24,24]" loadDisplayMode="scaleToZoom" loadWidth="140" loadHeight="210" />
+                <Label id="headTitle" height="40" translation="[112,44]" color="0xFFFFFFEB">
+                    <Font role="font" uri="font:BoldSystemFontFile" size="26" />
+                </Label>
+                <Label id="headSub" height="36" translation="[112,84]" color="0xFFFFFF9E">
+                    <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+                </Label>
+                <Rectangle id="headLine" height="2" translation="[24,146]" color="0xFFFFFF1F" />
+            </Group>
+            <Group id="rows" />
+            <!-- more rows above / below the visible ones -->
+            <Label id="moreUp" text="..." height="20" color="0xFFFFFF9E" visible="false"><Font role="font" uri="font:BoldSystemFontFile" size="24" /></Label>
+            <Label id="moreDown" text="..." height="20" color="0xFFFFFF9E" visible="false"><Font role="font" uri="font:BoldSystemFontFile" size="24" /></Label>
+        </Group>
+    </children>
+</component>

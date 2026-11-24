@@ -108,3 +108,14 @@ sub test_returnPage()
     t_eq(NavUtil_returnPage(invalid, ep), invalid, "not from Home")
     t_eq(NavUtil_returnPage({}, ep), invalid, "an empty returnTo field")
 end sub
+
+' (v1.5) the top bar: what fits in 1920 px, the rest behind More
+sub test_topBarFit()
+    pins = [true, false, false, false, true, true]
+    t_eq(NavUtil_topBarFit([100, 100, 100, 100, 100, 100], pins, 80, 1000, 6), [0, 1, 2, 3, 4, 5], "everything fits")
+    ' 6 x 106 = 636 > 600: pinned 3 x 106 + More 86 = 404; 100 + 6 fits once (510), twice 616 doesn't
+    t_eq(NavUtil_topBarFit([100, 100, 100, 100, 100, 100], pins, 80, 600, 6), [0, 1, -1, 4, 5], "two cut behind More")
+    ' a wide entry stops the run: the next ones go behind More too (the order stays)
+    t_eq(NavUtil_topBarFit([100, 50, 400, 50, 100, 100], pins, 80, 600, 6), [0, 1, -1, 4, 5], "order kept")
+    t_eq(NavUtil_topBarFit([100, 900, 100, 100], [true, false, true, true], 80, 600, 6), [0, -1, 2, 3], "nothing but More")
+end sub

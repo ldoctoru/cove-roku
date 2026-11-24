@@ -3,6 +3,7 @@ import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Prefs.bs"
+import "pkg:/source/NavPrefs.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Toasts.bs"
@@ -23,7 +24,8 @@ sub init()
     m.wantHint = invalid     ' (read from the registry once, when the first card takes the focus)
     m.hintShown = false
     ' Sidebar or top bar (Settings → General → Navigation)
-    m.side = Prefs.navStyle() <> "topbar"
+    m.side = NavPrefs.menuStyle() <> "topbar"
+    m.navLogged = ""
     m.navs = m.top.findNode("navs")
     if m.side
         m.nav = m.top.findNode("side")
@@ -205,7 +207,7 @@ sub onContent(ev as object)
     end if
     hideError()
     signalReady()
-    ' Per row: 16:9 cards for Continue Watching / Next Up / Libraries, 2:3 posters with title and year otherwise
+    ' Per row: 16:9 cards for Continue Watching / Next Up, My Media's library tiles, 2:3 posters with title and year otherwise
     sizeRows(content)
     ' (v1.2) the full rows after a first part: a reload (keep the focus, don't jump to the hero)
     wasReload = m.reloading = true or m.partialShown = true
@@ -282,43 +284,72 @@ sub onAuthCheck(ev as object)
     if r.code = 401 then m.top.action = { id: "expired" }
 end sub
 
-' The sidebar, as on the Mac: Home, Search, Favorites, Now Playing (with the count), then Library: Recently Added
-' and the libraries, then Settings
+' The sidebar / top bar, as on the Mac: Home first, then the menu style's own list (v1.5 NavPrefs: Settings →
+' Navigation, in its order, only the entries switched on; Search, Favorites, Now Playing with the count, Recently
+' Added, the libraries), then the profile and Settings last. The sidebar keeps the Mac's "My Media" header
+' while Recently Added and the libraries still come after the pages.
 sub buildNav()
-    items = [
-        { id: "home", label: "Home", icon: "home" },
-        { id: "search", label: "Search", icon: "search" }
-    ]
-    ' Settings → Libraries: Favorites / Now Playing shown; General: Recently Added
-    if Prefs.showFavorites() then items.push({ id: "favorites", label: "Favorites", icon: "heart" })
-    if Prefs.showNowPlaying() then items.push({ id: "nowplaying", label: "Now Playing", icon: "nowplaying", badge: m.nowPlaying })
-    if m.side then items.push({ header: true, label: "Library" })
-    if Prefs.showRecent() then items.push({ id: "recent", label: "Recently Added", icon: "clock" })
+    items = [{ id: "home", label: "Home", icon: "home", pinned: true }]
     libs = invalid
     if m.task <> invalid then libs = m.task.libraries
     ' (SC-6) a reload's task has no libraries until its rows arrive: keep the last list meanwhile
     if m.libsPending = true and m.libraries.count() > 0 then libs = m.libraries
     m.libraries = []
+    libAt = {}
     if libs <> invalid
         for i = 0 to libs.count() - 1
             m.libraries.push(libs[i])
-            ' (hidden from the sidebar in Settings → Libraries)
-            if libs[i].nav <> false
-                ct = Util.toText(libs[i].collectionType)
+            libAt["L" + Util.toText(libs[i].id)] = i
+        end for
+    end if
+    place = NavPrefs.activePlace()
+    shownList = []
+    for each e in NavPrefs.entries(place, m.libraries)
+        if e.on
+            if e.id = "search"
+                shownList.push({ id: "search", label: "Search", icon: "search" })
+            else if e.id = "favorites"
+                shownList.push({ id: "favorites", label: "Favorites", icon: "heart" })
+            else if e.id = "nowplaying"
+                shownList.push({ id: "nowplaying", label: "Now Playing", icon: "nowplaying", badge: m.nowPlaying })
+            else if e.id = "recent"
+                shownList.push({ id: "recent", label: "Recently Added", icon: "clock", media: true })
+            else if e.isLibrary and libAt.doesExist(e.id)
                 ic = "folder"
-                if ct = "movies" then ic = "film"
-                if ct = "tvshows" then ic = "tv"
-                items.push({ id: "lib:" + i.toStr(), label: Util.toText(libs[i].title), icon: ic })
+                if e.collectionType = "movies" then ic = "film"
+                if e.collectionType = "tvshows" then ic = "tv"
+                shownList.push({ id: "lib:" + libAt[e.id].toStr(), label: e.label, icon: ic, media: true })
+            end if
+        end if
+    end for
+    ' (v1.4 N2) the Mac's sidebar header, before the first of Recently Added / the libraries when no page
+    ' follows them
+    headerAt = -1
+    if m.side
+        for k = shownList.count() - 1 to 0 step -1
+            if Util.flag(shownList[k], "media")
+                headerAt = k
+            else
+                exit for
             end if
         end for
     end if
+    for k = 0 to shownList.count() - 1
+        if k = headerAt then items.push({ header: true, label: "My Media" })
+        items.push(shownList[k])
+    end for
     if m.side then items.push({ header: true, label: "" })
     ' (v0.9.0) the signed-in profile: OK opens Who's watching? to switch or add one
     who = ""
     if m.top.server <> invalid then who = Util.toText(m.top.server.userName)
     if who = "" then who = "Profiles"
-    items.push({ id: "profile", label: who, icon: "profile" })
-    items.push({ id: "settings", label: "Settings", icon: "gear" })
+    items.push({ id: "profile", label: who, icon: "profile", pinned: true })
+    items.push({ id: "settings", label: "Settings", icon: "gear", pinned: true })
+    sig = place + ":" + shownList.count().toStr()
+    if sig <> m.navLogged
+        m.navLogged = sig
+        print "Cove: nav " + place + " " + shownList.count().toStr() + " entries"
+    end if
     m.nav.items = items
 end sub
 
@@ -528,12 +559,19 @@ sub showHero(i as integer)
     m.lines = lines.count()
     chip = m.top.findNode("chipText")
     chip.text = it.chip
-    m.top.findNode("chipBg").width = it.chip.len() * 14 + 28
+    m.top.findNode("chipBg").width = Int(chip.boundingRect().width) + 28
     ' (v1.2) the season and episode are on the meta line now (Items.heroMeta): no chip
     m.top.findNode("chip").visible = false
-    label = "Play"
-    if it.resumeAt > 30 then label = "Resume"
-    m.top.findNode("playLabel").text = label
+    ' (v1.4 H1) "Resume 24:10" with the restart arrow when there is a resume point (the Mac's "↻ 24:10"; the
+    ' word stays on TV, the arrow alone reads poorly from the sofa)
+    play = m.top.findNode("btnPlay")
+    if it.resumeAt > 30
+        play.icon = "pkg:/images/ui/icon_restart_28.png"
+        play.text = "Resume " + clockText(it.resumeAt)
+    else
+        play.icon = "pkg:/images/ui/icon_play_28.png"
+        play.text = "Play"
+    end if
     ' title text until the logo has loaded
     m.logoReady = false
     m.heroLogo.visible = false
@@ -582,33 +620,18 @@ sub paintButtons()
     it = invalid
     if m.heroes.count() > 0 then it = m.heroes[m.heroIndex]
     play = m.top.findNode("btnPlay")
-    play.scaleRotateCenter = [127, 34]
-    s = 1.0
-    if focused and m.btn = 0 then s = 1.06
-    play.scale = [s, s]
-    m.top.findNode("playRing").visible = focused and m.btn = 0
-    paintCircle("fav", focused and m.btn = 1)
-    paintCircle("info", focused and m.btn = 2)
-    favIcon = m.top.findNode("favIcon")
-    favIcon.uri = "pkg:/images/ui/icon_plus_28.png"
-    if it <> invalid and it.favorite then favIcon.uri = "pkg:/images/ui/icon_check_28.png"
-end sub
-
-sub paintCircle(name as string, isFocused as boolean)
-    bg = m.top.findNode(name + "Bg")
-    icon = m.top.findNode(name + "Icon")
-    g = m.top.findNode("btn" + UCase(name.left(1)) + name.mid(1))
-    g.scaleRotateCenter = [34, 34]
-    ' (v1.1.1 VD-6) one focus rule: the white ring shows the focus; the circle keeps its glass fill, so it never
-    ' looks like a second Play button
-    bg.uri = "pkg:/images/ui/glass_circle_69.png"
-    icon.blendColor = "0xFFFFFFFF"
-    m.top.findNode(name + "Ring").visible = isFocused
-    if isFocused
-        g.scale = [1.06, 1.06]
-    else
-        g.scale = [1.0, 1.0]
-    end if
+    fav = m.top.findNode("btnFav")
+    info = m.top.findNode("btnInfo")
+    favIcon = "pkg:/images/ui/icon_plus_28.png"
+    if it <> invalid and it.favorite then favIcon = "pkg:/images/ui/icon_check_28.png"
+    if fav.icon <> favIcon then fav.icon = favIcon
+    ' (v1.4 VD-10) the circles follow the Play pill's measured width
+    x = play.buttonWidth + 21
+    fav.translation = [x, 0]
+    info.translation = [x + 90, 0]
+    play.focused = focused and m.btn = 0
+    fav.focused = focused and m.btn = 1
+    info.focused = focused and m.btn = 2
 end sub
 
 sub onHeroTimer()
@@ -804,6 +827,10 @@ end sub
 
 sub onNavChosen(ev as object)
     id = ev.getData().id
+    if id = "more"
+        showNavMore()
+        return
+    end if
     if id = "home"
         ' (NV-5) Home chosen again: the hero rotates again
         m.heroHeld = false
@@ -816,6 +843,54 @@ sub onNavChosen(ev as object)
         ' the page opens over the home; coming back lands where Left was pressed
         leaveNav()
     end if
+    openNavPage(id)
+end sub
+
+' (v1.5) The top bar's More entry: the entries that didn't fit, as a list (OK opens one, Back closes)
+sub showNavMore()
+    o = []
+    hidden = m.nav.overflow
+    if type(hidden) = "roArray"
+        for each it in hidden
+            if Util.isAA(it) and Util.toText(it.id) <> "" then o.push({ id: Util.toText(it.id), label: Util.toText(it.label) })
+        end for
+    end if
+    if o.count() = 0 then return
+    p = createObject("roSGNode", "Picker")
+    p.purpose = "navMore"
+    p.title = "More"
+    p.options = o
+    p.observeField("chosen", "onNavMoreChosen")
+    p.observeField("cancelled", "closeNavMore")
+    m.top.appendChild(p)
+    m.picker = p
+    p.setFocus(true)
+end sub
+
+sub closeNavMore()
+    if m.picker <> invalid
+        m.picker.unobserveField("chosen")
+        m.picker.unobserveField("cancelled")
+        m.top.removeChild(m.picker)
+        m.picker = invalid
+    end if
+    restoreFocus()
+end sub
+
+sub onNavMoreChosen(ev as object)
+    id = Util.toText(ev.getData().id)
+    closeNavMore()
+    if id = "home"
+        m.heroHeld = false
+        if m.heroes.count() > 0 then enterHero() else leaveNav()
+        return
+    end if
+    leaveNav()
+    openNavPage(id)
+end sub
+
+' The page of a menu entry (MainScene opens it over Home)
+sub openNavPage(id as string)
     if id = "search"
         m.top.action = { id: "search" }
     else if id = "settings" or id = "favorites" or id = "recent" or id = "nowplaying" or id = "profile"
@@ -1340,13 +1415,18 @@ function clockText(secs as float) as string
     return out + Right("0" + ss.toStr(), 2)
 end function
 
-' Per row: 16:9 cards for Continue Watching / Next Up / Libraries, 2:3 posters with title and year otherwise
+' Per row: 16:9 cards for Continue Watching / Next Up, My Media's library tiles, 2:3 posters with title and year otherwise
 ' (tiles include an 18 px margin around each card for its focus zoom and ring: see PosterItem)
 sub sizeRows(content as object)
     heights = []
     sizes = []
     for i = 0 to content.getChildCount() - 1
-        if content.getChild(i).landscape
+        row = content.getChild(i)
+        if row.hasField("myMedia") and row.myMedia
+            ' (v1.5) My Media: 360 x 202 library tiles with the name under them
+            sizes.push([396, 290])
+            heights.push(290)
+        else if row.landscape
             sizes.push([396, 246])
             heights.push(246)
         else

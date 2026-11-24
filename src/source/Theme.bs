@@ -16,29 +16,75 @@ namespace Theme
         return { black: "0x000000FF", charcoal: "0x1C1C1CFF", navy: "0x0A122BFF", plum: "0x1F0D26FF", forest: "0x0A1F14FF" }
     end function
 
-    ' Accent and background chosen in Settings (defaults: red on black, as on the Mac)
+    ' (v1.4 VD-11) The Mac's Glass3D text sizes (page title 30, section 22, card title 15, meta 12) at TV scale,
+    ' plus the hero/person display sizes and the button label. XML can't read these: the XML sizes use the
+    ' same numbers.
+    function typeScale() as object
+        return { display: 84, title: 64, page: 44, section: 34, button: 28, body: 26, card: 24, meta: 24 }
+    end function
+
+    ' (v1.4 VD-13) Corner radii (Glass3D x 1.5): posters and wide cards 12, banner cards 18, Settings cards 21,
+    ' side panels 27, focus bars 12; pills are half their height. The PNGs in images/ui carry these radii.
+    function radii() as object
+        return { poster: 12, card: 12, thumb: 12, banner: 18, field: 12, settingsCard: 21, panel: 27 }
+    end function
+
+    ' (v1.5 flat) Scene.palette for the standard dialogs (message, PIN pad, keyboard dialogs): flat and neutral,
+    ' a dark grey panel, white text, the focused button solid white with dark text (keys quoted: case kept)
+    function dialogColors() as object
+        return {
+            "DialogBackgroundColor": "0x1C1C1EFF",
+            "DialogTextColor": "0xFFFFFFEB",
+            "DialogSecondaryTextColor": "0xFFFFFF9E",
+            "DialogItemColor": "0xFFFFFFFF",
+            "DialogSecondaryItemColor": "0xFFFFFF1F",
+            "DialogFocusColor": "0xFFFFFFFF",
+            "DialogFocusItemColor": "0x111111FF",
+            "DialogFootprintColor": "0xFFFFFF33"
+        }
+    end function
+
+    ' (v1.5 flat) The background chosen in Settings (default black). There is no accent colour any more: the
+    ' stored "accent" key is ignored, and accent / onAccent stay as fields (white with a dark foreground) so
+    ' older code keeps compiling, but nothing in the app is tinted.
     function get() as object
-        accentName = Util.readText("accent")
+        accentName = "white"
         bgName = Util.readText("background")
-        a = accents()
         b = backgrounds()
-        if a[accentName] = invalid then accentName = "red"
         if b[bgName] = invalid then bgName = "black"
-        onAccent = "0xFFFFFFFF"
-        if accentName = "white" then onAccent = "0x000000FF"
+        onAccent = "0x111111FF"
         ui = "pkg:/images/ui/"
         return {
             accentName: accentName,
             bgName: bgName,
             bg: b[bgName],
-            accent: a[accentName],
+            accent: "0xFFFFFFFF",
             onAccent: onAccent,
             text: "0xFFFFFFFF",
-            text2: "0xFFFFFFCC",
-            text3: "0xFFFFFF99",
+            ' (v1.5 flat) Apple TV / Emby-style flat tokens shared by every screen: a focused control is a plain white
+            ' fill with dark content (no glow, glass, shine or zoom); unfocused controls are a faint white fill.
+            focusFill: "0xFFFFFFFF",
+            onFocus: "0x111111FF",
+            controlFill: "0xFFFFFF1F",
+            rowFill: "0xFFFFFF14",
+            divider: "0xFFFFFF1F",
+            ' (v1.4) the Glass3D greys (Glass3DTokens.swift): primary 92 %, secondary 62 %, tertiary 42 % (tertiary
+            ' only for disabled items and hints). Overview text over pictures keeps 80 % (no blur on Roku).
+            text1: "0xFFFFFFEB",
+            text2: "0xFFFFFF9E",
+            text3: "0xFFFFFF6B",
             overview: "0xFFFFFFCC",
             placeholder: "0x262626FF",
             error: "0xFF9F0AFF",
+            ' (v1.4) type scale, radii and motion (Glass3D tokens x 1.5 for 1920 x 1080, never under 24 px)
+            typeSizes: typeScale(),
+            radius: radii(),
+            animFast: 0.15,
+            animSlow: 0.3,
+            ' (v1.4) Settings → General → Dim Watched: watched cards at 60 % (on unless switched off, as on the Mac)
+            dimWatched: Util.readText("dimWatched") <> "off",
+            maskPoster: ui + "mask_r12_" + bgName + ".9.png",
+            panel: ui + "panel_r27_" + bgName + ".9.png",
             maskCard: ui + "mask_r18_" + bgName + ".9.png",
             maskCircle: ui + "mask_circle_" + bgName + "_144.png",
             scrimBottom: ui + "scrim_bottom_" + bgName + ".png",

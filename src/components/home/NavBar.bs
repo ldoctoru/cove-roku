@@ -6,6 +6,7 @@ sub init()
     m.pill = m.top.findNode("pill")
     m.entries = m.top.findNode("entries")
     m.index = 0
+    m.view = []
     m.top.observeField("focusedChild", "onFocus")
     m.hadFocus = false
     Speak.mute([m.top])
@@ -13,12 +14,12 @@ end sub
 
 sub onFocus()
     has = m.top.hasFocus()
-    if has and not m.hadFocus and m.top.items <> invalid
+    if has and not m.hadFocus and m.view.count() > 0
         ' (v1.2 NV-6) open on the entry last opened from the menu this session (shared with the sidebar)
         last = invalid
         if m.global.hasField("navLastEntry") then last = m.global.navLastEntry
         if Util.isAA(last)
-            at = NavUtil.openEntry(m.top.items, Util.toText(last.id), Util.toText(last.label), "")
+            at = NavUtil.openEntry(m.view, Util.toText(last.id), Util.toText(last.label), "")
             if at >= 0 then m.index = at
         end if
     end if
@@ -29,8 +30,8 @@ end sub
 
 ' Audio Guide: the focused entry, "Search, 2 of 8"
 sub speakEntry(prefix as string)
-    if not Speak.isOn() or m.top.items = invalid then return
-    its = m.top.items
+    if not Speak.isOn() then return
+    its = m.view
     if m.index < 0 or m.index >= its.count() then return
     text = Util.toText(its[m.index].label)
     b = Util.toNumber(its[m.index].badge)
@@ -39,62 +40,103 @@ sub speakEntry(prefix as string)
     Speak.say(prefix + text + Speak.position(m.index, its.count()))
 end sub
 
-' Each entry: a capsule behind an icon and / or a label (Settings → Top bar shows); widths follow the text
+' Each entry: a capsule behind an icon and / or a label (Settings → Top bar shows); widths follow the text.
+' (v1.5) The bar stays inside the screen: when the entries are wider than maxBarWidth() the ones that don't fit
+' go behind a "More" entry (before the profile and Settings); OK on it sets chosen = { id: "more" } and
+' "overflow" lists them.
 sub build()
     m.entries.removeChildrenIndex(m.entries.getChildCount(), 0)
+    m.view = []
     if m.top.items = invalid then return
     mode = m.top.labels
-    x = 8
+    widths = []
+    pins = []
     for each it in m.top.items
-        hasIcon = mode <> "names" and Util.toText(it.icon) <> ""
-        hasText = mode <> "icons" or not hasIcon
-        g = m.entries.createChild("Group")
-        g.translation = [x, 8]
-        bg = g.createChild("Poster")
-        bg.uri = "pkg:/images/ui/white_pill.9.png"
-        bg.height = 48
-        bg.visible = false
-        l = g.createChild("Label")
-        l.height = 48
-        l.vertAlign = "center"
-        f = createObject("roSGNode", "Font")
-        f.uri = "font:MediumSystemFontFile"
-        f.size = 26
-        l.font = f
-        ic = g.createChild("Poster")
-        ic.width = 30
-        ic.height = 30
-        ic.translation = [22, 9]
-        ic.visible = hasIcon
-        if hasIcon then ic.uri = "pkg:/images/ui/icon_" + it.icon + "_36.png"
-        w = 0
-        if hasText
-            l.text = it.label
-            tw = it.label.len() * 15
-            if hasIcon
-                l.translation = [62, 0]
-                w = 62 + tw + 22
-            else
-                l.translation = [22, 0]
-                w = tw + 44
-                if w < 110
-                    l.translation = [Int((110 - tw) / 2), 0]
-                    w = 110
-                end if
-            end if
-            l.width = tw + 6
-        else
-            w = 74
-        end if
-        bg.width = w
-        x = x + w + 6
+        widths.push(addEntry(it, mode, 0))
+        pins.push(Util.flag(it, "pinned"))
     end for
+    moreItem = { id: "more", label: "More", icon: "" }
+    moreWidth = addEntry(moreItem, mode, 0)
+    m.entries.removeChildrenIndex(m.entries.getChildCount(), 0)
+    order = NavUtil.topBarFit(widths, pins, moreWidth, maxBarWidth() - 18, 6)
+    hidden = []
+    seen = {}
+    for each i in order
+        if i >= 0 then seen[i.toStr()] = true
+    end for
+    for i = 0 to m.top.items.count() - 1
+        if not seen.doesExist(i.toStr()) then hidden.push(m.top.items[i])
+    end for
+    x = 8
+    for each i in order
+        it = moreItem
+        if i >= 0 then it = m.top.items[i]
+        m.view.push(it)
+        x = x + addEntry(it, mode, x) + 6
+    end for
+    if hidden.count() > 0 then print "Cove: nav top " + hidden.count().toStr() + " entries behind More"
+    m.top.overflow = hidden
     total = x + 2
     m.pill.width = total
     m.top.translation = [Int((1920 - total) / 2), 36]
-    if m.index >= m.top.items.count() then m.index = 0
+    if m.index >= m.view.count() then m.index = 0
     paint()
 end sub
+
+' The widest the bar may be: the screen less the title-safe margins
+function maxBarWidth() as integer
+    return 1920 - 2 * 80
+end function
+
+' One entry at x; returns its width
+function addEntry(it as object, mode as string, x as integer) as integer
+    hasIcon = mode <> "names" and Util.toText(it.icon) <> ""
+    hasText = mode <> "icons" or not hasIcon
+    g = m.entries.createChild("Group")
+    g.translation = [x, 8]
+    bg = g.createChild("Poster")
+    bg.uri = "pkg:/images/ui/white_pill.9.png"
+    bg.height = 48
+    bg.visible = false
+    l = g.createChild("Label")
+    l.height = 48
+    l.vertAlign = "center"
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    f.size = 26
+    l.font = f
+    ic = g.createChild("Poster")
+    ic.width = 30
+    ic.height = 30
+    ic.translation = [22, 9]
+    ic.visible = hasIcon
+    if hasIcon then ic.uri = "pkg:/images/ui/icon_" + it.icon + "_36.png"
+    w = 0
+    if hasText
+        l.text = it.label
+        ' (v1.4 VD-10) measured in the bold face the entry gets when current or focused
+        l.font.uri = "font:BoldSystemFontFile"
+        l.width = 0
+        tw = Int(l.boundingRect().width) + 2
+        l.font.uri = "font:MediumSystemFontFile"
+        if hasIcon
+            l.translation = [62, 0]
+            w = 62 + tw + 22
+        else
+            l.translation = [22, 0]
+            w = tw + 44
+            if w < 110
+                l.translation = [Int((110 - tw) / 2), 0]
+                w = 110
+            end if
+        end if
+        l.width = tw + 6
+    else
+        w = 74
+    end if
+    bg.width = w
+    return w
+end function
 
 sub paint()
     focused = m.top.hasFocus()
@@ -103,21 +145,24 @@ sub paint()
         bg = g.getChild(0)
         l = g.getChild(1)
         ic = g.getChild(2)
-        isCurrent = m.top.items[i].id = m.top.current
+        isCurrent = i < m.view.count() and m.view[i].id = m.top.current
         f = createObject("roSGNode", "Font")
+        ' (v1.5 flat) focused = a solid white pill with dark text; the current page = a 22 % white pill
+        bg.uri = "pkg:/images/ui/white_pill.9.png"
+        bg.blendColor = "0xFFFFFFFF"
         if focused and i = m.index
-            bg.uri = "pkg:/images/ui/white_pill.9.png"
+            bg.opacity = 1.0
             bg.visible = true
-            l.color = "0x000000FF"
+            l.color = m.global.theme.onFocus
             f.uri = "font:BoldSystemFontFile"
         else if isCurrent
-            bg.uri = "pkg:/images/ui/sel_pill.9.png"
+            bg.opacity = 0.22
             bg.visible = true
             l.color = "0xFFFFFFFF"
             f.uri = "font:BoldSystemFontFile"
         else
             bg.visible = false
-            l.color = "0xFFFFFFCC"
+            l.color = "0xFFFFFF9E"
             f.uri = "font:MediumSystemFontFile"
         end if
         ic.blendColor = l.color
@@ -128,7 +173,7 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
-    n = m.top.items.count()
+    n = m.view.count()
     if (key = "left" or key = "right") and n > 0
         ' (v1.2 NV-7) Left on the first entry goes to the last, Right on the last to the first
         dir = 1
@@ -138,7 +183,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
         speakEntry("")
         return true
     else if key = "OK" and n > 0
-        it = m.top.items[m.index]
+        it = m.view[m.index]
         if not m.global.hasField("navLastEntry") then m.global.addFields({ navLastEntry: {} })
         m.global.navLastEntry = { id: Util.toText(it.id), label: Util.toText(it.label) }
         m.top.chosen = { id: it.id }

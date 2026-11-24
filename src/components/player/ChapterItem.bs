@@ -15,17 +15,18 @@ sub onContent()
     onFocus()
 end sub
 
-' Focused: white row with black text (as in the other panels); the chapter playing now in the accent colour
+' (v1.5 flat) Focused: a solid white row with dark text; at rest the chapter playing now in full white, the
+' others at 80 % (no accent)
 sub onFocus()
     f = 0.0
     if m.top.listHasFocus then f = m.top.focusPercent
     m.bg.opacity = f
     if f > 0.5
-        m.name.color = "0x000000FF"
-        m.time.color = "0x000000B3"
-    else
-        m.name.color = "0xFFFFFFFF"
-        if m.isCurrent then m.name.color = m.global.theme.accent
-        m.time.color = "0xFFFFFFCC"
+        m.name.color = "0x111111FF"
+        m.time.color = "0x111111B3"
+        return
     end if
+    m.name.color = "0xFFFFFFFF"
+    if not m.isCurrent then m.name.color = "0xFFFFFFCC"
+    m.time.color = "0xFFFFFFCC"
 end sub

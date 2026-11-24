@@ -13,6 +13,7 @@ import "pkg:/source/NavUtil.bs"
 import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/HomeLayout.bs"
 import "pkg:/source/Servers.bs"
+import "pkg:/source/DetailsHead.bs"
 
 sub init()
     ' (v1.2) "Cove: details <ms> header / item answered / rows ready": from the screen's creation (MainScene
@@ -55,7 +56,9 @@ sub init()
     m.picker = invalid
     m.isFav = false
     m.btns = []
+    m.btnSig = ""
     m.btn = 0
+    m.focusPlay = true
     m.state = "buttons"
     m.logoReady = false
     m.lines = 0
@@ -106,7 +109,68 @@ sub init()
     m.rowsTimed = false
     m.rowsTimer = m.top.findNode("rowsTimer")
     m.rowsTimer.observeField("fire", "onRowsTimer")
+    ' (v1.5 details) the Emby-style header: artwork left, a column on the right
+    m.col = m.top.findNode("col")
+    m.artImg = m.top.findNode("artImg")
+    m.artLow = m.top.findNode("artLow")
+    m.top.findNode("artBg").blendColor = skeletonColor()
+    m.top.findNode("artMask").uri = t.maskPoster
+    m.previewArt = ""
+    m.restY = 900           ' where the rows below rest while the header has the focus
+    m.headType = ""
+    setGeometry("Movie")
+    m.hasMedia = false
+    m.mediaPills = []       ' [{ id, bg, lbl, chev, speech }] the Audio / Subtitles (/ Video) pills
+    m.mediaIdx = 0
+    m.menu = invalid        ' the open DetailsMenu (track list, ⋯ More and its lists)
+    m.menuBack = "buttons"  ' where the focus goes when it closes
+    m.isAdmin = false
+    m.btnY = 0
+    m.layoutTimed = false
+    m.kbFor = ""
+    m.kbTimer = m.top.findNode("kbTimer")
+    m.kbTimer.observeField("fire", "focusKeyboard")
     Speak.mute([m.rows, m.btnKeys])
+end sub
+
+' (v1.5 details) Artwork and column sizes for a kind of title: films, series and collections show the tall
+' poster (420 x 630), episodes their 16:9 still (640 x 360); the column starts 56 px right of it
+sub setGeometry(t as string)
+    m.headType = t
+    m.wideArt = t = "Episode"
+    if m.wideArt
+        m.artW = 640
+        m.artH = 360
+        m.logoH = 120
+    else
+        m.artW = 420
+        m.artH = 630
+        m.logoH = 150
+    end if
+    m.colX = 96 + m.artW + 56
+    ' (v1.5, Liviu) no small poster or still on any details page, only the big backdrop behind it; the text
+    ' column starts at the safe edge
+    ' (episodes too, after Liviu's second photo: no still either)
+    m.top.findNode("art").visible = false
+    m.colX = 96
+    m.colW = 1824 - m.colX
+    m.ovLimit = m.colW - 40
+    if m.ovLimit > 1200 then m.ovLimit = 1200
+    for each n in ["artBg", "artLow", "artImg", "artMask"]
+        p = m.top.findNode(n)
+        p.width = m.artW
+        p.height = m.artH
+    end for
+    m.artImg.loadWidth = m.artW
+    m.artImg.loadHeight = m.artH
+    m.col.translation = [m.colX, 110]
+    m.top.findNode("title").width = m.colW
+    m.top.findNode("title").height = m.logoH
+    m.top.findNode("epLine").width = m.colW
+    m.top.findNode("tagline").width = m.colW
+    for i = 0 to 2
+        m.top.findNode("ov" + i.toStr()).width = m.ovLimit + 20
+    end for
 end sub
 
 ' ---------------------------------------------------------------- loading
@@ -127,7 +191,7 @@ sub onOpenSeason()
 end sub
 
 function itemPath() as string
-    return "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.itemId + "?Fields=Overview,People,Genres,MediaSources,MediaStreams,Chapters,Trickplay,Taglines,Studios,DateCreated,Path&EnableImageTypes=Primary,Backdrop,Thumb,Logo"
+    return "/Users/" + Util.toText(m.top.server.userId) + "/Items/" + m.top.itemId + "?Fields=Overview,People,Genres,MediaSources,MediaStreams,Chapters,Trickplay,Taglines,Studios,DateCreated,Path,ProviderIds&EnableImageTypes=Primary,Backdrop,Thumb,Logo"
 end function
 
 sub load()
@@ -142,43 +206,57 @@ sub detailsMark(what as string)
     print "Cove: details "; m.pushClock.totalMilliseconds(); " "; what
 end sub
 
-' (v1.2 SP-12) The header from the card that opened the page: backdrop, logo or title, the meta line and the
-' description, at the positions showItem uses, so nothing jumps when the item answers
+' (v1.2 SP-12) The header from the card that opened the page: backdrop, artwork, logo or title, the meta line and
+' the description, at the positions showItem uses, so nothing jumps when the item answers. (v1.5 details) The
+' column's slots are fixed per kind of title (the logo box, the media line for playable titles, the buttons), so
+' the item's answer fills them in place.
 sub showPreview(p as object)
     srv = m.top.server
     m.previewShown = true
     m.status.text = ""
     t = Util.toText(p.itemType)
     id = Util.toText(m.top.itemId)
+    setGeometry(t)
+    m.hasMedia = DetailsHead.hasMediaLine(t)
     ' (slim lists carry no artwork tags: the title's own picture without a tag; showItem keeps the same URL
     ' when the title has one, so the texture isn't loaded twice)
     bd = Util.toText(p.backdrop)
     lg = Util.toText(p.logo)
+    if t = "Episode" then lg = Util.toText(p.seriesLogo)
+    art = ""
     if previewGuessesArt(t) and id <> ""
         if bd = "" then bd = Util.toText(srv.url) + "/Items/" + id + "/Images/Backdrop/0?maxWidth=1280&quality=85"
         if lg = "" then lg = Util.toText(srv.url) + "/Items/" + id + "/Images/Logo?maxWidth=700&quality=85"
+        art = Util.toText(srv.url) + "/Items/" + id + "/Images/Primary?maxWidth=" + m.artW.toStr() + "&quality=85"
     end if
+    ' the card's own picture (already loaded) under the full-size one: a poster card for a tall poster, a wide card
+    ' for an episode's still
+    low = Util.toText(p.image)
+    if low <> "" and Util.flag(p, "imageWide") <> m.wideArt then low = ""
+    m.artLow.uri = low
+    m.previewArt = art
+    m.artImg.uri = art
     m.previewBackdrop = bd
     m.previewLogo = lg
     m.top.findNode("backdrop").uri = bd
-    m.top.findNode("eyebrow").text = Util.toText(p.eyebrow)
     title = Util.toText(p.title)
+    if t = "Episode" and Util.toText(p.seriesName) <> "" then title = Util.toText(p.seriesName)
     m.top.findNode("title").text = title
     m.top.findNode("title").visible = true
-    m.top.findNode("miniTitle").text = title
+    m.top.findNode("miniTitle").text = Util.toText(p.title)
     m.logoReady = false
     m.logo.visible = false
     m.logo.uri = lg
-    ' the meta line where the kind / rating / score row goes
-    m.top.findNode("kind").text = Util.toText(p.meta)
-    for each n in ["ratingBox", "star", "critic"]
-        m.top.findNode(n).visible = false
-    end for
-    for each n in ["rating", "score", "criticScore"]
-        m.top.findNode(n).text = ""
-    end for
+    m.top.findNode("epLine").text = Util.toText(p.epLine)
+    ' the meta line where the info line goes (an episode's card line repeats "S4:E2 · Name": nothing until the item
+    ' answers, the line above has them)
+    metaText = Util.toText(p.meta)
+    if t = "Episode" then metaText = ""
+    drawInfoRow([{ kind: "text", text: metaText }])
+    drawBadges([])
+    drawMediaSkeleton()
     ov = Util.toText(p.overview)
-    lines = Util.wrapLines(ov, 72, 3)
+    lines = wrapOverview(ov, 3)
     if Util.flag(p, "full") and ov = "" and Items.hidesSpoilers({ Type: t, UserData: { Played: Util.flag(p, "played") } }) then lines = ["Description hidden until you watch this episode."]
     skeletonLines = 0
     ' (a slim list has no description: three placeholder bars, the common length)
@@ -194,13 +272,10 @@ sub showPreview(p as object)
     m.ovMore = false
     m.top.findNode("ovMore").visible = false
     m.ovWidth = 0
-    m.top.findNode("facts").text = ""
-    for each n in ["starL", "dirL"]
-        m.top.findNode(n).visible = false
-    end for
-    for each n in ["star0", "star1", "dir0"]
-        m.top.findNode(n).text = ""
-    end for
+    m.top.findNode("tagline").text = ""
+    ' (the card's progress: the line under the buttons is there at once)
+    showProgress(Util.toNumber(p.progress), "")
+    setCredit("")
     layoutHeader()
     drawButtons()
     m.headerTimed = true
@@ -236,7 +311,8 @@ end function
 ' (SP-12) The button row before the item answers: the Play pill and three round buttons as plain shapes
 sub drawButtonSkeleton()
     m.btnGroup.removeChildrenIndex(m.btnGroup.getChildCount(), 0)
-    m.btnGroup.translation = [96, 830]
+    m.btnSig = ""
+    m.btnGroup.translation = [0, m.btnY]
     if not m.previewShown then return
     col = skeletonColor()
     pill = m.btnGroup.createChild("Poster")
@@ -245,6 +321,7 @@ sub drawButtonSkeleton()
     pill.width = 255
     pill.height = 69
     x = 255 + 21
+    ' (v1.5 details: Watched, Favorite, More)
     for i = 0 to 2
         c = m.btnGroup.createChild("Poster")
         c.uri = "pkg:/images/ui/white_circle_69.png"
@@ -260,6 +337,7 @@ end sub
 sub onRefresh()
     m.top.stale = false
     if m.item = invalid then return
+    m.focusPlay = true
     get(itemPath(), { kind: "item" })
     if Util.toText(m.item.Type) = "Series"
         m.nextUpPending = true
@@ -327,6 +405,15 @@ sub onResponse(ev as object)
         return
     else if k = "userAudio"
         onUserAudio(r)
+        return
+    else if k = "lists"
+        onLists(r)
+        return
+    else if k = "listAdd"
+        onListAdd(r)
+        return
+    else if k = "refreshMeta"
+        onRefreshMeta(r)
         return
     end if
     if r.code <> 200 or r.json = invalid
@@ -422,6 +509,7 @@ end function
 ' ---------------------------------------------------------------- header
 
 sub showItem(it as object)
+    if m.item = invalid or Util.toText(m.item.Id) <> Util.toText(it.Id) then m.focusPlay = true
     first = m.item = invalid
     m.item = it
     srv = m.top.server
@@ -431,33 +519,42 @@ sub showItem(it as object)
         if m.state = "error" then m.state = "buttons"
     end if
     t = Util.toText(it.Type)
+    if t <> m.headType then setGeometry(t)
+    m.hasMedia = DetailsHead.hasMediaLine(t)
     m.isFav = Util.flag(it.UserData, "IsFavorite")
     bdUrl = Items.backdrop(srv, it, 1280)
     ' (SP-12) the preview's picture is this title's own (untagged or the same URL): keep it, no second load
     if m.previewBackdrop <> "" and bdUrl <> "" then bdUrl = m.previewBackdrop
     if m.top.findNode("backdrop").uri <> bdUrl then m.top.findNode("backdrop").uri = bdUrl
-    ' an episode: series name and number above its own title; movies and series show their logo
-    eyebrow = ""
-    title = Util.toText(it.Name)
-    logoUrl = Items.logo(srv, it, 700)
-    if t = "Episode"
-        eyebrow = Util.toText(it.SeriesName)
-        chip = Items.episodeChip(it)
-        if chip <> "" then eyebrow = eyebrow + "  ·  " + chip
-        logoUrl = ""
+    ' (v1.5 details) the artwork: the poster (films, series, collections) or the episode's still
+    artUrl = ""
+    if m.wideArt
+        artUrl = Items.landscape(srv, it, m.artW)
+    else
+        artUrl = Items.imageUrl(srv, Util.toText(it.Id), "Primary", Items.tagOf(it.ImageTags, "Primary"), m.artW)
+        if m.previewArt <> "" and artUrl <> "" then artUrl = m.previewArt
     end if
+    if m.artImg.uri <> artUrl then m.artImg.uri = artUrl
+    ' the logo (an episode: its series' logo, with "S2:E7 - Name" under it), else the name as text
+    title = Util.toText(it.Name)
+    if t = "Episode" and Util.toText(it.SeriesName) <> "" then title = Util.toText(it.SeriesName)
+    logoUrl = Items.logo(srv, it, 700)
     if m.previewLogo <> "" and logoUrl <> "" then logoUrl = m.previewLogo
-    m.top.findNode("eyebrow").text = eyebrow
     m.top.findNode("title").text = title
-    m.top.findNode("miniTitle").text = title
+    m.top.findNode("miniTitle").text = Util.toText(it.Name)
+    m.top.findNode("epLine").text = ""
+    if t = "Episode" then m.top.findNode("epLine").text = DetailsHead.episodeLine(it)
     if logoUrl <> m.logo.uri
         m.logoReady = false
         m.logo.visible = false
         m.top.findNode("title").visible = true
         m.logo.uri = logoUrl
     end if
-    buildKind(it)
-    lines = Util.wrapLines(Util.toText(it.Overview), 72, 3)
+    segs = DetailsHead.infoSegments(it, Items.endsAt(it), MediaInfo.dateText(it.PremiereDate, false))
+    drawInfoRow(segs)
+    drawBadges(segs)
+    m.top.findNode("tagline").text = DetailsHead.taglineOf(it)
+    lines = wrapOverview(Util.toText(it.Overview), 3)
     ' Settings → Hide spoilers: no description until the episode is watched
     if Items.hidesSpoilers(it) and Util.toText(it.Overview) <> "" then lines = ["Description hidden until you watch this episode."]
     m.lines = lines.count()
@@ -468,8 +565,7 @@ sub showItem(it as object)
     end for
     if first then drawOverviewSkeleton(0)
     placeMore(it, lines)
-    m.top.findNode("facts").text = Items.facts(it)
-    showPeople(it)
+    setCredit(DetailsHead.creditLine(it))
     showAbout(it)
     ' audio / subtitles / quality for this playback (chosen once, kept on refresh)
     if t <> "Series" and t <> "BoxSet" and (first or m.tracks = invalid)
@@ -478,7 +574,7 @@ sub showItem(it as object)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
         m.opts.startAudio = startAudioHere()
         s = Tracks.defaultSub(m.tracks, "")
-        ' Settings → Always load my subtitle language (the CC menu then shows it)
+        ' Settings → Always load my subtitle language (the Subtitles pill then shows it)
         if Prefs.subAlways()
             a = Tracks.subForLanguage(m.tracks, Prefs.subLang())
             if a >= 0 then s = a
@@ -493,12 +589,15 @@ sub showItem(it as object)
             m.opts.burn = not Tracks.findSub(m.tracks, s).isText
         end if
     end if
-    ' (BG-4) the account's audio language (once per session, as the player asks for it), so the Audio entry
-    ' shows the track the player will start with even before the first playback
-    if t <> "Series" and t <> "BoxSet" and m.tracks <> invalid and m.tracks.audio.count() > 1 and Tracks.serverAudioPref(m.top.server) = invalid and not m.userAudioAsked
+    ' (BG-4) the account's settings (once per page): the audio language, so the Audio pill shows the track the
+    ' player will start with even before the first playback, and (v1.5) whether the user is an administrator
+    ' (⋯ More → Refresh Metadata)
+    if not m.userAudioAsked
         m.userAudioAsked = true
         get("/Users/" + Util.toText(m.top.server.userId), { kind: "userAudio" })
     end if
+    buildMediaRow()
+    showProgress(DetailsHead.playedPart(it), DetailsHead.remainingLabel(it))
     if first
         m.castList = []
         if type(it.People) = "roArray"
@@ -531,100 +630,243 @@ sub showItem(it as object)
         m.headerTimed = true
         detailsMark("header")
     end if
+    if first and not m.layoutTimed
+        m.layoutTimed = true
+        print "Cove: details layout "; t; " "; m.pushClock.totalMilliseconds(); " ms"
+    end if
     rebuildRows()
     if first and m.top.isInFocusChain() then enterButtons(false)
 end sub
 
-' "TV Show · Comedy  [TV-PG]  ★ 8.8": text, an outlined rating box and a yellow star, placed by measured width
-sub buildKind(it as object)
-    k = m.top.findNode("kind")
-    k.text = Items.kindText(it)
-    x = k.boundingRect().width
-    if k.text <> "" then x = x + 18
-    r = Util.toText(it.OfficialRating)
-    frame = m.top.findNode("ratingBox")
-    rl = m.top.findNode("rating")
-    rl.text = r
-    frame.visible = r <> ""
-    if r <> ""
-        rw = rl.boundingRect().width + 20
-        frame.width = rw
-        frame.translation = [x, 4]
-        rl.translation = [x + 10, 0]
-        x = x + rw + 18
-    end if
-    s = Items.score(it)
-    st = m.top.findNode("star")
-    sl = m.top.findNode("score")
-    sl.text = s
-    st.visible = s <> ""
-    if s <> ""
-        st.translation = [x, 8]
-        sl.translation = [x + 32, 0]
-        x = x + 32 + sl.boundingRect().width + 22
-    end if
-    ' (v1.0 F-15) the critics' score after the star
-    cs = Items.criticScore(it)
-    ci = m.top.findNode("critic")
-    cl = m.top.findNode("criticScore")
-    cl.text = cs
-    ci.visible = cs <> ""
-    if cs <> ""
-        ci.uri = "pkg:/images/ui/icon_critic_fresh_56.png"
-        if Util.toNumber(it.CriticRating) < 60 then ci.uri = "pkg:/images/ui/icon_critic_rotten_56.png"
-        ci.translation = [x, 6]
-        cl.translation = [x + 36, 0]
-    end if
-end sub
-
-sub showPeople(it as object)
-    stars = Util.wrapLines(Items.peopleNames(it, "Actor", 3), 34, 2)
-    director = Items.peopleNames(it, "Director", 2)
-    m.top.findNode("starL").visible = stars.count() > 0
-    for i = 0 to 1
-        line = ""
-        if i < stars.count() then line = stars[i]
-        m.top.findNode("star" + i.toStr()).text = line
+' (v1.5 details) The info line, left to right with 24 px gaps: ★ 8.4, tomato 96%, year (episodes: air date),
+' runtime, the rating in an outlined box, genres, "Ends at 12:53 AM" (DetailsHead.infoSegments)
+sub drawInfoRow(segs as object)
+    g = m.top.findNode("infoRow")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    x = 0
+    for each s in segs
+        if s.kind = "star"
+            ic = g.createChild("Poster")
+            ic.uri = "pkg:/images/ui/icon_star_28.png"
+            ic.width = 24
+            ic.height = 24
+            ic.translation = [x, 8]
+            ic.blendColor = "0xFFD60AFF"
+            x = x + 30
+        else if s.kind = "critic"
+            ic = g.createChild("Poster")
+            ic.uri = criticIcon(Util.flag(s, "fresh"))
+            ic.width = 28
+            ic.height = 28
+            ic.translation = [x, 6]
+            x = x + 34
+        end if
+        lbl = infoLabel(g, Util.toText(s.text), s.kind = "rating")
+        w = Int(lbl.boundingRect().width)
+        if s.kind = "rating"
+            frame = g.createChild("Poster")
+            frame.uri = "pkg:/images/ui/outline_box_r6.9.png"
+            frame.width = w + 20
+            frame.height = 32
+            frame.translation = [x, 4]
+            lbl.translation = [x + 10, 0]
+            x = x + w + 20 + 24
+        else
+            lbl.translation = [x, 0]
+            x = x + w + 24
+        end if
     end for
-    y = 116
-    if stars.count() < 2 then y = 82
-    if stars.count() = 0 then y = 0
-    m.top.findNode("dirL").translation = [0, y]
-    m.top.findNode("dir0").translation = [0, y + 34]
-    m.top.findNode("dirL").visible = director <> ""
-    m.top.findNode("dir0").text = director
 end sub
 
-' Bottom-anchored, as on the Mac: buttons at y=830, facts, overview, details, logo or title, eyebrow
-sub layoutHeader()
-    factsY = 770
-    m.top.findNode("facts").translation = [96, factsY]
-    ovY = factsY - 14 - m.lines * 38
-    m.top.findNode("ov").translation = [96, ovY]
-    kindY = ovY - 50
-    m.top.findNode("kindRow").translation = [96, kindY]
-    topY = kindY - 96
-    m.top.findNode("title").translation = [96, topY]
-    if m.logoReady
-        topY = kindY - 16 - m.logo.height
-        m.logo.translation = [96, topY]
+function infoLabel(g as object, text as string, bold as boolean) as object
+    lbl = g.createChild("Label")
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    f.size = 26
+    if bold
+        f.uri = "font:BoldSystemFontFile"
+        f.size = 22
     end if
-    m.top.findNode("eyebrow").translation = [96, topY - 44]
-    m.top.findNode("people").translation = [1380, ovY]
+    lbl.font = f
+    lbl.height = 40
+    lbl.vertAlign = "center"
+    lbl.color = "0xFFFFFFEB"
+    lbl.text = text
+    return lbl
+end function
+
+function criticIcon(fresh as boolean) as string
+    if fresh then return "pkg:/images/ui/icon_critic_fresh_56.png"
+    return "pkg:/images/ui/icon_critic_rotten_56.png"
+end function
+
+' (v1.5 details) Emby's score badges down the poster's right edge (films and series): a dark capsule per score
+' the server gives (★ community rating, the critics' tomato), the icon over the number
+sub drawBadges(segs as object)
+    g = m.top.findNode("badges")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    if m.wideArt or (m.headType <> "Movie" and m.headType <> "Series") then return
+    bw = 66
+    bh = 94
+    x = m.artW - 14 - bw
+    y = 14
+    for each s in segs
+        if s.kind = "star" or s.kind = "critic"
+            cap = g.createChild("Poster")
+            cap.uri = "pkg:/images/ui/white_rr12.9.png"
+            cap.blendColor = "0x000000FF"
+            cap.opacity = 0.62
+            cap.width = bw
+            cap.height = bh
+            cap.translation = [x, y]
+            ic = g.createChild("Poster")
+            ic.width = 32
+            ic.height = 32
+            ic.translation = [x + 17, y + 12]
+            if s.kind = "star"
+                ic.uri = "pkg:/images/ui/icon_star_28.png"
+                ic.blendColor = "0xFFD60AFF"
+            else
+                ic.uri = criticIcon(Util.flag(s, "fresh"))
+            end if
+            num = g.createChild("Label")
+            f = createObject("roSGNode", "Font")
+            f.uri = "font:BoldSystemFontFile"
+            f.size = 26
+            num.font = f
+            num.text = Util.toText(s.text).replace("%", "")
+            num.color = "0xFFFFFFFF"
+            num.width = bw
+            num.height = 40
+            num.horizAlign = "center"
+            num.vertAlign = "center"
+            num.translation = [x, y + 48]
+            y = y + bh + 12
+        end if
+    end for
+end sub
+
+' (v1.5 details) The progress line under the buttons when started: the played part green (as the Continue
+' Watching ring), the rest 25 % white, then "2h 27m remaining"
+sub showProgress(part as float, remainText as string)
+    row = m.top.findNode("progressRow")
+    on = part > 0.005 and part < 0.995
+    row.visible = on
+    if not on then return
+    m.top.findNode("progFill").width = Int(320 * part + 0.5)
+    m.top.findNode("progText").text = remainText
+end sub
+
+' "Director: Name" (the name in bold white after a grey label); "" hides it
+sub setCredit(text as string)
+    k = m.top.findNode("creditKey")
+    n = m.top.findNode("creditName")
+    at = text.instr(": ")
+    if at < 0
+        k.text = ""
+        n.text = ""
+        return
+    end if
+    k.text = text.left(at + 1)
+    n.text = text.mid(at + 2)
+    n.translation = [Int(k.boundingRect().width) + 10, 0]
+end sub
+
+' (v1.5 details) The right column, top to bottom (Emby): the logo box (logo or title, bottom-aligned), the
+' episode's "S2:E7 - Name", the info line, the media line (playable titles), the buttons, the progress line (when
+' started), the bold tagline, the description and Director. The logo box and the media line keep their height
+' while their content loads, so the preview's header doesn't move when the item answers.
+sub layoutHeader()
+    m.top.findNode("title").translation = [0, 0]
+    if m.logoReady then m.logo.translation = [0, m.logoH - m.logo.height]
+    y = m.logoH + 8
+    ep = m.top.findNode("epLine")
+    ep.visible = m.wideArt
+    if m.wideArt
+        ep.translation = [0, y]
+        y = y + 50
+    end if
+    m.top.findNode("infoRow").translation = [0, y]
+    y = y + 54
+    mr = m.top.findNode("mediaRow")
+    mr.visible = m.hasMedia
+    if m.hasMedia
+        mr.translation = [0, y]
+        y = y + 52 + 20
+    end if
+    m.btnY = y
+    m.btnGroup.translation = [m.btnGroup.translation[0], y]
+    y = y + 69 + 24
+    pr = m.top.findNode("progressRow")
+    if pr.visible
+        pr.translation = [0, y]
+        y = y + 28 + 18
+    end if
+    tl = m.top.findNode("tagline")
+    if tl.text <> ""
+        tl.translation = [0, y]
+        y = y + 46
+    end if
+    m.top.findNode("ov").translation = [0, y]
     hl = m.top.findNode("ovFocus")
-    hl.translation = [72, ovY - 12]
+    hl.translation = [-24, y - 12]
     hl.width = m.ovWidth + 48
     hl.height = m.lines * 38 + 22
+    y = y + m.lines * 38 + 14
+    m.top.findNode("credit").translation = [0, y]
 end sub
 
 ' ---------------------------------------------------------------- the whole description
+
+' (v1.4 VD-21) The description in lines of up to 980 px, measured with the hidden ovMeasure label (the same
+' font), instead of 72 characters; a cut text ends in "..." with room left for MORE
+function wrapOverview(text as string, maxLines as integer) as object
+    meas = m.top.findNode("ovMeasure")
+    limit = m.ovLimit
+    lines = []
+    words = text.replace(chr(13), " ").replace(chr(10), " ").split(" ")
+    line = ""
+    cut = false
+    for each w in words
+        if w <> ""
+            candidate = w
+            if line <> "" then candidate = line + " " + w
+            meas.text = candidate
+            if line = "" or meas.boundingRect().width <= limit
+                line = candidate
+            else
+                lines.push(line)
+                line = w
+                if lines.count() = maxLines
+                    cut = true
+                    exit for
+                end if
+            end if
+        end if
+    end for
+    if not cut
+        if line <> "" then lines.push(line)
+        return lines
+    end if
+    ' (shorten the last line word by word until it fits with "..." and MORE)
+    parts = lines[maxLines - 1].split(" ")
+    last = ""
+    while parts.count() > 0
+        last = Util.join(parts, " ")
+        meas.text = last + "..."
+        if meas.boundingRect().width <= limit - 110 then exit while
+        parts.pop()
+    end while
+    lines[maxLines - 1] = last + "..."
+    return lines
+end function
 
 ' A description longer than the three lines ends in "... MORE"; Up from the buttons highlights it and OK opens
 ' the whole text in a panel (Cove for macOS shows it all in the header, which a TV page has no room for)
 sub placeMore(it as object, lines as object)
     full = Util.toText(it.Overview).trim()
     m.ovMore = false
-    if full <> "" and not Items.hidesSpoilers(it) and lines.count() = 3 then m.ovMore = Util.wrapLines(full, 72, 4).count() > 3
+    if full <> "" and not Items.hidesSpoilers(it) and lines.count() = 3 then m.ovMore = wrapOverview(full, 4).count() > 3
     more = m.top.findNode("ovMore")
     more.visible = m.ovMore
     m.ovWidth = 0
@@ -636,7 +878,7 @@ sub placeMore(it as object, lines as object)
     end for
     if m.ovMore
         x = Int(meas.boundingRect().width) + 14
-        if x > 1180 then x = 1180
+        if x > m.ovLimit then x = m.ovLimit
         more.translation = [x, 76 + 2]
         if x + 76 > m.ovWidth then m.ovWidth = x + 76
     end if
@@ -690,8 +932,8 @@ sub onLogoLoaded()
     bw = m.logo.bitmapWidth
     bh = m.logo.bitmapHeight
     if bw <= 0 or bh <= 0 then return
-    s = 630 / bw
-    if 165 / bh < s then s = 165 / bh
+    s = 620 / bw
+    if m.logoH / bh < s then s = m.logoH / bh
     m.logo.width = Int(bw * s)
     m.logo.height = Int(bh * s)
     m.logoReady = true
@@ -702,20 +944,26 @@ end sub
 
 ' ---------------------------------------------------------------- buttons
 
-' Play / Resume (white pill), then round buttons: Start over, favourite, audio & subtitles
+' (v1.5 details) Emby's row: Resume / Play (the stronger pill), From Beginning (when started), Trailer (stored
+' trailers), then round ✓ Watched, ♡ Favorite and ⋯ More. A series: Play / Resume S:E, Play All, Shuffle.
+' (Go to Series / Season of an episode and the quality / version choices moved into ⋯ More.)
 sub buildButtons()
     it = m.item
     t = Util.toText(it.Type)
     ' (SC-8) the focused button by id: a trailer or collection answer inserts buttons before it
     prevId = ""
     if m.btn >= 0 and m.btn < m.btns.count() then prevId = Util.toText(m.btns[m.btn].id)
-    btns = []
+    ' (v1.5, Liviu) a newly shown or refreshed page focuses Play; a toggle (✓, ♡) keeps its own focus
+    if m.focusPlay = true
+        prevId = "play"
+        m.focusPlay = false
+    end if
     target = playTarget()
-    isGroup = t = "Series" or t = "BoxSet"
     resumeAt = 0.0
     if target <> invalid then resumeAt = Items.resumeAt(target)
+    started = resumeAt > 30
     label = "Play"
-    if resumeAt > 30 then label = "Resume"
+    if started then label = "Resume"
     if t = "Series" and target <> invalid
         chip = "S" + Util.toText(target.ParentIndexNumber) + ":E" + Util.toText(target.IndexNumber)
         label = label + " " + chip
@@ -724,34 +972,32 @@ sub buildButtons()
         n = Util.toText(target.Name)
         if n.len() > 28 then n = n.left(26) + "..."
         label = label + " " + n
-    else if resumeAt > 30
-        label = "Resume from " + Playback.clock(resumeAt)
     end if
-    if not isGroup or target <> invalid then btns.push({ id: "play", pill: true, label: label })
-    if resumeAt > 30 then btns.push({ id: "restart", icon: "restart" })
-    ' (v1.0 F-17) a series: every episode in order, or shuffled
-    if t = "Series" and target <> invalid
-        btns.push({ id: "playall", text: "Play All" })
-        btns.push({ id: "shuffle", text: "Shuffle" })
-    end if
-    favIcon = "plus"
-    if m.isFav then favIcon = "check"
-    btns.push({ id: "fav", icon: favIcon })
-    ' watched: the eye marks it (a series: every episode) watched, the crossed eye unwatched
-    watchIcon = "eye"
-    if Util.flag(it.UserData, "Played") then watchIcon = "eyeslash"
-    btns.push({ id: "watched", icon: watchIcon })
-    ' trailers stored on the server (the Mac's film button; YouTube links aren't played on the TV)
-    if m.trailers.count() > 0 then btns.push({ id: "trailer", icon: "film" })
-    if t <> "Series" and m.tracks <> invalid then btns.push({ id: "tracks", icon: "captions" })
-    ' an episode: its series' page, or the series' page on this season
-    if t = "Episode" and Util.toText(it.SeriesId) <> ""
-        btns.push({ id: "series", text: "Go to Series" })
-        seasonTitle = Util.toText(it.SeasonName)
-        if seasonTitle = "" and it.ParentIndexNumber <> invalid then seasonTitle = "Season " + Util.toText(it.ParentIndexNumber)
-        ' (SC-17: a long season name becomes "Go to Season N", so the row stays on screen)
-        if Util.toText(it.SeasonId) <> "" and seasonTitle <> "" then btns.push({ id: "season", text: NavUtil.seasonButtonText(seasonTitle, it.ParentIndexNumber) })
-    end if
+    btns = []
+    for each id in DetailsHead.headerButtonIds(t, started, target <> invalid, m.trailers.count())
+        if id = "play"
+            btns.push({ id: id, pill: true, label: label })
+        else if id = "restart"
+            btns.push({ id: id, text: "From Beginning", icon: "play" })
+        else if id = "trailer"
+            btns.push({ id: id, text: "Trailer", icon: "film" })
+        else if id = "playall"
+            btns.push({ id: id, text: "Play All" })
+        else if id = "shuffle"
+            btns.push({ id: id, text: "Shuffle" })
+        else if id = "watched"
+            ' a check; filled (a white disc with the check cut out) once watched (a series: every episode)
+            watchIcon = "check"
+            if Util.flag(it.UserData, "Played") then watchIcon = "checkcf"
+            btns.push({ id: id, icon: watchIcon })
+        else if id = "fav"
+            favIcon = "hearto"
+            if m.isFav then favIcon = "heart"
+            btns.push({ id: id, icon: favIcon })
+        else if id = "more"
+            btns.push({ id: id, icon: "dt_more" })
+        end if
+    end for
     m.btns = btns
     at = NavUtil.indexOfId(btns, prevId)
     if at >= 0
@@ -796,101 +1042,59 @@ sub drawButtons()
         drawButtonSkeleton()
         return
     end if
-    m.btnGroup.removeChildrenIndex(m.btnGroup.getChildCount(), 0)
-    focused = m.state = "buttons" and m.picker = invalid
-    x = 0
+    ' (v1.4 VD-18) the Glass3D buttons are built once per button set; a focus change only repaints them
+    sig = ""
+    for each b in m.btns
+        sig = sig + Util.toText(b.id) + "|" + Util.toText(b.label) + "|" + Util.toText(b.icon) + "|" + Util.toText(b.text) + ";"
+    end for
+    if sig <> m.btnSig or m.btnGroup.getChildCount() <> m.btns.count()
+        m.btnSig = sig
+        buildButtonNodes()
+    end if
+    focused = m.state = "buttons" and m.picker = invalid and m.menu = invalid
     focusLeft = 0
     focusRight = 0
     for i = 0 to m.btns.count() - 1
-        b = m.btns[i]
-        isFocus = focused and i = m.btn
-        if i = m.btn then focusLeft = x
-        g = m.btnGroup.createChild("Group")
-        g.translation = [x, 0]
-        if b.pill <> invalid
-            w = b.label.len() * 16 + 110
-            if w < 255 then w = 255
-            g.scaleRotateCenter = [w / 2, 34]
-            if isFocus
-                addFocusRing(g, "pkg:/images/ui/focus_ring_pill.9.png", w + 16, 85)
-                g.scale = [1.06, 1.06]
-            end if
-            bg = g.createChild("Poster")
-            bg.uri = "pkg:/images/ui/white_pill.9.png"
-            bg.width = w
-            bg.height = 69
-            ic = g.createChild("Poster")
-            ic.uri = "pkg:/images/ui/icon_play_28.png"
-            ic.width = 28
-            ic.height = 28
-            ic.translation = [40, 20]
-            ic.blendColor = "0x000000FF"
-            l = g.createChild("Label")
-            l.text = b.label
-            l.width = w - 84
-            l.height = 69
-            l.translation = [78, 0]
-            l.vertAlign = "center"
-            l.color = "0x000000FF"
-            f = createObject("roSGNode", "Font")
-            f.uri = "font:BoldSystemFontFile"
-            f.size = 28
-            l.font = f
-            x = x + w + 21
-        else if b.text <> invalid
-            ' a text button: glass pill, with the white focus ring when focused (VD-6)
-            w = b.text.len() * 15 + 64
-            g.scaleRotateCenter = [w / 2, 34]
-            if isFocus then addFocusRing(g, "pkg:/images/ui/focus_ring_pill.9.png", w + 16, 85)
-            bg = g.createChild("Poster")
-            bg.width = w
-            bg.height = 69
-            l = g.createChild("Label")
-            l.text = b.text
-            l.width = w
-            l.height = 69
-            l.horizAlign = "center"
-            l.vertAlign = "center"
-            f = createObject("roSGNode", "Font")
-            f.uri = "font:MediumSystemFontFile"
-            f.size = 26
-            l.font = f
-            bg.uri = "pkg:/images/ui/glass_pill.9.png"
-            l.color = "0xFFFFFFFF"
-            if isFocus then g.scale = [1.06, 1.06]
-            x = x + w + 18
-        else
-            g.scaleRotateCenter = [34, 34]
-            ' (VD-6) a circle keeps its glass fill; the white ring shows the focus
-            if isFocus then addFocusRing(g, "pkg:/images/ui/focus_ring_circle_85.png", 85, 85)
-            bg = g.createChild("Poster")
-            bg.width = 69
-            bg.height = 69
-            ic = g.createChild("Poster")
-            ic.uri = "pkg:/images/ui/icon_" + b.icon + "_28.png"
-            ic.width = 28
-            ic.height = 28
-            ic.translation = [20, 20]
-            bg.uri = "pkg:/images/ui/glass_circle_69.png"
-            ic.blendColor = "0xFFFFFFFF"
-            if isFocus then g.scale = [1.06, 1.06]
-            x = x + 69 + 18
+        g = m.btnGroup.getChild(i)
+        g.focused = focused and i = m.btn
+        if i = m.btn
+            focusLeft = g.translation[0]
+            focusRight = focusLeft + g.buttonWidth + 18
         end if
-        if i = m.btn then focusRight = x
     end for
-    ' (SC-17) a long row moves left so the focused button stays on screen (row from x 96, safe edge 1824)
-    m.btnGroup.translation = [96 + NavUtil.buttonShift(focusLeft, focusRight, 1728), 830]
+    ' (SC-17) a long row moves left so the focused button stays on screen (the column's width, safe edge 1824)
+    m.btnGroup.translation = [NavUtil.buttonShift(focusLeft, focusRight, m.colW), m.btnY]
     drawOverviewFocus()
+    paintMedia()
     if focused then speakButton()
 end sub
 
-' (VD-6) The white focus ring around a header button: 4 px stroke, 4 px gap, under the button
-sub addFocusRing(g as object, uri as string, w as integer, h as integer)
-    ring = g.createChild("Poster")
-    ring.uri = uri
-    ring.translation = [-8, -8]
-    ring.width = w
-    ring.height = h
+' Play / Resume (the stronger flat pill, VD-10 measured width), text pills and flat circles, 18 px apart (21 after Play)
+sub buildButtonNodes()
+    m.btnGroup.removeChildrenIndex(m.btnGroup.getChildCount(), 0)
+    x = 0
+    for i = 0 to m.btns.count() - 1
+        b = m.btns[i]
+        g = m.btnGroup.createChild("GlassButton")
+        if b.pill <> invalid
+            g.style = "accent"
+            g.icon = "pkg:/images/ui/icon_play_28.png"
+            g.minWidth = 220
+            g.text = b.label
+        else if b.text <> invalid
+            g.style = "glass"
+            g.textSize = 26
+            if b.icon <> invalid then g.icon = "pkg:/images/ui/icon_" + b.icon + "_28.png"
+            g.text = b.text
+        else
+            g.style = "circle"
+            g.icon = "pkg:/images/ui/icon_" + b.icon + "_28.png"
+        end if
+        g.translation = [x, 0]
+        gap = 18
+        if b.pill <> invalid then gap = 21
+        x = x + g.buttonWidth + gap
+    end for
 end sub
 
 ' Audio Guide: the spoken name of a header button
@@ -898,13 +1102,11 @@ function buttonSpeech(b as object) as string
     id = b.id
     if b.label <> invalid then return b.label
     if b.text <> invalid then return b.text
-    if id = "restart" then return "Play from the Beginning"
     if id = "fav" and m.isFav then return "Remove from Favorites"
     if id = "fav" then return "Add to Favorites"
-    if id = "watched" and Util.flag(m.item.UserData, "Played") then return "Mark as Unwatched"
-    if id = "watched" then return "Mark as Watched"
-    if id = "trailer" then return "Trailer"
-    if id = "tracks" then return "Audio & Subtitles"
+    if id = "watched" and Util.flag(m.item.UserData, "Played") then return "Mark Unplayed"
+    if id = "watched" then return "Mark Played"
+    if id = "more" then return "More"
     return id
 end function
 
@@ -947,7 +1149,6 @@ end sub
 sub useButton()
     if m.btn >= m.btns.count() then return
     id = m.btns[m.btn].id
-    it = m.item
     if id = "play"
         target = playTarget()
         if target = invalid then return
@@ -961,8 +1162,8 @@ sub useButton()
         toggleFavourite()
     else if id = "watched"
         toggleWatched()
-    else if id = "tracks"
-        showTracksMenu()
+    else if id = "more"
+        openMoreMenu()
     else if id = "trailer"
         if m.trailers.count() = 1
             playTrailer(0)
@@ -977,10 +1178,6 @@ sub useButton()
         playAllMenu()
     else if id = "shuffle"
         loadSeriesPlay("shuffle")
-    else if id = "series" or id = "season"
-        o = { itemId: Util.toText(it.SeriesId), itemType: "Series", title: Util.toText(it.SeriesName) }
-        if id = "season" then o.seasonId = Util.toText(it.SeasonId)
-        m.top.openItem = o
     end if
 end sub
 
@@ -1213,6 +1410,7 @@ end sub
 
 ' POST / DELETE /Users/{id}/FavoriteItems/{item} (Jellyfin 10.9+: /UserFavoriteItems/{item})
 sub toggleFavourite()
+    m.focusPlay = true
     if m.item = invalid then return
     method = "POST"
     if m.isFav then method = "DELETE"
@@ -1260,6 +1458,7 @@ sub episodeMenu()
 end sub
 
 sub toggleWatched()
+    m.focusPlay = true
     if m.item = invalid then return
     markPlayed(Util.toText(m.item.Id), not Util.flag(m.item.UserData, "Played"), Util.toText(m.item.Name))
 end sub
@@ -1304,10 +1503,14 @@ sub onUserAudio(r as object)
     if r.code = 200 then json = r.json
     if r.code <> 200 then print "Cove: user settings -> "; r.code
     if Tracks.serverAudioPref(m.top.server) = invalid then Tracks.rememberServerAudio(m.top.server, json)
+    ' (v1.5 details) ⋯ More → Refresh Metadata for administrators only
+    m.isAdmin = DetailsHead.isAdminUser(json)
     if m.item = invalid or m.tracks = invalid then return
     t = Util.toText(m.item.Type)
     if t = "Series" or t = "BoxSet" then return
     m.opts.startAudio = startAudioHere()
+    ' (the Audio pill shows the track the player will start with)
+    if m.opts.audio < 0 then buildMediaRow()
 end sub
 
 ' (v1.1) What the player picks when no audio is chosen here (PlayerScreen chooseStartAudio)
@@ -1316,13 +1519,569 @@ function startAudioHere() as integer
     return Tracks.startAudio(m.tracks, Tracks.wantedAudio(m.tracks, seriesLang, Tracks.serverAudioPref(m.top.server)))
 end function
 
-sub showTracksMenu()
+' ---------------------------------------------------------------- (v1.5 details) the media line
+
+' Placeholder pills where the media line goes, until the item answers (playable titles only)
+sub drawMediaSkeleton()
+    g = m.top.findNode("mediaRow")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    m.mediaPills = []
+    if not m.hasMedia then return
+    x = 0
+    for each w in [220, 360, 300]
+        bar = g.createChild("Poster")
+        bar.uri = "pkg:/images/ui/white_pill.9.png"
+        bar.blendColor = skeletonColor()
+        bar.width = w
+        bar.height = 40
+        bar.translation = [x, 6]
+        x = x + w + 28
+    end for
+end sub
+
+' "Video 1080p H264   Audio [English EAC3 5.1 (Default) ⌄]   Subtitles [Romanian (SRT) ⌄]": a grey name, then the
+' value as plain text or, when there is a choice, a flat pill with a chevron (OK opens the list in place). Audio is a
+' pill with two or more tracks, Subtitles whenever the file has any (Off is a choice), Video when there are several
+' versions (files). Track names are shortened until the line fits the column.
+sub buildMediaRow()
+    g = m.top.findNode("mediaRow")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    m.mediaPills = []
+    if not m.hasMedia or m.item = invalid or m.tracks = invalid then return
+    for each maxChars in [32, 24, 16]
+        g.removeChildrenIndex(g.getChildCount(), 0)
+        m.mediaPills = []
+        x = mediaParts(g, maxChars)
+        if x <= m.colW then exit for
+    end for
+    if m.mediaIdx >= m.mediaPills.count() then m.mediaIdx = 0
+    if m.state = "media" and m.mediaPills.count() = 0 then m.state = "buttons"
+    paintMedia()
+end sub
+
+' Builds the line's parts into g; returns its width
+function mediaParts(g as object, maxChars as integer) as integer
+    x = 0
+    src = MediaInfo.findSource(m.item, Util.toText(m.opts.sourceId))
+    vt = DetailsHead.videoLabel(src)
+    multiVersion = m.versions <> invalid and m.versions.count() > 1
+    if vt = "" and multiVersion then vt = Tracks.versionLabel(m.versions, m.opts.sourceId)
+    if vt <> "" then x = mediaPart(g, x, "video", "Video", vt, multiVersion)
+    if m.tracks.audio.count() > 0
+        at = DetailsHead.trackPill(Tracks.audioLabel(m.tracks, effectiveAudio()), maxChars)
+        x = mediaPart(g, x, "audio", "Audio", at, m.tracks.audio.count() > 1)
+    end if
+    if m.tracks.subs.count() > 0
+        st = DetailsHead.trackPill(Tracks.subLabel(m.tracks, m.opts.sub), maxChars)
+        x = mediaPart(g, x, "subs", "Subtitles", st, true)
+    end if
+    return x - 36
+end function
+
+function mediaPart(g as object, x as integer, id as string, name as string, value as string, isPill as boolean) as integer
+    nameLbl = g.createChild("Label")
+    nameLbl.font = mediaFont()
+    nameLbl.text = name
+    nameLbl.color = "0xFFFFFF9E"
+    nameLbl.height = 52
+    nameLbl.vertAlign = "center"
+    nameLbl.translation = [x, 0]
+    x = x + Int(nameLbl.boundingRect().width) + 14
+    valueLbl = g.createChild("Label")
+    valueLbl.font = mediaFont()
+    valueLbl.text = value
+    valueLbl.color = "0xFFFFFFEB"
+    valueLbl.height = 52
+    valueLbl.vertAlign = "center"
+    tw = Int(valueLbl.boundingRect().width)
+    if not isPill
+        valueLbl.translation = [x, 0]
+        return x + tw + 36
+    end if
+    w = 22 + tw + 12 + 24 + 18
+    ' (the pill goes under the text: inserted just before it)
+    bg = createObject("roSGNode", "Poster")
+    bg.uri = "pkg:/images/ui/flat_pill_52.9.png"
+    bg.width = w
+    bg.height = 52
+    bg.translation = [x, 0]
+    g.insertChild(bg, g.getChildCount() - 1)
+    valueLbl.translation = [x + 22, 0]
+    chev = g.createChild("Poster")
+    chev.uri = "pkg:/images/ui/icon_chevron_28.png"
+    chev.width = 24
+    chev.height = 24
+    chev.translation = [x + 22 + tw + 12, 14]
+    m.mediaPills.push({ id: id, bg: bg, lbl: valueLbl, chev: chev, x: x, w: w, speech: name + ", " + value })
+    return x + w + 36
+end function
+
+function mediaFont() as object
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    f.size = 24
+    return f
+end function
+
+' Focus on the media line: the focused pill solid white with dark text and chevron, the others the faint fill
+sub paintMedia()
+    focused = m.state = "media" and m.picker = invalid and m.menu = invalid
+    for i = 0 to m.mediaPills.count() - 1
+        p = m.mediaPills[i]
+        on = focused and i = m.mediaIdx
+        if on
+            p.bg.opacity = 1.0
+            p.lbl.color = m.global.theme.onFocus
+            p.chev.blendColor = m.global.theme.onFocus
+        else
+            p.bg.opacity = 0.12
+            p.lbl.color = "0xFFFFFFEB"
+            p.chev.blendColor = "0xFFFFFFFF"
+        end if
+    end for
+    if focused and m.mediaIdx < m.mediaPills.count() and Speak.isOn()
+        key = "m" + m.mediaIdx.toStr() + m.mediaPills[m.mediaIdx].speech
+        if key <> m.spokenKey
+            m.spokenKey = key
+            Speak.say(Speak.clean(m.mediaPills[m.mediaIdx].speech) + ", menu, button" + Speak.position(m.mediaIdx, m.mediaPills.count()))
+        end if
+    end if
+end sub
+
+sub enterMedia()
+    if m.mediaPills.count() = 0 then return
+    m.state = "media"
+    if m.mediaIdx >= m.mediaPills.count() then m.mediaIdx = 0
+    m.btnKeys.setFocus(true)
+    drawButtons()
+end sub
+
+' OK on a pill: its list in place, under the pill
+sub openTrackList(id as string)
+    anchor = [m.colX, 110]
+    for each p in m.mediaPills
+        if p.id = id then anchor = [m.colX + p.x, 110 + m.top.findNode("mediaRow").translation[1] + 60]
+    end for
+    m.menuBack = "media"
+    if id = "audio"
+        o = []
+        cur = effectiveAudio()
+        for each a in m.tracks.audio
+            o.push({ id: a.index.toStr(), label: a.label, checked: a.index = cur })
+        end for
+        openMenu("audio", "Audio", o, cur.toStr(), anchor, invalid, 620)
+    else if id = "subs"
+        o = [{ id: "-1", label: "Off", checked: m.opts.sub < 0 }]
+        for each s in m.tracks.subs
+            o.push({ id: s.index.toStr(), label: s.label, checked: s.index = m.opts.sub })
+        end for
+        openMenu("subs", "Subtitles", o, m.opts.sub.toStr(), anchor, invalid, 720)
+    else if id = "video"
+        openVersionList(anchor)
+    end if
+end sub
+
+sub openVersionList(anchor as object)
+    if m.versions = invalid or m.versions.count() < 2 then return
+    cur = m.opts.sourceId
+    if cur = "" then cur = m.versions[0].id
     o = []
-    if m.versions <> invalid and m.versions.count() > 1 then o.push({ id: "version", label: "Version: " + Tracks.versionLabel(m.versions, m.opts.sourceId) })
-    if m.tracks.audio.count() > 1 then o.push({ id: "audio", label: "Audio: " + Tracks.audioLabel(m.tracks, effectiveAudio()) })
-    if m.tracks.subs.count() > 0 then o.push({ id: "subs", label: "Subtitles: " + Tracks.subLabel(m.tracks, m.opts.sub) })
-    o.push({ id: "quality", label: "Quality: " + Tracks.qualityLabel(m.opts.maxBitrate) })
-    openPicker("menu", "Audio & Subtitles", o, "")
+    for each v in m.versions
+        o.push({ id: v.id, label: v.label, checked: v.id = cur })
+    end for
+    openMenu("version", "Version", o, cur, anchor, invalid, 720)
+end sub
+
+sub openQualityList(anchor as object)
+    o = []
+    cur = m.opts.maxBitrate.toStr()
+    for each q in Tracks.qualities()
+        o.push({ id: q.id, label: q.label, checked: q.id = cur })
+    end for
+    openMenu("quality", "Quality", o, cur, anchor, invalid, 560)
+end sub
+
+' A choice from a track list, kept for this playback (as the old CC menu's choice): the player gets it in options
+sub applyTrackChoice(purpose as string, id as string)
+    if purpose = "version"
+        ' another file: its own audio and subtitle tracks, back to their defaults
+        m.opts.sourceId = id
+        m.tracks = Tracks.fromItem(m.item, id)
+        m.opts.audio = -1
+        m.opts.sub = -1
+        m.opts.burn = false
+        m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
+        m.opts.startAudio = startAudioHere()
+        s = Tracks.defaultSub(m.tracks, "")
+        if s >= 0
+            m.opts.sub = s
+            m.opts.burn = not Tracks.findSub(m.tracks, s).isText
+        end if
+        showAbout(m.item)
+    else if purpose = "audio"
+        m.opts.audio = id.toInt()
+    else if purpose = "subs"
+        v = id.toInt()
+        s = Tracks.findSub(m.tracks, v)
+        m.opts.subPicked = true
+        m.opts.sub = v
+        m.opts.burn = s <> invalid and not s.isText
+    else if purpose = "quality"
+        m.opts.maxBitrate = id.toInt()
+        Toasts.notify("Quality: " + Tracks.qualityLabel(m.opts.maxBitrate), "check")
+    end if
+    print "Cove: details "; purpose; " -> "; id
+    buildMediaRow()
+    layoutHeader()
+end sub
+
+' ---------------------------------------------------------------- (v1.5 details) menus in place (DetailsMenu)
+
+sub openMenu(purpose as string, title as string, options as object, selectedId as string, anchor as object, heading as dynamic, width as integer)
+    closeMenu()
+    p = createObject("roSGNode", "DetailsMenu")
+    p.purpose = purpose
+    p.title = title
+    p.panelWidth = width
+    p.anchor = anchor
+    if heading <> invalid then p.heading = heading
+    p.selectedId = selectedId
+    p.options = options
+    p.observeField("chosen", "onMenuChosen")
+    p.observeField("cancelled", "onMenuCancelled")
+    m.top.appendChild(p)
+    m.menu = p
+    paintMedia()
+    drawButtons()
+    p.setFocus(true)
+end sub
+
+sub closeMenu()
+    if m.menu <> invalid
+        m.menu.unobserveField("chosen")
+        m.menu.unobserveField("cancelled")
+        m.top.removeChild(m.menu)
+        m.menu = invalid
+        m.spokenKey = ""
+    end if
+end sub
+
+' Back to the pill or button the menu came from
+sub leaveMenu()
+    closeMenu()
+    if m.menuBack = "media" and m.mediaPills.count() > 0
+        enterMedia()
+    else
+        focusPlayButton()
+    end if
+end sub
+
+sub onMenuCancelled()
+    leaveMenu()
+end sub
+
+sub onMenuChosen(ev as object)
+    c = ev.getData()
+    purpose = Util.toText(c.purpose)
+    id = Util.toText(c.id)
+    if purpose = "audio" or purpose = "subs" or purpose = "version" or purpose = "quality"
+        leaveMenu()
+        applyTrackChoice(purpose, id)
+        return
+    end if
+    if purpose = "more"
+        useMore(id)
+        return
+    end if
+    if purpose = "coll" or purpose = "list"
+        leaveMenu()
+        addToList(purpose, id)
+        return
+    end if
+    if purpose = "gocoll"
+        leaveMenu()
+        for each b in m.includedList
+            if Util.toText(b.Id) = id then m.top.openItem = { id: "open", itemId: id, itemType: Util.toText(b.Type), collectionType: "", title: Util.toText(b.Name) }
+        end for
+        return
+    end if
+    leaveMenu()
+end sub
+
+' ---------------------------------------------------------------- (v1.5 details) ⋯ More
+
+' The panel next to the ⋯ button: a small poster, the title and the year, then Emby's entries that make sense on a
+' TV (DetailsHead.moreEntries: no Download, Convert, Edit, Identify or Delete)
+sub openMoreMenu()
+    if m.item = invalid then return
+    it = m.item
+    t = Util.toText(it.Type)
+    seasonTitle = Util.toText(it.SeasonName)
+    if seasonTitle = "" and it.ParentIndexNumber <> invalid then seasonTitle = "Season " + Util.toText(it.ParentIndexNumber)
+    entries = DetailsHead.moreEntries({ itemType: t, isFav: m.isFav, played: Util.flag(it.UserData, "Played"), isAdmin: m.isAdmin, collections: m.includedList.count(), versions: versionCount(), hasSeries: Util.toText(it.SeriesId) <> "", hasSeason: Util.toText(it.SeasonId) <> "" and seasonTitle <> "", seasonLabel: NavUtil.seasonButtonText(seasonTitle, it.ParentIndexNumber).replace("Go to ", "") })
+    o = []
+    for each e in entries
+        label = e.label
+        if e.id = "quality" then label = "Quality: " + Tracks.qualityLabel(m.opts.maxBitrate)
+        if e.id = "version" then label = "Version: " + Tracks.versionLabel(m.versions, m.opts.sourceId)
+        o.push({ id: e.id, label: label, icon: moreIcon(e.icon), divider: Util.flag(e, "divider") })
+    end for
+    sub_ = Util.toText(it.ProductionYear)
+    if t = "Episode"
+        sub_ = Util.toText(it.SeriesName)
+        ep = DetailsHead.episodeLine(it)
+        if ep <> "" then sub_ = ep
+    end if
+    title = Util.toText(it.Name)
+    if t = "Episode" and Util.toText(it.SeriesName) <> "" then title = Util.toText(it.SeriesName)
+    heading = { poster: Items.poster(m.top.server, it, 140), title: title, sub: sub_ }
+    m.menuBack = "buttons"
+    openMenu("more", "More", o, "", moreAnchor(), heading, 560)
+end sub
+
+function versionCount() as integer
+    if m.versions = invalid then return 0
+    return m.versions.count()
+end function
+
+function moreIcon(name as string) as string
+    if name = "listadd" or name = "refresh" or name = "folder" or name = "tv" or name = "quality" then return "pkg:/images/ui/icon_dt_" + name + "_28.png"
+    return "pkg:/images/ui/icon_" + name + "_28.png"
+end function
+
+' Under the ⋯ button, its left edge at the button's (moved left / up by the menu when it would leave the screen)
+function moreAnchor() as object
+    i = NavUtil.indexOfId(m.btns, "more")
+    x = m.colX
+    if i >= 0 and i < m.btnGroup.getChildCount() then x = m.colX + m.btnGroup.translation[0] + m.btnGroup.getChild(i).translation[0]
+    return [x, 110 + m.btnY + 69 + 12]
+end function
+
+sub useMore(id as string)
+    it = m.item
+    if id = "fav"
+        leaveMenu()
+        toggleFavourite()
+    else if id = "watched"
+        leaveMenu()
+        toggleWatched()
+    else if id = "info"
+        leaveMenu()
+        openPlaybackInfo()
+    else if id = "quality"
+        openQualityList(moreAnchor())
+    else if id = "version"
+        openVersionList(moreAnchor())
+    else if id = "addcoll"
+        closeMenu()
+        m.status.text = "Getting your collections..."
+        get("/Users/" + Util.toText(m.top.server.userId) + "/Items?IncludeItemTypes=BoxSet&Recursive=true&SortBy=SortName&SortOrder=Ascending&Fields=ProductionYear&EnableImageTypes=Primary&ImageTypeLimit=1&Limit=300" + Items.noCount(), { kind: "lists", which: "coll", itemId: Util.toText(it.Id) })
+        enterButtons(false)
+    else if id = "addlist"
+        closeMenu()
+        m.status.text = "Getting your playlists..."
+        get("/Users/" + Util.toText(m.top.server.userId) + "/Items?IncludeItemTypes=Playlist&Recursive=true&SortBy=SortName&SortOrder=Ascending&Limit=300" + Items.noCount(), { kind: "lists", which: "list", itemId: Util.toText(it.Id) })
+        enterButtons(false)
+    else if id = "gocoll"
+        if m.includedList.count() = 1
+            leaveMenu()
+            b = m.includedList[0]
+            m.top.openItem = { id: "open", itemId: Util.toText(b.Id), itemType: Util.toText(b.Type), collectionType: "", title: Util.toText(b.Name) }
+        else
+            o = []
+            for each b in m.includedList
+                o.push({ id: Util.toText(b.Id), label: Util.toText(b.Name), icon: moreIcon("folder") })
+            end for
+            openMenu("gocoll", "Collections", o, "", moreAnchor(), invalid, 560)
+        end if
+    else if id = "series" or id = "season"
+        leaveMenu()
+        o = { itemId: Util.toText(it.SeriesId), itemType: "Series", title: Util.toText(it.SeriesName) }
+        if id = "season" then o.seasonId = Util.toText(it.SeasonId)
+        m.top.openItem = o
+    else if id = "refresh"
+        leaveMenu()
+        send("POST", DetailsHead.refreshPath(Util.toText(it.Id)), { kind: "refreshMeta", name: Util.toText(it.Name) })
+    else
+        leaveMenu()
+    end if
+end sub
+
+' The user's collections or playlists answered: New ... first, then each one (OK adds the title to it)
+sub onLists(r as object)
+    m.status.text = ""
+    if m.item = invalid or Util.toText(r.tag.itemId) <> Util.toText(m.item.Id) then return
+    which = Util.toText(r.tag.which)
+    if r.code <> 200
+        print "Cove: lists ("; which; ") failed: "; Api.describeFailure(r)
+        Toasts.notify(Toasts.failedText("get the list"), "info")
+        return
+    end if
+    title = "Add to Collection"
+    newLabel = "New Collection..."
+    if which = "list"
+        title = "Add to Playlist"
+        newLabel = "New Playlist..."
+    end if
+    o = [{ id: "new", label: newLabel, icon: "pkg:/images/ui/icon_plus_28.png" }]
+    m.listNames = {}
+    first = true
+    for each x in listOf(r.json)
+        xid = Util.toText(Util.field(x, "Id"))
+        if xid <> "" and xid <> Util.toText(m.item.Id)
+            n = Util.toText(Util.field(x, "Name"))
+            m.listNames[xid] = n
+            o.push({ id: xid, label: n, divider: first })
+            first = false
+        end if
+    end for
+    print "Cove: "; which; " lists -> "; o.count() - 1
+    m.menuBack = "buttons"
+    openMenu(which, title, o, "", moreAnchor(), invalid, 620)
+end sub
+
+' A collection / playlist was picked: add the title (New: the name from the keyboard first)
+sub addToList(which as string, id as string)
+    if m.item = invalid then return
+    itemId = Util.toText(m.item.Id)
+    uid = Util.toText(m.top.server.userId)
+    if id = "new"
+        title = "New Collection"
+        if which = "list" then title = "New Playlist"
+        askListName(which, title)
+        return
+    end if
+    name = ""
+    if m.listNames <> invalid and m.listNames[id] <> invalid then name = m.listNames[id]
+    if which = "coll"
+        send("POST", DetailsHead.addToCollectionPath(id, itemId), { kind: "listAdd", which: which, name: name })
+    else
+        send("POST", DetailsHead.addToPlaylistPath(id, itemId, uid), { kind: "listAdd", which: which, name: name })
+    end if
+end sub
+
+' The Roku keyboard for a new collection's / playlist's name
+sub askListName(which as string, title as string)
+    m.kbFor = which
+    d = createObject("roSGNode", "StandardKeyboardDialog")
+    d.title = title
+    d.message = ["The name of the new " + LCase(title.replace("New ", "")) + "."]
+    d.text = ""
+    d.buttons = ["OK", "Cancel"]
+    d.observeField("buttonSelected", "onListNameButton")
+    d.observeField("wasClosed", "onListNameClosed")
+    m.top.getScene().dialog = d
+    m.kbTimer.control = "start"
+end sub
+
+sub focusKeyboard()
+    d = m.top.getScene().dialog
+    if d <> invalid then d.setFocus(true)
+end sub
+
+sub onListNameButton()
+    d = m.top.getScene().dialog
+    if d = invalid then return
+    ok = d.buttonSelected = 0
+    text = Util.toText(d.text).trim()
+    d.unobserveField("buttonSelected")
+    d.unobserveField("wasClosed")
+    d.close = true
+    enterButtons(false)
+    if not ok or text = "" or m.item = invalid then return
+    itemId = Util.toText(m.item.Id)
+    if m.kbFor = "coll"
+        send("POST", DetailsHead.newCollectionPath(text, itemId), { kind: "listAdd", which: "coll", name: text, created: true })
+    else
+        send("POST", DetailsHead.newPlaylistPath(text, itemId, Util.toText(m.top.server.userId)), { kind: "listAdd", which: "list", name: text, created: true })
+    end if
+end sub
+
+sub onListNameClosed()
+    d = m.top.getScene().dialog
+    if d <> invalid
+        d.unobserveField("buttonSelected")
+        d.unobserveField("wasClosed")
+    end if
+    enterButtons(false)
+end sub
+
+sub onListAdd(r as object)
+    which = Util.toText(r.tag.which)
+    kindWord = "collection"
+    if which = "list" then kindWord = "playlist"
+    if r.code >= 200 and r.code < 300
+        name = Util.toText(r.tag.name)
+        if Util.flag(r.tag, "created")
+            Toasts.notify("Created " + kindWord + " " + Toasts.quoted(name), "check")
+        else
+            Toasts.notify("Added to " + Toasts.quoted(name), "check")
+        end if
+        m.top.changed = true
+        ' (Included In and ⋯ More → Go to Collection follow)
+        if which = "coll" and m.item <> invalid and Util.toText(m.item.Type) <> "Episode" then loadIncludedIn(m.item)
+    else
+        print "Cove: add to "; kindWord; " failed: "; Api.describeFailure(r)
+        Toasts.notify(Toasts.failedText("add it to the " + kindWord), "info")
+    end if
+end sub
+
+sub onRefreshMeta(r as object)
+    if r.code >= 200 and r.code < 300
+        Toasts.notify("Refreshing metadata for " + Toasts.quoted(Util.toText(r.tag.name)), "check")
+    else
+        print "Cove: refresh metadata failed: "; Api.describeFailure(r)
+        Toasts.notify(Toasts.failedText("refresh the metadata"), "info")
+    end if
+end sub
+
+' ⋯ More → Playback Info: the file, its container and every track, and what this playback will use
+sub openPlaybackInfo()
+    if m.item = invalid or m.textPanel <> invalid then return
+    src = MediaInfo.findSource(m.item, Util.toText(m.opts.sourceId))
+    lines = []
+    if src = invalid
+        lines.push("The server sent no media information for this title.")
+    else
+        path = Util.toText(src.Path)
+        if path = "" then path = Util.toText(m.item.Path)
+        if path <> "" then lines.push("File: " + path)
+        fl = []
+        if Util.toText(src.Container) <> "" then fl.push(UCase(Util.toText(src.Container)))
+        sz = MediaInfo.sizeText(src.Size)
+        if sz <> "" then fl.push(sz)
+        br = MediaInfo.rateText(src.Bitrate)
+        if br <> "" then fl.push(br)
+        if fl.count() > 0 then lines.push("Container: " + Util.join(fl, " · "))
+        for each v in MediaInfo.streamsOfType(src, "Video")
+            lines.push("Video: " + MediaInfo.videoLine(v))
+        end for
+        for each a in MediaInfo.streamsOfType(src, "Audio")
+            lines.push("Audio: " + MediaInfo.trackLine(a))
+        end for
+        for each s in MediaInfo.streamsOfType(src, "Subtitle")
+            lines.push("Subtitles: " + MediaInfo.trackLine(s))
+        end for
+    end if
+    if m.tracks <> invalid
+        lines.push("This playback: audio " + Tracks.audioLabel(m.tracks, effectiveAudio()) + ", subtitles " + Tracks.subLabel(m.tracks, m.opts.sub) + ", quality " + Tracks.qualityLabel(m.opts.maxBitrate))
+    end if
+    p = createObject("roSGNode", "TextPanel")
+    p.heading = "Playback Info"
+    p.text = Util.join(lines, chr(10))
+    p.observeField("closed", "onInfoClosed")
+    m.top.appendChild(p)
+    m.textPanel = p
+    p.setFocus(true)
+end sub
+
+sub onInfoClosed()
+    if m.textPanel <> invalid
+        m.textPanel.unobserveField("closed")
+        m.top.removeChild(m.textPanel)
+        m.textPanel = invalid
+    end if
+    enterButtons(false)
 end sub
 
 sub openPicker(purpose as string, title as string, options as object, selectedId as string)
@@ -1358,57 +2117,13 @@ sub onPickerCancelled()
     else if p <> invalid and p.purpose = "epmenu"
         m.state = "rows"
         m.rows.setFocus(true)
-    else if p <> invalid and (p.purpose = "audio" or p.purpose = "subs" or p.purpose = "quality" or p.purpose = "version")
-        ' (SC-10) Back in a list opened from Audio & Subtitles: that menu again
-        showTracksMenu()
     else
-        enterButtons(false)
+        focusPlayButton()
     end if
 end sub
 
 sub onPicked(ev as object)
     c = ev.getData()
-    if c.purpose = "menu"
-        if c.id = "audio"
-            o = []
-            for each a in m.tracks.audio
-                o.push({ id: a.index.toStr(), label: a.label })
-            end for
-            openPicker("audio", "Audio", o, effectiveAudio().toStr())
-        else if c.id = "subs"
-            o = [{ id: "-1", label: "Off" }]
-            for each s in m.tracks.subs
-                o.push({ id: s.index.toStr(), label: s.label })
-            end for
-            openPicker("subs", "Subtitles", o, m.opts.sub.toStr())
-            m.picker.wide = true
-        else if c.id = "quality"
-            openPicker("quality", "Quality", Tracks.qualities(), m.opts.maxBitrate.toStr())
-        else if c.id = "version"
-            cur = m.opts.sourceId
-            if cur = "" then cur = m.versions[0].id
-            openPicker("version", "Version", m.versions, cur)
-        end if
-        return
-    end if
-    if c.purpose = "version"
-        ' another file: its own audio and subtitle tracks, back to their defaults
-        m.opts.sourceId = c.id
-        m.tracks = Tracks.fromItem(m.item, c.id)
-        m.opts.audio = -1
-        m.opts.sub = -1
-        m.opts.burn = false
-        m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
-        m.opts.startAudio = startAudioHere()
-        s = Tracks.defaultSub(m.tracks, "")
-        if s >= 0
-            m.opts.sub = s
-            m.opts.burn = not Tracks.findSub(m.tracks, s).isText
-        end if
-        closePicker()
-        showTracksMenu()
-        return
-    end if
     if c.purpose = "epmenu"
         e = m.menuEp
         closePicker()
@@ -1455,26 +2170,11 @@ sub onPicked(ev as object)
         selectSeason(c.id.toInt(), true)
         m.jumpToEpisodes = false
         enterSeason()
-        return
     else if c.purpose = "slang"
         Prefs.setSeriesSubLang(subPrefKey(), c.id)
         closePicker()
         enterSeason()
-        return
     end if
-    v = c.id.toInt()
-    if c.purpose = "audio"
-        m.opts.audio = v
-    else if c.purpose = "subs"
-        s = Tracks.findSub(m.tracks, v)
-        m.opts.subPicked = true
-        m.opts.sub = v
-        m.opts.burn = s <> invalid and not s.isText
-    else if c.purpose = "quality"
-        m.opts.maxBitrate = v
-    end if
-    closePicker()
-    showTracksMenu()
 end sub
 
 ' ---------------------------------------------------------------- series: seasons, episodes, next up
@@ -1858,24 +2558,19 @@ sub drawSeasonBar()
         bg = createObject("roSGNode", "Poster")
         bg.width = w
         bg.height = 60
-        ' (v1.1.1 VD-6) glass pill; the white ring shows the focus
-        bg.uri = "pkg:/images/ui/glass_pill.9.png"
+        ' (v1.5 flat) a flat pill (controlFill); focused = solid white with dark text (no fog, ring or zoom)
+        bg.uri = "pkg:/images/ui/flat_pill_60.9.png"
+        bg.opacity = 0.12
         l.color = "0xFFFFFFFF"
         if not bold and not isFocus then l.color = "0xFFFFFFD9"
-        ' "Show all" / "Hide watched" in the accent colour, like the Mac's tinted button
-        if isFilter then l.color = m.global.theme.accent
+        if isFocus
+            bg.opacity = 1.0
+            l.color = m.global.theme.onFocus
+        end if
         g.insertChild(bg, 0)
         l.translation = [26, 0]
         if ids[i] = "season" then w = addSeasonBadge(g, tw, w)
         bg.width = w
-        if isFocus
-            ring = createObject("roSGNode", "Poster")
-            ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
-            ring.translation = [-8, -8]
-            ring.width = w + 16
-            ring.height = 76
-            g.insertChild(ring, 0)
-        end if
         if not isFilter
             ch = g.createChild("Poster")
             ch.uri = "pkg:/images/ui/icon_chevron_28.png"
@@ -2144,9 +2839,20 @@ sub enterButtons(slideBack = true as boolean)
     m.state = "buttons"
     hideAbout()
     m.btnKeys.setFocus(true)
-    if slideBack then animate(950, 1.0, 0.0, 0.0)
+    if slideBack then animate(m.restY, 1.0, 0.0, 0.0)
     drawButtons()
     if m.seasonBar.visible then drawSeasonBar()
+end sub
+
+' Down from the header (buttons, or the description under them): the season pills, the rows, or About
+sub leaveHeaderDown()
+    if m.seasonBar.visible
+        enterSeason()
+    else if m.rows.visible
+        enterRows()
+    else
+        enterAbout()
+    end if
 end sub
 
 sub enterSeason()
@@ -2171,22 +2877,44 @@ sub enterRows()
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
-    if not press or m.picker <> invalid or m.textPanel <> invalid then return false
+    if not press or m.picker <> invalid or m.menu <> invalid or m.textPanel <> invalid then return false
     ' (v1.1 U-1) Play: the focused card below, or this title's Play button anywhere else on the page
     if key = "play"
         playKey()
         return true
     end if
+    ' (v1.5 details) the description sits under the buttons: Down from them reaches "More" when it is cut
     if m.state = "overview"
         if key = "OK"
             openFullText()
+        else if key = "up" or key = "back"
+            enterButtons(false)
+        else if key = "down"
+            leaveHeaderDown()
+        end if
+        return true
+    end if
+    ' (v1.5 details) the media line above the buttons: Left / Right along its pills, OK opens the list in place
+    if m.state = "media"
+        if key = "left" and m.mediaIdx > 0
+            m.mediaIdx = m.mediaIdx - 1
+            paintMedia()
+        else if key = "right" and m.mediaIdx < m.mediaPills.count() - 1
+            m.mediaIdx = m.mediaIdx + 1
+            paintMedia()
+        else if key = "OK" and m.mediaIdx < m.mediaPills.count()
+            openTrackList(m.mediaPills[m.mediaIdx].id)
         else if key = "down" or key = "back"
             enterButtons(false)
         end if
         return true
     end if
     if m.state = "buttons"
-        if key = "up" and m.ovMore
+        if key = "up"
+            enterMedia()
+            return true
+        end if
+        if key = "down" and m.ovMore
             enterOverview()
             return true
         end if
@@ -2202,13 +2930,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
             useButton()
             return true
         else if key = "down"
-            if m.seasonBar.visible
-                enterSeason()
-            else if m.rows.visible
-                enterRows()
-            else
-                enterAbout()
-            end if
+            leaveHeaderDown()
             return true
         else if key = "left" or key = "right" or key = "up"
             return true
@@ -2333,23 +3055,25 @@ sub onFocusChanged()
     m.spokenKey = ""
     if m.picker <> invalid
         m.picker.setFocus(true)
+    else if m.menu <> invalid
+        m.menu.setFocus(true)
     else if m.textPanel <> invalid
         m.textPanel.setFocus(true)
-    else if m.state = "overview"
-        m.btnKeys.setFocus(true)
-    else if m.state = "rows" and m.rows.visible
-        m.rows.setFocus(true)
-        m.spokenRow = -1
-        onRowFocusedSpeak()
-    else if m.state = "about"
-        m.btnKeys.setFocus(true)
     else if m.state = "error" and m.errorPanel.visible
         m.errorPanel.setFocus(true)
     else
-        m.state = "buttons"
-        m.btnKeys.setFocus(true)
-        drawButtons()
+        ' (v1.5, Liviu: "always focus on Play") back on this page from the player, a title, a person or a
+        ' library: the buttons, with Play focused (the rows slide back down)
+        focusPlayButton()
     end if
+end sub
+
+sub focusPlayButton()
+    at = NavUtil.indexOfId(m.btns, "play")
+    if at >= 0 then m.btn = at
+    m.focusPlay = at < 0
+    slide = m.state = "rows" or m.state = "about"
+    enterButtons(slide)
 end sub
 
 ' ---------------------------------------------------------------- About (Cove for macOS: aboutSection, mediaInfo)

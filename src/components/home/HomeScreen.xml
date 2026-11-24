@@ -21,7 +21,7 @@
             <Poster id="bdA" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0" />
             <Poster id="bdB" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" opacity="0" />
         </Group>
-        <Poster id="scrimLeft" uri="pkg:/images/ui/scrim_left.png" width="1152" height="1080" />
+        <Poster id="scrimLeft" uri="pkg:/images/ui/scrim_left.png" width="1920" height="1080" />
         <Poster id="scrimTop" uri="pkg:/images/ui/scrim_top.png" width="1920" height="300" />
         <Poster id="scrimBottom" width="1920" height="1080" />
         <!-- under the rows when they are up: a fade into the page colour, then solid (card corners sit on it) -->
@@ -51,24 +51,10 @@
                 <Label id="hov2" width="760" height="38" translation="[0,76]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
             </Group>
             <Group id="buttons" translation="[96,0]">
-                <Group id="btnPlay">
-                    <Poster id="playRing" uri="pkg:/images/ui/focus_ring_pill.9.png" width="271" height="85" translation="[-8,-8]" visible="false" />
-                    <Poster uri="pkg:/images/ui/white_pill.9.png" width="255" height="69" />
-                    <Poster uri="pkg:/images/ui/icon_play_28.png" width="28" height="28" translation="[60,20]" blendColor="0x000000FF" />
-                    <Label id="playLabel" text="Play" width="150" height="69" translation="[98,0]" vertAlign="center" color="0x000000FF">
-                        <Font role="font" uri="font:BoldSystemFontFile" size="28" />
-                    </Label>
-                </Group>
-                <Group id="btnFav" translation="[276,0]">
-                    <Poster id="favRing" uri="pkg:/images/ui/focus_ring_circle_85.png" width="85" height="85" translation="[-8,-8]" visible="false" />
-                    <Poster id="favBg" uri="pkg:/images/ui/glass_circle_69.png" width="69" height="69" />
-                    <Poster id="favIcon" uri="pkg:/images/ui/icon_plus_28.png" width="28" height="28" translation="[20,20]" />
-                </Group>
-                <Group id="btnInfo" translation="[366,0]">
-                    <Poster id="infoRing" uri="pkg:/images/ui/focus_ring_circle_85.png" width="85" height="85" translation="[-8,-8]" visible="false" />
-                    <Poster id="infoBg" uri="pkg:/images/ui/glass_circle_69.png" width="69" height="69" />
-                    <Poster id="infoIcon" uri="pkg:/images/ui/icon_info_28.png" width="28" height="28" translation="[20,20]" />
-                </Group>
+                <!-- (v1.5 flat) the Play pill (22 % white) and flat circles; focus = solid white with a dark icon / label -->
+                <GlassButton id="btnPlay" style="accent" icon="pkg:/images/ui/icon_play_28.png" text="Play" minWidth="220" />
+                <GlassButton id="btnFav" style="circle" icon="pkg:/images/ui/icon_plus_28.png" />
+                <GlassButton id="btnInfo" style="circle" icon="pkg:/images/ui/icon_info_28.png" />
             </Group>
             <Group id="dots" translation="[0,734]" />
         </Group>
@@ -91,7 +77,7 @@
                  itemSpacing="[0,44]" showRowLabel="[true]" rowLabelOffset="[[18,0]]" rowLabelColor="0xFFFFFFFF"
                  focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
                  drawFocusFeedback="false" visible="false">
-            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="32" />
+            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="34" />
         </RowList>
 
         <!-- Settings → General → Navigation: the sidebar (default) or the top bar; HomeScreen uses one of them -->

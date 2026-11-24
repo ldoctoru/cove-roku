@@ -1,0 +1,103 @@
+sub init()
+    m.body = m.top.findNode("body")
+    m.base = m.top.findNode("base")
+    m.label = m.top.findNode("label")
+    m.iconImg = m.top.findNode("iconImg")
+    m.onFocus = "0x111111FF"
+    t = m.global.theme
+    if t <> invalid and t.onFocus <> invalid then m.onFocus = t.onFocus
+    m.w = 0
+    m.h = 69
+    m.rest = 0.12
+    layout()
+end sub
+
+' Places every piece for the current style, text and icon; the width follows the measured label
+sub layout()
+    style = m.top.style
+    h = m.top.height
+    if h <= 0 then h = 69
+    m.h = h
+    isCircle = style = "circle"
+    hasText = m.top.text <> "" and not isCircle
+    hasIcon = m.top.icon <> ""
+    m.label.font.size = m.top.textSize
+    m.label.text = m.top.text
+    m.label.visible = hasText
+    m.label.height = h
+    ' (v1.4 fix) measure the label unconstrained: a width left from an earlier layout (text set after the
+    ' style) clips boundingRect to it, and the button came out without its label on details pages
+    m.label.width = 0
+    m.label.wrap = false
+    tw = 0
+    if hasText then tw = Int(m.label.boundingRect().width) + 2
+    isz = m.top.iconSize
+    gap = 12
+    pad = m.top.padX
+    if pad < 0
+        pad = Int(h * 0.46)
+        if hasIcon then pad = Int(h * 0.4)
+    end if
+    if isCircle
+        w = h
+    else
+        w = pad * 2 + tw
+        if hasIcon and hasText then w = w + isz + gap
+        if hasIcon and not hasText then w = pad * 2 + isz
+    end if
+    if w < m.top.minWidth then w = m.top.minWidth
+    m.w = w
+    ' content (icon + label) centred in the button
+    cw = tw
+    if hasIcon and hasText then cw = isz + gap + tw
+    if hasIcon and not hasText then cw = isz
+    x = Int((w - cw) / 2)
+    m.iconImg.visible = hasIcon
+    if hasIcon
+        m.iconImg.uri = m.top.icon
+        m.iconImg.width = isz
+        m.iconImg.height = isz
+        m.iconImg.translation = [x, Int((h - isz) / 2)]
+        x = x + isz + gap
+    end if
+    m.label.width = tw + 4
+    m.label.translation = [x, 0]
+    ' the flat shape: a circle, or a pill whose round ends are half its height
+    m.base.width = w
+    m.base.height = h
+    if isCircle
+        m.base.uri = "pkg:/images/ui/white_circle_69.png"
+    else
+        m.base.uri = flatPill(h)
+    end if
+    ' the Play pill reads a little stronger than the other controls
+    m.rest = 0.12
+    if style = "accent" then m.rest = 0.22
+    m.top.buttonWidth = w
+    paint()
+end sub
+
+' Focus and dimming only: nothing is rebuilt. Focused = solid white with dark content.
+sub paint()
+    f = m.top.focused
+    if f
+        m.base.opacity = 1.0
+        m.label.color = m.onFocus
+        m.iconImg.blendColor = m.onFocus
+    else
+        m.base.opacity = m.rest
+        m.label.color = "0xFFFFFFFF"
+        m.iconImg.blendColor = m.top.iconColor
+    end if
+    m.body.opacity = 1.0
+    if m.top.dimmed and not f then m.body.opacity = 0.35
+end sub
+
+' The flat pill drawn at height h: the tallest generated one that isn't taller than h (round ends = half height)
+function flatPill(h as integer) as string
+    size = 44
+    for each n in [52, 60, 69]
+        if h >= n then size = n
+    end for
+    return "pkg:/images/ui/flat_pill_" + size.toStr() + ".9.png"
+end function

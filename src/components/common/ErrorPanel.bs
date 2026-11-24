@@ -125,14 +125,6 @@ sub drawButtons(w as integer, y as integer, focused as boolean)
     end for
     x = Int((w - total) / 2)
     for each b in labels
-        ' (v1.1.1 VD-6) the white focus ring, as on the other button rows
-        if b.focus
-            ring = m.body.createChild("Poster")
-            ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
-            ring.width = b.w + 16
-            ring.height = 76
-            ring.translation = [x - 8, y - 8]
-        end if
         bg = m.body.createChild("Poster")
         bg.width = b.w
         bg.height = 60
@@ -143,12 +135,13 @@ sub drawButtons(w as integer, y as integer, focused as boolean)
         lab.horizAlign = "center"
         lab.vertAlign = "center"
         lab.translation = [x, y]
+        ' (v1.5 flat) a flat pill (controlFill); focused = solid white with dark text
+        bg.uri = "pkg:/images/ui/flat_pill_60.9.png"
+        bg.opacity = 0.12
+        lab.color = "0xFFFFFFFF"
         if b.focus
-            bg.uri = "pkg:/images/ui/white_pill.9.png"
-            lab.color = "0x000000FF"
-        else
-            bg.uri = "pkg:/images/ui/glass_pill.9.png"
-            lab.color = "0xFFFFFFFF"
+            bg.opacity = 1.0
+            lab.color = "0x111111FF"
         end if
         m.body.appendChild(lab)
         x = x + b.w + gap

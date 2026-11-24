@@ -24,7 +24,7 @@
                  itemSpacing="[0,10]" showRowLabel="[true]" rowLabelOffset="[[18,4]]" rowLabelColor="0xFFFFFFFF"
                  focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
                  drawFocusFeedback="false">
-            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="30" />
+            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="34" />
         </RowList>
         <!-- every search request failed: Try Again / Switch Server / Settings (Right from the keyboard) -->
         <ErrorPanel id="errorPanel" translation="[720,300]" width="1100" visible="false" />

@@ -123,6 +123,52 @@ namespace NavUtil
         return indexOfId(list, currentId)
     end function
 
+    ' (v1.5) What the top bar shows when its entries are wider than maxWidth: widths[i] of each entry,
+    ' pinned[i] = true for those that always show (Home, the profile, Settings), gap between entries. The pinned
+    ' ones stay, the others are kept in order while they fit next to a "More" entry (moreWidth), which goes
+    ' before the pinned entries at the end. Returns the indices in display order, -1 standing for "More"; every
+    ' index when everything fits.
+    function topBarFit(widths as object, pinned as object, moreWidth as integer, maxWidth as integer, gap as integer) as object
+        out = []
+        n = widths.count()
+        total = 0
+        for i = 0 to n - 1
+            total = total + widths[i] + gap
+            out.push(i)
+        end for
+        if total <= maxWidth then return out
+        used = moreWidth + gap
+        for i = 0 to n - 1
+            if pinned[i] = true then used = used + widths[i] + gap
+        end for
+        keep = {}
+        full = false
+        for i = 0 to n - 1
+            if pinned[i] <> true and not full
+                if used + widths[i] + gap <= maxWidth
+                    used = used + widths[i] + gap
+                    keep[i.toStr()] = true
+                else
+                    full = true
+                end if
+            end if
+        end for
+        ' (the trailing pinned entries: after More)
+        tailFrom = n
+        while tailFrom > 0 and pinned[tailFrom - 1] = true
+            tailFrom = tailFrom - 1
+        end while
+        out = []
+        for i = 0 to tailFrom - 1
+            if pinned[i] = true or keep.doesExist(i.toStr()) then out.push(i)
+        end for
+        out.push(-1)
+        for i = tailFrom to n - 1
+            out.push(i)
+        end for
+        return out
+    end function
+
     ' (v1.3.1) Playback started from Home has ended: the page to open over Home, as Cove for macOS returnAfterPlay /
     ' openPage. card: { itemId, itemType } of the Home card or banner played; played: { id, type, seriesId,
     ' seasonId } of the first title the player showed. An episode opens its series on that episode's season (its

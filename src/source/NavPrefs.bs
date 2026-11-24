@@ -1,0 +1,378 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Prefs.bs"
+
+' (v1.5) What the top bar and the sidebar show, each with its own list and order (Settings → Navigation and
+' Settings → Libraries → <library>). Home and Settings are always there and are not in the lists.
+' Ids: "search", "favorites", "nowplaying", "recent" and "L<libraryId>" for a library.
+' Stored compactly per place in the registry: "navtop" / "navside" = "search,-favorites,Labc,..." where a leading
+' "-" means switched off. Nothing is written until a list is changed, and a list that is back to its default
+' deletes its key (the 16 KB registry is shared with the sign-ins).
+' Migration (nothing moves after the update): an unsaved list starts from today's switches (Show Favorites /
+' Now Playing / Recently Added, a library's "In the sidebar"), the same for both places.
+' Libraries: one the list doesn't know yet (added on the server) comes after the last library, switched on; one
+' the server doesn't list right now (another server, a profile that can't see it) keeps its place and switch in
+' the saved text (up to keepUnknown() of them) but isn't returned by entries().
+' libs: the server's libraries in the Libraries order, [{ id, title, collectionType }].
+' CONTRACT: the Settings screen (settings agent) only calls the functions below; the nav agent owns this file and
+' may change the inside (migration, defaults) but must keep these names and signatures.
+' (sibling calls are written NavPrefs.x so they can't resolve to a sub of a component that imports this file)
+namespace NavPrefs
+
+    function places() as object
+        return ["top", "side"]
+    end function
+
+    function pageIds() as object
+        return ["search", "favorites", "nowplaying", "recent"]
+    end function
+
+    function pageLabel(id as string) as string
+        if id = "search" then return "Search"
+        if id = "favorites" then return "Favorites"
+        if id = "nowplaying" then return "Now Playing"
+        if id = "recent" then return "Recently Added"
+        return id
+    end function
+
+    ' "sidebar" or "topbar": one or the other (Liviu's choice), the same key as before
+    function menuStyle() as string
+        if Prefs.navStyle() = "topbar" then return "topbar"
+        return "sidebar"
+    end function
+
+    sub setMenuStyle(style as string)
+        if style = "topbar"
+            Util.writeText("navStyle", "topbar")
+        else
+            Util.writeText("navStyle", "sidebar")
+        end if
+    end sub
+
+    ' The place the current menu style reads: "top" for the top bar, "side" for the sidebar
+    function activePlace() as string
+        if NavPrefs.menuStyle() = "topbar" then return "top"
+        return "side"
+    end function
+
+    function navKey(place as string) as string
+        if place = "top" then return "navtop"
+        return "navside"
+    end function
+
+    ' How many tokens of libraries the server doesn't list right now a saved list keeps
+    function keepUnknown() as integer
+        return 24
+    end function
+
+    ' The default list before anything was saved: today's switches (Show Favorites / Now Playing / Recently
+    ' Added, a library's "In the sidebar"), so nothing moves after the update
+    function defaultTokens(libs as object) as object
+        out = ["search"]
+        out.push(NavPrefs.navToken("favorites", Prefs.showFavorites()))
+        out.push(NavPrefs.navToken("nowplaying", Prefs.showNowPlaying()))
+        out.push(NavPrefs.navToken("recent", Prefs.showRecent()))
+        for each l in libs
+            id = Util.toText(l.id)
+            if id <> "" then out.push(NavPrefs.navToken("L" + id, Prefs.library(id).nav <> false))
+        end for
+        return out
+    end function
+
+    function navToken(id as string, on as boolean) as string
+        if on then return id
+        return "-" + id
+    end function
+
+    ' The saved tokens of one place, or the defaults when nothing is saved
+    function tokensOf(place as string, libs as object) as object
+        saved = Util.readText(NavPrefs.navKey(place))
+        if saved = "" then return NavPrefs.defaultTokens(libs)
+        out = []
+        for each tk in saved.split(",")
+            if tk <> "" and tk <> "-" then out.push(tk)
+        end for
+        return out
+    end function
+
+    ' The full list, known entries and the kept unknown libraries alike:
+    ' [{ id, label, on, isLibrary, collectionType, known }]
+    function allEntries(place as string, libs as object) as object
+        known = {}
+        for each p in NavPrefs.pageIds()
+            known[p] = { label: NavPrefs.pageLabel(p), isLibrary: false, collectionType: "" }
+        end for
+        libIds = []
+        for each l in libs
+            lid = "L" + Util.toText(l.id)
+            if lid <> "L"
+                known[lid] = { label: Util.toText(l.title), isLibrary: true, collectionType: LCase(Util.toText(l.collectionType)) }
+                libIds.push(lid)
+            end if
+        end for
+        out = []
+        used = {}
+        for each tk in NavPrefs.tokensOf(place, libs)
+            on = tk.left(1) <> "-"
+            id = tk
+            if not on then id = tk.mid(1)
+            if not used.doesExist(id)
+                used[id] = true
+                if known.doesExist(id)
+                    k = known[id]
+                    out.push({ id: id, label: k.label, on: on, isLibrary: k.isLibrary, collectionType: k.collectionType, known: true })
+                else if id.left(1) = "L" and id.len() > 1
+                    out.push({ id: id, label: id, on: on, isLibrary: true, collectionType: "", known: false })
+                end if
+            end if
+        end for
+        ' pages the saved list doesn't have: at the end, switched on
+        for each p in NavPrefs.pageIds()
+            if not used.doesExist(p)
+                out.push({ id: p, label: NavPrefs.pageLabel(p), on: true, isLibrary: false, collectionType: "", known: true })
+                used[p] = true
+            end if
+        end for
+        ' new libraries: after the last library already in the list (else at the end), in the Libraries order
+        for each lid in libIds
+            if not used.doesExist(lid)
+                at = out.count()
+                for i = out.count() - 1 to 0 step -1
+                    if out[i].isLibrary
+                        at = i + 1
+                        exit for
+                    end if
+                end for
+                k = known[lid]
+                NavPrefs.insertEntry(out, at, { id: lid, label: k.label, on: true, isLibrary: true, collectionType: k.collectionType, known: true })
+                used[lid] = true
+            end if
+        end for
+        return out
+    end function
+
+    sub insertEntry(list as object, at as integer, e as object)
+        list.push(e)
+        i = list.count() - 1
+        while i > at
+            list[i] = list[i - 1]
+            i = i - 1
+        end while
+        list[at] = e
+    end sub
+
+    ' The ordered list for one place: [{ id, label, on, isLibrary, collectionType }]
+    function entries(place as string, libs as object) as object
+        out = []
+        for each e in NavPrefs.allEntries(place, libs)
+            if e.known then out.push({ id: e.id, label: e.label, on: e.on, isLibrary: e.isLibrary, collectionType: e.collectionType })
+        end for
+        return out
+    end function
+
+    ' list: allEntries (unknown libraries kept, the first ones dropped past keepUnknown); the default deletes the key
+    sub saveEntries(place as string, list as object, libs as object)
+        unknown = 0
+        for each e in list
+            if not e.known then unknown = unknown + 1
+        end for
+        drop = unknown - NavPrefs.keepUnknown()
+        tokens = []
+        for each e in list
+            if not e.known and drop > 0
+                drop = drop - 1
+            else
+                tokens.push(NavPrefs.navToken(e.id, e.on))
+            end if
+        end for
+        saved = Util.join(tokens, ",")
+        key = NavPrefs.navKey(place)
+        if saved = Util.join(NavPrefs.defaultTokens(libs), ",")
+            NavPrefs.deleteKey(key)
+        else
+            Util.writeText(key, saved)
+        end if
+    end sub
+
+    sub deleteKey(key as string)
+        sec = createObject("roRegistrySection", "Cove")
+        if sec.exists(key)
+            sec.delete(key)
+            sec.flush()
+        end if
+    end sub
+
+    function isShown(place as string, id as string, libs as object) as boolean
+        for each e in NavPrefs.entries(place, libs)
+            if e.id = id then return e.on
+        end for
+        return false
+    end function
+
+    sub setShown(place as string, id as string, on as boolean, libs as object)
+        list = NavPrefs.allEntries(place, libs)
+        found = false
+        for each e in list
+            if e.id = id and e.known
+                e.on = on
+                found = true
+            end if
+        end for
+        if found then NavPrefs.saveEntries(place, list, libs)
+    end sub
+
+    ' Moves an entry one place up (-1) or down (1) among the entries Settings shows (kept unknown libraries are
+    ' stepped over); false at either end
+    function moveEntry(place as string, id as string, delta as integer, libs as object) as boolean
+        list = NavPrefs.allEntries(place, libs)
+        visible = []
+        for k = 0 to list.count() - 1
+            if list[k].known then visible.push(k)
+        end for
+        i = -1
+        for k = 0 to visible.count() - 1
+            if list[visible[k]].id = id then i = k
+        end for
+        j = i + delta
+        if i < 0 or (delta <> 1 and delta <> -1) or j < 0 or j >= visible.count() then return false
+        a = visible[i]
+        b = visible[j]
+        tmp = list[a]
+        list[a] = list[b]
+        list[b] = tmp
+        NavPrefs.saveEntries(place, list, libs)
+        return true
+    end function
+
+    ' A library's row on Home, independent of the top bar / sidebar (v1.5: no longer needs the sidebar).
+    ' Before v1.5 the row needed the library in the sidebar too: a library hidden from the sidebar keeps its row
+    ' hidden (migrateHome writes that once; "homeOwn" marks a Home switch that no longer depends on "nav").
+    function libraryOnHome(libId as string) as boolean
+        lp = Prefs.library(libId)
+        if lp.nav = false and not Util.flag(lp, "homeOwn") then return false
+        return lp.home <> false
+    end function
+
+    sub setLibraryOnHome(libId as string, on as boolean)
+        d = Prefs.library(libId)
+        d.home = on
+        d.homeOwn = true
+        Util.writeText("lib:" + libId, formatJson(d))
+    end sub
+
+    ' (v1.5) A library's tile in Home's My Media row (Emby's My Media), on its own: on by default for every
+    ' library, whatever the top bar / sidebar show (before, the row followed the menu's list; no write is needed
+    ' to migrate, so everyone sees all libraries there until one is switched off)
+    function libraryInMyMedia(libId as string) as boolean
+        return Prefs.library(libId).media <> false
+    end function
+
+    sub setLibraryInMyMedia(libId as string, on as boolean)
+        Prefs.setLibrary(libId, "media", on)
+    end sub
+
+    ' Settings → Libraries → Set All Libraries: "show:<where>" / "hide:<where>", where = top, side, home, media
+    function setAllActions() as object
+        out = []
+        for each a in [["show", "Show"], ["hide", "Hide"]]
+            for each w in [["top", "in the Top Bar"], ["side", "in the Sidebar"], ["home", "Rows on Home"], ["media", "in My Media"]]
+                lbl = a[1] + " All " + w[1]
+                if w[0] = "home" then lbl = a[1] + " All Library Rows on Home"
+                out.push({ id: a[0] + ":" + w[0], label: lbl })
+            end for
+        end for
+        return out
+    end function
+
+    ' Applies one Set All action to every library the server lists; returns how many libraries it set
+    ' (0 for an unknown action or no libraries)
+    function setAllLibraries(action as string, libs as object) as integer
+        parts = action.split(":")
+        if parts.count() <> 2 then return 0
+        if parts[0] <> "show" and parts[0] <> "hide" then return 0
+        on = parts[0] = "show"
+        where = parts[1]
+        n = 0
+        if where = "top" or where = "side"
+            list = NavPrefs.allEntries(where, libs)
+            for each e in list
+                if e.isLibrary and e.known
+                    e.on = on
+                    n = n + 1
+                end if
+            end for
+            if n > 0 then NavPrefs.saveEntries(where, list, libs)
+        else if where = "home" or where = "media"
+            for each l in libs
+                id = Util.toText(l.id)
+                if id <> ""
+                    if where = "home"
+                        NavPrefs.setLibraryOnHome(id, on)
+                    else
+                        NavPrefs.setLibraryInMyMedia(id, on)
+                    end if
+                    n = n + 1
+                end if
+            end for
+        end if
+        return n
+    end function
+
+    ' (HomeTask, each load) a library hidden from the sidebar before v1.5 had no Home row: it keeps none now
+    ' that the row no longer depends on the sidebar. Writes once per library; returns how many it migrated.
+    function migrateHome(libs as object) as integer
+        n = 0
+        for each l in libs
+            id = Util.toText(l.id)
+            if id <> ""
+                lp = Prefs.library(id)
+                if lp.nav = false and not Util.flag(lp, "homeOwn")
+                    NavPrefs.setLibraryOnHome(id, false)
+                    n = n + 1
+                end if
+            end if
+        end for
+        return n
+    end function
+
+    ' Back to the defaults: both lists everything on in the default order (the old switches go too, so the
+    ' defaults no longer follow them); each library's Home row stays as it is
+    sub resetNav()
+        NavPrefs.deleteKey("navtop")
+        NavPrefs.deleteKey("navside")
+        for each k in ["showFavorites", "showNowPlaying", "showRecent"]
+            NavPrefs.deleteKey(k)
+        end for
+        sec = createObject("roRegistrySection", "Cove")
+        for each k in sec.getKeyList()
+            if k.left(4) = "lib:"
+                id = k.mid(4)
+                lp = Prefs.library(id)
+                if lp.nav = false
+                    lp.home = NavPrefs.libraryOnHome(id)
+                    lp.homeOwn = true
+                    lp.nav = true
+                    Util.writeText(k, formatJson(lp))
+                end if
+            end if
+        end for
+    end sub
+
+    ' Everything Home's menu and rows are built from, as one text: MainScene compares it before and after
+    ' Settings and rebuilds Home when it differs (menu style, either list, a Home row, a library setting)
+    function fingerprint(serverId as string) as string
+        parts = []
+        for each k in ["navStyle", "topBarLabels", "navtop", "navside", "showFavorites", "showNowPlaying", "showRecent", "showUpNextRow", "homeFavorites", "hideWatchedLatest", "homeRows:" + serverId, "libOrder:" + serverId]
+            parts.push(k + "=" + Util.readText(k))
+        end for
+        sec = createObject("roRegistrySection", "Cove")
+        libKeys = []
+        for each k in sec.getKeyList()
+            if k.left(4) = "lib:" then libKeys.push(k)
+        end for
+        libKeys.sort()
+        for each k in libKeys
+            parts.push(k + "=" + Util.readText(k))
+        end for
+        return Util.join(parts, "|")
+    end function
+end namespace

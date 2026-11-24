@@ -30,6 +30,22 @@ sub test_previewEpisode()
     t_eq(p.meta, "x", "meta when there is no hero meta")
     t_ok(not p.played, "missing played reads as false")
     t_ok(not p.full, "slim list")
+    ' (v1.5 details) the series' logo and name, and "S4:E2 - The Trip" under them
+    t_eq(p.seriesLogo, "series-logo", "series logo kept for the details header")
+    t_eq(p.seriesName, "Frasier", "series name")
+    t_eq(p.epLine, "S4:E2 - The Trip", "episode line")
+end sub
+
+sub test_previewArtAndProgress()
+    f = { itemId: "e1", itemType: "Episode", title: "Frasier", episode: "S4:E2  ·  The Trip", hdPosterUrl: "still", landscape: true, progress: 0.4 }
+    p = QuickPlay_previewFromFields(f, true)
+    t_eq(p.image, "still", "the card's picture")
+    t_ok(p.imageWide, "wide card")
+    t_ok(p.progress > 0.39 and p.progress < 0.41, "progress")
+    mv = QuickPlay_previewFromFields({ itemId: "m1", itemType: "Movie", title: "Alien" }, true)
+    t_eq(mv.image, "", "no picture")
+    t_ok(not mv.imageWide, "not wide")
+    t_eq(mv.progress, 0, "no progress")
 end sub
 
 sub test_previewNotATitle()

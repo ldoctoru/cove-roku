@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- The top navigation pill (Cove's top-bar style): a glass capsule centred at the top with Home, Search and the
-     libraries. The current page has a soft white capsule; the focused item a solid white one with black text.
-     Set "items" ([{ id, label }]); OK sets "chosen" = { id }. Left / Right move; other keys go to the screen. -->
+<!-- The top navigation pill (Cove's top-bar style): a dark flat capsule centred at the top with Home, Search and
+     the libraries. (v1.5 flat) The current page sits on a 22 % white pill; the focused item is a solid white pill
+     with dark text (no glass, fog, ring or accent).
+     Set "items" ([{ id, label, icon, pinned }]; pinned = always shown, the rest goes behind More when too wide); OK sets "chosen" = { id }. Left / Right move; other keys go to the screen. -->
 <component name="NavBar" extends="Group">
     <script type="text/brightscript" uri="NavBar.bs" />
     <interface>
@@ -10,9 +11,11 @@
         <field id="labels" type="string" value="both" onChange="build" />
         <field id="current" type="string" value="home" onChange="paint" />
         <field id="chosen" type="assocarray" alwaysNotify="true" />
+        <!-- (v1.5) the entries that don't fit in the screen width: behind the "More" entry (chosen = { id: "more" }) -->
+        <field id="overflow" type="array" />
     </interface>
     <children>
-        <Poster id="pill" uri="pkg:/images/ui/glass_pill.9.png" height="64" />
+        <Poster id="pill" uri="pkg:/images/ui/flat_pill_60.9.png" height="64" blendColor="0x1C1C1CFF" opacity="0.85" />
         <Group id="entries" />
     </children>
 </component>

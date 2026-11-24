@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- A one-time hint at the bottom centre: a glass capsule with the star key and what it does ("Options"),
+<!-- A one-time hint at the bottom centre: a dark flat capsule with the star key and what it does ("Options"),
      shown for 5 s (spoken by the Audio Guide). Set `text` and `show` = true; `show` = false hides it. -->
 <component name="HintBar" extends="Group">
     <script type="text/brightscript" uri="HintBar.bs" />
@@ -10,8 +10,8 @@
     </interface>
     <children>
         <Group id="pill" opacity="0">
-            <Poster id="bg" uri="pkg:/images/ui/panel_dark_r18.9.png" height="60" />
-            <Poster id="glass" uri="pkg:/images/ui/glass_pill.9.png" height="60" />
+            <!-- (v1.5 flat) a dark 85 % flat pill, no glass -->
+            <Poster id="bg" uri="pkg:/images/ui/flat_pill_60.9.png" height="60" blendColor="0x1C1C1CFF" opacity="0.85" />
             <Poster id="keyCap" uri="pkg:/images/ui/white_circle_56.png" width="40" height="40" translation="[18,10]" />
             <Poster id="star" uri="pkg:/images/ui/icon_star_28.png" width="24" height="24" translation="[26,18]" blendColor="0x000000FF" />
             <Label id="label" text="Options" height="60" translation="[72,0]" vertAlign="center" color="0xFFFFFFFF">

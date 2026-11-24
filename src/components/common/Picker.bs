@@ -9,6 +9,8 @@ sub init()
     m.list.observeField("itemFocused", "onItemFocused")
     m.spokeTitle = false
     Speak.mute([m.list])
+    t = m.global.theme
+    if t <> invalid and Util.toText(t.panel) <> "" then m.top.findNode("panel").uri = t.panel
 end sub
 
 sub onItemFocused()

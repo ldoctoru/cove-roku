@@ -8,14 +8,20 @@ import "pkg:/source/Ratings.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/HomeLayout.bs"
+import "pkg:/source/NavPrefs.bs"
 import "pkg:/source/NavUtil.bs"
 import "pkg:/source/Clock.bs"
 
 sub init()
     Clock.startupMark("MainScene init")
-    ' Colours and theme images for every component (Cove Glass: accent and page colour as chosen in Settings)
+    ' Colours and theme images for every component (v1.5 flat: the page colour chosen in Settings, no accent)
     look = Theme.get()
     m.global.addFields({ theme: look })
+    ' (v1.5 flat) the system dialogs (messages, PIN pad, keyboards) in the same flat neutral look: a dark grey
+    ' panel, the focused button solid white with dark text; keyboards keep Roku's own key colours
+    pal = createObject("roSGNode", "RSGPalette")
+    pal.colors = Theme.dialogColors()
+    m.top.palette = pal
     ' (v0.9.1) series ratings looked up this session, for unrated episodes under a rating limit (Ratings.bs)
     m.global.addFields({ seriesRatings: {} })
     m.top.backgroundColor = look.bg.left(8)
@@ -43,6 +49,8 @@ sub init()
     m.removeId = ""
     m.plainServer = invalid     ' a plain http server outside the home network, waiting for "Continue Anyway"
     m.homeStale = false
+    m.navPrint = ""
+    m.themeDirty = false
     m.deviceLine = ""
     ' (v1.1.1 SP-24) the decoder probes run on a Task, not before the first screen
     m.capsTask = createObject("roSGNode", "CapsTask")
@@ -197,6 +205,15 @@ sub pop()
     detachScreen(s)
     ' screens under Settings were drawn with the old colours: start again from a fresh home (SC-14: only when
     ' Settings itself closes, not a page opened from it such as Who's watching?)
+    ' (v1.5) also when the menu style, a top bar / sidebar list or a Home row changed there (NavPrefs keys
+    ' navtop / navside, lib:<id>, homeRows:<server>, ...), whether or not Settings flagged it
+    if Util.toText(s.screenId) = "settings" and m.server <> invalid and m.themeDirty <> true and Util.toText(m.navPrint) <> ""
+        if NavPrefs.fingerprint(Util.toText(m.server.id)) <> m.navPrint
+            print "Cove: home rebuilt after Settings (menu or Home rows changed)"
+            m.themeDirty = true
+        end if
+    end if
+    if Util.toText(s.screenId) = "settings" then m.navPrint = ""
     if m.themeDirty = true and m.server <> invalid and Util.toText(s.screenId) = "settings"
         m.themeDirty = false
         showHome(m.server)
@@ -606,6 +623,8 @@ sub onHomeAction(ev as object)
         push(s)
     else if a.id = "settings"
         s = createObject("roSGNode", "SettingsScreen")
+        ' (v1.5) what Home's menu and rows are built from, compared when Settings closes
+        m.navPrint = NavPrefs.fingerprint(Util.toText(m.server.id))
         s.server = m.server
         s.observeField("themeChanged", "onThemeChanged")
         s.observeField("action", "onSettingsAction")

@@ -2,6 +2,8 @@ import "pkg:/source/Util.bs"
 
 sub init()
     m.rows = m.top.findNode("rows")
+    ' (v1.4) the panel in the page colour (Settings → Background)
+    m.top.findNode("bg").uri = "pkg:/images/ui/pl_panel_" + Util.toText(m.global.theme.bgName) + ".9.png"
 end sub
 
 ' One row per line: the name in grey on the left, the value on the right (long values on up to two lines)

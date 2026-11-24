@@ -461,27 +461,79 @@ def bubble_icon(d, n):
         d.line([(n * 0.24, n * y), (n * 0.76, n * y)], fill=WHITE, width=w)
 
 
+# ---- v1.4 shared look pieces (corner masks, panels, scrims, rings). (v1.5 flat: the Glass3D clear glass, the
+# layered accent Play pill, the fog focus and the glass rims are gone; controls are flat, see draw_flat_v15.)
+
+
+def check_circle(filled):
+    def draw(d, n):
+        if filled:
+            d.ellipse([n * 0.06, n * 0.06, n * 0.94, n * 0.94], fill=WHITE)
+            d.line([(n * 0.28, n * 0.52), (n * 0.44, n * 0.68), (n * 0.72, n * 0.36)], fill=(0, 0, 0, 0), width=int(n * 0.11), joint="curve")
+        else:
+            d.ellipse([n * 0.06, n * 0.06, n * 0.94, n * 0.94], outline=WHITE, width=int(n * 0.08))
+            d.line([(n * 0.28, n * 0.52), (n * 0.44, n * 0.68), (n * 0.72, n * 0.36)], fill=WHITE, width=int(n * 0.09), joint="curve")
+    return draw
+
+
+def heart_outline(d, n):
+    heart(d, n)
+    k = 0.13
+    d.ellipse([n * (0.1 + k), n * (0.16 + k), n * (0.52 - k * 0.5), n * (0.58 - k * 0.5)], fill=(0, 0, 0, 0))
+    d.ellipse([n * (0.48 + k * 0.5), n * (0.16 + k), n * (0.9 - k), n * (0.58 - k * 0.5)], fill=(0, 0, 0, 0))
+    d.polygon([(n * 0.24, n * 0.47), (n * 0.76, n * 0.47), (n * 0.5, n * 0.75)], fill=(0, 0, 0, 0))
+    d.rectangle([n * 0.3, n * 0.36, n * 0.7, n * 0.5], fill=(0, 0, 0, 0))
+
+
+def draw_glass3d():
+    # cards: r12 corner masks and the plain ring for r12 cards (v1.5 flat: no glass edge, sheen or glow)
+    for name, rgb in BGS.items():
+        save(nine(corner_mask(40, 12, rgb)), "mask_r12_%s.9.png" % name)
+        save(nine(shape(60, 60, 27, rgb + (230,))), "panel_r27_%s.9.png" % name)
+    save(nine(ring(60, 60, 18, 4, WHITE)), "focus_ring_r18.9.png")
+    # thumbnails (Continue Watching, episodes): top black 55 % -> clear, bottom clear -> 70 % (ThumbnailScrim)
+    save(strip(4, 256, ramp([(0, 140), (0.38, 0), (0.55, 0), (1, 179)])), "scrim_thumb.png")
+    # Settings: r21 cards (white 8 % + 15 % edge) and the selected tab (white 10 % + 22 % edge, r15)
+    save(nine(shape(48, 48, 21, (255, 255, 255, 20), (255, 255, 255, 38), 2)), "card_r21.9.png")
+    save(nine(shape(48, 48, 15, (255, 255, 255, 26), (255, 255, 255, 56), 2)), "tab_sel_r15.9.png")
+    save(nine(ring(24, 24, 6, 2, (255, 255, 255, 191))), "outline_box_r6.9.png")
+    # library skeleton cards with the posters' r12 corners (white, tinted faint at runtime)
+    save(nine(shape(48, 48, 12, WHITE)), "white_r12.9.png")
+    icon("checkc", 28, check_circle(False))
+    icon("checkcf", 28, check_circle(True))
+    icon("hearto", 28, heart_outline)
+
+
+# ---- v1.5 flat look (Apple TV / Emby): one white shape per control, tinted faint (opacity / blendColor) at rest
+# and solid white with dark content when focused. Pills are half their height: one sideways-only 9-patch per
+# height the app draws (a 9-patch can't shrink below its corners).
+FLAT_PILLS = (44, 52, 60, 68, 69, 72)
+FLAT_CIRCLES = (63, 90)   # the player's round controls (69 px uses white_circle_69)
+
+
+def draw_flat_v15():
+    for h in FLAT_PILLS:
+        save(pl_hnine(shape(h + 4, h, h / 2, WHITE)), "flat_pill_%d.9.png" % h)
+    for size in FLAT_CIRCLES:
+        save(circle(size, WHITE), "flat_circle_%d.png" % size)
+
+
 def draw_all():
-    save(nine(shape(60, 60, 30, GLASS_FILL, GLASS_STROKE, 2)), "glass_pill.9.png")
+    draw_glass3d()
+    draw_flat_v15()
     save(nine(shape(48, 48, 24, (255, 255, 255, 56))), "sel_pill.9.png")
     save(nine(shape(48, 48, 24, WHITE)), "white_pill.9.png")
-    save(nine(ring(84, 84, 42, 4, WHITE)), "focus_ring_pill.9.png")
     save(nine(shape(36, 36, 12, WHITE)), "white_rr12.9.png")
     save(nine(shape(48, 48, 21, (38, 38, 38, 235))), "panel_r21.9.png")
-    save(circle(69, GLASS_FILL, GLASS_STROKE, 2), "glass_circle_69.png")
     save(circle(69, WHITE), "white_circle_69.png")
-    # (v1.1.1 VD-6) the focus ring of a 69 px circle button: 4 px stroke, 4 px gap, drawn at [-8, -8]
-    save(ring_circle(85, 4), "focus_ring_circle_85.png")
     save(circle(10, WHITE), "dot_10.png")
     save(nine(ring(60, 60, 26, 4, WHITE)), "focus_ring_r26.9.png")
     save(nine(ring(40, 40, 18, 2, (255, 255, 255, 31))), "card_border_r18.9.png")
-    save(nine(shadow(96, 24, 18, 14, 153)), "card_shadow.9.png")
     save(circle(36, (0, 0, 0, 179), (255, 255, 255, 217), 2), "badge_circle.png")
     save(nine(shape(36, 36, 18, (0, 0, 0, 179), (255, 255, 255, 217), 2)), "badge_capsule.9.png")
-    # (v1.3.2) the watched badge: a white disc tinted with the accent (blendColor), a white edge and a soft shadow
-    save(circle(36, WHITE), "badge_watched.png")
-    save(ring_circle(36, 2), "badge_watched_ring.png")
-    save(shadow(52, 8, 18, 3, 150), "badge_watched_shadow.png")
+    # (v1.5 flat) the watched badge: a solid white disc with a thin 25 % black edge (so it reads on bright
+    # posters) under a dark check; no accent, no shadow
+    save(circle(36, WHITE, (0, 0, 0, 64), 2), "badge_watched.png")
     for name, rgb in BGS.items():
         save(nine(corner_mask(40, 18, rgb)), "mask_r18_%s.9.png" % name)
         save(circle_mask(144, rgb), "mask_circle_%s_144.png" % name)
@@ -489,7 +541,8 @@ def draw_all():
         save(strip(4, 512, ramp([(0, 0), (0.5, 0), (0.75, 153), (1, 255)]), rgb), "scrim_bottom_%s.png" % name)
         # a plain clear -> bg fade (under the rows when the backdrop follows the focused title)
         save(strip(4, 256, ramp([(0, 0), (1, 255)]), rgb), "fade_%s.png" % name)
-    save(strip(512, 4, ramp([(0, 166), (1, 0)]), vertical=False), "scrim_left.png")
+    # (v1.4 H5) the Mac's left fade: black 75 % -> clear at 60 % of the width (drawn full width)
+    save(strip(512, 4, ramp([(0, 191), (0.6, 0), (1, 0)]), vertical=False), "scrim_left.png")
     save(strip(512, 4, ramp([(0, 0), (1, 166)]), vertical=False), "scrim_right.png")
     save(strip(4, 128, ramp([(0, 0), (1, 204)])), "scrim_card.png")
     save(strip(4, 256, ramp([(0, 166), (1, 0)])), "scrim_top.png")
@@ -532,7 +585,6 @@ def draw_all():
     icon("play", 72, play)
     icon("pause", 72, pause)
     # player: big glass circle (pause), scrubber thumb, top/bottom shade, Up next card
-    save(circle(210, GLASS_FILL, (255, 255, 255, 31), 2), "glass_circle_210.png")
     save(circle(24, WHITE), "dot_24.png")
     save(strip(4, 512, ramp([(0, 115), (0.33, 0), (0.66, 0), (1, 179)])), "scrim_osd.png")
     save(nine(shape(40, 40, 18, (0, 0, 0, 204))), "panel_dark_r18.9.png")
@@ -542,7 +594,8 @@ def draw_all():
     save(arc(132, 8, 100, (255, 255, 255, 46)), "load_track.png")
     # "Who's watching?" profile picker: avatar circle and its focus ring
     save(circle(240, WHITE), "white_circle_240.png")
-    save(ring_circle(256, 7), "ring_circle_256.png")
+    # (v1.5 flat) the round focus ring (cast photos, Who's watching?): a plain 5 px stroke (~4 px at cast size)
+    save(ring_circle(256, 5), "ring_circle_256.png")
 
 
 def sync(src, dst):
@@ -606,6 +659,9 @@ def main(argv=None):
         OUT = tmp
         del WRITTEN[:]
         draw_all()
+        draw_player_v14()
+        draw_settings_v15()
+        draw_details_v15()
         out = os.path.normpath(args.out)
         if args.check:
             added, changed, removed = compare(tmp, out)
@@ -626,6 +682,140 @@ def main(argv=None):
     print("make-ui-assets: generated %d files into %s: %d new, %d changed, %d unchanged, %d stale removed"
           % (len(WRITTEN), out, len(added), len(changed), len(same), len(removed)))
     return 0
+
+
+# ==================================================================================================== v1.4 player
+# (v1.4, every file starts with "pl_" or "icon_pl") The player's bottom block of Cove for macOS
+# (Classic/ClassicPlayer.swift bottomBar) at 1.5x. (v1.5 flat: only the flat timeline, the scrim, the flat
+# panels and the tool icons are left; the round buttons and pills come from draw_flat_v15.)
+from PIL import ImageChops  # noqa: E402 (kept in this section so the shared header stays untouched)
+
+
+def pl_masks(w, h, r, edge):
+    """The shape at 4x, its inside (edge px in) and the rim between them, as L masks."""
+    W, H = w * S, h * S
+    outer = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(outer).rounded_rectangle([0, 0, W - 1, H - 1], r * S, fill=255)
+    inner = Image.new("L", (W, H), 0)
+    e = edge * S
+    ImageDraw.Draw(inner).rounded_rectangle([e, e, W - 1 - e, H - 1 - e], max(r - edge, 0) * S, fill=255)
+    rim = ImageChops.subtract(outer, inner)
+    return outer, inner, rim
+
+
+def pl_layer(rgb, alpha, mask):
+    """rgb at alpha (an L image) inside mask."""
+    img = Image.new("RGBA", alpha.size, rgb + (0,))
+    img.putalpha(ImageChops.multiply(alpha, mask))
+    return img
+
+
+def pl_flat(w, h, r, alpha):
+    W, H = w * S, h * S
+    outer = pl_masks(w, h, r, 2)[0]
+    return down(pl_layer((255, 255, 255), Image.new("L", (W, H), alpha), outer), w, h)
+
+
+def pl_hnine(img):
+    """A 9-patch that stretches only sideways (the Poster is drawn at the image's own height)."""
+    w, h = img.size
+    return nine(img, stretch_y=(h // 2 - 1, h // 2 + 1))
+
+
+def pl_speed(d, n):
+    """A speedometer (the Mac's Quality & speed gauge)."""
+    w = int(n * 0.08)
+    d.arc([n * 0.08, n * 0.14, n * 0.92, n * 0.98], 180, 360, fill=WHITE, width=w)
+    d.line([(n * 0.08 + w / 2, n * 0.56), (n * 0.08 + w / 2, n * 0.72)], fill=WHITE, width=w)
+    d.line([(n * 0.92 - w / 2, n * 0.56), (n * 0.92 - w / 2, n * 0.72)], fill=WHITE, width=w)
+    d.line([(n * 0.5, n * 0.58), (n * 0.7, n * 0.32)], fill=WHITE, width=w)
+    d.ellipse([n * 0.42, n * 0.5, n * 0.58, n * 0.66], fill=WHITE)
+
+
+def draw_player_v14():
+    # (v1.5 flat) the round buttons are flat discs (flat_circle_*, white_circle_69) and the tool bar a flat pill
+    # (draw_flat_v15); the timeline is one flat white line (pl_fill_*: played white, the rest at 30 %), 12 px at
+    # rest and 18 px while it has the focus; no glass, tint, fog, ring, sheen or glow
+    for h in (12, 18):
+        save(pl_hnine(pl_flat(h, h, h // 2, 255)), "pl_fill_%d.9.png" % h)
+    # the scrim under the bottom block (black, clear at the top)
+    save(strip(4, 540, ramp([(0, 0), (0.3, 64), (0.65, 166), (1, 217)])), "pl_scrim.png")
+    # panels (r18 x 1.5 = r27), v1.5 flat: the page colour at 85 % (no blur on Roku), no rim
+    for name, rgb in BGS.items():
+        save(nine(shape(60, 60, 27, rgb + (217,))), "pl_panel_%s.9.png" % name)
+    # the tool bar's Speed and Info (Info: the playback info overlay)
+    icon("plspeed", 36, pl_speed)
+    icon("plinfo", 36, info_ring)
+
+
+# ==================================================================================================== v1.5 settings
+# (round 1's Apple TV-style page glyphs, tiles and glass rows are gone: Settings uses the Mac format below; main()
+# still calls this entry point)
+def draw_settings_v15():
+    draw_macset()
+
+
+# ==================================================================================================== v1.5 macset
+# (v1.5 round 2, the settings agent's section: every file starts with "set_" or "icon_st_") Settings in the Cove for
+# Mac format, flat (components/settings): one white r12 shape for rows, tabs and the choice list (tinted with the
+# Theme tokens at runtime: rowFill, controlFill, focusFill), the switch's pill track and knob (white, tinted), the
+# right chevron of a choice / sub-list row and the up / down arrows of a row being moved.
+def st_chevron(d, n):
+    d.line([(n * 0.38, n * 0.2), (n * 0.66, n * 0.5), (n * 0.38, n * 0.8)], fill=WHITE, width=int(n * 0.12), joint="curve")
+
+
+def st_updown(d, n):
+    w = int(n * 0.11)
+    d.line([(n * 0.26, n * 0.4), (n * 0.5, n * 0.16), (n * 0.74, n * 0.4)], fill=WHITE, width=w, joint="curve")
+    d.line([(n * 0.26, n * 0.6), (n * 0.5, n * 0.84), (n * 0.74, n * 0.6)], fill=WHITE, width=w, joint="curve")
+
+
+def draw_macset():
+    save(nine(shape(48, 48, 12, WHITE)), "set_r12.9.png")
+    save(nine(shape(36, 36, 18, WHITE)), "set_pill.9.png")
+    save(circle(28, WHITE), "set_knob.png")
+    icon("st_chevron", 28, st_chevron)
+    icon("st_updown", 28, st_updown)
+
+
+# ==================================================================================================== v1.5 details
+# (v1.5 round 3, every file starts with "icon_dt_") The Emby-style details page (components/details): the ⋯ More
+# button, and the More menu's right-hand glyphs not drawn elsewhere at 28 px (add to collection / playlist, refresh,
+# go to collection / series, quality). White, tinted with blendColor at runtime (dark on a focused white row).
+def dt_more(d, n):
+    r = n * 0.085
+    for x in (0.22, 0.5, 0.78):
+        d.ellipse([n * x - r, n * 0.5 - r, n * x + r, n * 0.5 + r], fill=WHITE)
+
+
+def dt_listadd(d, n):
+    w = int(n * 0.09)
+    for y, x2 in ((0.24, 0.84), (0.46, 0.84), (0.68, 0.5)):
+        d.line([(n * 0.1, n * y), (n * x2, n * y)], fill=WHITE, width=w)
+    d.line([(n * 0.74, n * 0.56), (n * 0.74, n * 0.92)], fill=WHITE, width=w)
+    d.line([(n * 0.56, n * 0.74), (n * 0.92, n * 0.74)], fill=WHITE, width=w)
+
+
+def dt_refresh(d, n):
+    w = int(n * 0.1)
+    import math
+    d.arc([n * 0.16, n * 0.16, n * 0.84, n * 0.84], -40, 245, fill=WHITE, width=w)
+    # the arrow head at the arc's end (about 11 o'clock), pointing clockwise (to the right)
+    a = math.radians(248)
+    ex, ey = 0.5 + 0.34 * math.cos(a), 0.5 + 0.34 * math.sin(a)
+    dx, dy = -math.sin(a), math.cos(a)
+    px, py = -dy, dx
+    tip = (n * (ex + 0.2 * dx), n * (ey + 0.2 * dy))
+    d.polygon([tip, (n * (ex + 0.15 * px), n * (ey + 0.15 * py)), (n * (ex - 0.15 * px), n * (ey - 0.15 * py))], fill=WHITE)
+
+
+def draw_details_v15():
+    icon("dt_more", 28, dt_more)
+    icon("dt_listadd", 28, dt_listadd)
+    icon("dt_refresh", 28, dt_refresh)
+    icon("dt_folder", 28, folder_icon)
+    icon("dt_tv", 28, tv_icon)
+    icon("dt_quality", 28, quality)
 
 
 if __name__ == "__main__":
