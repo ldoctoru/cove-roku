@@ -57,6 +57,13 @@ sub onOptions()
     else
         head.visible = false
     end if
+    cap = m.top.findNode("caption")
+    cap.visible = m.headH = 0 and Util.toText(m.top.caption) <> ""
+    if cap.visible
+        m.headH = 56
+        cap.text = UCase(Util.toText(m.top.caption))
+        cap.width = w - 64
+    end if
     pad = 12
     count = opts.count()
     fit = Int((1000 - m.headH - pad * 2) / m.rowH)

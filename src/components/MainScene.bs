@@ -234,6 +234,8 @@ end sub
 ' Its "action" stays observed for "changed" (onHomeAction drops the rest from screens not on top).
 sub detachScreen(s as dynamic)
     if s = invalid then return
+    ' (v1.5.1) the missing-art scan / refresh stops with its page
+    if s.screenId = "missingArt" then s.closed = true
     if s.screenId = "details"
         s.unobserveField("play")
         s.unobserveField("openItem")
@@ -616,6 +618,13 @@ sub onHomeAction(ev as object)
     else if a.id = "profile"
         ' the sidebar's profile entry: Who's watching? over Home (Back returns)
         showWho(m.server, "", true)
+    else if a.id = "missingArt"
+        ' (v1.5.1) a library page's ⋯ → Items without Poster / Backdrop (Back returns to the library)
+        ms = createObject("roSGNode", "MissingArtScreen")
+        ms.server = m.server
+        ms.observeField("action", "onHomeAction")
+        push(ms)
+        ms.library = { id: Util.toText(a.libraryId), title: Util.toText(a.libraryTitle), kind: Util.toText(a.kind) }
     else if a.id = "nowplaying"
         s = createObject("roSGNode", "NowPlayingScreen")
         s.server = m.server

@@ -5,6 +5,7 @@ import "pkg:/source/Prefs.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Toasts.bs"
 import "pkg:/source/LibGrid.bs"
+import "pkg:/source/MissingArt.bs"
 
 sub init()
     m.grid = m.top.findNode("grid")
@@ -44,6 +45,10 @@ sub init()
     m.gen = 0
     m.task = invalid
     m.picker = invalid
+    ' (v1.5.1) the ⋯ admin pill: shown once the server says this user is an administrator (asked once a session)
+    m.isAdmin = false
+    m.adminTask = invalid
+    m.adminMenu = invalid
     m.shuffleTask = invalid
     m.keepIndex = -1        ' refresh: the card to focus again once the first page is back
     m.phCount = 0           ' (SP-6) placeholder cards at the end of the grid while the next page loads
@@ -97,6 +102,7 @@ sub onLibrary()
             print "Cove: library filters kept: "; m.sort; " "; m.order; " / "; m.show; " / "; m.genre; " / "; m.letter
         end if
     end if
+    checkAdmin()
     drawBar()
     m.restoreClock.Mark()
     findPosition()
@@ -372,6 +378,86 @@ sub onGenres(ev as object)
     drawBar()
 end sub
 
+' ---------------------------------------------------------------- (v1.5.1) admin: Items without Poster / Backdrop
+
+' Administrators get the ⋯ pill on library pages: GET /Users/{id} once per server and user for the session
+' (m.global.adminCache), off the render thread
+sub checkAdmin()
+    if feed() <> "" or Util.toText(m.top.library.id) = "" or m.top.server = invalid then return
+    key = MissingArt.adminKey(Util.toText(m.top.server.url), Util.toText(m.top.server.userId))
+    cache = invalid
+    if m.global.hasField("adminCache") then cache = m.global.adminCache
+    if Util.isAA(cache) and cache.doesExist(key)
+        m.isAdmin = Util.flag(cache, key)
+        return
+    end if
+    t = createObject("roSGNode", "MissingArtTask")
+    t.server = m.top.server
+    t.mode = "admin"
+    t.observeField("result", "onAdminChecked")
+    m.adminTask = t
+    m.adminKey = key
+    t.control = "RUN"
+end sub
+
+sub onAdminChecked(ev as object)
+    r = ev.getData()
+    m.adminTask = invalid
+    m.isAdmin = Util.flag(r, "isAdmin")
+    ' (a failed check is asked again on the next library page; a real answer is kept)
+    if Util.toNumber(r.code) = 200
+        if not m.global.hasField("adminCache") then m.global.addFields({ adminCache: {} })
+        cache = m.global.adminCache
+        if not Util.isAA(cache) or cache.count() >= 16 then cache = {}
+        cache[m.adminKey] = m.isAdmin
+        m.global.adminCache = cache
+    end if
+    if m.isAdmin then drawBar()
+end sub
+
+function hasAdminPill() as boolean
+    return feed() = "" and Util.toText(m.top.library.id) <> "" and MissingArt.showsAdminPill(m.isAdmin, m.top.library.collectionType)
+end function
+
+' OK on ⋯: a small flat menu under the pill, headed ADMIN
+sub openAdminMenu()
+    if m.adminMenu <> invalid then return
+    d = createObject("roSGNode", "DetailsMenu")
+    d.caption = "Admin"
+    d.title = "Admin"
+    d.purpose = "admin"
+    d.panelWidth = 520
+    d.anchor = [96 + 1728 - 520, 116 + 64]
+    d.options = [{ id: "poster", label: MissingArt.titleOf("poster") }, { id: "backdrop", label: MissingArt.titleOf("backdrop") }]
+    d.observeField("chosen", "onAdminChosen")
+    d.observeField("cancelled", "closeAdminMenu")
+    m.top.appendChild(d)
+    m.adminMenu = d
+    drawBar()
+    d.setFocus(true)
+end sub
+
+sub closeAdminMenu()
+    if m.adminMenu = invalid then return
+    m.adminMenu.unobserveField("chosen")
+    m.adminMenu.unobserveField("cancelled")
+    m.top.removeChild(m.adminMenu)
+    m.adminMenu = invalid
+    m.spokenKey = ""
+    if m.inBar then m.top.findNode("barKeys").setFocus(true)
+    drawBar()
+end sub
+
+sub onAdminChosen(ev as object)
+    kind = Util.toText(ev.getData().id)
+    closeAdminMenu()
+    ' (Back from the list lands on the card the grid was on)
+    leaveBar()
+    lib = m.top.library
+    print "Cove: library admin "; kind
+    m.top.action = { id: "missingArt", kind: kind, libraryId: Util.toText(lib.id), libraryTitle: Util.toText(lib.title) }
+end sub
+
 ' ---------------------------------------------------------------- pills: Sort, Genre, A-Z, Show
 
 sub drawBar()
@@ -407,10 +493,15 @@ sub drawBar()
     texts.push("A-Z: " + l)
     ids.push("show")
     texts.push("Show: " + showLabel())
+    ' (v1.5.1) administrators: ⋯ at the right end (Items without Poster / Backdrop)
+    if hasAdminPill()
+        ids.push("admin")
+        texts.push("")
+    end if
     m.barIds = ids
     if m.barIdx >= ids.count() then m.barIdx = ids.count() - 1
     x = 0
-    focused = m.inBar and m.picker = invalid
+    focused = m.inBar and m.picker = invalid and m.adminMenu = invalid
     for i = 0 to ids.count() - 1
         isFocus = focused and i = m.barIdx
         active = (ids[i] = "genre" and m.genre <> "") or (ids[i] = "letter" and m.letter <> "") or (ids[i] = "show" and m.show <> "all") or (ids[i] = "sort" and m.sort <> "name") or (ids[i] = "order" and m.order <> "")
@@ -426,6 +517,14 @@ sub drawBar()
         lab.vertAlign = "center"
         lab.translation = [24, 0]
         isTab = ids[i].startsWith("tab:")
+        if ids[i] = "admin"
+            drawAdminPill(g, bg, lab, isFocus)
+            ' (right-aligned at the end of the bar, unless the pills already reach that far)
+            px = 1728 - 76
+            if px < x then px = x
+            g.translation = [px, 0]
+            exit for
+        end if
         ' (v1.1.1 VD-23) an active filter: white text and a white dot before the label (v1.5: no accent; the
         ' dot keeps its dark edge so it reads on the focused white pill too)
         dotW = 0
@@ -502,6 +601,25 @@ sub drawBar()
     if focused then speakBar(texts)
 end sub
 
+' The ⋯ pill: a flat round-ended pill with the More icon (white fill, dark icon when focused)
+sub drawAdminPill(g as object, bg as object, lab as object, isFocus as boolean)
+    lab.text = ""
+    bg.uri = "pkg:/images/ui/flat_pill_52.9.png"
+    bg.width = 76
+    bg.height = 52
+    bg.opacity = 0.12
+    ic = g.createChild("Poster")
+    ic.uri = "pkg:/images/ui/icon_dt_more_28.png"
+    ic.width = 28
+    ic.height = 28
+    ic.translation = [24, 12]
+    ic.blendColor = "0xFFFFFFEB"
+    if isFocus
+        bg.opacity = 1.0
+        ic.blendColor = m.global.theme.onFocus
+    end if
+end sub
+
 ' Audio Guide: the focused pill, "Sort: Name, menu button, 2 of 6"; the library's name first on the way in
 sub speakBar(texts as object)
     if not Speak.isOn() or m.barIdx >= texts.count() then return
@@ -514,6 +632,8 @@ sub speakBar(texts as object)
         if id = "tab:" + m.tab then text = text + ", selected"
     else if id = "order"
         text = "Sort order: " + orderLabel() + ", press OK to reverse"
+    else if id = "admin"
+        text = "Admin, menu"
     else if id <> "shuffle"
         text = text + ", menu"
     end if
@@ -561,6 +681,8 @@ sub useBar()
         end if
     else if id = "shuffle"
         startShuffle()
+    else if id = "admin"
+        openAdminMenu()
     else if id = "order"
         toggleOrder()
     else if id = "sort"
@@ -927,7 +1049,7 @@ sub onSelected()
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
-    if not press or m.picker <> invalid then return false
+    if not press or m.picker <> invalid or m.adminMenu <> invalid then return false
     if m.inBar
         if key = "left" and m.barIdx > 0
             m.barIdx = m.barIdx - 1
@@ -1099,6 +1221,10 @@ sub onFocusChanged()
     if not m.top.hasFocus() then return
     if m.picker <> invalid
         m.picker.setFocus(true)
+    else if m.adminMenu <> invalid
+        m.adminMenu.setFocus(true)
+    else if m.inBar
+        m.top.findNode("barKeys").setFocus(true)
     else if not m.inBar and m.grid.content <> invalid and m.grid.content.getChildCount() > 0
         m.grid.setFocus(true)
         ' (back on this page: the focused card again)
