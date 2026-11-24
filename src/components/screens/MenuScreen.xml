@@ -26,7 +26,7 @@
             <Font role="font" uri="font:BoldSystemFontFile" size="110" />
         </Label>
         <LabelList id="list" focusBitmapUri="pkg:/images/ui/white_rr12.9.png" translation="[290,300]" itemSize="[1340,76]" numRows="7" itemSpacing="[0,8]"
-                   vertFocusAnimationStyle="floatingFocus" color="0xFFFFFFCC" focusedColor="0x000000FF">
+                   vertFocusAnimationStyle="floatingFocus" color="0xFFFFFFEB" focusedColor="0x111111FF">
             <Font role="font" uri="font:MediumSystemFontFile" size="36" />
             <Font role="focusedFont" uri="font:BoldSystemFontFile" size="36" />
         </LabelList>

@@ -13,6 +13,17 @@ sub init()
     m.errorPanel.observeField("chosen", "onErrorChosen")
     m.skeleton = m.top.findNode("skeleton")
     m.grid.observeField("itemFocused", "onFocused")
+    ' (v1.5) faint backdrop of the focused title (bottom fade into the page colour)
+    t = m.global.theme
+    m.bdFront = m.top.findNode("bdA")
+    m.bdBack = m.top.findNode("bdB")
+    m.bdUrl = ""
+    m.bdPending = ""
+    m.top.findNode("bdScrim").uri = t.scrimBottom
+    m.top.findNode("bdShade").color = Util.toText(t.bg).left(8) + "66"
+    m.bdTimer = m.top.findNode("bdTimer")
+    m.bdTimer.observeField("fire", "onBackdropTimer")
+    m.bdFront.observeField("loadStatus", "onBackdropLoaded")
     m.grid.observeField("itemSelected", "onSelected")
     m.top.observeField("focusedChild", "onFocusChanged")
     m.sort = "name"
@@ -415,8 +426,8 @@ sub drawBar()
         lab.vertAlign = "center"
         lab.translation = [24, 0]
         isTab = ids[i].startsWith("tab:")
-        ' (v1.1.1 VD-23) an active filter: lit fill, white text and an accent dot before the label, readable
-        ' with every accent (the dot has a dark edge for the white one)
+        ' (v1.1.1 VD-23) an active filter: white text and a white dot before the label (v1.5: no accent; the
+        ' dot keeps its dark edge so it reads on the focused white pill too)
         dotW = 0
         if active and not isTab then dotW = 16
         w = lab.boundingRect().width + 84 + dotW
@@ -432,7 +443,8 @@ sub drawBar()
             edge.translation = [19, 20]
             dot = g.createChild("Poster")
             dot.uri = "pkg:/images/ui/dot_10.png"
-            dot.blendColor = m.global.theme.accent
+            dot.blendColor = "0xFFFFFFFF"
+            if isFocus then dot.blendColor = m.global.theme.onFocus
             dot.width = 8
             dot.height = 8
             dot.translation = [21, 22]
@@ -445,22 +457,26 @@ sub drawBar()
         ch.height = 22
         ch.translation = [w - 44, 15]
         ch.visible = ids[i] <> "shuffle" and ids[i] <> "order" and not isTab
+        ' (v1.5 flat) flat pills: controlFill at rest (an active filter or the chosen tab 22 %), focused =
+        ' solid white with dark text; no glass, fog or ring
+        bg.uri = "pkg:/images/ui/flat_pill_52.9.png"
+        bg.opacity = 0.12
         if isFocus
-            bg.uri = "pkg:/images/ui/white_pill.9.png"
-            lab.color = "0x000000FF"
+            bg.opacity = 1.0
+            lab.color = m.global.theme.onFocus
         else if isTab
-            ' tabs sit together in one glass capsule (drawn below), the chosen one lit as on the Mac
+            ' tabs sit together in one faint capsule (drawn below), the chosen one lit as on the Mac
             bg.uri = ""
             lab.color = "0xFFFFFFCC"
             if ids[i] = "tab:" + m.tab
-                bg.uri = "pkg:/images/ui/sel_pill.9.png"
+                bg.uri = "pkg:/images/ui/flat_pill_52.9.png"
+                bg.opacity = 0.22
                 lab.color = "0xFFFFFFFF"
             end if
         else
-            bg.uri = "pkg:/images/ui/glass_pill.9.png"
-            lab.color = "0xFFFFFFD9"
+            lab.color = "0xFFFFFFEB"
             if active
-                bg.uri = "pkg:/images/ui/sel_pill.9.png"
+                bg.opacity = 0.22
                 lab.color = "0xFFFFFFFF"
             end if
         end if
@@ -473,7 +489,8 @@ sub drawBar()
             if i + 1 >= ids.count() or not ids[i + 1].startsWith("tab:")
                 ' the capsule behind the tabs, then the usual gap
                 cap = createObject("roSGNode", "Poster")
-                cap.uri = "pkg:/images/ui/glass_pill.9.png"
+                cap.uri = "pkg:/images/ui/flat_pill_60.9.png"
+                cap.opacity = 0.08
                 cap.width = x + 2
                 cap.height = 64
                 cap.translation = [0, -6]
@@ -624,7 +641,8 @@ sub loadPage(startIndex as integer, limit as integer)
     ' the Collections tab: the box sets with titles from this library (as the Mac asks for them)
     if m.tab = "collections" then types = "BoxSet"
     ' (v1.1.1 SP-7: the slim card fields; the total only with the first page, the next pages keep it)
-    q = sortQuery() + "&StartIndex=" + startIndex.toStr() + "&Limit=" + limit.toStr() + "&" + Items.slimFields(false)
+    ' (v1.5) plus the Backdrop tag, for the faint backdrop of the focused title
+    q = sortQuery() + "&StartIndex=" + startIndex.toStr() + "&Limit=" + limit.toStr() + "&" + Items.slimFields(false).replace("EnableImageTypes=Primary", "EnableImageTypes=Primary,Backdrop")
     if startIndex > 0 then q = q + Items.noCount()
     if Util.toText(lib.id) <> "" then q = "ParentId=" + Util.toText(lib.id) + "&" + q
     ' A library: everything of its kind inside it; a folder / collection: just what it contains
@@ -873,6 +891,7 @@ sub onFocused()
     if jump < 0 then jump = -jump
     m.lastFocus = f
     if jump >= LibGrid.cols() * 2 then showLetter(f)
+    queueBackdrop(f)
     ' (v1.2 NV-14) kept once the focus rests (a removed page's timer stops, so this also covers Back)
     if not m.restoring and m.grid.isInFocusChain()
         m.posTimer.control = "stop"
@@ -1028,6 +1047,44 @@ sub onPicked(ev as object)
     saveFilters()
     drawBar()
     reload()
+end sub
+
+' (v1.5) The backdrop follows the focused card once the focus rests (no loads while scrolling fast)
+sub queueBackdrop(index as integer)
+    url = ""
+    if m.grid.content <> invalid and index >= 0 and index < m.grid.content.getChildCount()
+        c = m.grid.content.getChild(index)
+        if c <> invalid and c.hasField("backdrop") then url = Util.toText(c.backdrop)
+    end if
+    if url = "" or url = m.bdUrl then return
+    m.bdPending = url
+    m.bdTimer.control = "stop"
+    m.bdTimer.control = "start"
+end sub
+
+sub onBackdropTimer()
+    if m.bdPending = "" or m.bdPending = m.bdUrl then return
+    ' the new picture goes into the hidden poster; it fades in once loaded, the old one fades out
+    tmp = m.bdFront
+    m.bdFront = m.bdBack
+    m.bdBack = tmp
+    m.bdFront.unobserveField("loadStatus")
+    m.bdBack.unobserveField("loadStatus")
+    m.bdFront.observeField("loadStatus", "onBackdropLoaded")
+    m.bdUrl = m.bdPending
+    m.bdFront.uri = m.bdUrl
+    if m.bdFront.loadStatus = "ready" then onBackdropLoaded()
+end sub
+
+sub onBackdropLoaded()
+    if m.bdFront.loadStatus <> "ready" then return
+    a = m.top.findNode("bdFade")
+    a.control = "stop"
+    m.top.findNode("bdIn").fieldToInterp = m.bdFront.id + ".opacity"
+    m.top.findNode("bdIn").keyValue = [m.bdFront.opacity, 0.4]
+    m.top.findNode("bdOut").fieldToInterp = m.bdBack.id + ".opacity"
+    m.top.findNode("bdOut").keyValue = [m.bdBack.opacity, 0.0]
+    a.control = "start"
 end sub
 
 sub onFocusChanged()

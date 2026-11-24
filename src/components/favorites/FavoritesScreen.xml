@@ -11,7 +11,7 @@
         <field id="stale" type="boolean" value="false" />
     </interface>
     <children>
-        <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="64" translation="[100,48]" />
+        <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="64" translation="[96,48]" />
         <Label id="title" width="1200" height="60" translation="[180,40]" color="0xFFFFFFFF" text="Favorites">
             <Font role="font" uri="font:BoldSystemFontFile" size="44" />
         </Label>
@@ -23,16 +23,16 @@
                  itemSpacing="[0,20]" showRowLabel="[true]" rowLabelOffset="[[18,8]]" rowLabelColor="0xFFFFFFFF"
                  focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
                  drawFocusFeedback="false" visible="false">
-            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />
+            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="34" />
         </RowList>
-        <Label id="status" width="1720" height="44" translation="[100,420]" color="0xFFFFFFCC" text="Loading...">
+        <Label id="status" width="1728" height="44" translation="[96,420]" color="0xFFFFFFCC" text="Loading...">
             <Font role="font" uri="font:MediumSystemFontFile" size="32" />
         </Label>
-        <Label id="hint" width="1720" height="40" translation="[100,472]" color="0xFFFFFFCC" visible="false"
+        <Label id="hint" width="1728" height="40" translation="[96,472]" color="0xFFFFFFCC" visible="false"
                text="Add a movie, show, episode, collection or person with the heart on its page.">
             <Font role="font" uri="font:MediumSystemFontFile" size="26" />
         </Label>
         <!-- the favorites couldn't be loaded: Try Again / Switch Server / Settings -->
-        <ErrorPanel id="errorPanel" translation="[100,380]" width="1720" visible="false" />
+        <ErrorPanel id="errorPanel" translation="[96,380]" width="1728" visible="false" />
     </children>
 </component>

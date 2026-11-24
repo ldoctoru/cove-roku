@@ -1,13 +1,20 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- Settings, built like Cove for macOS (Sources/Settings.swift): the tab name on top, a row of icon tabs (General,
-     Home, Libraries, Subtitles, Playback, Servers, Profiles, Remote, About), then the tab's sections as cards with an
-     UPPERCASE title, a right-aligned "Label:" column, the controls beside it and grey notes under them.
-     Left / Right on the tabs change the tab, Down enters it; Up / Down move between rows, OK changes a setting
-     (choices open in the side panel; colours and tiles change with Left / Right), Back closes. Every change is
-     saved at once. "themeChanged" fires when something on Home must be rebuilt; "action" asks MainScene to
-     switch server ({ id: "connect", serverId }), sign out ({ id: "signout" }) or add one ({ id: "switch" }). -->
+<!-- Settings (v1.5), in the Cove for Mac format and flat: a row of tabs across the top (an icon over each label:
+     General, Home, Libraries, Subtitles, Playback, Connect, Profiles, Remote, About; no page title), a thin line,
+     and under it the selected tab's settings in sections: a small grey caps heading, flat rows with the label on
+     the left and the value on the right (› for a choice or a sub-list, a flat switch for on / off), grey help
+     notes under a group. Focus = a solid white row (or tab) with dark text; no zoom, glow, shadow or accent.
+     Left / Right on the tabs switch tab (its settings show at once), Down enters the settings, Up from the
+     first row goes back to the tabs, OK on a choice opens a small flat list with a check on the current value,
+     Back closes a list / sub-list, then returns to the tabs, and on the tabs closes Settings.
+     The page model is in SettingsPages.bs; drawing, keys and actions in SettingsScreen.bs. A tab's nodes are
+     built when it shows (or after a change); a focus move only repaints the two rows involved.
+     Every change is saved at once. "themeChanged" fires when something on Home must be rebuilt; "action" asks
+     MainScene to switch server ({ id: "connect", serverId }), sign out ({ id: "signout" }) or add one
+     ({ id: "switch" }), and so on (see SettingsScreen.bs). -->
 <component name="SettingsScreen" extends="Group">
     <script type="text/brightscript" uri="SettingsScreen.bs" />
+    <script type="text/brightscript" uri="SettingsPages.bs" />
     <interface>
         <field id="screenId" type="string" value="settings" />
         <field id="server" type="assocarray" />
@@ -16,13 +23,19 @@
     </interface>
     <children>
         <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />
-        <Label id="tabTitle" width="1920" height="36" translation="[0,14]" horizAlign="center" color="0xFFFFFFCC">
-            <Font role="font" uri="font:BoldSystemFontFile" size="24" />
-        </Label>
-        <Group id="tabs" translation="[0,54]" />
-        <Rectangle width="1920" height="1" translation="[0,168]" color="0xFFFFFF1F" />
-        <Group id="clip" translation="[0,169]" clippingRect="[0,0,1920,911]">
-            <Group id="content" />
+        <Group id="tabs" translation="[0,36]" />
+        <Rectangle id="line" translation="[0,162]" width="1920" height="2" color="0xFFFFFF1F" />
+        <Group id="clip" translation="[0,176]" clippingRect="[0,0,1920,904]">
+            <Group id="list" />
+        </Group>
+        <Group id="preview" translation="[1260,246]" />
+        <Group id="popLayer" visible="false">
+            <Rectangle id="popShade" width="1920" height="1080" color="0x00000099" />
+            <Poster id="popPanel" uri="pkg:/images/ui/set_r12.9.png" blendColor="0x2C2C2EFF" />
+            <Label id="popTitle" height="44" vertAlign="center" color="0xFFFFFF9E" text="Choose" />
+            <Group id="popClip">
+                <Group id="popList" />
+            </Group>
         </Group>
         <Group id="keys" focusable="true" />
         <Timer id="kbTimer" duration="0.4" repeat="false" />

@@ -16,12 +16,13 @@
     <children>
         <!-- Glass side panel (Cove player panels): dark rounded panel on the right over a dimmed screen -->
         <Rectangle width="1920" height="1080" color="0x00000066" />
-        <Poster id="panel" uri="pkg:/images/ui/panel_r21.9.png" width="600" height="972" translation="[1272,54]" />
+        <!-- (v1.5 flat) a flat panel in the page colour at 90 % (r27, no rim); the focused row solid white, dark text -->
+        <Poster id="panel" uri="pkg:/images/ui/panel_r27_black.9.png" width="600" height="972" translation="[1272,54]" />
         <Label id="title" width="540" height="50" translation="[1302,86]" color="0xFFFFFFFF">
             <Font role="font" uri="font:BoldSystemFontFile" size="32" />
         </Label>
         <LabelList id="list" focusBitmapUri="pkg:/images/ui/white_rr12.9.png" translation="[1296,160]" itemSize="[552,66]" numRows="12" itemSpacing="[0,6]"
-                   color="0xFFFFFFD9" focusedColor="0x000000FF">
+                   color="0xFFFFFFEB" focusedColor="0x111111FF">
             <Font role="font" uri="font:MediumSystemFontFile" size="28" />
             <Font role="focusedFont" uri="font:BoldSystemFontFile" size="28" />
         </LabelList>

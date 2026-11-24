@@ -1,0 +1,293 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/MediaInfo.bs"
+
+' (v1.5 details) The pure parts of the Emby-style details header (components/details/DetailsScreen): the info line's
+' pieces, the media line's texts, the progress line, which buttons the row has and the ⋯ More menu's entries.
+' Everything here is a plain function of the item JSON (no nodes, no clock), so tests/brs/detailshead.test.brs
+' covers it.
+namespace DetailsHead
+
+    ' Ticks → "2h 52m" / "42m" ("" when missing or under a minute)
+    function runtimeLabel(ticks as dynamic) as string
+        if ticks = invalid then return ""
+        mins = Int(Util.toNumber(ticks) / 600000000)
+        return minutesLabel(mins)
+    end function
+
+    ' 147 → "2h 27m", 42 → "42m", 120 → "2h" (Emby's short form)
+    function minutesLabel(mins as integer) as string
+        if mins <= 0 then return ""
+        if mins < 60 then return mins.toStr() + "m"
+        rest = mins mod 60
+        if rest = 0 then return (mins \ 60).toStr() + "h"
+        return (mins \ 60).toStr() + "h " + rest.toStr() + "m"
+    end function
+
+    ' The resume point in seconds (0 when not started)
+    function resumeSecs(it as object) as float
+        ud = Util.field(it, "UserData")
+        if not Util.isAA(ud) or ud.PlaybackPositionTicks = invalid then return 0
+        return Util.toNumber(ud.PlaybackPositionTicks) / 10000000
+    end function
+
+    ' Started: a resume point past the first 30 s (as the Play / Resume button)
+    function isStarted(it as object) as boolean
+        return resumeSecs(it) > 30
+    end function
+
+    ' "2h 27m remaining" from the resume point ("" when not started or no runtime)
+    function remainingLabel(it as object) as string
+        if not isStarted(it) or it.RunTimeTicks = invalid then return ""
+        remainSecs = Util.toNumber(it.RunTimeTicks) / 10000000 - resumeSecs(it)
+        if remainSecs <= 0 then return ""
+        mins = Int((remainSecs + 59) / 60)
+        return minutesLabel(mins) + " remaining"
+    end function
+
+    ' 0..1: the watched part of the progress bar
+    function playedPart(it as object) as float
+        if it.RunTimeTicks = invalid then return 0
+        total = Util.toNumber(it.RunTimeTicks) / 10000000
+        if total <= 0 then return 0
+        f = resumeSecs(it) / total
+        if f < 0 then f = 0
+        if f > 1 then f = 1
+        return f
+    end function
+
+    ' 1920x1080 → "1080p", 3840x2160 → "4K", 1920x800 (scope) → "1080p", 1280x720 → "720p", 720x576 → "576p"
+    function resolutionOf(w as integer, h as integer) as string
+        if w >= 3200 or h >= 2000 then return "4K"
+        if w >= 1800 or h >= 1000 then return "1080p"
+        if w >= 1200 or h >= 700 then return "720p"
+        if h >= 560 then return "576p"
+        if h >= 470 then return "480p"
+        if h > 0 then return h.toStr() + "p"
+        return ""
+    end function
+
+    ' The media line's video part: "1080p H264", "4K HEVC HDR10" ("" without a video stream)
+    function videoLabel(src as dynamic) as string
+        vids = MediaInfo.streamsOfType(src, "Video")
+        if vids.count() = 0 then return ""
+        v = vids[0]
+        parts = []
+        res = resolutionOf(Int(MediaInfo.toNumber(v.Width)), Int(MediaInfo.toNumber(v.Height)))
+        if res <> "" then parts.push(res)
+        codec = UCase(Util.toText(v.Codec))
+        if codec = "H265" then codec = "HEVC"
+        if codec <> "" then parts.push(codec)
+        hdr = MediaInfo.rangeLabel(v)
+        if hdr <> "" then parts.push(hdr)
+        return Util.join(parts, " ")
+    end function
+
+    ' A track's label for a pill: Cove's extra notes dropped, at most maxChars ("..." when cut)
+    function trackPill(label as string, maxChars as integer) as string
+        t = label.replace("  (burned in)", "").replace("  ·  External", "").trim()
+        if t = "" then t = "Default"
+        if t.len() > maxChars then t = t.left(maxChars - 3).trim() + "..."
+        return t
+    end function
+
+    ' "S2:E7 - Under the Influence" (the episode's line under the series logo)
+    function episodeLine(it as object) as string
+        n = Util.toText(it.Name)
+        s = ""
+        if it.ParentIndexNumber <> invalid then s = "S" + Util.toText(it.ParentIndexNumber)
+        if it.IndexNumber <> invalid
+            if s <> "" then s = s + ":"
+            s = s + "E" + Util.toText(it.IndexNumber)
+        end if
+        if s <> "" and n <> "" then return s + " - " + n
+        return s + n
+    end function
+
+    ' "1989 – 1998" / "2019 – Present" for a series, the year otherwise
+    function yearLabel(it as object) as string
+        y = Util.toText(it.ProductionYear)
+        if Util.toText(it.Type) <> "Series" or y = "" then return y
+        endY = Util.toText(it.EndDate).left(4)
+        if endY <> "" and endY <> y then return y + " – " + endY
+        if LCase(Util.toText(it.Status)) = "continuing" then return y + " – Present"
+        return y
+    end function
+
+    ' The info line, left to right: [{ kind: "star" | "critic" | "text" | "rating", text, fresh }]
+    ' ★ score · tomato % · year (episodes: airDate) · runtime · [rating] · genres (not episodes) · "Ends at ..."
+    ' (endsAt: Items.endsAt, "" for series / collections; airDate: MediaInfo.dateText of PremiereDate)
+    function infoSegments(it as object, endsAt as string, airDate as string) as object
+        out = []
+        t = Util.toText(it.Type)
+        if it.CommunityRating <> invalid
+            cr = Int(Util.toNumber(it.CommunityRating) * 10 + 0.5)
+            if cr > 0 then out.push({ kind: "star", text: (cr \ 10).toStr() + "." + (cr mod 10).toStr() })
+        end if
+        if it.CriticRating <> invalid
+            v = Util.toNumber(it.CriticRating)
+            if v > 0 and v <= 100 then out.push({ kind: "critic", text: Int(v + 0.5).toStr() + "%", fresh: v >= 60 })
+        end if
+        when = yearLabel(it)
+        if t = "Episode" and airDate <> "" then when = airDate
+        if when <> "" then out.push({ kind: "text", text: when })
+        if t <> "Series" and t <> "BoxSet"
+            rt = runtimeLabel(it.RunTimeTicks)
+            if rt <> "" then out.push({ kind: "text", text: rt })
+        end if
+        r = Util.toText(it.OfficialRating)
+        if r <> "" then out.push({ kind: "rating", text: r })
+        if t <> "Episode" and type(it.Genres) = "roArray" and it.Genres.count() > 0
+            g = []
+            for i = 0 to it.Genres.count() - 1
+                if i < 3 and Util.toText(it.Genres[i]) <> "" then g.push(Util.toText(it.Genres[i]))
+            end for
+            if g.count() > 0 then out.push({ kind: "text", text: Util.join(g, ", ") })
+        end if
+        if endsAt <> "" and t <> "Series" and t <> "BoxSet" then out.push({ kind: "text", text: "Ends at " + endsAt })
+        return out
+    end function
+
+    ' The page shows the media line (Video · Audio · Subtitles): a playable title, not a series or a collection
+    function hasMediaLine(itemType as string) as boolean
+        return itemType <> "Series" and itemType <> "BoxSet" and itemType <> "Season" and itemType <> ""
+    end function
+
+    ' "Director: Name" (films, episodes) or "Created by: Name" (series, when the server lists a creator); "" otherwise
+    function creditLine(it as object) as string
+        kind = "Director"
+        label = "Director: "
+        if Util.toText(it.Type) = "Series"
+            kind = "Creator"
+            label = "Created by: "
+        else if Util.toText(it.Type) = "BoxSet"
+            return ""
+        end if
+        names = []
+        if type(it.People) = "roArray"
+            for each p in it.People
+                if Util.toText(Util.field(p, "Type")) = kind and names.count() < 2 then names.push(Util.toText(Util.field(p, "Name")))
+            end for
+        end if
+        if names.count() = 0 then return ""
+        if names.count() > 1 and kind = "Director" then label = "Directors: "
+        return label + Util.join(names, ", ")
+    end function
+
+    ' The bold tagline (Taglines[0]) or ""
+    function taglineOf(it as object) as string
+        tg = it.Taglines
+        if type(tg) <> "roArray" or tg.count() = 0 then return ""
+        return Util.toText(tg[0]).trim()
+    end function
+
+    ' The header's button ids, left to right. Films / episodes: play (Resume when started), restart (From
+    ' Beginning, when started), trailer, then the round watched / fav / more. Series: play (next episode), playall,
+    ' shuffle, trailer, watched, fav, more. Collections: play (a title of it), watched, fav, more.
+    function headerButtonIds(itemType as string, started as boolean, hasTarget as boolean, trailers as integer) as object
+        ids = []
+        isGroup = itemType = "Series" or itemType = "BoxSet"
+        if not isGroup or hasTarget then ids.push("play")
+        if started then ids.push("restart")
+        if itemType = "Series" and hasTarget
+            ids.push("playall")
+            ids.push("shuffle")
+        end if
+        if trailers > 0 and itemType <> "BoxSet" then ids.push("trailer")
+        ids.push("watched")
+        ids.push("fav")
+        ids.push("more")
+        return ids
+    end function
+
+    ' The ⋯ More menu, top to bottom: [{ id, label, icon, divider }] (divider: a line above the entry). o = { itemType,
+    ' isFav, played, isAdmin, collections (how many collections the title is in), versions (how many files),
+    ' hasSeries, hasSeason, seasonLabel }. No Download, Convert, Edit, Identify or Delete on the TV.
+    function moreEntries(o as object) as object
+        t = Util.toText(o.itemType)
+        out = []
+        if t <> "BoxSet" and t <> "Person" then out.push({ id: "addcoll", label: "Add to Collection", icon: "listadd" })
+        if t <> "Person" then out.push({ id: "addlist", label: "Add to Playlist", icon: "listadd" })
+        if Util.flag(o, "isFav")
+            out.push({ id: "fav", label: "Remove from Favorites", icon: "heart" })
+        else
+            out.push({ id: "fav", label: "Add to Favorites", icon: "hearto" })
+        end if
+        if Util.flag(o, "played")
+            out.push({ id: "watched", label: "Mark Unplayed", icon: "checkcf" })
+        else
+            out.push({ id: "watched", label: "Mark Played", icon: "check" })
+        end if
+        first = true
+        if hasMediaLine(t)
+            out.push({ id: "info", label: "Playback Info", icon: "info", divider: first })
+            first = false
+            if Util.toNumber(o.versions) > 1
+                out.push({ id: "version", label: "Version", icon: "film" })
+            end if
+            out.push({ id: "quality", label: "Quality", icon: "quality" })
+        end if
+        n = Util.toNumber(o.collections)
+        if n <> invalid and n > 0
+            label = "Go to Collection"
+            if n > 1 then label = "Go to Collections"
+            out.push({ id: "gocoll", label: label, icon: "folder", divider: first })
+            first = false
+        end if
+        if t = "Episode" and Util.flag(o, "hasSeries")
+            out.push({ id: "series", label: "Go to Series", icon: "tv", divider: first })
+            first = false
+        end if
+        if t = "Episode" and Util.flag(o, "hasSeason")
+            label = "Go to Season"
+            if Util.toText(o.seasonLabel) <> "" then label = "Go to " + Util.toText(o.seasonLabel)
+            out.push({ id: "season", label: label, icon: "tv", divider: first })
+        end if
+        if Util.flag(o, "isAdmin") then out.push({ id: "refresh", label: "Refresh Metadata", icon: "refresh", divider: true })
+        return out
+    end function
+
+    ' Percent-encodes a query value (UTF-8; letters, digits and -_.~ stay): "Films & Co" → "Films%20%26%20Co"
+    function urlEncode(s as string) as string
+        ba = createObject("roByteArray")
+        ba.FromAsciiString(s)
+        out = ""
+        hexDigits = "0123456789ABCDEF"
+        for i = 0 to ba.count() - 1
+            b = ba[i]
+            keep = (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b = 45 or b = 95 or b = 46 or b = 126
+            if keep
+                out = out + chr(b)
+            else
+                out = out + "%" + hexDigits.mid(b \ 16, 1) + hexDigits.mid(b mod 16, 1)
+            end if
+        end for
+        return out
+    end function
+
+    ' POST paths for the More menu's server actions (Emby and Jellyfin use the same ones)
+    function addToCollectionPath(collectionId as string, itemId as string) as string
+        return "/Collections/" + collectionId + "/Items?Ids=" + itemId
+    end function
+
+    function newCollectionPath(name as string, itemId as string) as string
+        return "/Collections?Name=" + urlEncode(name) + "&Ids=" + itemId
+    end function
+
+    function addToPlaylistPath(playlistId as string, itemId as string, userId as string) as string
+        return "/Playlists/" + playlistId + "/Items?Ids=" + itemId + "&UserId=" + userId
+    end function
+
+    function newPlaylistPath(name as string, itemId as string, userId as string) as string
+        return "/Playlists?Name=" + urlEncode(name) + "&Ids=" + itemId + "&UserId=" + userId + "&MediaType=Video"
+    end function
+
+    function refreshPath(itemId as string) as string
+        return "/Items/" + itemId + "/Refresh?Recursive=true&MetadataRefreshMode=Default&ImageRefreshMode=Default&ReplaceAllMetadata=false&ReplaceAllImages=false"
+    end function
+
+    ' Policy.IsAdministrator from GET /Users/{id}
+    function isAdminUser(json as dynamic) as boolean
+        return Util.flag(Util.field(json, "Policy"), "IsAdministrator")
+    end function
+
+end namespace

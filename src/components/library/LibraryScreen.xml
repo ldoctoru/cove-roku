@@ -15,6 +15,19 @@
         <field id="stale" type="boolean" value="false" />
     </interface>
     <children>
+        <!-- (v1.5) the focused title's backdrop behind the grid, faint and faded into the page so it blends with the
+             posters (never over them): two pictures cross-fade when the focus rests on another title -->
+        <Group id="bdGroup">
+            <Poster id="bdA" width="1920" height="1080" loadDisplayMode="scaleToZoom" opacity="0" />
+            <Poster id="bdB" width="1920" height="1080" loadDisplayMode="scaleToZoom" opacity="0" />
+            <Poster id="bdScrim" width="1920" height="1080" />
+            <Rectangle id="bdShade" width="1920" height="1080" color="0x00000000" />
+        </Group>
+        <Animation id="bdFade" duration="0.6" easeFunction="linear">
+            <FloatFieldInterpolator id="bdIn" key="[0.0, 1.0]" keyValue="[0.0, 0.4]" fieldToInterp="bdA.opacity" />
+            <FloatFieldInterpolator id="bdOut" key="[0.0, 1.0]" keyValue="[0.4, 0.0]" fieldToInterp="bdB.opacity" />
+        </Animation>
+        <Timer id="bdTimer" duration="0.45" repeat="false" />
         <!-- (VD-1) header in one line: logo, title, and the info line after the title on its baseline -->
         <Poster id="logo" uri="pkg:/images/logo.png" width="56" height="56" translation="[96,36]" />
         <Label id="title" height="60" translation="[172,34]" vertAlign="bottom" color="0xFFFFFFFF">
@@ -32,7 +45,7 @@
         <MarkupGrid id="grid" translation="[78,168]" itemComponentName="PosterItem" itemSize="[232,432]"
                     itemSpacing="[22,0]" numColumns="7" numRows="2" vertFocusAnimationStyle="fixedFocus"
                     drawFocusFeedback="false" />
-        <Label id="status" width="1720" height="44" translation="[100,520]" color="0xFFFFFFCC" text="Loading...">
+        <Label id="status" width="1728" height="44" translation="[96,520]" color="0xFFFFFFCC" text="Loading...">
             <Font role="font" uri="font:MediumSystemFontFile" size="32" />
         </Label>
         <!-- placeholder cards while the first page loads -->
@@ -48,6 +61,6 @@
         <!-- (v1.2 NV-14) the focused card is kept for the session once the focus rests -->
         <Timer id="posTimer" duration="0.5" repeat="false" />
         <!-- the load failed or nothing to show: Try Again / Clear Filters / ... (Up still reaches the pills) -->
-        <ErrorPanel id="errorPanel" translation="[100,340]" width="1720" visible="false" />
+        <ErrorPanel id="errorPanel" translation="[96,340]" width="1728" visible="false" />
     </children>
 </component>

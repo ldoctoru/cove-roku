@@ -70,7 +70,7 @@ sub paint()
     if open then m.top.findNode("bg").color = "0x0D0D0DF7"
     m.top.findNode("edge").translation = [w - 1, 0]
     m.top.findNode("appName").visible = open
-    accent = m.global.theme.accent
+    dark = m.global.theme.onFocus
     y = 0
     focusY = 0
     its = m.top.items
@@ -81,7 +81,7 @@ sub paint()
                 l = m.entries.createChild("Label")
                 l.font = font("font:BoldSystemFontFile", 24)
                 l.text = UCase(Util.toText(it.label))
-                l.color = "0xFFFFFFCC"
+                l.color = "0xFFFFFF9E"
                 l.translation = [36, y + 14]
                 l.height = 36
             else
@@ -104,20 +104,20 @@ sub paint()
                 bg.translation = [16, 4]
                 bg.width = pillW
                 bg.height = 56
-                if isFocus
-                    bg.uri = "pkg:/images/ui/white_pill.9.png"
-                else
-                    bg.uri = "pkg:/images/ui/sel_pill.9.png"
-                end if
+                ' (v1.5 flat) the focus is a solid white row with dark text and icon, which must win from the
+                ' sofa (N3); the current page a faint 16 % white row (no accent band, no hairline)
+                bg.uri = "pkg:/images/ui/white_pill.9.png"
+                if not isFocus then bg.opacity = 0.16
             end if
             ic = g.createChild("Poster")
             ic.uri = "pkg:/images/ui/icon_" + Util.toText(it.icon) + "_36.png"
             ic.width = 36
             ic.height = 36
             ic.translation = [38, 14]
-            col = "0xFFFFFFCC"
-            if isCurrent then col = accent
-            if isFocus then col = "0x000000FF"
+            ' (v1.5 flat) neutral icons: 85 % white, white on the current page, dark on the focused row
+            col = "0xFFFFFFD9"
+            if isCurrent then col = "0xFFFFFFFF"
+            if isFocus then col = dark
             ic.blendColor = col
             if open
                 l = g.createChild("Label")
@@ -125,7 +125,7 @@ sub paint()
                 if isFocus or isCurrent then l.font = font("font:BoldSystemFontFile", 28)
                 l.text = Util.toText(it.label)
                 l.color = "0xFFFFFFD9"
-                if isFocus then l.color = "0x000000FF"
+                if isFocus then l.color = dark
                 l.translation = [94, 0]
                 l.width = 230
                 l.height = 64
@@ -136,11 +136,14 @@ sub paint()
             if b > 0
                 dot = g.createChild("Poster")
                 dot.uri = "pkg:/images/ui/white_circle_56.png"
-                dot.blendColor = accent
+                ' (v1.5 flat) a white disc with the count in dark (dark disc, white count on the focused row)
+                dot.blendColor = "0xFFFFFFFF"
+                if isFocus then dot.blendColor = dark
                 bl = g.createChild("Label")
                 bl.font = font("font:BoldSystemFontFile", 24)
                 bl.text = b.toStr()
-                bl.color = "0xFFFFFFFF"
+                bl.color = dark
+                if isFocus then bl.color = "0xFFFFFFFF"
                 bl.horizAlign = "center"
                 bl.vertAlign = "center"
                 if open

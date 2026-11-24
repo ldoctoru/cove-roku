@@ -1,0 +1,199 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Speak.bs"
+
+sub init()
+    m.panelGroup = m.top.findNode("panelGroup")
+    m.bg = m.top.findNode("bg")
+    m.rowsGroup = m.top.findNode("rows")
+    m.idx = 0
+    m.offset = 0
+    m.visibleRows = 0
+    m.rowH = 62
+    m.headH = 0
+    m.spokeTitle = false
+    m.spokenKey = ""
+    m.onFocus = "0x111111FF"
+    t = m.global.theme
+    if t <> invalid and t.onFocus <> invalid then m.onFocus = t.onFocus
+    m.top.observeField("focusedChild", "onFocusChanged")
+end sub
+
+function menuOptions() as object
+    o = m.top.options
+    if type(o) <> "roArray" then return []
+    return o
+end function
+
+' Sizes and places the panel for its rows (moved up / left so it stays on screen), then draws the visible rows
+sub onOptions()
+    opts = menuOptions()
+    w = m.top.panelWidth
+    if w < 300 then w = 300
+    m.w = w
+    hd = m.top.heading
+    head = m.top.findNode("head")
+    m.headH = 0
+    if Util.isAA(hd) and Util.toText(hd.title) <> ""
+        m.headH = 160
+        head.visible = true
+        hp = m.top.findNode("headPoster")
+        tx = 112
+        posterUrl = Util.toText(hd.poster)
+        hp.visible = posterUrl <> ""
+        if posterUrl <> ""
+            hp.uri = posterUrl
+        else
+            tx = 24
+        end if
+        ht = m.top.findNode("headTitle")
+        ht.text = Util.toText(hd.title)
+        ht.width = w - tx - 24
+        ht.translation = [tx, 44]
+        hs = m.top.findNode("headSub")
+        hs.text = Util.toText(hd.sub)
+        hs.width = w - tx - 24
+        hs.translation = [tx, 84]
+        m.top.findNode("headLine").width = w - 48
+    else
+        head.visible = false
+    end if
+    pad = 12
+    count = opts.count()
+    fit = Int((1000 - m.headH - pad * 2) / m.rowH)
+    m.visibleRows = count
+    if m.visibleRows > fit then m.visibleRows = fit
+    if m.visibleRows < 1 then m.visibleRows = 1
+    h = m.headH + pad * 2 + m.visibleRows * m.rowH
+    a = m.top.anchor
+    ax = 1200
+    ay = 200
+    if type(a) = "roArray" and a.count() >= 2
+        ax = Int(a[0])
+        ay = Int(a[1])
+    end if
+    if ay + h > 1040 then ay = 1040 - h
+    if ay < 40 then ay = 40
+    if ax + w > 1880 then ax = 1880 - w
+    if ax < 40 then ax = 40
+    m.panelGroup.translation = [ax, ay]
+    m.bg.width = w
+    m.bg.height = h
+    m.rowsGroup.translation = [0, m.headH + pad]
+    m.idx = 0
+    for i = 0 to count - 1
+        if Util.toText(opts[i].id) = m.top.selectedId then m.idx = i
+    end for
+    m.offset = 0
+    scrollToFocus()
+    m.top.findNode("moreUp").translation = [w - 60, m.headH - 6]
+    m.top.findNode("moreDown").translation = [w - 60, h - 22]
+    drawRows()
+end sub
+
+sub scrollToFocus()
+    if m.idx < m.offset then m.offset = m.idx
+    if m.idx >= m.offset + m.visibleRows then m.offset = m.idx - m.visibleRows + 1
+    if m.offset < 0 then m.offset = 0
+end sub
+
+' The visible rows: a solid white focused row with dark text and icon, a right-aligned icon (or a check for the
+' current choice), a thin line above a new group
+sub drawRows()
+    opts = menuOptions()
+    g = m.rowsGroup
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    w = m.w
+    for r = 0 to m.visibleRows - 1
+        i = m.offset + r
+        if i < opts.count()
+            o = opts[i]
+            focused = i = m.idx
+            row = g.createChild("Group")
+            row.translation = [0, r * m.rowH]
+            if Util.flag(o, "divider") and r > 0
+                line = row.createChild("Rectangle")
+                line.width = w - 48
+                line.height = 2
+                line.translation = [24, 0]
+                line.color = "0xFFFFFF1F"
+            end if
+            if focused
+                fill = row.createChild("Poster")
+                fill.uri = "pkg:/images/ui/white_rr12.9.png"
+                fill.width = w - 24
+                fill.height = m.rowH - 6
+                fill.translation = [12, 3]
+            end if
+            fg = "0xFFFFFFEB"
+            if focused then fg = m.onFocus
+            lbl = row.createChild("Label")
+            f = createObject("roSGNode", "Font")
+            f.uri = "font:MediumSystemFontFile"
+            if focused then f.uri = "font:BoldSystemFontFile"
+            f.size = 26
+            lbl.font = f
+            lbl.text = Util.toText(o.label)
+            lbl.color = fg
+            lbl.width = w - 32 - 84
+            lbl.height = m.rowH
+            lbl.vertAlign = "center"
+            lbl.translation = [32, 0]
+            ic = Util.toText(o.icon)
+            if ic = "" and Util.flag(o, "checked") then ic = "pkg:/images/ui/icon_check_28.png"
+            if ic <> ""
+                p = row.createChild("Poster")
+                p.uri = ic
+                p.width = 28
+                p.height = 28
+                p.translation = [w - 32 - 28, Int((m.rowH - 28) / 2)]
+                p.blendColor = fg
+            end if
+        end if
+    end for
+    m.top.findNode("moreUp").visible = m.offset > 0
+    m.top.findNode("moreDown").visible = m.offset + m.visibleRows < opts.count()
+end sub
+
+sub speakFocus()
+    opts = menuOptions()
+    if not Speak.isOn() or m.idx < 0 or m.idx >= opts.count() then return
+    o = opts[m.idx]
+    text = Speak.clean(Util.toText(o.label))
+    if Util.flag(o, "checked") then text = text + ", selected"
+    text = text + Speak.position(m.idx, opts.count())
+    key = m.idx.toStr() + text
+    if key = m.spokenKey then return
+    m.spokenKey = key
+    if not m.spokeTitle
+        m.spokeTitle = true
+        title = Util.toText(m.top.title)
+        if title <> "" then text = Speak.clean(title) + ", menu. " + text
+    end if
+    Speak.say(text)
+end sub
+
+sub onFocusChanged()
+    if m.top.hasFocus() then speakFocus()
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    n = menuOptions().count()
+    if key = "up" or key = "down"
+        dirn = 1
+        if key = "up" then dirn = -1
+        k = m.idx + dirn
+        if k >= 0 and k < n
+            m.idx = k
+            scrollToFocus()
+            drawRows()
+            speakFocus()
+        end if
+    else if key = "OK"
+        if m.idx >= 0 and m.idx < n then m.top.chosen = { id: Util.toText(menuOptions()[m.idx].id), purpose: m.top.purpose }
+    else if key = "back" or key = "left" or key = "options"
+        m.top.cancelled = true
+    end if
+    ' (the menu keeps every key while it is open)
+    return true
+end function

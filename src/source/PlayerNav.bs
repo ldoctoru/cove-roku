@@ -1,0 +1,106 @@
+' (v1.4) The player's Glass3D bottom block (Cove for macOS: ClassicPlayer bottomBar + Glass3DControlBar), as
+' pure functions so the focus order and the geometry can be unit-tested. One row at the bottom: the transport
+' controls at the left (previous · back N · play / pause · forward N · next) and the tool bar at the right.
+' Left / Right walk the whole row (controls, then tools); Up goes to the timeline above it.
+namespace PlayerNav
+
+    ' The transport controls at the left of the row; previous / next episode only for an episode found in its
+    ' series' list (a film or a special outside the list: back · play / pause · forward)
+    function controlIds(withEpisodes as boolean) as object
+        if withEpisodes then return ["prev", "jumpBack", "play", "jumpFwd", "next"]
+        return ["jumpBack", "play", "jumpFwd"]
+    end function
+
+    ' The tool bar, in the Mac's order (Glass3DBarItem.order: Episodes · Chapters · Subtitles · Audio · Quality &
+    ' speed · Info), from what this title has: { episodes, chapters (count), subs, audio (count), speed, info }.
+    ' Previous / next chapter follow Chapters when there are two chapters or more.
+    function toolList(has as object) as object
+        ids = []
+        if has.episodes = true then ids.push("episodes")
+        chapterCount = 0
+        if has.chapters <> invalid then chapterCount = has.chapters
+        if chapterCount > 0 then ids.push("chapters")
+        if chapterCount > 1
+            ids.push("chapPrev")
+            ids.push("chapNext")
+        end if
+        if has.subs = true then ids.push("subs")
+        audioCount = 0
+        if has.audio <> invalid then audioCount = has.audio
+        if audioCount > 1 then ids.push("audio")
+        ids.push("quality")
+        if has.speed = true then ids.push("speed")
+        if has.info = true then ids.push("info")
+        return ids
+    end function
+
+    ' The whole row: the controls, then the tools
+    function rowList(withEpisodes as boolean, tools as object) as object
+        out = controlIds(withEpisodes)
+        if tools <> invalid
+            for each t in tools
+                out.push(t)
+            end for
+        end if
+        return out
+    end function
+
+    ' Where id is in list (-1 when it isn't)
+    function indexOfId(list as object, id as string) as integer
+        if list = invalid then return -1
+        for i = 0 to list.count() - 1
+            if list[i] = id then return i
+        end for
+        return -1
+    end function
+
+    ' Left / Right along the row: one step, stopping at both ends (no wrap, so a held key can't jump across)
+    function stepIndex(idx as integer, delta as integer, count as integer) as integer
+        if count <= 0 then return 0
+        n = idx + delta
+        if n < 0 then n = 0
+        if n > count - 1 then n = count - 1
+        return n
+    end function
+
+    ' The row changed (episode list or tracks arriving late): the same button keeps the focus, else play / pause
+    function carryIndex(oldList as object, oldIdx as integer, newList as object) as integer
+        if oldList <> invalid and oldIdx >= 0 and oldIdx < oldList.count()
+            at = indexOfId(newList, oldList[oldIdx])
+            if at >= 0 then return at
+        end if
+        at = indexOfId(newList, "play")
+        if at < 0 then at = 0
+        return at
+    end function
+
+    ' The round buttons' sizes (px): play / pause 90, back / forward 69, previous / next 63
+    function controlSize(id as string) as integer
+        if id = "play" then return 90
+        if id = "jumpBack" or id = "jumpFwd" then return 69
+        return 63
+    end function
+
+    ' The left x of each control, from x0, 30 px apart
+    function controlXs(ids as object, x0 as integer) as object
+        out = []
+        x = x0
+        for each id in ids
+            out.push(x)
+            x = x + controlSize(id) + 30
+        end for
+        return out
+    end function
+
+    ' The tool bar's width: 6 px padding at each end, 72 px cells, 2 px dividers between them
+    function toolsWidth(n as integer) as integer
+        if n <= 0 then return 0
+        return 12 + n * 72 + (n - 1) * 2
+    end function
+
+    ' The left x of cell i inside the tool bar
+    function toolCellX(i as integer) as integer
+        return 6 + i * 74
+    end function
+
+end namespace

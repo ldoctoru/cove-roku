@@ -4,7 +4,7 @@ function t_libs() as object
 end function
 
 sub test_defaultIds()
-    t_eq(HomeLayout_defaultIds(t_libs()), ["resume", "nextup", "upcoming", "favorites", "recent", "released", "Lm1", "Lt1", "libraries"], "music has no row")
+    t_eq(HomeLayout_defaultIds(t_libs()), ["resume", "nextup", "libraries", "upcoming", "favorites", "recent", "released", "Lm1", "Lmusic", "Lt1"], "every library has a row, My Media after Next Up")
 end sub
 
 sub test_state_roundTrip()
@@ -27,7 +27,7 @@ end sub
 sub test_orderedIds_saved()
     ' a saved order with a removed library (Lgone) and without the new library t1
     Util_writeText("homeRows:s3", "libraries,Lgone,Lm1,resume")
-    t_eq(HomeLayout_orderedIds("s3", t_libs()), ["libraries", "Lm1", "Lt1", "resume", "nextup", "upcoming", "favorites", "recent", "released"], "dropped and inserted")
+    t_eq(HomeLayout_orderedIds("s3", t_libs()), ["libraries", "Lm1", "Lmusic", "Lt1", "resume", "nextup", "upcoming", "favorites", "recent", "released"], "dropped and inserted")
 end sub
 
 sub test_move()
@@ -35,7 +35,7 @@ sub test_move()
     t_ok(not HomeLayout_move("s4", libs, "resume", -1), "first row can't go up")
     t_ok(HomeLayout_move("s4", libs, "resume", 1), "moved down")
     t_eq(HomeLayout_orderedIds("s4", libs).slice(0, 2), ["nextup", "resume"], "new order")
-    t_ok(not HomeLayout_move("s4", libs, "libraries", 1), "last row can't go down")
+    t_ok(not HomeLayout_move("s4", libs, "Lt1", 1), "last row can't go down")
     t_ok(not HomeLayout_move("s4", libs, "nope", 1), "unknown row")
 end sub
 
@@ -57,16 +57,16 @@ end sub
 
 sub test_fromServer()
     t_eq(HomeLayout_fromServer(invalid, t_libs()), invalid, "request failed")
-    t_eq(HomeLayout_fromServer({}, t_libs()), ["libraries", "resume", "nextup", "Lm1", "Lt1"], "web app defaults")
+    t_eq(HomeLayout_fromServer({}, t_libs()), ["libraries", "resume", "nextup", "Lm1", "Lmusic", "Lt1"], "web app defaults")
     dp = { CustomPrefs: { homesection0: "latestmedia", homesection1: "NextUp", homesection2: "livetv", homesection3: "librarybuttons", homesection4: "nextup" } }
-    t_eq(HomeLayout_fromServer(dp, t_libs()), ["Lm1", "Lt1", "nextup", "libraries"], "custom order, Live TV skipped")
+    t_eq(HomeLayout_fromServer(dp, t_libs()), ["Lm1", "Lmusic", "Lt1", "nextup", "libraries"], "custom order, Live TV skipped")
 end sub
 
 sub test_newRows_v110()
     libs = t_libs()
     ' an order saved before v1.1 gets Upcoming after Next Up and Recently Released after Recently Added
     Util_writeText("homeRows:s6", "recent,nextup,-resume,Lm1,libraries")
-    t_eq(HomeLayout_orderedIds("s6", libs), ["recent", "released", "nextup", "upcoming", "favorites", "resume", "Lm1", "Lt1", "libraries"], "new rows placed")
+    t_eq(HomeLayout_orderedIds("s6", libs), ["recent", "released", "nextup", "upcoming", "favorites", "resume", "Lm1", "Lmusic", "Lt1", "libraries"], "new rows placed, My Media kept at the end")
     t_ok(HomeLayout_isOn("s6", "upcoming"), "upcoming on by default (hidden when empty)")
     t_ok(not HomeLayout_isOn("s6", "released"), "recently released off by default")
     HomeLayout_setOn("s6", libs, "released", true)
@@ -80,7 +80,7 @@ end sub
 sub test_fromServer_noNewRows()
     dp = { CustomPrefs: { homesection0: "nextup", homesection1: "latestmedia" } }
     out = HomeLayout_fromServer(dp, t_libs())
-    t_eq(out, ["nextup", "Lm1", "Lt1"], "server layout: no upcoming / released")
+    t_eq(out, ["nextup", "Lm1", "Lmusic", "Lt1"], "server layout: no upcoming / released")
 end sub
 
 sub test_rowQueries()
@@ -103,4 +103,73 @@ sub test_nextUpQuerySeriesPlay()
     t_eq(HomeLayout_nextUpQuery(false, true, ""), "", "Emby: nothing")
     t_eq(HomeLayout_nextUpQuery(true, true, ""), "&enableRewatching=true", "Jellyfin + rewatch, no cutoff")
     t_eq(HomeLayout_nextUpQuery(true, false, ""), "", "Jellyfin without rewatch")
+end sub
+
+' (v1.5) a library's Home row no longer depends on the sidebar
+sub test_libraryRow_independent_of_sidebar()
+    libs = t_libs()
+    t_ok(HomeLayout_isOn("v15", "Lm1"), "on by default")
+    ' switched off and on again: the sidebar switch is left alone
+    Prefs_setLibrary("m1", "nav", false)
+    HomeLayout_setOn("v15", libs, "Lm1", true)
+    t_ok(HomeLayout_isOn("v15", "Lm1"), "row on while hidden from the sidebar")
+    t_eq(Prefs_library("m1").nav, false, "setOn no longer puts it in the sidebar")
+    HomeLayout_setOn("v15", libs, "Lm1", false)
+    t_ok(not HomeLayout_isOn("v15", "Lm1"), "row off")
+    t_ok(NavPrefs_isShown("side", "Lt1", libs), "Shows still in the sidebar")
+    HomeLayout_setOn("v15", libs, "Lt1", false)
+    t_ok(not HomeLayout_isOn("v15", "Lt1"), "Shows row off")
+    t_ok(NavPrefs_isShown("side", "Lt1", libs), "and still in the sidebar")
+end sub
+
+' (v1.5 migration) hidden from the sidebar with home = true had no row before the update: still none after
+sub test_libraryRow_migration()
+    libs = [{ id: "a1", collectionType: "movies" }, { id: "b1", collectionType: "movies" }]
+    Prefs_setLibrary("a1", "nav", false)
+    t_eq(Prefs_library("a1").home, true, "saved home = true")
+    t_ok(not HomeLayout_isOn("mig", "La1"), "no row before the migration ran")
+    t_ok(HomeLayout_isOn("mig", "Lb1"), "the shown library keeps its row")
+    t_eq(NavPrefs_migrateHome(libs), 1, "one library migrated")
+    t_eq(Prefs_library("a1").home, false, "home set false once")
+    t_ok(not HomeLayout_isOn("mig", "La1"), "still no row")
+    HomeLayout_setOn("mig", libs, "La1", true)
+    t_eq(NavPrefs_migrateHome(libs), 0, "not again")
+    t_ok(HomeLayout_isOn("mig", "La1"), "switched on by the user: stays on")
+end sub
+
+' (v1.5) My Media and library rows for every kind of library
+sub test_myMedia_v15()
+    sec = createObject("roRegistrySection", "Cove")
+    for each k in sec.getKeyList()
+        sec.delete(k)
+    end for
+    libs = t_libs()
+    ' a saved order keeps My Media where it was; resetting puts it after Next Up
+    Util_writeText("homeRows:s7", "resume,nextup,upcoming,favorites,recent,released,Lm1,Lt1,libraries")
+    t_eq(HomeLayout_orderedIds("s7", libs).peek(), "libraries", "saved order kept")
+    HomeLayout_resetOrder("s7")
+    t_eq(HomeLayout_orderedIds("s7", libs).slice(0, 3), ["resume", "nextup", "libraries"], "default: after Next Up")
+    ' every library in My Media by default, each switch on its own
+    t_eq(HomeLayout_myMediaLibs(libs).count(), 3, "all libraries")
+    NavPrefs_setLibraryInMyMedia("music", false)
+    t_eq(HomeLayout_myMediaLibs(libs).count(), 2, "one switched off")
+    t_ok(NavPrefs_libraryOnHome("music"), "Home row untouched")
+    t_eq(HomeLayout_myMediaLibs([]).count(), 0, "no libraries")
+    ' unknown kinds: their items newest first, playable types only
+    t_ok(HomeLayout_usesLatestRoute("movies") and HomeLayout_usesLatestRoute(""), "films / mixed keep Latest")
+    t_ok(not HomeLayout_usesLatestRoute("music") and not HomeLayout_usesLatestRoute("boxsets"), "others list items")
+    q = HomeLayout_libraryItemsQuery("d1", Items_homeTypesFor("folders"), "latest")
+    t_eq(q, "ParentId=d1&Recursive=true&SortBy=DateCreated,SortName&SortOrder=Descending&Limit=20&IncludeItemTypes=Movie,Series,Video,MusicVideo", "unknown kind, newest first")
+    t_ok(HomeLayout_libraryItemsQuery("m1", "Movie", "az").instr("SortBy=SortName&SortOrder=Ascending") > 0, "A-Z")
+    t_eq(Items_homeTypesFor("movies"), "Movie", "movies")
+    t_eq(Items_homeTypesFor("music"), "MusicAlbum,MusicVideo", "music")
+    t_eq(Items_homeTypesFor("boxsets"), "BoxSet", "box sets")
+    t_eq(Items_homeTypesFor(""), "Movie,Series,Video,MusicVideo", "mixed")
+end sub
+
+sub test_viewTile_v15()
+    srv = { url: "http://s" }
+    t_eq(Items_viewTileUrl(srv, { Id: "v1", Type: "CollectionFolder", ImageTags: { Primary: "p1" } }, 720), "http://s/Items/v1/Images/Primary?maxWidth=720&quality=85&tag=p1", "own Primary")
+    t_eq(Items_viewTileUrl(srv, { Id: "v2", Type: "CollectionFolder", ImageTags: {}, BackdropImageTags: ["b"] }, 720), "http://s/Items/v2/Images/Backdrop/0?maxWidth=720&quality=85&tag=b", "backdrop fallback")
+    t_eq(Items_viewTileUrl(srv, { Id: "v3", Type: "CollectionFolder" }, 720), "", "nothing: the initial")
 end sub

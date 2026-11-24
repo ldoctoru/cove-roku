@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- A movie, episode or series in Cove's Glass style (Sources/Views.swift detail page).
-     Full-screen backdrop; bottom-left: eyebrow, logo or title, details, overview, facts and the button row
-     (Play / Resume, Start over, + / check favourite, CC audio and subtitles); right: Starring / Director.
+<!-- A movie, episode or series, laid out like Emby's details page (v1.5), flat and accent-free.
+     Full-screen darkened backdrop; left: the poster (films, series, collections) with rating badges, or the
+     episode's 16:9 still; right: logo or title, the info line (★ · tomato · year · runtime · rating · genres ·
+     Ends at), the media line (Video · Audio ⌄ · Subtitles ⌄, chosen in place), the buttons (Resume / Play,
+     From Beginning, Trailer, ✓ Watched, ♡ Favorite, ⋯ More), the progress line, tagline, description, Director.
      Below (Down): rows of seasons and episodes (series) or the collection's titles (BoxSet), cast, Included In
      and More Like This; below the last row About
      (tagline, genres, studios, dates, media info).
@@ -28,7 +30,7 @@
     </interface>
     <children>
         <Poster id="backdrop" width="1920" height="1080" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" />
-        <Poster id="scrimLeft" uri="pkg:/images/ui/scrim_left.png" width="1248" height="1080" />
+        <Poster id="scrimLeft" uri="pkg:/images/ui/scrim_left.png" width="1920" height="1080" />
         <Poster id="scrimBottom" width="1920" height="1080" />
         <Group id="rowsBg" opacity="0">
             <Poster uri="pkg:/images/ui/scrim_top.png" width="1920" height="300" />
@@ -37,56 +39,58 @@
         </Group>
 
         <Group id="header">
-            <!-- a dark side behind Starring / Director, for bright pictures -->
+            <!-- a dark side on the right, for bright pictures -->
             <Poster uri="pkg:/images/ui/scrim_right.png" width="900" height="1080" translation="[1020,0]" />
-            <Label id="eyebrow" width="1100" height="36" translation="[96,0]" color="0xFFFFFFD9">
-                <Font role="font" uri="font:BoldSystemFontFile" size="26" />
-            </Label>
-            <Poster id="logo" loadDisplayMode="scaleToFit" loadWidth="630" loadHeight="165" visible="false" />
-            <Label id="title" width="1150" height="90" translation="[96,0]" color="0xFFFFFFFF">
-                <Font role="font" uri="font:BoldSystemFontFile" size="72" />
-            </Label>
-            <!-- "TV Show · Comedy  [TV-PG]  ★ 8.8" -->
-            <Group id="kindRow" translation="[96,0]">
-                <Label id="kind" height="40" vertAlign="center" color="0xFFFFFFFF">
-                    <Font role="font" uri="font:MediumSystemFontFile" size="26" />
-                </Label>
-                <Poster id="ratingBox" uri="pkg:/images/ui/outline_box_r4.9.png" height="32" translation="[0,4]" visible="false" />
-                <Label id="rating" height="40" vertAlign="center" color="0xFFFFFFFF">
-                    <Font role="font" uri="font:BoldSystemFontFile" size="24" />
-                </Label>
-                <Poster id="star" uri="pkg:/images/ui/icon_star_28.png" width="24" height="24" translation="[0,8]" blendColor="0xFFD60AFF" visible="false" />
-                <Label id="score" height="40" vertAlign="center" color="0xFFFFFFFF">
-                    <Font role="font" uri="font:MediumSystemFontFile" size="26" />
-                </Label>
-                <!-- (v1.0 F-15) the critics' score: red tomato from 60 %, green splat below -->
-                <Poster id="critic" width="28" height="28" translation="[0,6]" visible="false" />
-                <Label id="criticScore" height="40" vertAlign="center" color="0xFFFFFFFF">
-                    <Font role="font" uri="font:MediumSystemFontFile" size="26" />
-                </Label>
+            <!-- (v1.5 details) Emby's layout: the artwork on the left (films / series: the tall poster with the
+                 rating badges down its right edge; episodes: the 16:9 still), rounded 12 -->
+            <Group id="art" translation="[96,110]">
+                <Poster id="artBg" uri="pkg:/images/ui/white_r12.9.png" width="420" height="630" />
+                <!-- the card's picture (already loaded) while the full-size one loads above it -->
+                <Poster id="artLow" width="420" height="630" loadDisplayMode="scaleToZoom" />
+                <Poster id="artImg" width="420" height="630" loadDisplayMode="scaleToZoom" loadWidth="420" loadHeight="630" />
+                <Poster id="artMask" width="420" height="630" />
+                <Group id="badges" />
             </Group>
-            <!-- Up from the buttons when the description is cut: a glass highlight, OK opens the whole text -->
-            <Poster id="ovFocus" uri="pkg:/images/ui/sel_pill.9.png" visible="false" />
-            <Label id="ovMeasure" height="38" opacity="0"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
-            <Group id="ov" translation="[96,0]">
-                <!-- (SP-12) placeholder bars where the description goes, until the item answers -->
-                <Group id="ovSkel" />
-                <Label id="ovMore" text="MORE" height="38" color="0xFFFFFFCC" visible="false"><Font role="font" uri="font:BoldSystemFontFile" size="24" /></Label>
-                <Label id="ov0" width="980" height="38" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
-                <Label id="ov1" width="980" height="38" translation="[0,38]" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
-                <Label id="ov2" width="980" height="38" translation="[0,76]" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+            <!-- the right column, top to bottom: logo or title, (episodes) S:E - name, info line, media line,
+                 buttons, progress, tagline, description, Director -->
+            <Group id="col" translation="[572,110]">
+                <Poster id="logo" loadDisplayMode="scaleToFit" loadWidth="620" loadHeight="150" visible="false" />
+                <Label id="title" width="1250" height="150" vertAlign="bottom" color="0xFFFFFFFF">
+                    <Font role="font" uri="font:BoldSystemFontFile" size="64" />
+                </Label>
+                <Label id="epLine" width="1000" height="44" color="0xFFFFFFEB" visible="false">
+                    <Font role="font" uri="font:BoldSystemFontFile" size="30" />
+                </Label>
+                <Group id="infoRow" />
+                <Group id="mediaRow" />
+                <Group id="buttons" />
+                <!-- (when started) the played part in the Continue Watching green, the rest 25 % white -->
+                <Group id="progressRow" visible="false">
+                    <Rectangle id="progTrack" width="320" height="6" translation="[0,11]" color="0xFFFFFF40" />
+                    <Rectangle id="progFill" width="0" height="6" translation="[0,11]" color="0x52B54BFF" />
+                    <Label id="progText" height="28" translation="[344,0]" color="0xFFFFFF9E">
+                        <Font role="font" uri="font:MediumSystemFontFile" size="24" />
+                    </Label>
+                </Group>
+                <Label id="tagline" width="1200" height="40" color="0xFFFFFFEB">
+                    <Font role="font" uri="font:BoldSystemFontFile" size="28" />
+                </Label>
+                <!-- Down from the buttons when the description is cut: a faint highlight, OK opens the whole text -->
+                <Poster id="ovFocus" uri="pkg:/images/ui/sel_pill.9.png" visible="false" />
+                <Label id="ovMeasure" height="38" opacity="0"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+                <Group id="ov">
+                    <!-- (SP-12) placeholder bars where the description goes, until the item answers -->
+                    <Group id="ovSkel" />
+                    <Label id="ovMore" text="More" height="38" color="0xFFFFFFCC" visible="false"><Font role="font" uri="font:BoldSystemFontFile" size="24" /></Label>
+                    <Label id="ov0" width="1200" height="38" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+                    <Label id="ov1" width="1200" height="38" translation="[0,38]" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+                    <Label id="ov2" width="1200" height="38" translation="[0,76]" color="0xFFFFFFD9"><Font role="font" uri="font:MediumSystemFontFile" size="26" /></Label>
+                </Group>
+                <Group id="credit">
+                    <Label id="creditKey" height="36" color="0xFFFFFF9E"><Font role="font" uri="font:MediumSystemFontFile" size="24" /></Label>
+                    <Label id="creditName" height="36" color="0xFFFFFFEB"><Font role="font" uri="font:BoldSystemFontFile" size="24" /></Label>
+                </Group>
             </Group>
-            <Label id="facts" width="1150" height="36" translation="[96,0]" color="0xFFFFFFD9">
-                <Font role="font" uri="font:MediumSystemFontFile" size="24" />
-            </Label>
-            <Group id="people" translation="[1380,0]">
-                <Label id="starL" text="Starring" width="444" height="34" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="24" /></Label>
-                <Label id="star0" width="444" height="34" translation="[0,34]" color="0xFFFFFFFF"><Font role="font" uri="font:MediumSystemFontFile" size="24" /></Label>
-                <Label id="star1" width="444" height="34" translation="[0,68]" color="0xFFFFFFFF"><Font role="font" uri="font:MediumSystemFontFile" size="24" /></Label>
-                <Label id="dirL" text="Director" width="444" height="34" translation="[0,116]" color="0xFFFFFFCC"><Font role="font" uri="font:MediumSystemFontFile" size="24" /></Label>
-                <Label id="dir0" width="444" height="34" translation="[0,150]" color="0xFFFFFFFF"><Font role="font" uri="font:MediumSystemFontFile" size="24" /></Label>
-            </Group>
-            <Group id="buttons" translation="[96,830]" />
         </Group>
 
         <!-- shown at the top while the rows are focused -->
@@ -95,14 +99,14 @@
         </Label>
 
         <!-- below the header: the season / subtitle pills (series) and the rows; slides up as one -->
-        <Group id="lower" translation="[78,950]">
+        <Group id="lower" translation="[78,900]">
             <Group id="seasonBar" translation="[18,0]" visible="false" />
             <RowList id="rows" translation="[0,0]" itemComponentName="PosterItem" numRows="3"
                      itemSize="[1842,466]" rowHeights="[466]" rowItemSize="[[276,466]]" rowItemSpacing="[[0,0]]"
                      itemSpacing="[0,44]" showRowLabel="[true]" rowLabelOffset="[[18,0]]" rowLabelColor="0xFFFFFFFF"
                      focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
                      drawFocusFeedback="false" visible="false">
-                <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="36" />
+                <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="34" />
             </RowList>
         </Group>
 
@@ -116,7 +120,7 @@
             <Font role="font" uri="font:MediumSystemFontFile" size="28" />
         </Label>
         <!-- (SC-9) a failed page load: the message and Try Again -->
-        <ErrorPanel id="errorPanel" translation="[100,420]" width="1720" visible="false" />
+        <ErrorPanel id="errorPanel" translation="[96,420]" width="1728" visible="false" />
         <Animation id="slide" duration="0.3" easeFunction="outCubic">
             <Vector2DFieldInterpolator id="rowsMove" key="[0.0, 1.0]" fieldToInterp="lower.translation" />
             <FloatFieldInterpolator id="headerFade" key="[0.0, 1.0]" fieldToInterp="header.opacity" />
@@ -130,5 +134,7 @@
         <Timer id="seasonWait" duration="0.8" repeat="false" />
         <!-- (v1.2 SP-9) the rows are rebuilt once, this long after the last answer of a burst -->
         <Timer id="rowsTimer" duration="0.05" repeat="false" />
+        <!-- (v1.5 details) the name keyboard sometimes opens without the focus: given again after this -->
+        <Timer id="kbTimer" duration="0.4" repeat="false" />
     </children>
 </component>

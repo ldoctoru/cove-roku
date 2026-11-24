@@ -10,29 +10,60 @@ import "pkg:/source/Ratings.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/HomeLayout.bs"
 import "pkg:/source/Toasts.bs"
+import "pkg:/source/NavPrefs.bs"
+import "pkg:/source/SetRows.bs"
 
-' Layout (1920 x 1080): cards from x 200, 1520 wide; the label column ends at x 610, controls start at x 650
-' (the Mac's PrefRow: label right-aligned in a fixed column, the control beside it)
+' (v1.5) Settings in the Cove for Mac format (SettingsPages.bs builds each tab's rows), drawn here, flat.
+' Layout (1920 x 1080): 9 tabs of 150 x 108 across the top (y 36), a line at y 162, then the tab's rows in a
+' 904 px window from y 176 that follows the focus: x 260-1660 (Subtitles: 260-1160, the live preview at 1260).
+' Focus zones: "tabs" (Left / Right switch tab), "content" (the rows), "pop" (a choice's small list).
 
 sub init()
-    m.content = m.top.findNode("content")
+    m.bgRect = m.top.findNode("bg")
+    m.tabsGroup = m.top.findNode("tabs")
+    m.lineRect = m.top.findNode("line")
+    m.preview = m.top.findNode("preview")
+    m.list = m.top.findNode("list")
     m.keys = m.top.findNode("keys")
+    m.popLayer = m.top.findNode("popLayer")
+    m.popPanel = m.top.findNode("popPanel")
+    m.popTitle = m.top.findNode("popTitle")
+    m.popClip = m.top.findNode("popClip")
+    m.popList = m.top.findNode("popList")
     m.kbTimer = m.top.findNode("kbTimer")
     m.kbTimer.observeField("fire", "focusKeyboard")
+    ' fonts, made once and shared by every row
+    m.fRow = mkFont(false, 28)
+    m.fValue = mkFont(false, 28)
+    m.fSub = mkFont(false, 24)
+    m.fHead = mkFont(true, 22)
+    m.fCols = mkFont(true, 20)
+    m.fTab = mkFont(false, 24)
+    m.popTitle.font = m.fHead
     ' (v0.9.1) the profile PIN steps (components/profiles/PinFlow): parent PIN, profile PIN, new PIN
     m.pinFlow = createObject("roSGNode", "PinFlow")
     m.pinFlow.focusBack = m.keys
     m.pinFlow.observeField("result", "onPinResult")
     m.top.appendChild(m.pinFlow)
+    m.tabList = settingsTabs()
     m.tab = 0
-    m.area = "tabs"
-    m.row = 0
-    m.scrollTop = 0
-    m.picker = invalid
+    m.zone = "tabs"
+    ' the page stack inside the tab: { id, focus (index among the focusable rows), key (the focused row's key),
+    ' top (scroll), order (General → Top Bar / Sidebar: the Change Order mode) }
+    m.stack = [newEntry(m.tabList[0].id)]
+    m.pop = invalid
+    m.rows = []
+    m.nodes = []
+    m.focusables = []
+    m.focus = -1
+    m.moving = ""
     m.libs = []
     m.libTask = invalid
     m.renameFor = ""
     m.libError = ""
+    m.menuLib = ""
+    m.menuServer = ""
+    m.menuProfile = ""
     m.tasksHolder = invalid     ' (SC-13) the scene's "tasks" group, for sign-out requests
     info = createObject("roAppInfo")
     m.version = info.getVersion()
@@ -47,22 +78,20 @@ sub init()
     end try
     m.top.observeField("focusedChild", "onFocusChanged")
     m.top.observeField("server", "onServer")
-    ' Audio Guide: what was said last (a redraw that doesn't move the focus says nothing) and its section
+    ' Audio Guide: what was said last (a rebuild that doesn't move the focus says nothing), the page and section
     m.spokenKey = ""
     m.spokenHead = ""
+    m.spokenPage = ""
     Speak.mute([m.keys])
+    makeTabs()
     draw()
 end sub
 
-function tabList() as object
-    return [
-        { id: "general", label: "General" }, { id: "home", label: "Home" }, { id: "libraries", label: "Libraries" },
-        { id: "subtitles", label: "Subtitles" }, { id: "playback", label: "Playback" }, { id: "servers", label: "Servers" },
-        { id: "profiles", label: "Profiles" }, { id: "remote", label: "Remote" }, { id: "about", label: "About" }
-    ]
+function newEntry(id as string) as object
+    return { id: id, focus: 0, key: "", top: 0, order: false }
 end function
 
-' The server's libraries for the Libraries tab
+' The server's libraries (Libraries, Home rows, top bar and sidebar lists)
 sub onServer()
     srv = m.top.server
     if srv = invalid then return
@@ -93,279 +122,933 @@ sub onViews(ev as object)
     draw()
 end sub
 
-' ---------------------------------------------------------------- what each tab holds
+' ---------------------------------------------------------------- drawing
 
-function choice(id as string, label as string, options as object, cur as string) as object
-    v = cur
-    for each o in options
-        if o.id = cur then v = o.label
+function mkFont(bold as boolean, size as integer) as object
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    if bold then f.uri = "font:BoldSystemFontFile"
+    f.size = size
+    return f
+end function
+
+function addLabel(parent as object, text as string, x as integer, y as integer, w as integer, h as integer, fnt as object, color as string) as object
+    l = parent.createChild("Label")
+    l.font = fnt
+    l.text = text
+    l.color = color
+    l.translation = [x, y]
+    l.width = w
+    l.height = h
+    l.vertAlign = "center"
+    return l
+end function
+
+function addPoster(parent as object, uri as string, x as integer, y as integer, w as integer, h as integer) as object
+    p = parent.createChild("Poster")
+    p.uri = uri
+    p.translation = [x, y]
+    p.width = w
+    p.height = h
+    return p
+end function
+
+' The content column: x and width (Subtitles leaves room for the preview on the right)
+function contentX() as integer
+    return 260
+end function
+
+function contentW() as integer
+    if m.stack[0].id = "subtitles" then return 900
+    return 1400
+end function
+
+' The tabs across the top, built once: { grp, bg, icon, lab } each
+sub makeTabs()
+    m.tabNodes = []
+    n = m.tabList.count()
+    tw = 150
+    gap = 8
+    x0 = Int((1920 - (n * tw + (n - 1) * gap)) / 2)
+    for i = 0 to n - 1
+        tb = m.tabList[i]
+        g = m.tabsGroup.createChild("Group")
+        g.translation = [x0 + i * (tw + gap), 0]
+        bgp = addPoster(g, "pkg:/images/ui/set_r12.9.png", 0, 0, tw, 108)
+        ic = addPoster(g, "pkg:/images/ui/icon_tab_" + tb.icon + "_44.png", 53, 14, 44, 44)
+        lab = addLabel(g, tb.label, 0, 64, tw, 34, m.fTab, "0xFFFFFF9E")
+        lab.horizAlign = "center"
+        m.tabNodes.push({ grp: g, bg: bgp, icon: ic, lab: lab })
     end for
-    return { kind: "choice", id: id, label: label, options: options, cur: cur, value: v }
-end function
+end sub
 
-function toggle(id as string, label as string, text as string, isOn as boolean) as object
-    return { kind: "toggle", id: id, label: label, text: text, on: isOn }
-end function
-
-function note(text as string) as object
-    return { kind: "note", text: text }
-end function
-
-function sectionHead(text as string) as object
-    return { kind: "head", text: text }
-end function
-
-function rowsFor(tabId as string) as object
+' Selected tab: white fill with dark icon and label while the tabs have the focus, a faint 12 % fill when the
+' focus is in its settings; the others plain grey
+sub paintTabs()
     t = m.global.theme
-    out = []
-    if tabId = "general"
-        out.push(sectionHead("Appearance"))
-        sw = []
-        for each name in ["red", "orange", "pink", "purple", "blue", "teal", "green", "white"]
-            sw.push({ id: name, color: Theme.accents()[name] })
-        end for
-        out.push({ kind: "swatches", id: "accent", label: "Accent color", options: sw, cur: t.accentName })
-        tl = []
-        for each name in ["black", "charcoal", "navy", "plum", "forest"]
-            tl.push({ id: name, label: capital(name), color: Theme.backgrounds()[name] })
-        end for
-        out.push({ kind: "tiles", id: "background", label: "Background", options: tl, cur: t.bgName })
-        out.push(note("Cove for Roku uses the Glass theme. The accent color marks buttons, switches and the page you're on."))
-        out.push(sectionHead("Navigation"))
-        out.push(choice("navStyle", "Style", [{ id: "sidebar", label: "Sidebar" }, { id: "topbar", label: "Top Bar" }], Prefs.navStyle()))
-        c = choice("topBarLabels", "Top bar shows", [{ id: "both", label: "Icons and Names" }, { id: "names", label: "Names" }, { id: "icons", label: "Icons" }], Prefs.topBarLabels())
-        c.dim = Prefs.navStyle() <> "topbar"
-        out.push(c)
-        out.push(note("Top Bar replaces the sidebar with a bar across the top of Home (Up from the banner reaches it)."))
-        out.push(toggle("showRecent", "Also show", "Recently Added", Prefs.showRecent()))
-        out.push(note("Home is always there. Libraries, Favorites and Now Playing are chosen in Libraries."))
-    else if tabId = "home"
-        ' Settings → Home → Rows (HomeLayout): every Home row with its switch and place, per server
-        sid = serverKey()
-        srvOn = HomeLayout.useServerLayout(sid)
-        ' (v1.3.2) Settings → Home → Banner, as on the Mac: where its titles come from and how often they change
-        bp = Prefs.bannerPref()
-        out.push(sectionHead("Banner"))
-        out.push(choice("bannerSource", "Banner shows", HomeBanner.sourceOptions(), bp.source))
-        out.push(choice("bannerRefresh", "Refresh banner", HomeBanner.refreshOptions(), bp.minutes.toStr()))
-        out.push(note("Which titles the banner at the top of Home cycles through; From Home Rows is the original mix. Newest: recently added films and shows. Refresh picks a fresh set while Home stays open (not while it's hidden or a video plays)."))
-        out.push(sectionHead("Layout"))
-        out.push(toggle("homeServerLayout", "", "Use the server's Home layout", srvOn))
-        out.push(note("Home follows the Home sections set in the server's web app (Settings > Home): Continue Watching, Next Up, Latest per library and My Media. Sections Cove doesn't have are left out, and Upcoming and Recently Released show only with Cove's layout; a library's row still follows its switch below."))
-        out.push(sectionHead("Rows"))
-        libs = homeLibs()
-        for each id in HomeLayout.orderedIds(sid, libs)
-            out.push(homeRowEntry(id, libs, srvOn))
-        end for
-        if m.libs.count() = 0
-            if m.libError <> ""
-                out.push(note(m.libError))
-            else
-                out.push(note("Loading your libraries..."))
-            end if
+    for i = 0 to m.tabNodes.count() - 1
+        n = m.tabNodes[i]
+        if i = m.tab and m.zone = "tabs"
+            n.bg.visible = true
+            n.bg.blendColor = t.focusFill
+            n.icon.blendColor = t.onFocus
+            n.lab.color = t.onFocus
+        else if i = m.tab
+            n.bg.visible = true
+            n.bg.blendColor = t.controlFill
+            n.icon.blendColor = t.text
+            n.lab.color = t.text
+        else
+            n.bg.visible = false
+            n.icon.blendColor = t.text2
+            n.lab.color = t.text2
         end if
-        out.push(note("OK on a row: show or hide it, or move it up or down (Left / Right switch it off / on). What a library's row shows (Latest, Top Rated, ...) is set in Libraries. Saved for this server."))
-        b = { kind: "button", id: "homeDefaultOrder", label: "", text: "Default Order" }
-        b.dim = srvOn
-        out.push(b)
-        homeOptionRows(out)
-    else if tabId = "libraries"
-        out.push(sectionHead("Your libraries"))
-        out.push({ kind: "section", id: "showFavorites", label: "Favorites", icon: "heart", on: Prefs.showFavorites() })
-        out.push({ kind: "section", id: "showNowPlaying", label: "Now Playing", icon: "nowplaying", on: Prefs.showNowPlaying() })
-        ordered = Prefs.orderLibraries(m.libs, serverKey())
-        for each l in ordered
-            lp = Prefs.library(l.id)
-            ic = "folder"
-            if l.kind = "movies" then ic = "film"
-            if l.kind = "tvshows" then ic = "tv"
-            out.push({ kind: "library", id: l.id, label: l.title, icon: ic, nav: lp.nav, home: lp.home, libKind: l.kind })
+    end for
+end sub
+
+' Builds the page on top of the stack again (after a change), keeping the focus on the same row
+sub draw()
+    t = m.global.theme
+    m.bgRect.color = t.bg
+    m.lineRect.color = t.divider
+    paintTabs()
+    entry = m.stack.peek()
+    m.preview.removeChildrenIndex(m.preview.getChildCount(), 0)
+    if entry.id = "subtitles" then drawPreview(m.preview)
+    rows = pageRows(entry)
+    m.rows = rows
+    m.nodes = []
+    m.focusables = []
+    m.rowY = []
+    m.rowH = []
+    cw = contentW()
+    chars = SetRows.charsFor(cw - 16)
+    lst = m.list
+    lst.removeChildrenIndex(lst.getChildCount(), 0)
+    y = 0
+    for i = 0 to rows.count() - 1
+        r = rows[i]
+        h = SetRows.rowHeight(r, chars)
+        m.rowY.push(y)
+        m.rowH.push(h)
+        m.nodes.push(makeRow(lst, r, y, h, cw, chars))
+        if SetRows.takesFocus(r) then m.focusables.push(i)
+        y = y + h + SetRows.gapAfter(r)
+    end for
+    m.listH = y + 40
+    ' the focus: the row it was on (by key), else the same place
+    f = -1
+    if Util.toText(entry.key) <> ""
+        for j = 0 to m.focusables.count() - 1
+            if SetRows.keyOf(rows[m.focusables[j]]) = entry.key then f = j
         end for
-        if m.libs.count() = 0
-            if m.libError <> ""
-                out.push(note(m.libError))
-                out.push({ kind: "button", id: "retryLibs", label: "", text: "Try Again" })
-            else
-                out.push(note("Loading your libraries..."))
-            end if
-        end if
-        out.push(note("OK on a library: show it in the sidebar or on Home, what its Home row shows, how it opens, its name and its place in the sidebar. The order of the Home rows is in Home > Rows."))
-        out.push(sectionHead("Movie and show pages"))
-        out.push(choice("castSize", "Cast & Crew", [{ id: "normal", label: "Normal" }, { id: "large", label: "Large" }], Prefs.text("castSize", "normal")))
-        out.push(note("Large shows bigger actor photos and names."))
-        out.push(toggle("showEpisodeDescription", "Episodes", "Show episode descriptions", Prefs.showEpisodeDescription()))
-        out.push(toggle("hideSpoilers", "", "Hide spoilers for unwatched episodes", Prefs.hideSpoilers()))
-        out.push(note("Episodes you haven't watched show the series' picture instead of their own, and no description, on Home, the series page, the episode's page and Up Next."))
-    else if tabId = "subtitles"
-        out.push(sectionHead("Language"))
-        out.push(toggle("subAlways", "", "Always load my subtitle language", Prefs.subAlways()))
-        langs = []
-        for each l in Prefs.languages()
-            langs.push({ id: LCase(l.name), label: l.name })
-        end for
-        c = choice("subLang", "Language", langs, Prefs.subLang())
-        c.dim = not Prefs.subAlways()
-        out.push(c)
-        out.push(note("Movies and episodes start with subtitles in this language when they have them. You can still turn them off in the player."))
-        out.push(sectionHead("Style"))
-        out.push({ kind: "preview" })
-        for each ch in Subs.styleChoices()
-            out.push(choice(ch.key, ch.label, ch.options, Subs.current(ch)))
-        end for
-        out.push({ kind: "button", id: "subDefaults", label: "", text: "Restore Defaults" })
-        out.push(note("Roku setting follows the Roku's caption style (Roku Settings > Accessibility > Caption style), including its font, opacity and window. With the Roku's captions On, titles start with subtitles in this language unless you chose others for them."))
-    else if tabId = "playback"
-        out.push(sectionHead("Start with"))
-        out.push(choice("startQualityHome", "Home network", Tracks.qualities(), Prefs.startQualityOf("startQualityHome").toStr()))
-        out.push(choice("startQualityNet", "Internet", Tracks.qualities(), Prefs.startQualityOf("startQualityNet").toStr()))
-        out.push(note(networkNote()))
-        sk = []
-        for each v in [5, 10, 15, 30]
-            sk.push({ id: v.toStr(), label: v.toStr() + " s" })
-        end for
-        out.push(choice("skipSeconds", "Skip back / forward", sk, Prefs.skipSeconds().toStr()))
-        out.push(note("Left / Right in the player, moving along the bar."))
-        jb = []
-        for each v in [10, 15, 30, 60]
-            jb.push({ id: v.toStr(), label: v.toStr() + " s" })
-        end for
-        out.push(choice("jumpSeconds", "Jump buttons", jb, Prefs.jumpSeconds().toStr()))
-        out.push(note("The back / forward buttons in the player and the Rewind / Fast forward keys."))
-        out.push(choice("rewindOnResume", "Rewind on resume", [{ id: "off", label: "Off" }, { id: "5", label: "5 s" }, { id: "10", label: "10 s" }, { id: "30", label: "30 s" }], Prefs.text("rewindOnResume", "5")))
-        out.push(note("Goes back a little when a title resumes where you left it, or after a pause of 5 minutes or more."))
-        ' (v1.0 F-3) the speed every title starts at (the player's * menu still changes it for one title)
-        sp = []
-        for each v in ["0.5", "0.75", "1", "1.25", "1.5", "1.75", "2"]
-            lb = v + "×"
-            if v = "1" then lb = "Normal (1×)"
-            sp.push({ id: v, label: lb })
-        end for
-        out.push(choice("defaultSpeed", "Default speed", sp, Prefs.defaultSpeed()))
-        out.push(note("Titles start at this speed on Rokus that can change it. The player's * menu changes it for one title."))
-        out.push(sectionHead("Audio"))
-        out.push(choice("audioChannels", "Maximum channels", [{ id: "auto", label: "Automatic" }, { id: "2", label: "Stereo (2.0)" }, { id: "6", label: "5.1" }, { id: "8", label: "7.1" }], Prefs.text("audioChannels", "auto")))
-        ac = [{ id: "auto", label: "Automatic" }, { id: "aac", label: "AAC" }]
-        if Util.flag(m.caps, "ac3") then ac.push({ id: "ac3", label: "Dolby Digital (AC3)" })
-        if Util.flag(m.caps, "eac3") then ac.push({ id: "eac3", label: "Dolby Digital Plus (E-AC3)" })
-        out.push(choice("audioCodec", "Preferred audio", ac, Prefs.audioCodec()))
-        dts = toggle("dtsPassthrough", "", "DTS passthrough", Prefs.dtsPassthrough() and Util.flag(m.caps, "dts"))
-        dts.dim = not Util.flag(m.caps, "dts")
-        out.push(dts)
-        dtsNote = "DTS passthrough sends DTS unchanged to your receiver."
-        if not Util.flag(m.caps, "dts") then dtsNote = "This Roku reports no DTS decoder (a receiver or TV that takes DTS) on its HDMI, so the server converts DTS."
-        out.push(note("Stereo makes the server mix surround tracks down to 2 channels. Preferred audio is what the server converts to when the Roku can't play a track as it is (e.g. TrueHD, DTS). " + dtsNote))
-        out.push(sectionHead("Automatically"))
-        out.push(toggle("autoNext", "", "Play the next episode", Prefs.autoNext()))
-        ' (v1.0 F-11) how long Up Next counts down before the next episode
-        un = choice("upNextSecs", "Up Next countdown", [{ id: "off", label: "Off" }, { id: "5", label: "5 s" }, { id: "10", label: "10 s" }, { id: "15", label: "15 s" }], Prefs.text("upNextSecs", "10"))
-        un.dim = not Prefs.autoNext()
-        out.push(un)
-        out.push(note("The Up Next card shows during an episode's credits (or its last 30 seconds) and plays the next episode when the countdown ends. Off starts the next episode as soon as one ends, without the card."))
-        ' (v1.3) one row per kind of part the servers mark: Ask (the Skip button), Skip automatically, Don't show
-        out.push(sectionHead("Skip"))
-        segOpts = [{ id: "ask", label: "Ask (Skip button)" }, { id: "auto", label: "Skip automatically" }, { id: "off", label: "Don't show" }]
-        segNow = Prefs.segmentSkipAll()
-        segRows = [["intro", "Intros"], ["recap", "Recaps"], ["preview", "Previews"], ["commercial", "Ads"], ["credits", "Credits"]]
-        for each sr in segRows
-            out.push(choice("seg:" + sr[0], sr[1], segOpts, segNow[sr[0]]))
-        end for
-        out.push(note("Intros and credits come from the server's markers; recaps, previews and ads only from Jellyfin media segments. Skip automatically skips them with a short notice; an episode's credits then go straight to the next episode. With Credits on Ask, an episode shows the Up Next card."))
-        out.push(sectionHead("Are you still watching?"))
-        out.push(choice("stillWatching", "Ask after", [{ id: "off", label: "Off" }, { id: "2", label: "2 episodes" }, { id: "3", label: "3 episodes" }, { id: "5", label: "5 episodes" }], Prefs.text("stillWatching", "3")))
-        ' (v1.0 F-11) replaces the fixed 2 hours
-        out.push(choice("stillIdle", "Ask if still watching after", [{ id: "off", label: "Off" }, { id: "1", label: "1 hour" }, { id: "2", label: "2 hours" }, { id: "3", label: "3 hours" }], Prefs.text("stillIdle", "2")))
-        out.push(note("Cove pauses and asks after this many episodes in a row, or after this long of playing an episode, without a key press. Movies are never interrupted."))
-        ' (v1.0 F-10) the server's intros before a film
-        out.push(sectionHead("Cinema Mode"))
-        out.push(toggle("cinemaMode", "", "Play intros before a movie", Prefs.cinemaMode()))
-        out.push(note("Plays the trailers and pre-rolls your server sets up (Cinema Mode / intros) before a movie you start from the beginning."))
-    else if tabId = "servers"
-        srv = m.top.server
-        out.push(sectionHead("Current server"))
-        if srv <> invalid
-            out.push({ kind: "info", label: "Connected to", text: Util.toText(srv.name), sub: Util.toText(srv.userName) + "  ·  " + Util.toText(srv.url) })
-        end if
-        out.push({ kind: "button", id: "signout", label: "", text: "Sign Out" })
-        out.push(note("Profiles, PINs and rating limits are in the Profiles tab."))
-        out.push(sectionHead("Saved servers"))
-        for each s in Servers.all()
-            kind = "Emby"
-            if Servers.isJellyfin(s) then kind = "Jellyfin"
-            cur = srv <> invalid and Util.toText(s.id) = Util.toText(srv.id)
-            ' (as the Mac's ConnectionBadge: plain http is flagged, more strongly when it leaves the home network)
-            srvSub = Util.toText(s.url) + "  ·  " + kind
-            if Util.toText(s.userName) <> "" then srvSub = Util.toText(s.userName) + "  ·  " + srvSub
-            if Util.isPlainRemote(Util.toText(s.url))
-                srvSub = srvSub + "  ·  Not encrypted (internet)"
-            else if Util.isPlainHttp(Util.toText(s.url))
-                srvSub = srvSub + "  ·  Not encrypted"
-            end if
-            out.push({ kind: "server", id: Util.toText(s.id), label: Util.toText(s.name), sub: srvSub, current: cur })
-        end for
-        out.push({ kind: "button", id: "addServer", label: "", text: "Add Server..." })
-        out.push(note("OK on a server: connect to it, rename it or remove it. Add Server opens the sign-in screen."))
-        if isRestricted() then out.push(note(restrictedNote()))
-    else if tabId = "profiles"
-        profileRows(out)
-    else if tabId = "remote"
-        out.push(sectionHead("While a video plays"))
-        for each k in [["OK", "Play or pause; with the controls showing, use the selected button"], ["Left / Right", "Skip back / forward (Settings > Playback); with the controls showing, move along the bar. Hold to move faster"], ["Up / Down", "Show the controls; move between the bar, the round buttons and the buttons on the right"], ["Rewind / Fast fwd", "Jump back / forward (Settings > Playback > Jump buttons); press again quickly to jump further"], ["Instant replay", "Jump 10 s back (with the Roku's captions on Instant replay, subtitles show for a moment)"], ["*", "Audio, subtitles, quality, version and speed"], ["Back", "Hide the controls, or leave the player"]]
-            out.push({ kind: "keys", key: k[0], text: k[1] })
-        end for
-        out.push(sectionHead("Home"))
-        for each k in [["Left", "Open the sidebar (from the first button or the first card of a row)"], ["Rewind / Fast fwd", "Previous / next title in the banner"], ["*", "On a card: play, mark as watched, Favorites, remove from Continue Watching; elsewhere: the app options"]]
-            out.push({ kind: "keys", key: k[0], text: k[1] })
-        end for
-        out.push(sectionHead("Other pages"))
-        for each k in [["Play", "On any card: play it right away (a series or season: its next episode; a collection: its next film)"], ["Up", "Library: the Sort, Order, Genre, A-Z and Show filters"], ["*", "Series page: options for the selected episode"], ["Back", "The page before"]]
-            out.push({ kind: "keys", key: k[0], text: k[1] })
-        end for
-        out.push(sectionHead("In Settings"))
-        for each k in [["Left / Right", "Change tab; on colors and backgrounds, pick one"], ["OK", "Change the selected setting"], ["Back", "Close Settings (changes are kept)"]]
-            out.push({ kind: "keys", key: k[0], text: k[1] })
-        end for
-    else if tabId = "about"
-        out.push(sectionHead("Cove"))
-        out.push({ kind: "info", label: "Version", text: "Cove for Roku " + m.version, sub: "" })
-        out.push({ kind: "info", label: "Source", text: "github.com/ldoctoru/cove-roku", sub: "The TV companion to Cove for macOS (github.com/J0n4e/cove)" })
-        if m.device <> "" then out.push({ kind: "info", label: "This Roku", text: m.device, sub: "" })
-        out.push(sectionHead("Reset"))
-        out.push({ kind: "button", id: "reset", label: "Reset", text: "Reset All Settings..." })
-        out.push(note("Puts every setting back to its default. Your servers, profiles, PINs and rating limits are kept."))
     end if
+    if f < 0 then f = entry.focus
+    if f >= m.focusables.count() then f = m.focusables.count() - 1
+    if f < 0 and m.focusables.count() > 0 then f = 0
+    m.focus = f
+    entry.focus = f
+    if f >= 0
+        entry.key = SetRows.keyOf(rows[m.focusables[f]])
+        if m.zone = "content" then paintRow(m.focusables[f], true)
+    end if
+    if m.zone = "content" and f < 0 then m.zone = "tabs"
+    paintTabs()
+    scrollToFocus()
+    if m.pop <> invalid then drawPop()
+    speakFocus()
+end sub
+
+' The nodes of one row, painted as not focused: { grp, bg, lab, val, chev, check, track, knob, subs, updown, cells }
+function makeRow(parent as object, r as object, y as integer, h as integer, w as integer, chars as integer) as object
+    t = m.global.theme
+    k = r.kind
+    g = parent.createChild("Group")
+    g.translation = [contentX(), y]
+    n = { grp: g, bg: invalid, subs: [], cells: [] }
+    if k = "head"
+        addLabel(g, UCase(Util.toText(r.text)), 8, 28, w, 36, m.fHead, t.text2)
+        return n
+    end if
+    if k = "note"
+        lines = Util.wrapLines(Util.toText(r.text), chars, 8)
+        for i = 0 to lines.count() - 1
+            addLabel(g, lines[i], 8, 4 + i * 30, w - 16, 30, m.fSub, t.text2)
+        end for
+        return n
+    end if
+    if k = "cols"
+        for i = 0 to r.cols.count() - 1
+            c = addLabel(g, UCase(r.cols[i]), libColX(w, i) - 72, 4, 144, 36, m.fCols, t.text3)
+            c.horizAlign = "center"
+        end for
+        return n
+    end if
+    n.bg = addPoster(g, "pkg:/images/ui/set_r12.9.png", 0, 0, w, h)
+    rightEdge = w - 28
+    if k = "link" or k = "choice"
+        n.chev = addPoster(g, "pkg:/images/ui/icon_st_chevron_28.png", rightEdge - 28, Int((h - 28) / 2), 28, 28)
+        rightEdge = rightEdge - 28 - 12
+    else if k = "switch"
+        n.track = addPoster(g, "pkg:/images/ui/set_pill.9.png", rightEdge - 64, Int((h - 36) / 2), 64, 36)
+        kx = rightEdge - 64 + 4
+        if Util.flag(r, "on") then kx = rightEdge - 64 + 32
+        n.knob = addPoster(g, "pkg:/images/ui/set_knob.png", kx, Int((h - 28) / 2), 28, 28)
+        rightEdge = rightEdge - 64 - 20
+    else if k = "move"
+        n.updown = addPoster(g, "pkg:/images/ui/icon_st_updown_28.png", rightEdge - 28, Int((h - 28) / 2), 28, 28)
+        n.updown.visible = false
+        rightEdge = rightEdge - 28 - 12
+    else if k = "lib"
+        ' (the Top Bar, Sidebar, Home Row and My Media columns: a check when on, "Off" when not)
+        for i = 0 to r.cols.count() - 1
+            cx = libColX(w, i)
+            v = r.cols[i]
+            if type(v) <> "roBoolean" and type(v) <> "Boolean"
+                ' (no Home row for this kind of library: an empty cell)
+            else if v
+                n.cells.push(addPoster(g, "pkg:/images/ui/icon_check_28.png", cx - 14, Int((h - 28) / 2), 28, 28))
+            else
+                c = addLabel(g, "Off", cx - 60, 0, 120, h, m.fSub, t.text3)
+                c.horizAlign = "center"
+                n.cells.push(c)
+            end if
+        end for
+        rightEdge = libColX(w, 0) - 100
+    end if
+    lx = 28
+    if k = "lib"
+        n.kindIcon = addPoster(g, "pkg:/images/ui/icon_" + Util.toText(r.icon) + "_36.png", 24, Int((h - 36) / 2), 36, 36)
+        lx = 80
+    end if
+    twoLine = SetRows.isTwoLine(r)
+    lineH = h
+    if twoLine then lineH = 56
+    vw = 0
+    value = Util.toText(r.value)
+    if value <> "" and k <> "lib"
+        v = addLabel(g, value, 0, 0, 0, lineH, m.fValue, t.text2)
+        v.horizAlign = "right"
+        vw = v.boundingRect().width
+        if vw > Int(w / 2) then vw = Int(w / 2)
+        v.width = vw + 4
+        v.translation = [rightEdge - vw - 4, 0]
+        if twoLine then v.translation = [rightEdge - vw - 4, Int((h - lineH) / 2)]
+        n.val = v
+    end if
+    labW = rightEdge - lx - 16
+    if vw > 0 then labW = labW - vw - 20
+    if labW < 200 then labW = 200
+    ly = 0
+    if twoLine then ly = 6
+    n.lab = addLabel(g, Util.toText(r.label), lx, ly, labW, lineH, m.fRow, t.text1)
+    if twoLine
+        subLines = Util.wrapLines(Util.toText(r.sub), chars, 3)
+        for i = 0 to subLines.count() - 1
+            n.subs.push(addLabel(g, subLines[i], lx, 56 + i * 30, rightEdge - lx - vw - 24, 30, m.fSub, t.text2))
+        end for
+    end if
+    paintRow(-1, false, n, r)
+    return n
+end function
+
+' The centre of a Libraries table column (0 Top Bar, 1 Sidebar, 2 Home) in a row w wide
+' (v1.5) four columns: Top Bar, Sidebar, Home Row, My Media
+function libColX(w as integer, col as integer) as integer
+    return w - 540 + col * 150
+end function
+
+' Paints row i focused or not (n / r: a row being made, before it is in m.nodes): focused = solid white with
+' dark text; not focused = the flat 8 % row fill (a picked library: 12 %) with white text
+sub paintRow(i as integer, isFocus as boolean, n = invalid as dynamic, r = invalid as dynamic)
+    if n = invalid
+        if i < 0 or i >= m.nodes.count() then return
+        n = m.nodes[i]
+        r = m.rows[i]
+    end if
+    if n.bg = invalid then return
+    t = m.global.theme
+    dark = t.onFocus
+    soft = "0x111111A6"
+    if isFocus
+        n.bg.blendColor = t.focusFill
+        n.lab.color = dark
+        if n.val <> invalid then n.val.color = soft
+        if n.chev <> invalid then n.chev.blendColor = soft
+        for each s in n.subs
+            s.color = soft
+        end for
+    else
+        n.bg.blendColor = t.rowFill
+        if Util.flag(r, "selected") then n.bg.blendColor = t.controlFill
+        n.lab.color = t.text1
+        if Util.flag(r, "dim") then n.lab.color = t.text3
+        if n.val <> invalid
+            n.val.color = t.text2
+            if Util.flag(r, "dim") then n.val.color = t.text3
+        end if
+        if n.chev <> invalid then n.chev.blendColor = t.text2
+        for each s in n.subs
+            s.color = t.text2
+        end for
+    end if
+    if n.kindIcon <> invalid
+        n.kindIcon.blendColor = t.text
+        if isFocus then n.kindIcon.blendColor = dark
+    end if
+    for each c in n.cells
+        if c.subtype() = "Poster"
+            c.blendColor = t.text
+            if isFocus then c.blendColor = dark
+        else
+            c.color = t.text3
+            if isFocus then c.color = soft
+        end if
+    end for
+    if n.track <> invalid
+        ' on: white track, dark knob; off: 25 % white track, white knob (on a focused white row: dark track)
+        if Util.flag(r, "on")
+            n.track.blendColor = t.text
+            n.knob.blendColor = dark
+            if isFocus
+                n.track.blendColor = dark
+                n.knob.blendColor = t.text
+            end if
+        else
+            n.track.blendColor = "0xFFFFFF40"
+            if isFocus then n.track.blendColor = "0x11111140"
+            n.knob.blendColor = t.text
+        end if
+        n.track.opacity = 1.0
+        n.knob.opacity = 1.0
+        if Util.flag(r, "dim")
+            n.track.opacity = 0.4
+            n.knob.opacity = 0.4
+        end if
+    end if
+    if n.updown <> invalid
+        n.updown.visible = isFocus and m.moving <> ""
+        n.updown.blendColor = dark
+    end if
+end sub
+
+' Keeps the focused row inside the window, with a margin above and below (a tab's first row shows its heading)
+sub scrollToFocus()
+    entry = m.stack.peek()
+    top = 0
+    if m.focus >= 0 and m.zone <> "tabs"
+        idx = m.focusables[m.focus]
+        y = m.rowY[idx]
+        ' (the heading and the notes above the first row of a section scroll in with it)
+        j = idx - 1
+        while j >= 0 and not SetRows.takesFocus(m.rows[j]) and m.rows[j].kind <> "note"
+            y = m.rowY[j]
+            j = j - 1
+        end while
+        top = SetRows.scrollFor(entry.top, y, m.rowY[idx] + m.rowH[idx] - y, 904, m.listH, 70)
+    else if m.zone = "tabs"
+        top = 0
+    end if
+    entry.top = top
+    m.list.translation = [0, -top]
+end sub
+
+sub moveFocus(delta as integer)
+    if m.focusables.count() = 0 then return
+    nf = m.focus + delta
+    if nf < 0 or nf >= m.focusables.count() then return
+    paintRow(m.focusables[m.focus], false)
+    m.focus = nf
+    paintRow(m.focusables[nf], true)
+    entry = m.stack.peek()
+    entry.focus = nf
+    entry.key = SetRows.keyOf(m.rows[m.focusables[nf]])
+    scrollToFocus()
+    speakFocus()
+end sub
+
+function focusedRow() as dynamic
+    if m.focus < 0 or m.focus >= m.focusables.count() then return invalid
+    return m.rows[m.focusables[m.focus]]
+end function
+
+' ---------------------------------------------------------------- tabs, sub-lists, the choice list
+
+sub selectTab(i as integer)
+    if i = m.tab then return
+    m.tab = i
+    m.moving = ""
+    m.stack = [newEntry(m.tabList[i].id)]
+    m.spokenPage = ""
+    draw()
+end sub
+
+' From the tabs into the tab's settings (its first row, or where the focus was)
+sub enterContent()
+    if m.focusables.count() = 0 then return
+    m.zone = "content"
+    if m.focus < 0 then m.focus = 0
+    paintTabs()
+    paintRow(m.focusables[m.focus], true)
+    m.spokenPage = ""
+    scrollToFocus()
+    speakFocus()
+end sub
+
+sub toTabs()
+    if m.focus >= 0 then paintRow(m.focusables[m.focus], false)
+    m.zone = "tabs"
+    m.moving = ""
+    paintTabs()
+    scrollToFocus()
+    speakFocus()
+end sub
+
+sub pushPage(id as string)
+    m.moving = ""
+    m.stack.push(newEntry(id))
+    draw()
+end sub
+
+sub popPage()
+    m.moving = ""
+    if m.stack.count() > 1 then m.stack.pop()
+    draw()
+end sub
+
+' Back to the tab's own page (after removing the server or profile a sub-list was about)
+sub popToTab()
+    while m.stack.count() > 1
+        m.stack.pop()
+    end while
+end sub
+
+' A choice's values in a small flat list next to its row (r need not be on the page: Reset's confirmation)
+sub openPop(r as object)
+    opts = choiceRows(r)
+    f = 0
+    for i = 0 to opts.count() - 1
+        if Util.flag(opts[i], "checked") then f = i
+    end for
+    m.pop = { row: r, opts: opts, focus: f, top: 0 }
+    m.zone = "pop"
+    m.popLayer.visible = true
+    drawPop()
+    m.spokenKey = ""
+    speakFocus()
+end sub
+
+sub closePop()
+    m.pop = invalid
+    m.popLayer.visible = false
+    m.zone = "content"
+    if m.focusables.count() = 0 then m.zone = "tabs"
+    paintTabs()
+    if m.zone = "content" and m.focus >= 0 then paintRow(m.focusables[m.focus], true)
+end sub
+
+' Builds the choice list: 560 wide, at the right of the content column, beside the row it changes
+sub drawPop()
+    p = m.pop
+    t = m.global.theme
+    itemH = 64
+    visible = p.opts.count()
+    if visible > 11 then visible = 11
+    pw = 560
+    ph = 12 + 48 + visible * itemH + 12
+    rowY = 540
+    rowH = 0
+    idx = -1
+    for i = 0 to m.rows.count() - 1
+        if m.rows[i].kind = p.row.kind and Util.toText(m.rows[i].id) = Util.toText(p.row.id) and Util.toText(m.rows[i].label) = Util.toText(p.row.label) then idx = i
+    end for
+    if idx >= 0
+        rowY = 176 + m.rowY[idx] - m.stack.peek().top
+        rowH = m.rowH[idx]
+    end if
+    px = contentX() + contentW() - pw - 20
+    py = SetRows.popTop(rowY, rowH, ph, 40, 1040)
+    m.popPanel.translation = [px, py]
+    m.popPanel.width = pw
+    m.popPanel.height = ph
+    m.popTitle.translation = [px + 28, py + 12]
+    m.popTitle.width = pw - 56
+    m.popTitle.text = UCase(Util.toText(p.row.label))
+    m.popTitle.color = t.text2
+    ' (scrolled so the focused value shows)
+    if p.focus < p.top then p.top = p.focus
+    if p.focus > p.top + visible - 1 then p.top = p.focus - visible + 1
+    m.popClip.translation = [px + 12, py + 60]
+    m.popClip.clippingRect = [0, 0, pw - 24, visible * itemH]
+    pl = m.popList
+    pl.removeChildrenIndex(pl.getChildCount(), 0)
+    pl.translation = [0, -p.top * itemH]
+    for i = 0 to p.opts.count() - 1
+        o = p.opts[i]
+        isFocus = i = p.focus
+        g = pl.createChild("Group")
+        g.translation = [0, i * itemH]
+        bgp = addPoster(g, "pkg:/images/ui/set_r12.9.png", 0, 2, pw - 24, itemH - 4)
+        bgp.blendColor = t.focusFill
+        bgp.visible = isFocus
+        fg = t.text1
+        if isFocus then fg = t.onFocus
+        if Util.flag(o, "checked")
+            ck = addPoster(g, "pkg:/images/ui/icon_check_28.png", 18, Int((itemH - 28) / 2), 28, 28)
+            ck.blendColor = fg
+        end if
+        lx = 62
+        if o.swatch <> invalid
+            dot = addPoster(g, "pkg:/images/ui/set_knob.png", lx, Int((itemH - 28) / 2), 28, 28)
+            dot.blendColor = o.swatch
+            lx = lx + 44
+        end if
+        addLabel(g, o.label, lx, 0, pw - 24 - lx - 16, itemH, m.fRow, fg)
+    end for
+end sub
+
+function popKey(key as string) as boolean
+    p = m.pop
+    if key = "up" or key = "down"
+        d = 1
+        if key = "up" then d = -1
+        nf = p.focus + d
+        if nf >= 0 and nf < p.opts.count()
+            p.focus = nf
+            drawPop()
+            speakFocus()
+        end if
+    else if key = "OK"
+        src = p.row
+        pick = p.opts[p.focus]
+        closePop()
+        applyValue(Util.toText(src.id), Util.toText(pick.id))
+    else if key = "back"
+        closePop()
+        m.spokenKey = ""
+        speakFocus()
+    end if
+    return true
+end function
+
+' "This is how subtitles will look." on a sample picture, right of the Subtitles rows (the player's own style)
+sub drawPreview(g as object)
+    pw = 400
+    ph = 225
+    top = g.createChild("Rectangle")
+    top.width = pw
+    top.height = ph / 2
+    top.color = "0x404D66FF"
+    bot = g.createChild("Rectangle")
+    bot.width = pw
+    bot.height = ph / 2
+    bot.translation = [0, ph / 2]
+    bot.color = "0xBFB399FF"
+    ' (the player's style, Subs.style, scaled so Normal is 22 px as before)
+    st = Subs.style(0.45)
+    fs = st.fontSize
+    tc = st.color
+    text = "This is how subtitles will look."
+    fnt = mkFont(false, fs)
+    probe = createObject("roSGNode", "Label")
+    probe.font = fnt
+    probe.text = text
+    tw = probe.boundingRect().width
+    th = fs + 10
+    bottomPct = Prefs.subBottom()
+    ty = ph - th - Int(ph * bottomPct / 100) - 6
+    if ty < 4 then ty = 4
+    tx = Int((pw - tw) / 2)
+    if st.bgColor <> ""
+        b = g.createChild("Rectangle")
+        b.width = tw + 20
+        b.height = th
+        b.translation = [tx - 10, ty]
+        b.color = st.bgColor
+    end if
+    for each o in st.offsets
+        addLabel(g, text, tx + o[0], ty + o[1], tw + 4, th, fnt, st.shade)
+    end for
+    addLabel(g, text, tx, ty, tw + 4, th, fnt, tc)
+    cap = addLabel(g, "Preview", 0, ph + 8, pw, 32, m.fSub, m.global.theme.text2)
+    cap.horizAlign = "center"
+end sub
+
+' ---------------------------------------------------------------- Audio Guide
+
+' Said once per focus move: on the tabs, the tab ("Home, tab, 2 of 9"); in a tab, the page's title when the
+' focus enters it, the section when the focus enters a new one, the row ("Next Up, switch, on"; "Banner
+' Shows: Newest, menu button") and the help note under it; in a choice list, the value and its place
+sub speakFocus()
+    if not Speak.isOn() then return
+    text = ""
+    sig = m.zone
+    if m.zone = "tabs"
+        text = SetRows.tabSpeech(m.tabList[m.tab].label, m.tab, m.tabList.count())
+        sig = "tabs/" + m.tab.toStr()
+        m.spokenPage = ""
+    else if m.zone = "pop"
+        o = m.pop.opts[m.pop.focus]
+        r = { kind: "option", label: o.label, checked: o.checked }
+        text = SetRows.speech(r, false) + Speak.position(m.pop.focus, m.pop.opts.count())
+        sig = "pop/" + m.pop.focus.toStr()
+    else
+        entry = m.stack.peek()
+        sig = entry.id + "/" + m.stack.count().toStr()
+        if sig <> m.spokenPage
+            m.spokenPage = sig
+            m.spokenHead = ""
+            if m.stack.count() > 1 then text = pageTitle(entry) + ". "
+        end if
+        r = focusedRow()
+        if r <> invalid
+            idx = m.focusables[m.focus]
+            head = ""
+            for i = idx to 0 step -1
+                if m.rows[i].kind = "head"
+                    head = Util.toText(m.rows[i].text)
+                    exit for
+                end if
+            end for
+            if head <> m.spokenHead
+                m.spokenHead = head
+                if head <> "" then text = text + head + ". "
+            end if
+            text = text + SetRows.speech(r, m.moving <> "")
+            if idx + 1 < m.rows.count() and m.rows[idx + 1].kind = "note" then text = text + ". " + Util.toText(m.rows[idx + 1].text)
+        end if
+        sig = sig + "/" + m.focus.toStr()
+    end if
+    text = Speak.clean(text)
+    key = sig + "/" + text
+    if key = m.spokenKey then return
+    m.spokenKey = key
+    Speak.say(text)
+end sub
+
+' ---------------------------------------------------------------- keys
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if m.zone = "pop" then return popKey(key)
+    if m.zone = "tabs" then return tabsKey(key)
+    if m.moving <> "" then return movingKey(key)
+    if key = "up"
+        if m.focus <= 0
+            toTabs()
+        else
+            moveFocus(-1)
+        end if
+        return true
+    else if key = "down"
+        moveFocus(1)
+        return true
+    else if key = "OK"
+        useFocused()
+        return true
+    else if key = "left" or key = "right"
+        r = focusedRow()
+        if r <> invalid and r.kind = "switch" and (Util.flag(r, "on")) <> (key = "right") then applyValue(r.id, onOff(key = "right"))
+        return true
+    else if key = "back"
+        if Util.flag(m.stack.peek(), "order")
+            useButton({ id: "navOrderDone" })
+        else if m.stack.count() > 1
+            popPage()
+        else
+            toTabs()
+        end if
+        return true
+    end if
+    return false
+end function
+
+' The tab row: Left / Right switch tab (its settings show at once), Down or OK go in, Back closes Settings
+function tabsKey(key as string) as boolean
+    if key = "left" or key = "right"
+        d = 1
+        if key = "left" then d = -1
+        selectTab(SetRows.tabStep(m.tab, d, m.tabList.count()))
+        return true
+    else if key = "down" or key = "OK"
+        enterContent()
+        return true
+    else if key = "up"
+        return true
+    end if
+    return false
+end function
+
+' A row picked up in an order list: Up / Down move it, OK or Back put it down
+function movingKey(key as string) as boolean
+    if key = "up" or key = "down"
+        delta = 1
+        if key = "up" then delta = -1
+        moveRowBy(m.moving, delta)
+    else if key = "OK" or key = "back"
+        m.moving = ""
+        if m.focus >= 0 then paintRow(m.focusables[m.focus], true)
+        r = focusedRow()
+        if r <> invalid then Speak.say(Util.toText(r.label) + ", moved")
+    end if
+    return true
+end function
+
+function onOff(isOn as boolean) as string
+    if isOn then return "on"
+    return "off"
+end function
+
+sub useFocused()
+    r = focusedRow()
+    if r = invalid then return
+    k = r.kind
+    if k = "link"
+        pushPage(Util.toText(r.target))
+    else if k = "choice"
+        openPop(r)
+    else if k = "switch"
+        applyValue(r.id, onOff(not (Util.flag(r, "on"))))
+    else if k = "button"
+        useButton(r)
+    else if k = "lib"
+        ' (the library's options in the section under the table; the focus goes to its first row)
+        m.menuLib = Util.toText(r.id)
+        m.stack.peek().key = "button|libRename"
+        draw()
+    else if k = "move"
+        m.moving = Util.toText(r.id)
+        paintRow(m.focusables[m.focus], true)
+        m.spokenKey = ""
+        speakFocus()
+    else if k = "server"
+        m.menuServer = Util.toText(r.id)
+        pushPage("srv:" + m.menuServer)
+    else if k = "profile"
+        m.menuProfile = Util.toText(r.id)
+        pushPage("prof:" + m.menuProfile)
+    end if
+end sub
+
+' ---------------------------------------------------------------- changes
+
+' Saves one setting and builds the page again; Home is rebuilt when Settings closes if it changed something there
+sub applyValue(id as string, value as string)
+    homeKeys = { topBarLabels: 1, showRecent: 1, showUpNextRow: 1, homeFavorites: 1, showFavorites: 1, showNowPlaying: 1, hideSpoilers: 1, hideWatchedLatest: 1, nextUpRewatch: 1, nextUpDays: 1 }
+    isOn = value = "on"
+    if id = "askWho"
+        ' (kept with the server's profiles, not with the settings that Reset clears; a parent PIN first while a
+        ' profile with a rating limit is watching)
+        guarded({ do: "askWho", on: isOn })
+        return
+    else if id = "background" or id = "dimWatched"
+        Util.writeText(id, value)
+        m.global.theme = Theme.get()
+        m.top.themeChanged = true
+    else if id = "navStyle"
+        NavPrefs.setMenuStyle(value)
+        m.top.themeChanged = true
+    else if id.startsWith("nav:")
+        ' "nav:<place>:<entry id>": an entry of the top bar or the sidebar
+        parts = id.split(":")
+        NavPrefs.setShown(parts[1], id.mid(5 + parts[1].len()), isOn, navLibs())
+        m.top.themeChanged = true
+    else if id.startsWith("home:")
+        ' "home:<row id>": a built-in Home row
+        HomeLayout.setOn(serverKey(), homeLibs(), id.mid(5), isOn)
+        m.top.themeChanged = true
+    else if id.startsWith("libHome:")
+        ' a library's row on Home (no longer tied to the sidebar)
+        NavPrefs.setLibraryOnHome(id.mid(8), isOn)
+        m.top.themeChanged = true
+    else if id.startsWith("libMedia:")
+        ' (v1.5) a library's tile in Home's My Media row
+        NavPrefs.setLibraryInMyMedia(id.mid(9), isOn)
+        m.top.themeChanged = true
+    else if id = "libSetAll"
+        ' (v1.5) Libraries → Set All Libraries: one place for every library at once
+        n = NavPrefs.setAllLibraries(value, navLibs())
+        m.top.themeChanged = true
+        if n > 0 then Toasts.notify(labelOf(NavPrefs.setAllActions(), value), "check")
+    else if id.startsWith("libset:")
+        ' "libset:<key>:<library id>": Home Row Shows (style), Sort By (sort), Show (show)
+        parts = id.split(":")
+        Prefs.setLibrary(id.mid(8 + parts[1].len()), parts[1], value)
+        m.top.themeChanged = true
+    else if id.startsWith("rating:")
+        setRating(id.mid(7), value)
+        return
+    else if id = "resetConfirm"
+        if value = "yes"
+            Prefs.resetAll()
+            m.global.theme = Theme.get()
+            m.top.themeChanged = true
+            Toasts.notify("All settings were reset", "check")
+        end if
+    else if id = "profHideUnrated"
+        profileAction("hideUnrated", m.menuProfile)
+        return
+    else if id = "startQualityHome" or id = "startQualityNet"
+        Prefs.setStartQuality(id, value)
+    else if id = "bannerSource" or id = "bannerRefresh"
+        ' (one compact key for both)
+        bp = Prefs.bannerPref()
+        if id = "bannerSource"
+            Prefs.setBannerPref(value, bp.minutes)
+        else
+            Prefs.setBannerPref(bp.source, value.toInt())
+        end if
+        m.top.themeChanged = true
+    else if id = "homeServerLayout"
+        HomeLayout.setServerLayout(serverKey(), isOn)
+        m.top.themeChanged = true
+    else if id = "subLang"
+        Util.writeText(id, value)
+        Prefs.setFlag("subAlways", true)
+    else if id.startsWith("seg:")
+        ' (v1.3) Settings → Playback → Skip: one compact key for all kinds
+        Prefs.setSegmentSkip(id.mid(4), value)
+    else
+        Util.writeText(id, value)
+        if homeKeys.doesExist(id) then m.top.themeChanged = true
+    end if
+    draw()
+end sub
+
+sub useButton(r as object)
+    id = Util.toText(r.id)
+    if id = "subDefaults"
+        for each key in ["subTextSize", "subColor", "subShadow", "subBg", "subBottom"]
+            Util.writeText(key, "")
+        end for
+        draw()
+        Toasts.notify("Subtitle style reset to the defaults", "check")
+    else if id = "homeDefaultOrder"
+        HomeLayout.resetOrder(serverKey())
+        m.top.themeChanged = true
+        m.stack.peek().key = ""
+        m.stack.peek().focus = 0
+        draw()
+        Toasts.notify("Home rows back in the default order", "check")
+    else if id = "retryLibs"
+        onServer()
+        draw()
+    else if id = "signout"
+        guarded({ do: "signout" })
+    else if id = "addServer"
+        guarded({ do: "addServer" })
+    else if id = "switchProfile"
+        m.top.action = { id: "profiles" }
+    else if id = "addProfile"
+        guarded({ do: "addProfile" })
+    else if id = "reset"
+        guarded({ do: "reset" })
+    else if id = "navOrderStart" or id = "navOrderDone"
+        ' Navigation → Top Bar / Sidebar: the Change Order mode (its entries as rows to move)
+        entry = m.stack.peek()
+        entry.order = id = "navOrderStart"
+        entry.key = ""
+        entry.focus = 0
+        if entry.order then entry.focus = 1
+        m.spokenPage = ""
+        draw()
+    else if id = "libRename"
+        askName("lib", "Library name", libTitle(m.menuLib))
+    else if id = "srvConnect"
+        guarded({ do: "connect", serverId: m.menuServer })
+    else if id = "srvSignout"
+        guarded({ do: "signout" })
+    else if id = "srvRename"
+        s = Servers.find(m.menuServer)
+        if s <> invalid then askName("srv", "Server name", Util.toText(s.name))
+    else if id = "srvRemove"
+        guarded({ do: "removeServer", serverId: m.menuServer })
+    else if id.startsWith("prof:")
+        ' a profile page's action: use, pinSet, pinChange, pinRemove, rating, signout
+        profileAction(id.mid(5), m.menuProfile)
+    end if
+end sub
+
+' ---------------------------------------------------------------- libraries and servers
+
+' The current server's id, for its own library order
+function serverKey() as string
+    if m.top.server = invalid then return ""
+    return Util.toText(m.top.server.id)
+end function
+
+function libTitle(id as string) as string
+    for each l in Prefs.orderLibraries(m.libs, serverKey())
+        if l.id = id then return l.title
+    end for
+    return ""
+end function
+
+' The current server's libraries in the Libraries order (with the saved names), for Home rows and NavPrefs
+function homeLibs() as object
+    return Prefs.orderLibraries(m.libs, serverKey())
+end function
+
+' NavPrefs' libs: [{ id, title, collectionType }] in the Libraries order
+function navLibs() as object
+    out = []
+    for each l in homeLibs()
+        out.push({ id: Util.toText(l.id), title: Util.toText(l.title), collectionType: Util.toText(l.collectionType) })
+    end for
     return out
 end function
 
-'' (v0.9.0) Profiles (v0.9.1: its own tab): the current server's saved profiles, Who's watching? at start, add /
-' switch, and the parent PIN that guards the rating limits
-sub profileRows(out as object)
-    srv = currentServer()
-    if srv = invalid
-        out.push(note("Sign in to a server to see its profiles."))
-        return
-    end if
-    out.push(sectionHead("Profiles on " + Util.toText(srv.name)))
-    for each p in Servers.profiles(srv)
-        out.push({ kind: "profile", id: p.id, label: p.name, sub: profileSub(srv, p), current: p.id = Util.toText(srv.userId) })
+function labelOf(options as object, id as string) as string
+    for each o in options
+        if o.id = id then return o.label
     end for
-    out.push(toggle("askWho", "At start", "Ask who's watching", Servers.asksWho(srv)))
-    out.push(note("With 2 or more profiles on this server, Cove starts with Who's watching?. The profile entry at the bottom of the sidebar switches at any time."))
-    out.push({ kind: "button", id: "switchProfile", label: "", text: "Switch Profile..." })
-    out.push({ kind: "button", id: "addProfile", label: "", text: "Add Profile..." })
-    out.push(note("Add Profile signs in another user of this server; each profile keeps its own sign-in, Continue Watching and favorites. OK on a profile: its PIN, Maximum rating and Hide unrated titles."))
-    out.push(sectionHead("Parental controls"))
-    parents = Servers.parentIds(srv).count()
-    state = "No parent PIN yet"
-    if parents = 1 then state = "1 profile without a limit has a PIN"
-    if parents > 1 then state = parents.toStr() + " profiles without a limit have a PIN"
-    out.push({ kind: "info", label: "Parent PIN", text: state, sub: "" })
-    out.push(note("A rating limit is changed only with a parent PIN: the PIN of a profile without a limit. Titles rated above the limit are hidden, and an episode without its own rating takes its series' rating. The server's own parental controls still apply on top."))
-    if isRestricted() then out.push(note(restrictedNote()))
+    return id
+end function
+
+function capital(s as string) as string
+    if s = "" then return s
+    return UCase(s.left(1)) + s.mid(1)
+end function
+
+' Moves the row being moved on an order page; the focus follows it (the page is built again by its key)
+sub moveRowBy(id as string, delta as integer)
+    pid = m.stack.peek().id
+    moved = false
+    if pid = "homeOrder"
+        moved = HomeLayout.move(serverKey(), homeLibs(), id, delta)
+    else if pid.startsWith("navPlace:")
+        moved = NavPrefs.moveEntry(pid.mid(9), id, delta, navLibs())
+    else if pid = "libOrder"
+        moved = moveLibrary(id, delta)
+    end if
+    if moved
+        m.top.themeChanged = true
+        draw()
+    end if
 end sub
 
+function moveLibrary(id as string, delta as integer) as boolean
+    ids = []
+    for each l in homeLibs()
+        ids.push(l.id)
+    end for
+    for i = 0 to ids.count() - 1
+        if ids[i] = id
+            j = i + delta
+            if j < 0 or j >= ids.count() then return false
+            ids[i] = ids[j]
+            ids[j] = id
+            Prefs.saveOrder(ids, serverKey())
+            return true
+        end if
+    end for
+    return false
+end function
+
+' ---------------------------------------------------------------- profiles, PINs and the parent PIN (v0.9.1)
+
 ' (v0.9.1) The profile on Home has a rating limit: profiles, PINs, servers and Reset need a parent PIN
-' (the screen's copy of the server: Settings is rebuilt after a profile switch, and profileChanged() refreshes it,
-' so draw() doesn't read the registry for this)
+' (the screen's copy of the server: Settings is rebuilt after a profile switch, and profileChanged() refreshes it)
 function isRestricted() as boolean
     return Ratings.limitOf(m.top.server) > 0
 end function
@@ -394,944 +1077,6 @@ function currentServer() as dynamic
     return s
 end function
 
-' The current server's libraries in the Libraries order (with the saved names), for Home → Rows
-function homeLibs() as object
-    return Prefs.orderLibraries(m.libs, serverKey())
-end function
-
-' (v1.1) Settings → Home → Row options: watched titles in the Latest rows, and Next Up's Jellyfin options
-sub homeOptionRows(out as object)
-    out.push(sectionHead("Row options"))
-    out.push(toggle("hideWatchedLatest", "Recently Added", "Hide watched", Prefs.hideWatchedLatest()))
-    out.push(note("Leaves out what you've watched in Recently Added, Recently Released and each library's Latest row. Off: the server's own Hide played in latest setting still applies."))
-    isJf = m.top.server <> invalid and Servers.isJellyfin(m.top.server)
-    rw = toggle("nextUpRewatch", "Next Up", "Include rewatching", Prefs.nextUpRewatch() and isJf)
-    rw.dim = not isJf
-    out.push(rw)
-    days = []
-    for each d in [["0", "Any time"], ["30", "Last month"], ["90", "Last 3 months"], ["365", "Last year"]]
-        days.push({ id: d[0], label: d[1] })
-    end for
-    cur = Prefs.nextUpDays().toStr()
-    if not isJf then cur = "0"
-    c = choice("nextUpDays", "Next Up: shows watched", days, cur)
-    c.dim = not isJf
-    out.push(c)
-    if isJf
-        out.push(note("Include rewatching also offers the next episode of a series you finished and started again (Jellyfin 10.9 or later). Shows you haven't watched within the time chosen leave Next Up."))
-    else
-        out.push(note("Rewatching and the Next Up time limit need a Jellyfin server: Emby's Next Up has no such options."))
-    end if
-end sub
-
-function homeRowEntry(id as string, libs as object, srvOn as boolean) as object
-    sid = serverKey()
-    e = { kind: "homerow", id: id, label: id, icon: "folder", on: HomeLayout.isOn(sid, id), state: "" }
-    if id = "resume"
-        e.label = "Continue Watching"
-        e.icon = "clock"
-    else if id = "nextup"
-        e.label = "Next Up"
-        e.icon = "next"
-    else if id = "favorites"
-        e.label = "Favorites"
-        e.icon = "heart"
-    else if id = "recent"
-        e.label = "Recently Added"
-        e.icon = "clock"
-    else if id = "upcoming"
-        e.label = "Upcoming"
-        e.icon = "tv"
-        if srvOn then e.state = "Cove's layout only"
-    else if id = "released"
-        e.label = "Recently Released"
-        e.icon = "film"
-        if srvOn then e.state = "Cove's layout only"
-    else if id = "libraries"
-        e.label = "My Libraries (tiles)"
-        e.icon = "folder"
-    else
-        for each l in libs
-            if HomeLayout.libRowId(Util.toText(l.id)) = id
-                e.label = Util.toText(l.title)
-                if l.kind = "movies" then e.icon = "film"
-                if l.kind = "tvshows" then e.icon = "tv"
-                lp = Prefs.library(Util.toText(l.id))
-                e.state = labelOf(styleOptions(), lp.style)
-                if not lp.nav then e.state = "Hidden in Libraries"
-            end if
-        end for
-    end if
-    e.dim = srvOn
-    return e
-end function
-
-' Settings → Playback → Start with: which of the two the current server uses
-function networkNote() as string
-    t = "The player's Quality button changes it for one video. "
-    srv = m.top.server
-    if srv = invalid then return t + "Home network: a server address on your network (192.168..., 10..., .local)."
-    if Util.isPrivateHost(Util.hostOf(Util.toText(srv.url))) then return t + Util.toText(srv.name) + " is on your home network."
-    return t + Util.toText(srv.name) + " is reached over the internet."
-end function
-
-function capital(s as string) as string
-    if s = "" then return s
-    return UCase(s.left(1)) + s.mid(1)
-end function
-
-function isFocusable(r as object) as boolean
-    k = r.kind
-    if k = "head" or k = "note" or k = "keys" or k = "info" or k = "preview" then return false
-    if r.dim = true then return false
-    return true
-end function
-
-' ---------------------------------------------------------------- drawing
-
-sub draw()
-    t = m.global.theme
-    m.top.findNode("bg").color = t.bg
-    drawTabs()
-    drawContent()
-    speakFocus()
-end sub
-
-' ---------------------------------------------------------------- Audio Guide
-
-' The focused tab or row, said once per focus move: "Subtitles tab, 4 of 8"; "Accent color: Blue, use Left
-' and Right"; "Show Next Up, switch, on", with the section's name when the focus enters a new section and
-' the help text under the row
-sub speakFocus()
-    if not Speak.isOn() or m.picker <> invalid then return
-    tabs = tabList()
-    text = ""
-    if m.area = "tabs"
-        text = tabs[m.tab].label + " tab" + Speak.position(m.tab, tabs.count())
-        if m.spokenKey = "" then text = "Settings. " + text
-        m.spokenHead = ""
-    else if m.area = "rows" and m.row < m.focusables.count()
-        idx = m.focusables[m.row]
-        text = rowSpeech(m.rows[idx])
-        head = ""
-        for i = idx to 0 step -1
-            if m.rows[i].kind = "head"
-                head = Util.toText(m.rows[i].text)
-                exit for
-            end if
-        end for
-        if head <> m.spokenHead
-            m.spokenHead = head
-            if head <> "" then text = head + ". " + text
-        end if
-        if idx + 1 < m.rows.count() and m.rows[idx + 1].kind = "note" then text = text + ". " + Util.toText(m.rows[idx + 1].text)
-    else
-        return
-    end if
-    text = Speak.clean(text)
-    key = m.area + m.tab.toStr() + "/" + m.row.toStr() + text
-    if key = m.spokenKey then return
-    m.spokenKey = key
-    Speak.say(text)
-end sub
-
-function rowSpeech(r as object) as string
-    k = r.kind
-    label = Util.toText(r.label)
-    if k = "choice" then return label + ": " + Util.toText(r.value) + ", menu button"
-    if k = "button" then return Speak.button(Util.toText(r.text))
-    if k = "toggle"
-        text = label
-        if Util.toText(r.text) <> "" then text = text + ", " + Util.toText(r.text)
-        if r.on = true then return text + ", switch, on"
-        return text + ", switch, off"
-    end if
-    if k = "swatches" or k = "tiles"
-        cur = Util.toText(r.cur)
-        for each o in r.options
-            if Util.toText(o.id) = cur and o.label <> invalid then cur = Util.toText(o.label)
-        end for
-        return label + ": " + cur + ", press Left or Right to change"
-    end if
-    if k = "server"
-        text = label + ", " + Util.toText(r.sub)
-        if r.current = true then return text + ", connected"
-        return text + ", button"
-    end if
-    if k = "section"
-        if r.on = true then return label + ", in the sidebar"
-        return label + ", hidden"
-    end if
-    if k = "library"
-        text = label
-        if r.nav = true
-            text = text + ", in the sidebar"
-        else
-            text = text + ", not in the sidebar"
-        end if
-        if r.nav = true and r.home = true then text = text + ", on Home"
-        return text + ", menu button"
-    end if
-    return label
-end function
-
-sub drawTabs()
-    t = m.global.theme
-    tabs = tabList()
-    m.top.findNode("tabTitle").text = tabs[m.tab].label
-    g = m.top.findNode("tabs")
-    g.removeChildrenIndex(g.getChildCount(), 0)
-    w = 140
-    x0 = Int((1920 - tabs.count() * (w + 8)) / 2)
-    for i = 0 to tabs.count() - 1
-        isCur = i = m.tab
-        isFocus = isCur and m.area = "tabs" and m.picker = invalid
-        cell = g.createChild("Group")
-        cell.translation = [x0 + i * (w + 8), 0]
-        if isFocus or isCur
-            bgp = cell.createChild("Poster")
-            bgp.width = w
-            bgp.height = 104
-            bgp.uri = "pkg:/images/ui/white_rr12.9.png"
-            if isFocus
-                bgp.blendColor = "0xFFFFFFFF"
-            else
-                ' the Mac's current tab: accent at 15 % behind, accent icon and name
-                bgp.blendColor = t.accent.left(8) + "33"
-            end if
-        end if
-        col = "0xFFFFFFCC"
-        if isCur then col = t.accent
-        if isFocus then col = "0x000000FF"
-        ic = cell.createChild("Poster")
-        ic.uri = "pkg:/images/ui/icon_tab_" + tabs[i].id + "_44.png"
-        ic.width = 40
-        ic.height = 40
-        ic.translation = [(w - 40) / 2, 14]
-        ic.blendColor = col
-        l = cell.createChild("Label")
-        l.font = mkFont(isCur, 24)
-        l.text = tabs[i].label
-        l.color = col
-        l.width = w
-        l.height = 34
-        l.horizAlign = "center"
-        l.translation = [0, 60]
-    end for
-end sub
-
-function mkFont(bold as boolean, size as integer) as object
-    f = createObject("roSGNode", "Font")
-    f.uri = "font:MediumSystemFontFile"
-    if bold then f.uri = "font:BoldSystemFontFile"
-    f.size = size
-    return f
-end function
-
-function addLabel(parent as object, text as string, x as integer, y as integer, w as integer, h as integer, size as integer, bold as boolean, color as string) as object
-    l = parent.createChild("Label")
-    l.font = mkFont(bold, size)
-    l.text = text
-    l.color = color
-    l.translation = [x, y]
-    l.width = w
-    l.height = h
-    l.vertAlign = "center"
-    return l
-end function
-
-' Draws the tab's rows top to bottom; each section's card is sized once its rows are placed
-sub drawContent()
-    c = m.content
-    c.removeChildrenIndex(c.getChildCount(), 0)
-    rows = rowsFor(tabList()[m.tab].id)
-    m.rows = rows
-    m.focusables = []
-    for i = 0 to rows.count() - 1
-        if isFocusable(rows[i]) then m.focusables.push(i)
-    end for
-    if m.row >= m.focusables.count() then m.row = m.focusables.count() - 1
-    if m.row < 0 then m.row = 0
-    focusIdx = -1
-    if m.area = "rows" and m.focusables.count() > 0 and m.picker = invalid then focusIdx = m.focusables[m.row]
-    y = 16
-    card = invalid
-    cardTop = 0
-    focusY = 0
-    focusH = 0
-    for i = 0 to rows.count() - 1
-        r = rows[i]
-        isFocus = i = focusIdx
-        k = r.kind
-        if k = "head"
-            if card <> invalid
-                card.height = y - cardTop + 8
-                y = y + 22
-            end if
-            addLabel(c, UCase(r.text), 210, y, 1400, 32, 24, true, "0xFFFFFFCC")
-            y = y + 38
-            card = c.createChild("Poster")
-            card.uri = "pkg:/images/ui/card_r18.9.png"
-            card.translation = [200, y]
-            card.width = 1520
-            cardTop = y
-            y = y + 8
-        else
-            h = rowHeight(r)
-            if isFocus
-                focusY = y
-                focusH = h
-            end if
-            if k <> "note" and k <> "preview" and Util.toText(r.label) <> ""
-                lc = "0xFFFFFFFF"
-                if r.dim = true then lc = "0xFFFFFF59"
-                if k = "keys" then lc = "0xFFFFFFFF"
-                lab = addLabel(c, r.label + ":", 210, y, 400, 58, 26, false, lc)
-                lab.horizAlign = "right"
-            end if
-            drawRow(c, r, y, isFocus, cardTop)
-            y = y + h
-        end if
-    end for
-    if card <> invalid then card.height = y - cardTop + 8
-    total = y + 24
-    m.contentH = total
-    ' keep the focused row in view (865 px visible)
-    if m.area = "tabs" then m.scrollTop = 0
-    if m.area = "scroll" then return
-    if focusIdx >= 0
-        if focusY + focusH > m.scrollTop + 880 then m.scrollTop = focusY + focusH - 880
-        if focusY < m.scrollTop + 60 then m.scrollTop = focusY - 60
-    end if
-    if m.scrollTop > total - 911 then m.scrollTop = total - 911
-    if m.scrollTop < 0 then m.scrollTop = 0
-    c.translation = [0, -m.scrollTop]
-end sub
-
-function rowHeight(r as object) as integer
-    k = r.kind
-    if k = "note" then return 32 * noteLines(r.text) + 6
-    if k = "swatches" then return 72
-    if k = "tiles" then return 124
-    if k = "server" or k = "info" or k = "profile" then return 80
-    if k = "library" or k = "section" or k = "homerow" then return 60
-    if k = "keys" then return 50
-    if k = "preview" then return 0
-    return 58
-end function
-
-function noteLines(text as string) as integer
-    return Util.wrapLines(text, 76, 6).count()
-end function
-
-sub drawRow(c as object, r as object, y as integer, isFocus as boolean, sectionTop as integer)
-    t = m.global.theme
-    k = r.kind
-    x = 650
-    if k = "note"
-        lines = Util.wrapLines(r.text, 76, 6)
-        for i = 0 to lines.count() - 1
-            addLabel(c, lines[i], x, y + i * 32, 1040, 32, 24, false, "0xFFFFFFCC")
-        end for
-    else if k = "choice"
-        drawPill(c, x, y + 6, r.value, isFocus, r.dim = true, true)
-    else if k = "button"
-        drawPill(c, x, y + 6, r.text, isFocus, false, false)
-    else if k = "toggle"
-        drawSwitch(c, x, y + 11, r.on, isFocus)
-        col = "0xFFFFFFD9"
-        if isFocus then col = "0xFFFFFFFF"
-        addLabel(c, r.text, x + 88, y, 900, 58, 26, isFocus, col)
-    else if k = "swatches"
-        for i = 0 to r.options.count() - 1
-            o = r.options[i]
-            cx = x + i * 68
-            if o.id = r.cur
-                ring = c.createChild("Poster")
-                ring.uri = "pkg:/images/ui/white_circle_70.png"
-                ring.width = 60
-                ring.height = 60
-                ring.translation = [cx - 6, y + 6]
-                if not isFocus then ring.blendColor = "0xFFFFFFB3"
-                gap = c.createChild("Poster")
-                gap.uri = "pkg:/images/ui/white_circle_70.png"
-                gap.width = 54
-                gap.height = 54
-                gap.translation = [cx - 3, y + 9]
-                gap.blendColor = t.bg
-            end if
-            dot = c.createChild("Poster")
-            dot.uri = "pkg:/images/ui/white_circle_56.png"
-            dot.width = 48
-            dot.height = 48
-            dot.translation = [cx, y + 12]
-            dot.blendColor = o.color
-        end for
-    else if k = "tiles"
-        for i = 0 to r.options.count() - 1
-            o = r.options[i]
-            tx = x + i * 150
-            if o.id = r.cur
-                sel = c.createChild("Poster")
-                sel.uri = "pkg:/images/ui/white_rr12.9.png"
-                sel.width = 144
-                sel.height = 84
-                sel.translation = [tx - 6, y + 2]
-                sel.blendColor = t.accent
-                if isFocus then sel.blendColor = "0xFFFFFFFF"
-            end if
-            tile = c.createChild("Poster")
-            tile.uri = "pkg:/images/ui/white_rr12.9.png"
-            tile.width = 132
-            tile.height = 72
-            tile.translation = [tx, y + 8]
-            tile.blendColor = o.color
-            edge = c.createChild("Poster")
-            edge.uri = "pkg:/images/ui/card_border_r18.9.png"
-            edge.width = 132
-            edge.height = 72
-            edge.translation = [tx, y + 8]
-            col = "0xFFFFFFCC"
-            if o.id = r.cur then col = "0xFFFFFFFF"
-            lab = addLabel(c, o.label, tx - 8, y + 86, 148, 32, 24, o.id = r.cur, col)
-            lab.horizAlign = "center"
-        end for
-    else if k = "info"
-        addLabel(c, r.text, x, y + 4, 1040, 40, 27, true, "0xFFFFFFFF")
-        if r.sub <> "" then addLabel(c, r.sub, x, y + 42, 1040, 32, 24, false, "0xFFFFFFCC")
-    else if k = "keys"
-        cap = c.createChild("Poster")
-        cap.uri = "pkg:/images/ui/glass_pill.9.png"
-        kl = addLabel(c, r.key, 0, y + 6, 0, 38, 24, true, "0xFFFFFFFF")
-        kw = kl.boundingRect().width + 32
-        kl.translation = [610 - kw + 16, y + 6]
-        kl.width = kw - 32
-        cap.translation = [610 - kw, y + 6]
-        cap.width = kw
-        cap.height = 38
-        addLabel(c, r.text, x, y, 1040, 50, 24, false, "0xFFFFFFCC")
-    else if k = "server" or k = "library" or k = "section" or k = "profile" or k = "homerow"
-        drawListRow(c, r, x, y, isFocus)
-    else if k = "preview"
-        drawPreview(c, sectionTop)
-    end if
-end sub
-
-' A value in a glass capsule (with a chevron for choices); white when focused
-sub drawPill(c as object, x as integer, y as integer, text as string, isFocus as boolean, faded as boolean, chevron as boolean)
-    g = c.createChild("Group")
-    g.translation = [x, y]
-    bgp = g.createChild("Poster")
-    lab = addLabel(g, text, 22, 0, 0, 46, 24, isFocus, "0xFFFFFFFF")
-    tw = lab.boundingRect().width
-    lab.width = tw + 4
-    w = tw + 44
-    if chevron then w = w + 32
-    bgp.width = w
-    bgp.height = 46
-    col = "0xFFFFFFFF"
-    if isFocus
-        bgp.uri = "pkg:/images/ui/white_pill.9.png"
-        col = "0x000000FF"
-    else
-        bgp.uri = "pkg:/images/ui/glass_pill.9.png"
-        if faded then col = "0xFFFFFF59"
-    end if
-    lab.color = col
-    if chevron
-        ch = g.createChild("Poster")
-        ch.uri = "pkg:/images/ui/icon_chevron_28.png"
-        ch.width = 20
-        ch.height = 20
-        ch.translation = [w - 42, 13]
-        ch.blendColor = col
-    end if
-end sub
-
-' The Mac's switch: accent track when on, grey when off, white knob; a white ring when focused
-sub drawSwitch(c as object, x as integer, y as integer, isOn as boolean, isFocus as boolean)
-    t = m.global.theme
-    if isFocus
-        ring = c.createChild("Poster")
-        ring.uri = "pkg:/images/ui/focus_ring_pill.9.png"
-        ring.width = 84
-        ring.height = 52
-        ring.translation = [x - 8, y - 8]
-    end if
-    tr = c.createChild("Poster")
-    tr.uri = "pkg:/images/ui/switch_track.9.png"
-    tr.width = 68
-    tr.height = 36
-    tr.translation = [x, y]
-    tr.blendColor = "0xFFFFFF40"
-    if isOn then tr.blendColor = t.accent
-    kn = c.createChild("Poster")
-    kn.uri = "pkg:/images/ui/switch_knob.png"
-    kn.width = 30
-    kn.height = 30
-    kn.translation = [x + 3, y + 3]
-    if isOn then kn.translation = [x + 35, y + 3]
-end sub
-
-' Servers and libraries: icon, name (and a second line), state on the right; white when focused
-sub drawListRow(c as object, r as object, x as integer, y as integer, isFocus as boolean)
-    t = m.global.theme
-    h = rowHeight(r) - 8
-    w = 1040
-    if isFocus
-        bgp = c.createChild("Poster")
-        bgp.uri = "pkg:/images/ui/white_rr12.9.png"
-        bgp.width = w
-        bgp.height = h
-        bgp.translation = [x - 10, y + 2]
-    end if
-    main = "0xFFFFFFFF"
-    second = "0xFFFFFFCC"
-    if isFocus
-        main = "0x000000FF"
-        second = "0x000000A6"
-    end if
-    icName = Util.toText(r.icon)
-    if r.kind = "server" then icName = "server"
-    if r.kind = "profile" then icName = "profile"
-    ic = c.createChild("Poster")
-    ic.uri = "pkg:/images/ui/icon_" + icName + "_36.png"
-    ic.width = 32
-    ic.height = 32
-    ic.translation = [x + 10, y + Int((h - 32) / 2) + 2]
-    ic.blendColor = t.accent
-    if isFocus then ic.blendColor = main
-    if r.kind = "server" or r.kind = "profile"
-        addLabel(c, r.label, x + 60, y + 6, 640, 36, 26, true, main)
-        addLabel(c, r.sub, x + 60, y + 38, 760, 32, 24, false, second)
-        if r.current = true
-            ck = c.createChild("Poster")
-            ck.uri = "pkg:/images/ui/icon_check_28.png"
-            ck.width = 32
-            ck.height = 32
-            ck.translation = [x + w - 70, y + 22]
-            ck.blendColor = t.accent
-            if isFocus then ck.blendColor = main
-        else
-            stText = "Connect"
-            if r.kind = "profile" then stText = "Switch"
-            st = addLabel(c, stText, x + w - 230, y, 200, h, 24, true, second)
-            st.horizAlign = "right"
-        end if
-    else
-        nameCol = main
-        if r.kind = "section" and not r.on then nameCol = second
-        if r.kind = "library" and not r.nav then nameCol = second
-        if r.kind = "homerow" and (not r.on or r.dim = true) then nameCol = second
-        addLabel(c, r.label, x + 60, y, 520, h, 26, false, nameCol)
-        if r.kind = "homerow"
-            stateText = "Hidden"
-            if r.on then stateText = "On Home"
-            if r.dim = true then stateText = "Set by the server"
-            ' (BG-9) Upcoming / Recently Released can't come from the server's layout: say so instead
-            if r.dim = true and r.state <> "" and (r.id = "upcoming" or r.id = "released") then stateText = r.state
-            if r.state <> "" and r.dim <> true then stateText = r.state + "   ·   " + stateText
-            s1 = addLabel(c, stateText, x + w - 470, y, 440, h, 24, false, second)
-            s1.horizAlign = "right"
-        else if r.kind = "section"
-            stateText = "Hidden"
-            if r.on then stateText = "In the sidebar"
-            s1 = addLabel(c, stateText, x + w - 430, y, 400, h, 24, false, second)
-            s1.horizAlign = "right"
-        else
-            a = "Not in the sidebar"
-            if r.nav then a = "Sidebar"
-            b = "Not on Home"
-            if r.nav and r.home then b = "Home"
-            ab = a + "   ·   " + b
-            if not Prefs.hasHomeRow(Util.toText(r.libKind)) then ab = a
-            s1 = addLabel(c, ab, x + w - 470, y, 440, h, 24, false, second)
-            s1.horizAlign = "right"
-        end if
-    end if
-end sub
-
-' "This is how subtitles will look." on a sample picture, beside the style choices (as on the Mac)
-sub drawPreview(c as object, sectionTop as integer)
-    pw = 400
-    ph = 225
-    px = 1290
-    py = sectionTop + 12
-    g = c.createChild("Group")
-    g.translation = [px, py]
-    top = g.createChild("Rectangle")
-    top.width = pw
-    top.height = ph / 2
-    top.color = "0x404D66FF"
-    bot = g.createChild("Rectangle")
-    bot.width = pw
-    bot.height = ph / 2
-    bot.translation = [0, ph / 2]
-    bot.color = "0xBFB399FF"
-    ' (the player's style, Subs.style, scaled so Normal is 22 px as before)
-    st = Subs.style(0.45)
-    fs = st.fontSize
-    tc = st.color
-    text = "This is how subtitles will look."
-    probe = createObject("roSGNode", "Label")
-    probe.font = mkFont(false, fs)
-    probe.text = text
-    tw = probe.boundingRect().width
-    th = fs + 10
-    bottomPct = Prefs.subBottom()
-    ty = ph - th - Int(ph * bottomPct / 100) - 6
-    if ty < 4 then ty = 4
-    tx = Int((pw - tw) / 2)
-    if st.bgColor <> ""
-        b = g.createChild("Rectangle")
-        b.width = tw + 20
-        b.height = th
-        b.translation = [tx - 10, ty]
-        b.color = st.bgColor
-    end if
-    for each o in st.offsets
-        s = addLabel(g, text, tx + o[0], ty + o[1], tw + 4, th, fs, false, st.shade)
-        s.horizAlign = "left"
-    end for
-    addLabel(g, text, tx, ty, tw + 4, th, fs, false, tc)
-end sub
-
-' ---------------------------------------------------------------- keys
-
-function onKeyEvent(key as string, press as boolean) as boolean
-    if not press or m.picker <> invalid then return false
-    n = tabList().count()
-    if m.area = "tabs"
-        if key = "left" and m.tab > 0
-            m.tab = m.tab - 1
-            m.row = 0
-            draw()
-        else if key = "right" and m.tab < n - 1
-            m.tab = m.tab + 1
-            m.row = 0
-            draw()
-        else if (key = "down" or key = "OK") and m.focusables.count() > 0
-            m.area = "rows"
-            m.row = 0
-            draw()
-        else if key = "down"
-            ' a page with nothing to change (Remote): Down / Up scroll it
-            m.area = "scroll"
-            scrollBy(240)
-            ' (Audio Guide: a page to read, not to change)
-            Speak.say(Speak.labelsOf(m.content, 60))
-        else if key = "back"
-            return false
-        end if
-        return true
-    end if
-    if m.area = "scroll"
-        if key = "down"
-            scrollBy(240)
-        else if key = "up"
-            if m.scrollTop <= 0
-                m.area = "tabs"
-                drawTabs()
-            else
-                scrollBy(-240)
-            end if
-        else if key = "back" or key = "left" or key = "right"
-            m.area = "tabs"
-            m.scrollTop = 0
-            m.content.translation = [0, 0]
-            drawTabs()
-            if key <> "back" then return onKeyEvent(key, press)
-        end if
-        return true
-    end if
-    ' rows
-    r = m.rows[m.focusables[m.row]]
-    if key = "up"
-        if m.row > 0
-            m.row = m.row - 1
-        else
-            m.area = "tabs"
-        end if
-        draw()
-    else if key = "down"
-        if m.row < m.focusables.count() - 1 then m.row = m.row + 1
-        draw()
-    else if key = "left" or key = "right"
-        stepBy = 1
-        if key = "left" then stepBy = -1
-        if r.kind = "swatches" or r.kind = "tiles"
-            ' pick the next colour / background at once
-            idx = 0
-            for i = 0 to r.options.count() - 1
-                if r.options[i].id = r.cur then idx = i
-            end for
-            idx = idx + stepBy
-            if idx >= 0 and idx < r.options.count() then apply(r.id, r.options[idx].id)
-        else if r.kind = "toggle"
-            apply(r.id, onOff(key = "right"))
-        else if r.kind = "homerow"
-            HomeLayout.setOn(serverKey(), homeLibs(), r.id, key = "right")
-            m.top.themeChanged = true
-            draw()
-        end if
-    else if key = "OK"
-        useRow(r)
-    else if key = "back"
-        m.area = "tabs"
-        draw()
-    end if
-    return true
-end function
-
-sub scrollBy(delta as integer)
-    m.scrollTop = m.scrollTop + delta
-    if m.scrollTop > m.contentH - 911 then m.scrollTop = m.contentH - 911
-    if m.scrollTop < 0 then m.scrollTop = 0
-    m.content.translation = [0, -m.scrollTop]
-end sub
-
-function onOff(isOn as boolean) as string
-    if isOn then return "on"
-    return "off"
-end function
-
-sub useRow(r as object)
-    k = r.kind
-    if k = "toggle"
-        apply(r.id, onOff(not r.on))
-    else if k = "section"
-        apply(r.id, onOff(not r.on))
-    else if k = "choice"
-        openPicker("choice:" + r.id, r.label, r.options, r.cur)
-    else if k = "swatches" or k = "tiles"
-        ' (Left / Right change them)
-    else if k = "library"
-        libraryMenu(r.id)
-    else if k = "homerow"
-        homeRowMenu(r.id)
-    else if k = "server"
-        serverMenu(r.id)
-    else if k = "profile"
-        profileMenu(r.id)
-    else if k = "button"
-        if r.id = "subDefaults"
-            for each key in ["subTextSize", "subColor", "subShadow", "subBg", "subBottom"]
-                Util.writeText(key, "")
-            end for
-            draw()
-            Toasts.notify("Subtitle style reset to the defaults", "check")
-        else if r.id = "homeDefaultOrder"
-            HomeLayout.resetOrder(serverKey())
-            m.top.themeChanged = true
-            m.row = 1
-            draw()
-            Toasts.notify("Home rows back in the default order", "check")
-        else if r.id = "retryLibs"
-            onServer()
-            draw()
-        else if r.id = "signout"
-            guarded({ do: "signout" })
-        else if r.id = "addServer"
-            guarded({ do: "addServer" })
-        else if r.id = "switchProfile"
-            m.top.action = { id: "profiles" }
-        else if r.id = "addProfile"
-            guarded({ do: "addProfile" })
-        else if r.id = "reset"
-            guarded({ do: "reset" })
-        end if
-    end if
-end sub
-
-' Saves one setting and redraws; Home is rebuilt when Settings closes if it changed something there
-sub apply(id as string, value as string)
-    homeKeys = { navStyle: 1, topBarLabels: 1, showRecent: 1, showUpNextRow: 1, homeFavorites: 1, showFavorites: 1, showNowPlaying: 1, hideSpoilers: 1, hideWatchedLatest: 1, nextUpRewatch: 1, nextUpDays: 1 }
-    if id = "askWho"
-        ' (kept with the server's profiles, not with the settings that Reset clears; a parent PIN first while a
-        ' profile with a rating limit is watching)
-        guarded({ do: "askWho", on: value = "on" })
-        return
-    else if id = "accent" or id = "background"
-        Util.writeText(id, value)
-        m.global.theme = Theme.get()
-        m.top.themeChanged = true
-    else if id = "startQualityHome" or id = "startQualityNet"
-        Prefs.setStartQuality(id, value)
-    else if id = "bannerSource" or id = "bannerRefresh"
-        ' (one compact key for both)
-        bp = Prefs.bannerPref()
-        if id = "bannerSource"
-            Prefs.setBannerPref(value, bp.minutes)
-        else
-            Prefs.setBannerPref(bp.source, value.toInt())
-        end if
-        m.top.themeChanged = true
-    else if id = "homeServerLayout"
-        HomeLayout.setServerLayout(serverKey(), value = "on")
-        m.top.themeChanged = true
-    else if id = "subLang"
-        Util.writeText(id, value)
-        Prefs.setFlag("subAlways", true)
-    else if id.startsWith("seg:")
-        ' (v1.3) Settings → Playback → Skip: one compact key for all kinds
-        Prefs.setSegmentSkip(id.mid(4), value)
-    else
-        Util.writeText(id, value)
-        if homeKeys.doesExist(id) then m.top.themeChanged = true
-    end if
-    draw()
-end sub
-
-' ---------------------------------------------------------------- libraries and servers
-
-function libKindName(id as string) as string
-    for each l in m.libs
-        if l.id = id then return l.kind
-    end for
-    return ""
-end function
-
-' The current server's id, for its own library order
-function serverKey() as string
-    if m.top.server = invalid then return ""
-    return Util.toText(m.top.server.id)
-end function
-
-function libTitle(id as string) as string
-    for each l in Prefs.orderLibraries(m.libs, serverKey())
-        if l.id = id then return l.title
-    end for
-    return ""
-end function
-
-function labelOf(options as object, id as string) as string
-    for each o in options
-        if o.id = id then return o.label
-    end for
-    return id
-end function
-
-function styleOptions() as object
-    return [{ id: "latest", label: "Latest" }, { id: "top", label: "Top Rated" }, { id: "random", label: "Random" }, { id: "az", label: "A-Z" }]
-end function
-
-function sortOptions() as object
-    return [{ id: "name", label: "Name" }, { id: "latest", label: "Recently Added" }, { id: "release", label: "Release Date" }, { id: "top", label: "Rating" }]
-end function
-
-function showOptions() as object
-    return [{ id: "all", label: "All" }, { id: "unwatched", label: "Unwatched" }, { id: "watched", label: "Watched" }]
-end function
-
-sub libraryMenu(id as string)
-    lp = Prefs.library(id)
-    o = []
-    o.push({ id: "nav", label: "Show in the sidebar: " + yesNo(lp.nav) })
-    ' (music, books, playlists... never get a Home row)
-    homeRow = Prefs.hasHomeRow(libKindName(id))
-    if lp.nav and homeRow then o.push({ id: "home", label: "Row on Home: " + yesNo(lp.home) })
-    if lp.nav and lp.home and homeRow then o.push({ id: "style", label: "Home row shows: " + labelOf(styleOptions(), lp.style) })
-    o.push({ id: "sort", label: "Sort by: " + labelOf(sortOptions(), lp.sort) })
-    o.push({ id: "show", label: "Show: " + labelOf(showOptions(), lp.show) })
-    o.push({ id: "rename", label: "Rename..." })
-    o.push({ id: "up", label: "Move Up" })
-    o.push({ id: "down", label: "Move Down" })
-    m.menuLib = id
-    openPicker("lib", libTitle(id), o, "")
-end sub
-
-function yesNo(v as boolean) as string
-    if v then return "On"
-    return "Off"
-end function
-
-sub moveLibrary(id as string, delta as integer)
-    ids = []
-    for each l in Prefs.orderLibraries(m.libs, serverKey())
-        ids.push(l.id)
-    end for
-    for i = 0 to ids.count() - 1
-        if ids[i] = id
-            j = i + delta
-            if j >= 0 and j < ids.count()
-                tmp = ids[j]
-                ids[j] = id
-                ids[i] = tmp
-                Prefs.saveOrder(ids, serverKey())
-                m.top.themeChanged = true
-                ' keep the focus on the moved library
-                m.row = m.row + delta
-            end if
-            exit for
-        end if
-    end for
-end sub
-
-' Home → Rows: OK on a row
-sub homeRowMenu(id as string)
-    sid = serverKey()
-    libs = homeLibs()
-    o = []
-    label = "Show on Home: " + yesNo(HomeLayout.isOn(sid, id))
-    if id.left(1) = "L" and not Prefs.library(id.mid(1)).nav then label = label + " (On also shows it in the sidebar)"
-    o.push({ id: "toggle", label: label })
-    ids = HomeLayout.orderedIds(sid, libs)
-    at = HomeLayout.indexIn(ids, id)
-    if at > 0 then o.push({ id: "up", label: "Move Up" })
-    if at >= 0 and at < ids.count() - 1 then o.push({ id: "down", label: "Move Down" })
-    m.menuHomeRow = id
-    title = id
-    for each r in m.rows
-        if r.kind = "homerow" and r.id = id then title = r.label
-    end for
-    openPicker("homerow", title, o, "")
-    ' (SC-16: "Show on Home: Off (On also shows it in the sidebar)" needs the wide panel)
-    m.picker.wide = true
-end sub
-
-sub serverMenu(id as string)
-    s = Servers.find(id)
-    if s = invalid then return
-    cur = m.top.server <> invalid and Util.toText(m.top.server.id) = id
-    o = []
-    if not cur then o.push({ id: "connect", label: "Connect" })
-    o.push({ id: "rename", label: "Rename..." })
-    if cur
-        o.push({ id: "signout", label: "Sign Out" })
-    else
-        o.push({ id: "remove", label: "Remove" })
-    end if
-    m.menuServer = id
-    openPicker("srv", Util.toText(s.name), o, "")
-end sub
-
-'' OK on a profile: switch to it, its PIN, its rating limit, or sign it out (the current one signs out with Sign
-' Out in Servers)
-sub profileMenu(userId as string)
-    srv = currentServer()
-    if srv = invalid then return
-    u = Servers.userOf(srv, userId)
-    if u = invalid then return
-    o = []
-    cur = userId = Util.toText(srv.userId)
-    if not cur then o.push({ id: "use", label: "Switch to " + Util.toText(u.n) })
-    if Util.toText(u.p) = ""
-        o.push({ id: "pinSet", label: "Profile PIN: Off  ·  Set PIN..." })
-    else
-        o.push({ id: "pinChange", label: "Profile PIN: On  ·  Change PIN..." })
-        o.push({ id: "pinRemove", label: "Remove PIN" })
-    end if
-    o.push({ id: "rating", label: "Maximum rating: " + Ratings.labelFor(Util.toText(u.r)) + "..." })
-    if Util.toText(u.r) <> ""
-        o.push({ id: "hideUnrated", label: "Hide unrated titles: " + capital(onOff(Util.toText(u.h) = "1")) })
-    end if
-    o.push({ id: "signout", label: "Sign Out" })
-    m.menuProfile = userId
-    openPicker("prof", Util.toText(u.n), o, "")
-end sub
-
-' ---------------------------------------------------------------- PINs and the parent PIN (v0.9.1)
-
 ' Runs act now, or after a parent PIN while a profile with a rating limit is watching
 sub guarded(act as object)
     if isRestricted()
@@ -1358,7 +1103,7 @@ sub onPinResult(ev as object)
     draw()
 end sub
 
-' A profile menu entry
+' A profile page's entry
 sub profileAction(choiceId as string, userId as string)
     srv = currentServer()
     if srv = invalid then return
@@ -1408,7 +1153,8 @@ sub runAct(act as object)
     if srv = invalid then return
     sid = Util.toText(srv.id)
     if what = "reset"
-        openPicker("reset", "Reset all settings?", [{ id: "yes", label: "Reset" }, { id: "no", label: "Cancel" }], "no")
+        openPop({ kind: "choice", id: "resetConfirm", label: "Reset All Settings?", options: [{ id: "yes", label: "Reset" }, { id: "no", label: "Cancel" }], cur: "no" })
+        return
     else if what = "askWho"
         Servers.setAsk(sid, Util.flag(act, "on"))
     else if what = "addServer"
@@ -1430,7 +1176,8 @@ sub runAct(act as object)
         notice("PIN removed. Anyone can pick this profile now.")
     else if what = "rating"
         m.menuProfile = uid
-        openRatingPicker()
+        openRatingChoice()
+        return
     else if what = "hideUnrated"
         u = Servers.userOf(srv, uid)
         isOn = u <> invalid and Util.toText(u.h) = "1"
@@ -1442,13 +1189,13 @@ sub runAct(act as object)
     draw()
 end sub
 
-' Maximum rating (kids limit) for a profile
-sub openRatingPicker()
+' Maximum rating (kids limit) for a profile: a short list with a ✓ (after the parent PIN)
+sub openRatingChoice()
     srv = currentServer()
     if srv = invalid then return
     u = Servers.userOf(srv, m.menuProfile)
     if u = invalid then return
-    openPicker("rating", "Maximum rating for " + Util.toText(u.n), Ratings.choices(), Util.toText(u.r))
+    openPop({ kind: "choice", id: "rating:" + m.menuProfile, label: "Maximum Rating for " + Util.toText(u.n), options: Ratings.choices(), cur: Util.toText(u.r) })
 end sub
 
 sub setRating(userId as string, value as string)
@@ -1458,6 +1205,7 @@ sub setRating(userId as string, value as string)
     if value <> "" and ids.count() = 1 and ids[0] = userId
         ' (a limit on the only parent would leave every limit without a parent PIN)
         notice("This is the only profile without a limit that has a PIN. Set a PIN on another profile without a limit first.")
+        draw()
         return
     end if
     Servers.setUserField(Util.toText(srv.id), userId, "r", value)
@@ -1470,13 +1218,11 @@ sub profileChanged(userId as string)
     srv = currentServer()
     if srv = invalid then return
     if userId = Util.toText(srv.userId)
-        ' the profile on Home: its lists are asked again with the new limit when Settings closes
         cur = Servers.find(Util.toText(srv.id))
         if cur <> invalid then m.top.server = cur
         m.top.action = { id: "profileChanged" }
         m.top.themeChanged = true
     end if
-    draw()
 end sub
 
 ' (SC-13) POST /Sessions/Logout for one sign-in. The task is parked in the scene's "tasks" group, so Back right
@@ -1519,116 +1265,8 @@ sub signOutProfile(userId as string)
     if us = invalid then return
     if Util.toText(us.token) <> "" then sendLogout(us)
     Servers.removeUser(Util.toText(srv.id), userId)
-    draw()
-end sub
-
-sub openPicker(purpose as string, title as string, options as object, selectedId as string)
-    p = createObject("roSGNode", "Picker")
-    p.purpose = purpose
-    p.title = title
-    p.selectedId = selectedId
-    p.options = options
-    p.observeField("chosen", "onPicked")
-    p.observeField("cancelled", "onPickerCancelled")
-    m.top.appendChild(p)
-    m.picker = p
-    p.setFocus(true)
-    draw()
-end sub
-
-sub closePicker()
-    if m.picker <> invalid
-        m.picker.unobserveField("chosen")
-        m.picker.unobserveField("cancelled")
-        m.top.removeChild(m.picker)
-        m.picker = invalid
-    end if
-    m.keys.setFocus(true)
-    m.spokenKey = "picker"
-end sub
-
-sub onPickerCancelled()
-    purpose = ""
-    if m.picker <> invalid then purpose = Util.toText(m.picker.purpose)
-    closePicker()
-    draw()
-    ' (SC-10) Back in a library's value list: its menu again, as after a choice
-    if purpose.startsWith("libset:") then libraryMenu(m.menuLib)
-end sub
-
-sub onPicked(ev as object)
-    c = ev.getData()
-    purpose = m.picker.purpose
-    closePicker()
-    if purpose.startsWith("choice:")
-        apply(purpose.mid(7), c.id)
-    else if purpose = "reset" and c.id = "yes"
-        Prefs.resetAll()
-        m.global.theme = Theme.get()
-        m.top.themeChanged = true
-        draw()
-        Toasts.notify("All settings were reset", "check")
-    else if purpose = "lib"
-        id = m.menuLib
-        lp = Prefs.library(id)
-        if c.id = "nav" or c.id = "home"
-            Prefs.setLibrary(id, c.id, not lp[c.id])
-            m.top.themeChanged = true
-            draw()
-            libraryMenu(id)
-        else if c.id = "style"
-            openPicker("libset:style", "Home row shows", styleOptions(), lp.style)
-        else if c.id = "sort"
-            openPicker("libset:sort", "Sort by", sortOptions(), lp.sort)
-        else if c.id = "show"
-            openPicker("libset:show", "Show", showOptions(), lp.show)
-        else if c.id = "rename"
-            askName("lib", "Library name", libTitle(id))
-        else if c.id = "up" or c.id = "down"
-            delta = 1
-            if c.id = "up" then delta = -1
-            moveLibrary(id, delta)
-            draw()
-            libraryMenu(id)
-        end if
-    else if purpose = "homerow"
-        id = m.menuHomeRow
-        sid = serverKey()
-        if c.id = "toggle"
-            HomeLayout.setOn(sid, homeLibs(), id, not HomeLayout.isOn(sid, id))
-        else if c.id = "up" or c.id = "down"
-            delta = 1
-            if c.id = "up" then delta = -1
-            ' (keep the focus on the moved row)
-            if HomeLayout.move(sid, homeLibs(), id, delta) then m.row = m.row + delta
-        end if
-        m.top.themeChanged = true
-        draw()
-        homeRowMenu(id)
-    else if purpose.startsWith("libset:")
-        Prefs.setLibrary(m.menuLib, purpose.mid(7), c.id)
-        m.top.themeChanged = true
-        draw()
-        libraryMenu(m.menuLib)
-    else if purpose = "prof"
-        profileAction(c.id, m.menuProfile)
-    else if purpose = "rating"
-        setRating(m.menuProfile, c.id)
-    else if purpose = "srv"
-        id = m.menuServer
-        if c.id = "connect"
-            guarded({ do: "connect", serverId: id })
-        else if c.id = "signout"
-            guarded({ do: "signout" })
-        else if c.id = "rename"
-            s = Servers.find(id)
-            if s <> invalid then askName("srv", "Server name", Util.toText(s.name))
-        else if c.id = "remove"
-            guarded({ do: "removeServer", serverId: id })
-        end if
-    else
-        draw()
-    end if
+    ' (its sub-list is gone: back to the Profiles tab)
+    popToTab()
 end sub
 
 ' Forgets a server and ends its session there (best effort)
@@ -1642,7 +1280,7 @@ sub removeServer(id as string)
     Servers.forgetAll(id)
     Servers.remove(id)
     HomeLayout.forget(id)
-    draw()
+    popToTab()
 end sub
 
 ' ---------------------------------------------------------------- rename (the Roku keyboard)
@@ -1710,11 +1348,5 @@ sub onNameClosed()
 end sub
 
 sub onFocusChanged()
-    if m.top.hasFocus()
-        if m.picker <> invalid
-            m.picker.setFocus(true)
-        else
-            m.keys.setFocus(true)
-        end if
-    end if
+    if m.top.hasFocus() then m.keys.setFocus(true)
 end sub
