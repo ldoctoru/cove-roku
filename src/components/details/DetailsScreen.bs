@@ -148,10 +148,11 @@ sub setGeometry(t as string)
         m.logoH = 150
     end if
     m.colX = 96 + m.artW + 56
-    ' (v1.5, Liviu) films, series and collections: no small poster, only the big backdrop behind the page;
-    ' the text column starts at the safe edge. Episodes keep their 16:9 still.
-    m.top.findNode("art").visible = m.wideArt
-    if not m.wideArt then m.colX = 96
+    ' (v1.5, Liviu) no small poster or still on any details page, only the big backdrop behind it; the text
+    ' column starts at the safe edge
+    ' (episodes too, after Liviu's second photo: no still either)
+    m.top.findNode("art").visible = false
+    m.colX = 96
     m.colW = 1824 - m.colX
     m.ovLimit = m.colW - 40
     if m.ovLimit > 1200 then m.ovLimit = 1200
@@ -1409,6 +1410,7 @@ end sub
 
 ' POST / DELETE /Users/{id}/FavoriteItems/{item} (Jellyfin 10.9+: /UserFavoriteItems/{item})
 sub toggleFavourite()
+    m.focusPlay = true
     if m.item = invalid then return
     method = "POST"
     if m.isFav then method = "DELETE"
@@ -1456,6 +1458,7 @@ sub episodeMenu()
 end sub
 
 sub toggleWatched()
+    m.focusPlay = true
     if m.item = invalid then return
     markPlayed(Util.toText(m.item.Id), not Util.flag(m.item.UserData, "Played"), Util.toText(m.item.Name))
 end sub
@@ -1769,7 +1772,7 @@ sub leaveMenu()
     if m.menuBack = "media" and m.mediaPills.count() > 0
         enterMedia()
     else
-        enterButtons(false)
+        focusPlayButton()
     end if
 end sub
 
@@ -2115,7 +2118,7 @@ sub onPickerCancelled()
         m.state = "rows"
         m.rows.setFocus(true)
     else
-        enterButtons(false)
+        focusPlayButton()
     end if
 end sub
 
