@@ -58,6 +58,7 @@ sub init()
     m.btns = []
     m.btnSig = ""
     m.btn = 0
+    m.focusPlay = true
     m.state = "buttons"
     m.logoReady = false
     m.lines = 0
@@ -147,6 +148,10 @@ sub setGeometry(t as string)
         m.logoH = 150
     end if
     m.colX = 96 + m.artW + 56
+    ' (v1.5, Liviu) films, series and collections: no small poster, only the big backdrop behind the page;
+    ' the text column starts at the safe edge. Episodes keep their 16:9 still.
+    m.top.findNode("art").visible = m.wideArt
+    if not m.wideArt then m.colX = 96
     m.colW = 1824 - m.colX
     m.ovLimit = m.colW - 40
     if m.ovLimit > 1200 then m.ovLimit = 1200
@@ -331,6 +336,7 @@ end sub
 sub onRefresh()
     m.top.stale = false
     if m.item = invalid then return
+    m.focusPlay = true
     get(itemPath(), { kind: "item" })
     if Util.toText(m.item.Type) = "Series"
         m.nextUpPending = true
@@ -502,6 +508,7 @@ end function
 ' ---------------------------------------------------------------- header
 
 sub showItem(it as object)
+    if m.item = invalid or Util.toText(m.item.Id) <> Util.toText(it.Id) then m.focusPlay = true
     first = m.item = invalid
     m.item = it
     srv = m.top.server
@@ -945,6 +952,11 @@ sub buildButtons()
     ' (SC-8) the focused button by id: a trailer or collection answer inserts buttons before it
     prevId = ""
     if m.btn >= 0 and m.btn < m.btns.count() then prevId = Util.toText(m.btns[m.btn].id)
+    ' (v1.5, Liviu) a newly shown or refreshed page focuses Play; a toggle (✓, ♡) keeps its own focus
+    if m.focusPlay = true
+        prevId = "play"
+        m.focusPlay = false
+    end if
     target = playTarget()
     resumeAt = 0.0
     if target <> invalid then resumeAt = Items.resumeAt(target)
@@ -3044,22 +3056,21 @@ sub onFocusChanged()
         m.menu.setFocus(true)
     else if m.textPanel <> invalid
         m.textPanel.setFocus(true)
-    else if m.state = "overview" or m.state = "media"
-        m.btnKeys.setFocus(true)
-        drawButtons()
-    else if m.state = "rows" and m.rows.visible
-        m.rows.setFocus(true)
-        m.spokenRow = -1
-        onRowFocusedSpeak()
-    else if m.state = "about"
-        m.btnKeys.setFocus(true)
     else if m.state = "error" and m.errorPanel.visible
         m.errorPanel.setFocus(true)
     else
-        m.state = "buttons"
-        m.btnKeys.setFocus(true)
-        drawButtons()
+        ' (v1.5, Liviu: "always focus on Play") back on this page from the player, a title, a person or a
+        ' library: the buttons, with Play focused (the rows slide back down)
+        focusPlayButton()
     end if
+end sub
+
+sub focusPlayButton()
+    at = NavUtil.indexOfId(m.btns, "play")
+    if at >= 0 then m.btn = at
+    m.focusPlay = at < 0
+    slide = m.state = "rows" or m.state = "about"
+    enterButtons(slide)
 end sub
 
 ' ---------------------------------------------------------------- About (Cove for macOS: aboutSection, mediaInfo)
