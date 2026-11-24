@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.5.1) Admin → Items without Poster / Backdrop, off the render thread. Set server, mode and the mode's fields,
+     then control = "RUN".
+     mode "admin": GET /Users/{id} → result = { isAdmin }.
+     mode "scan" (kind, libraryId): pages of 300 (MissingArt.scanPath); "progress" = { scanned, total } after each
+     page; result = { rows: [{ id, name, type, year, path }], scanned, total, ms, error }.
+     mode "refresh" (kind, rows): two at a time: POST Refresh (FullRefresh, nothing replaced), then the item is read
+     again every 3 s (up to ~60 s) until it changes; "itemDone" = { id, fixed } per item; result = { fixed, count }.
+     "cancel" = true stops a scan or refresh at the next step (the screen was closed). -->
+<component name="MissingArtTask" extends="Task">
+    <script type="text/brightscript" uri="MissingArtTask.bs" />
+    <interface>
+        <field id="server" type="assocarray" />
+        <field id="mode" type="string" />
+        <field id="kind" type="string" />
+        <field id="libraryId" type="string" />
+        <field id="rows" type="array" />
+        <field id="cancel" type="boolean" value="false" />
+        <field id="progress" type="assocarray" alwaysNotify="true" />
+        <field id="itemDone" type="assocarray" alwaysNotify="true" />
+        <field id="result" type="assocarray" />
+    </interface>
+</component>

@@ -1,0 +1,159 @@
+' (v1.5.1) Admin → Items without Poster / Backdrop on a library page (Cove for macOS ItemAdminAPI Missing,
+' missingPage, isMissing, decodeMissing, refresh mode .missing). Neither server can filter on a MISSING image, so
+' the library's movies, shows and collections are paged through 300 at a time and filtered here.
+namespace MissingArt
+
+    ' The page size of the scan
+    function pageSize() as integer
+        return 300
+    end function
+
+    ' "poster" / "backdrop" (anything else counts as poster)
+    function kindOf(kind as dynamic) as string
+        if LCase(Util.toText(kind)) = "backdrop" then return "backdrop"
+        return "poster"
+    end function
+
+    ' The screen's title, Title Case: "Items without Poster" / "Items without Backdrop"
+    function titleOf(kind as dynamic) as string
+        if kindOf(kind) = "backdrop" then return "Items without Backdrop"
+        return "Items without Poster"
+    end function
+
+    ' The noun in the status texts: "poster" / "backdrop"
+    function nounOf(kind as dynamic) as string
+        return kindOf(kind)
+    end function
+
+    ' The Mac's query: /Users/{uid}/Items?ParentId=<lib>&Recursive=true&IncludeItemTypes=Movie,Series,BoxSet...
+    function scanPath(userId as string, libraryId as string, startIndex as integer, limit as integer) as string
+        p = "/Users/" + userId + "/Items?ParentId=" + libraryId.encodeUriComponent() + "&Recursive=true"
+        p = p + "&IncludeItemTypes=Movie,Series,BoxSet&Fields=ProductionYear,Path&EnableImageTypes=Primary,Backdrop"
+        p = p + "&EnableUserData=false&SortBy=SortName&SortOrder=Ascending&StartIndex=" + startIndex.toStr() + "&Limit=" + limit.toStr()
+        return p
+    end function
+
+    ' POST: "Search for missing metadata" (FullRefresh of metadata and images, nothing replaced)
+    function refreshMissingPath(itemId as string) as string
+        return "/Items/" + itemId + "/Refresh?Recursive=true&MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false"
+    end function
+
+    ' GET: the item's record again (image tags and refresh date) after a refresh
+    function recordPath(userId as string, itemId as string) as string
+        return "/Users/" + userId + "/Items/" + itemId + "?Fields=DateLastRefreshed,Path,ProductionYear"
+    end function
+
+    ' True when the item has no picture of this kind: poster = ImageTags.Primary empty or absent, backdrop =
+    ' BackdropImageTags empty or absent
+    function isMissing(item as dynamic, kind as dynamic) as boolean
+        if not Util.isAA(item) then return true
+        if kindOf(kind) = "backdrop"
+            tags = item.BackdropImageTags
+            return type(tags) <> "roArray" or tags.count() = 0
+        end if
+        tags = Util.field(item, "ImageTags")
+        if not Util.isAA(tags) then return true
+        return Util.toText(tags.Primary) = ""
+    end function
+
+    ' One page of the scan → { rows: [{ id, name, type, year, path }], pageCount, total } (total -1 when the
+    ' server doesn't say)
+    function rowsOfPage(json as dynamic, kind as dynamic) as object
+        out = { rows: [], pageCount: 0, total: -1 }
+        if not Util.isAA(json) then return out
+        list = json.Items
+        if type(list) <> "roArray" then list = []
+        out.pageCount = list.count()
+        if json.TotalRecordCount <> invalid then out.total = Int(Util.toNumber(json.TotalRecordCount))
+        for each it in list
+            if Util.isAA(it) and Util.toText(it.Id) <> "" and isMissing(it, kind) then out.rows.push(rowOf(it))
+        end for
+        return out
+    end function
+
+    function rowOf(it as object) as object
+        name = Util.toText(it.Name)
+        if name = "" then name = "Untitled"
+        year = 0
+        if it.ProductionYear <> invalid then year = Int(Util.toNumber(it.ProductionYear))
+        return { id: Util.toText(it.Id), name: name, type: Util.toText(it.Type), year: year, path: Util.toText(it.Path), fixed: false }
+    end function
+
+    ' Whether the scan goes on after a page: a full page and the total not reached yet
+    function scanContinues(pageCount as integer, nextStart as integer, total as integer) as boolean
+        if pageCount < pageSize() then return false
+        if total >= 0 and nextStart >= total then return false
+        return true
+    end function
+
+    ' "Dune (2021)"; no year → the name alone
+    function rowLabel(row as object) as string
+        s = Util.toText(row.name)
+        y = Int(Util.toNumber(row.year))
+        if y > 0 then s = s + " (" + y.toStr() + ")"
+        return s
+    end function
+
+    ' The status line: "Checking 300 of 1250 items..." while scanning (no total yet: "Checking 0 items..."),
+    ' then "12 items" / "1 item" / "Every item has a poster."
+    function statusText(kind as dynamic, scanning as boolean, scanned as integer, total as integer, found as integer) as string
+        if scanning
+            s = "Checking " + scanned.toStr()
+            if total >= 0 then s = s + " of " + total.toStr()
+            return s + " items..."
+        end if
+        if found = 0 then return "Every item has a " + nounOf(kind) + "."
+        if found = 1 then return "1 item"
+        return found.toStr() + " items"
+    end function
+
+    ' The Refresh All button while it runs: "Refreshing 3 of 12..."
+    function refreshingText(doneCount as integer, count as integer) as string
+        return "Refreshing " + doneCount.toStr() + " of " + count.toStr() + "..."
+    end function
+
+    ' The toast at the end: "5 of 12 now have a poster"
+    function summaryText(fixedCount as integer, count as integer, kind as dynamic) as string
+        return fixedCount.toStr() + " of " + count.toStr() + " now have a " + nounOf(kind)
+    end function
+
+    ' What changes on the item when a refresh has run: its refresh date and its image tags (Mac snapshot)
+    function snapshotOf(item as dynamic) as string
+        if not Util.isAA(item) then return ""
+        s = Util.toText(item.DateLastRefreshed) + "|"
+        tags = Util.field(item, "ImageTags")
+        if Util.isAA(tags)
+            keys = []
+            for each k in tags
+                keys.push(k)
+            end for
+            keys.sort()
+            for each k in keys
+                s = s + k + "=" + Util.toText(tags[k]) + ";"
+            end for
+        end if
+        bd = item.BackdropImageTags
+        if type(bd) = "roArray"
+            s = s + "Backdrop="
+            for each b in bd
+                s = s + Util.toText(b) + ","
+            end for
+        end if
+        return s
+    end function
+
+    ' The library page's ⋯ admin pill: administrators only, and not for libraries without movies or shows (the
+    ' Mac's libraryMenu: movies, tvshows, boxsets, mixed and unknown kinds)
+    function showsAdminPill(isAdmin as boolean, collectionType as dynamic) as boolean
+        if not isAdmin then return false
+        ct = LCase(Util.toText(collectionType))
+        skip = { music: true, musicvideos: true, livetv: true, playlists: true, books: true, audiobooks: true, photos: true, homevideos: true }
+        return not skip.doesExist(ct)
+    end function
+
+    ' The session key of the admin answer: one check per server address and user
+    function adminKey(serverUrl as string, userId as string) as string
+        return serverUrl + "|" + userId
+    end function
+
+end namespace
