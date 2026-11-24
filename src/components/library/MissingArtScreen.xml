@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.5.1) Admin → Items without Poster / Backdrop for one library (Cove for macOS ItemMissingView), opened from
+     the ⋯ pill on a library page. The library's movies, shows and collections are paged through 300 at a time in
+     a Task and the ones without that picture are listed: title (year), the file's path in grey, a check once a
+     refresh gave it the picture. "Refresh All Missing" at the top refreshes them two at a time ("Refreshing X of
+     N..."), then a toast "K of N now have a poster". OK on a row: Refresh / Open Title. Flat: rows rowFill, the
+     focused row and button solid white with dark text. Set server, then library ({ id, title, kind }). -->
+<component name="MissingArtScreen" extends="Group">
+    <script type="text/brightscript" uri="MissingArtScreen.bs" />
+    <interface>
+        <field id="screenId" type="string" value="missingArt" />
+        <field id="server" type="assocarray" />
+        <field id="library" type="assocarray" onChange="onLibrary" />
+        <field id="action" type="assocarray" alwaysNotify="true" />
+        <!-- set by MainScene when the screen is removed: the scan / refresh stops -->
+        <field id="closed" type="boolean" value="false" onChange="onClosed" />
+    </interface>
+    <children>
+        <Poster id="logo" uri="pkg:/images/logo.png" width="56" height="56" translation="[96,36]" />
+        <Label id="title" width="1100" height="60" translation="[172,34]" vertAlign="bottom" color="0xFFFFFFFF" text="Items without Poster">
+            <Font role="font" uri="font:BoldSystemFontFile" size="44" />
+        </Label>
+        <Label id="libName" width="1100" height="36" translation="[172,96]" color="0xFFFFFF8C" text="Library">
+            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+        </Label>
+        <Label id="status" width="1100" height="52" translation="[96,160]" vertAlign="center" color="0xFFFFFFCC" text="Checking...">
+            <Font role="font" uri="font:MediumSystemFontFile" size="28" />
+        </Label>
+        <!-- the Refresh All Missing pill, right-aligned on the status line (drawn in code) -->
+        <Group id="allButton" translation="[1824,160]" />
+        <!-- holds the focus (keys handled by the screen's onKeyEvent) -->
+        <Group id="keys" focusable="true" />
+        <Group id="rows" translation="[96,236]" />
+        <Label id="moreUp" text="..." width="1728" height="20" translation="[96,214]" horizAlign="center" color="0xFFFFFF9E" visible="false">
+            <Font role="font" uri="font:BoldSystemFontFile" size="24" />
+        </Label>
+        <Label id="moreDown" text="..." width="1728" height="20" translation="[96,1010]" horizAlign="center" color="0xFFFFFF9E" visible="false">
+            <Font role="font" uri="font:BoldSystemFontFile" size="24" />
+        </Label>
+        <Label id="error" width="1728" height="40" translation="[96,214]" color="0xFFFFFFCC" visible="false">
+            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+        </Label>
+    </children>
+</component>

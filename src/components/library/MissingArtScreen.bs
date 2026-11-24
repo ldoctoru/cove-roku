@@ -1,0 +1,401 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Speak.bs"
+import "pkg:/source/Toasts.bs"
+import "pkg:/source/MissingArt.bs"
+
+sub init()
+    m.rowsGroup = m.top.findNode("rows")
+    m.statusLabel = m.top.findNode("status")
+    m.keys = m.top.findNode("keys")
+    m.list = []
+    m.idx = 0
+    m.offset = 0
+    m.visibleRows = 8
+    m.rowH = 94
+    m.area = "button"
+    m.scanning = false
+    m.scanned = 0
+    m.total = -1
+    m.refreshing = false
+    m.refreshDone = 0
+    m.refreshCount = 0
+    m.refreshAll = false
+    m.scanTask = invalid
+    m.refreshTask = invalid
+    m.menu = invalid
+    m.spokenKey = ""
+    m.kind = "poster"
+    m.onFocus = "0x111111FF"
+    t = m.global.theme
+    if t <> invalid and t.onFocus <> invalid then m.onFocus = t.onFocus
+    Speak.mute([m.keys])
+    m.top.observeField("focusedChild", "onFocusChanged")
+    drawButton()
+end sub
+
+sub onLibrary()
+    lib = m.top.library
+    if not Util.isAA(lib) or m.top.server = invalid then return
+    m.kind = MissingArt.kindOf(lib.kind)
+    m.top.findNode("title").text = MissingArt.titleOf(m.kind)
+    m.top.findNode("libName").text = Util.toText(lib.title)
+    startScan()
+end sub
+
+sub onClosed()
+    if not m.top.closed then return
+    if m.scanTask <> invalid then m.scanTask.cancel = true
+    if m.refreshTask <> invalid then m.refreshTask.cancel = true
+end sub
+
+' ---------------------------------------------------------------- scan
+
+sub startScan()
+    if m.scanTask <> invalid then return
+    m.scanning = true
+    m.scanned = 0
+    m.total = -1
+    m.list = []
+    t = createObject("roSGNode", "MissingArtTask")
+    t.server = m.top.server
+    t.mode = "scan"
+    t.kind = m.kind
+    t.libraryId = Util.toText(m.top.library.id)
+    t.observeField("progress", "onScanProgress")
+    t.observeField("result", "onScanned")
+    m.scanTask = t
+    t.control = "RUN"
+    drawStatus()
+    drawButton()
+    drawRows()
+end sub
+
+sub onScanProgress(ev as object)
+    p = ev.getData()
+    if not Util.isAA(p) then return
+    m.scanned = Int(Util.toNumber(p.scanned))
+    m.total = Int(Util.toNumber(p.total))
+    drawStatus()
+end sub
+
+sub onScanned(ev as object)
+    r = ev.getData()
+    m.scanTask = invalid
+    m.scanning = false
+    m.list = []
+    if type(r.rows) = "roArray" then m.list = r.rows
+    m.scanned = Int(Util.toNumber(r.scanned))
+    m.total = Int(Util.toNumber(r.total))
+    err = m.top.findNode("error")
+    err.text = Util.toText(r.error)
+    err.visible = err.text <> ""
+    m.idx = 0
+    m.offset = 0
+    if m.list.count() > 0 and m.area = "button" then m.area = "list"
+    drawStatus()
+    drawButton()
+    drawRows()
+    m.spokenKey = ""
+    speakFocus(true)
+end sub
+
+sub drawStatus()
+    m.statusLabel.text = MissingArt.statusText(m.kind, m.scanning, m.scanned, m.total, m.list.count())
+end sub
+
+' ---------------------------------------------------------------- refresh
+
+' The rows still without the picture
+function openRows() as object
+    out = []
+    for each r in m.list
+        if not Util.flag(r, "fixed") then out.push(r)
+    end for
+    return out
+end function
+
+function buttonEnabled() as boolean
+    return not m.scanning and not m.refreshing and openRows().count() > 0
+end function
+
+sub startRefresh(rows as object, isAll as boolean)
+    if m.refreshing or rows.count() = 0 then return
+    m.refreshing = true
+    m.refreshAll = isAll
+    m.refreshDone = 0
+    m.refreshCount = rows.count()
+    m.refreshFixed = 0
+    t = createObject("roSGNode", "MissingArtTask")
+    t.server = m.top.server
+    t.mode = "refresh"
+    t.kind = m.kind
+    t.rows = rows
+    t.observeField("itemDone", "onItemRefreshed")
+    t.observeField("result", "onRefreshed")
+    m.refreshTask = t
+    t.control = "RUN"
+    if not isAll then Toasts.notify("Refreshing metadata for " + Toasts.quoted(Util.toText(rows[0].name)), "dt_refresh")
+    drawButton()
+end sub
+
+sub onItemRefreshed(ev as object)
+    d = ev.getData()
+    if not Util.isAA(d) then return
+    m.refreshDone = m.refreshDone + 1
+    ok = Util.flag(d, "fixed")
+    if ok
+        m.refreshFixed = m.refreshFixed + 1
+        id = Util.toText(d.id)
+        for i = 0 to m.list.count() - 1
+            if Util.toText(m.list[i].id) = id
+                r = m.list[i]
+                r.fixed = true
+                m.list[i] = r
+                exit for
+            end if
+        end for
+    end if
+    drawButton()
+    drawRows()
+end sub
+
+sub onRefreshed(ev as object)
+    r = ev.getData()
+    m.refreshTask = invalid
+    m.refreshing = false
+    if not Util.flag(r, "cancelled")
+        if m.refreshAll
+            Toasts.notify(MissingArt.summaryText(m.refreshFixed, m.refreshCount, m.kind), "check")
+        else if m.refreshFixed > 0
+            Toasts.notify("Updated, it now has a " + MissingArt.nounOf(m.kind), "check")
+        else
+            Toasts.notify("Still no " + MissingArt.nounOf(m.kind) + ". The server may still be working on it.", "info")
+        end if
+    end if
+    if m.area = "button" and not buttonEnabled() and m.list.count() > 0 then m.area = "list"
+    drawButton()
+    drawRows()
+    m.spokenKey = ""
+end sub
+
+' ---------------------------------------------------------------- drawing
+
+sub drawButton()
+    g = m.top.findNode("allButton")
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    text = "Refresh All Missing"
+    if m.refreshing and m.refreshAll then text = MissingArt.refreshingText(m.refreshDone, m.refreshCount)
+    focused = m.area = "button" and m.menu = invalid
+    bg = g.createChild("Poster")
+    lab = g.createChild("Label")
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    f.size = 26
+    lab.font = f
+    lab.text = text
+    lab.height = 52
+    lab.vertAlign = "center"
+    lab.width = 0
+    w = Int(lab.boundingRect().width) + 56
+    lab.width = w - 56
+    lab.translation = [28, 0]
+    bg.uri = "pkg:/images/ui/flat_pill_52.9.png"
+    bg.width = w
+    bg.height = 52
+    bg.opacity = 0.12
+    lab.color = "0xFFFFFFEB"
+    if focused
+        bg.opacity = 1.0
+        lab.color = m.onFocus
+    end if
+    ' (nothing to refresh yet: dimmed, as on the Mac)
+    if not buttonEnabled() and not (m.refreshing and m.refreshAll) then g.opacity = 0.5 else g.opacity = 1.0
+    ' right-aligned: the group's translation is the right edge
+    for i = 0 to g.getChildCount() - 1
+        c = g.getChild(i)
+        tr = c.translation
+        c.translation = [tr[0] - w, tr[1]]
+    end for
+end sub
+
+sub scrollToFocus()
+    if m.idx < m.offset then m.offset = m.idx
+    if m.idx >= m.offset + m.visibleRows then m.offset = m.idx - m.visibleRows + 1
+    if m.offset < 0 then m.offset = 0
+end sub
+
+' The visible rows: title (year) in white, the path small and grey under it, a check on the right once fixed;
+' rowFill at rest, the focused row solid white with dark text
+sub drawRows()
+    g = m.rowsGroup
+    g.removeChildrenIndex(g.getChildCount(), 0)
+    scrollToFocus()
+    for r = 0 to m.visibleRows - 1
+        i = m.offset + r
+        if i >= m.list.count() then exit for
+        row = m.list[i]
+        focused = m.area = "list" and i = m.idx and m.menu = invalid
+        grp = g.createChild("Group")
+        grp.translation = [0, r * m.rowH]
+        bg = grp.createChild("Poster")
+        bg.uri = "pkg:/images/ui/white_rr12.9.png"
+        bg.width = 1728
+        bg.height = m.rowH - 10
+        bg.opacity = 0.08
+        if focused then bg.opacity = 1.0
+        fg = "0xFFFFFFEB"
+        grey = "0xFFFFFF8C"
+        if focused
+            fg = m.onFocus
+            grey = "0x111111A6"
+        end if
+        name = grp.createChild("Label")
+        f = createObject("roSGNode", "Font")
+        f.uri = "font:BoldSystemFontFile"
+        f.size = 26
+        name.font = f
+        name.text = MissingArt.rowLabel(row)
+        name.color = fg
+        name.width = 1728 - 32 - 80
+        name.height = 40
+        name.translation = [28, 8]
+        p = grp.createChild("Label")
+        pf = createObject("roSGNode", "Font")
+        pf.uri = "font:MediumSystemFontFile"
+        pf.size = 20
+        p.font = pf
+        p.text = Util.toText(row.path)
+        p.color = grey
+        p.width = 1728 - 32 - 80
+        p.height = 32
+        p.translation = [28, 48]
+        if Util.flag(row, "fixed")
+            ck = grp.createChild("Poster")
+            ck.uri = "pkg:/images/ui/icon_check_28.png"
+            ck.width = 28
+            ck.height = 28
+            ck.translation = [1728 - 28 - 32, Int((m.rowH - 10 - 28) / 2)]
+            ck.blendColor = fg
+        end if
+    end for
+    m.top.findNode("moreUp").visible = m.offset > 0
+    m.top.findNode("moreDown").visible = m.offset + m.visibleRows < m.list.count()
+end sub
+
+' ---------------------------------------------------------------- Audio Guide
+
+sub speakFocus(withStatus = false as boolean)
+    if not Speak.isOn() then return
+    text = ""
+    if m.area = "button"
+        label = "Refresh All Missing"
+        if m.refreshing and m.refreshAll then label = MissingArt.refreshingText(m.refreshDone, m.refreshCount)
+        text = Speak.button(label)
+        if not buttonEnabled() then text = text + ", dimmed"
+    else if m.idx >= 0 and m.idx < m.list.count()
+        row = m.list[m.idx]
+        text = Speak.clean(MissingArt.rowLabel(row))
+        if Util.flag(row, "fixed") then text = text + ", fixed"
+        text = text + Speak.position(m.idx, m.list.count())
+    end if
+    key = m.area + m.idx.toStr() + text
+    if key = m.spokenKey then return
+    m.spokenKey = key
+    if withStatus then text = MissingArt.titleOf(m.kind) + ". " + m.statusLabel.text + " " + text
+    Speak.say(text)
+end sub
+
+' ---------------------------------------------------------------- keys, row menu
+
+sub onFocusChanged()
+    if not m.top.hasFocus() then return
+    if m.menu <> invalid
+        m.menu.setFocus(true)
+    else
+        m.keys.setFocus(true)
+        m.spokenKey = ""
+        speakFocus(true)
+    end if
+end sub
+
+sub openRowMenu()
+    if m.menu <> invalid or m.idx >= m.list.count() then return
+    row = m.list[m.idx]
+    d = createObject("roSGNode", "DetailsMenu")
+    d.title = MissingArt.rowLabel(row)
+    d.purpose = "row"
+    d.panelWidth = 420
+    d.anchor = [1824 - 420 - 24, 236 + (m.idx - m.offset) * m.rowH + m.rowH - 10]
+    d.options = [{ id: "refresh", label: "Refresh", icon: "pkg:/images/ui/icon_dt_refresh_28.png" }, { id: "open", label: "Open Title" }]
+    d.observeField("chosen", "onRowChosen")
+    d.observeField("cancelled", "closeRowMenu")
+    m.top.appendChild(d)
+    m.menu = d
+    drawRows()
+    drawButton()
+    d.setFocus(true)
+end sub
+
+sub closeRowMenu()
+    if m.menu = invalid then return
+    m.menu.unobserveField("chosen")
+    m.menu.unobserveField("cancelled")
+    m.top.removeChild(m.menu)
+    m.menu = invalid
+    m.keys.setFocus(true)
+    drawRows()
+    drawButton()
+    m.spokenKey = ""
+    speakFocus()
+end sub
+
+sub onRowChosen(ev as object)
+    id = Util.toText(ev.getData().id)
+    closeRowMenu()
+    if m.idx >= m.list.count() then return
+    row = m.list[m.idx]
+    if id = "refresh"
+        if m.refreshing
+            Toasts.notify("A refresh is already running", "info")
+        else
+            startRefresh([row], false)
+        end if
+    else if id = "open"
+        m.top.action = { id: "open", itemId: Util.toText(row.id), itemType: Util.toText(row.type), title: Util.toText(row.name) }
+    end if
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press or m.menu <> invalid then return false
+    if key = "back" then return false
+    n = m.list.count()
+    if m.area = "button"
+        if key = "down" and n > 0
+            m.area = "list"
+        else if key = "OK"
+            if buttonEnabled() then startRefresh(openRows(), true)
+        else
+            return true
+        end if
+    else
+        if key = "up"
+            if m.idx > 0 then m.idx = m.idx - 1 else m.area = "button"
+        else if key = "down"
+            if m.idx < n - 1 then m.idx = m.idx + 1
+        else if key = "rewind" or key = "fastforward"
+            ' a screen of rows back / on
+            if key = "rewind" then m.idx = m.idx - m.visibleRows else m.idx = m.idx + m.visibleRows
+            if m.idx < 0 then m.idx = 0
+            if m.idx > n - 1 then m.idx = n - 1
+        else if key = "OK"
+            openRowMenu()
+            return true
+        else
+            return true
+        end if
+    end if
+    drawButton()
+    drawRows()
+    speakFocus()
+    return true
+end function
