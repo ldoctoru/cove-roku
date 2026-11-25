@@ -497,6 +497,8 @@ sub onBannerTick()
     m.bannerLast = bannerNowSecs()
     src = m.bannerPref.source
     if src = "rows"
+        ' (v1.6 H-1) an Emby 4.10 Spotlight banner keeps its titles (they come with the next Home load)
+        if m.bannerNodes.count() > 0 then return
         m.bannerRound = m.bannerRound + 1
         applyHeroes(rowHeroes(m.rows.content, m.bannerRound))
         print "Cove: home banner rows "; m.heroes.count(); " titles 0 ms (refresh "; m.bannerRound; ")"
