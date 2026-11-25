@@ -236,6 +236,12 @@ sub detachScreen(s as dynamic)
     if s = invalid then return
     ' (v1.5.1) the missing-art scan / refresh stops with its page
     if s.screenId = "missingArt" then s.closed = true
+    ' (SC5-2) any pop of a player (Back bubbling up, a dropped top, a reset) ends it like Back: video stopped,
+    ' stop report, transcode ended (close() runs once, so a player that already finished is unchanged)
+    if s.screenId = "player" and s.stopNow <> true
+        print "Cove: player off the stack (stopNow)"
+        s.stopNow = true
+    end if
     if s.screenId = "details"
         s.unobserveField("play")
         s.unobserveField("openItem")

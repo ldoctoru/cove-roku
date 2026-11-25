@@ -234,10 +234,14 @@ sub onContent(ev as object)
     buildHeroes(content)
     ' (SC-2: also from the error panel, which had the focus and is gone now)
     if not wasReload or m.state = "loading" or m.state = "error"
+        ' (SC5-2) a cold-launch deep link may already have pushed the player or a page over Home: lay Home out
+        ' but leave the remote there; onFocusChanged focuses the hero or rows when Home is back on top
+        onTop = m.top.isInFocusChain()
+        if not onTop then print "Cove: home rows arrived under another screen (focus left there)"
         if m.heroes.count() > 0
-            enterHero(false)
+            enterHero(false, onTop)
         else
-            enterRows(false)
+            enterRows(false, onTop)
         end if
     end if
     Clock.startupMark("home rows drawn")
@@ -717,9 +721,9 @@ sub animateTo(rowsY as integer, heroOp as float, infoOp as float, navOp as float
     m.slide.control = "start"
 end sub
 
-sub enterHero(animate = true as boolean)
+sub enterHero(animate = true as boolean, takeFocus = true as boolean)
     if m.heroes.count() = 0
-        enterRows(animate)
+        enterRows(animate, takeFocus)
         return
     end if
     m.state = "hero"
@@ -728,11 +732,12 @@ sub enterHero(animate = true as boolean)
     f = m.rows.rowItemFocused
     if m.rows.content <> invalid and m.rows.content.getChildCount() > 0 and f <> invalid and f.count() >= 2 and f[0] <> 0 then m.rows.jumpToRowItem = [0, 0]
     ' (a node of its own: setFocus on the screen itself doesn't take the focus back from the rows)
-    m.top.findNode("heroKeys").setFocus(true)
+    if takeFocus then m.top.findNode("heroKeys").setFocus(true)
     goTop(animate)
     showBackdrop(m.heroes[m.heroIndex].backdrop)
-    startHeroTimer()
     paintButtons()
+    if not takeFocus then return
+    startHeroTimer()
     speakHero(true)
 end sub
 
@@ -806,11 +811,11 @@ sub goTop(animate as boolean)
 end sub
 
 ' Rows: they slide up, the hero fades, the backdrop dims and follows the focused card
-sub enterRows(animate = true as boolean)
+sub enterRows(animate = true as boolean, takeFocus = true as boolean)
     m.state = "rows"
     m.spokenRow = -1
     m.heroTimer.control = "stop"
-    m.rows.setFocus(true)
+    if takeFocus then m.rows.setFocus(true)
     if animate
         animateTo(400, 0.0, 1.0, navInRows(), 0.6, 1.0)
     else
@@ -822,7 +827,7 @@ sub enterRows(animate = true as boolean)
         m.top.findNode("rowsBg").opacity = 1.0
     end if
     paintButtons()
-    onItemFocused()
+    if takeFocus then onItemFocused()
 end sub
 
 sub onNavChosen(ev as object)
