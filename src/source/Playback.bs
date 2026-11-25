@@ -507,12 +507,12 @@ namespace Playback
     ' (v1.2 SP-14) Only the episodes beside epId in its series' list (the one before, itself and the one after):
     ' AdjacentTo on /Shows/{id}/Episodes (Emby and Jellyfin)
     function adjacentEpisodesPath(userKey as string, showId as string, epId as string) as string
-        return "/Shows/" + showId + "/Episodes?UserId=" + userKey + "&AdjacentTo=" + epId + "&" + episodeListFields()
+        return "/Shows/" + showId + "/Episodes?UserId=" + userKey + "&AdjacentTo=" + epId + "&IsMissing=false&" + episodeListFields()
     end function
 
     ' The whole series' list (the Episodes panel, or a rating limit that has to skip episodes)
     function seriesEpisodesPath(userKey as string, showId as string) as string
-        return "/Shows/" + showId + "/Episodes?UserId=" + userKey + "&" + episodeListFields()
+        return "/Shows/" + showId + "/Episodes?UserId=" + userKey + "&IsMissing=false&" + episodeListFields()
     end function
 
     ' (v1.2 SP-13c) Cinema Mode intros: the old route (Emby, Jellyfin up to 10.8) or the new one (Jellyfin 10.9+)
@@ -565,6 +565,42 @@ namespace Playback
         if creditsAt > 0 and (duration <= 0 or creditsAt < duration - 1) then return creditsAt
         if duration > 120 then return duration - 30
         return -1.0
+    end function
+
+    ' ---------------------------------------------------------------- v1.5.2 player
+
+    ' (v1.5.2 P5-2) Where an episode picked in the player (Next / Previous / Up Next / Episodes panel) starts:
+    ' its saved resume point, as Cove for macOS (resumes past 30 s); 0 when watched, under 30 s or unknown
+    function resumeAtOf(ep as dynamic) as float
+        ud = Util.field(ep, "UserData")
+        if not Util.isAA(ud) or Util.flag(ud, "Played") then return 0.0
+        secs = Util.toNumber(ud.PlaybackPositionTicks) / 10000000.0
+        if secs < 30 then return 0.0
+        return secs
+    end function
+
+    ' (v1.5.2 P5-3) An episode the server only lists (missing / not aired yet, no file): it can't play, so it is
+    ' never previous / next or in the Episodes panel
+    function isMissingEpisode(ep as dynamic) as boolean
+        if not Util.isAA(ep) then return false
+        if Util.toText(ep.LocationType) = "Virtual" then return true
+        return Util.flag(ep, "IsMissing")
+    end function
+
+    ' (v1.5.2 P5-7) Where to go on after a video error: the Video node's position, else the last position seen
+    ' (it can read 0 after an error), else where the session started
+    function errorResumeAt(videoPos as float, lastSeen as float, startAt as float) as float
+        if videoPos >= 1 then return videoPos
+        if lastSeen >= 1 then return lastSeen
+        return startAt
+    end function
+
+    ' (v1.5.2 P5-8) A "finished" from the Video node that isn't the real end: the last position seen is more
+    ' than a minute before the end and not yet in the credits (an HLS conversion that stopped early)
+    function endedEarly(lastSeen as float, duration as float, creditsAt as float) as boolean
+        if duration <= 0 then return false
+        if creditsAt > 0 and lastSeen >= creditsAt then return false
+        return lastSeen < duration - 60
     end function
 
 end namespace
