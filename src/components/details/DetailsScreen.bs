@@ -1510,8 +1510,8 @@ sub onUserAudio(r as object)
     if r.code = 200 then json = r.json
     if r.code <> 200 then print "Cove: user settings -> "; r.code
     if Tracks.serverAudioPref(m.top.server) = invalid then Tracks.rememberServerAudio(m.top.server, json)
-    ' (v1.5 details) ⋯ More → Refresh Metadata for administrators only
-    m.isAdmin = DetailsHead.isAdminUser(json)
+    ' (v1.5 details) ⋯ More → Refresh Metadata for administrators only; (v1.5.2 CS-1) not under a kids limit
+    m.isAdmin = Ratings.effectiveAdmin(m.top.server, DetailsHead.isAdminUser(json))
     if m.item = invalid or m.tracks = invalid then return
     t = Util.toText(m.item.Type)
     if t = "Series" or t = "BoxSet" then return

@@ -89,6 +89,16 @@ namespace HomeLayout
         return ids
     end function
 
+    ' (v1.5.2 ST-11) The default order before v1.5: the same rows with My Media at the end
+    function oldDefaultIds(defs as object) as object
+        out = []
+        for each id in defs
+            if id <> "libraries" then out.push(id)
+        end for
+        out.push("libraries")
+        return out
+    end function
+
     ' The saved order with the rows the server no longer has dropped, and new ones (a new library) placed after
     ' the row that comes before them in the default order (a saved order keeps My Media where it was)
     function orderedIds(serverId as string, libs as object) as object
@@ -107,6 +117,9 @@ namespace HomeLayout
         end for
         ' (a saved order that only keeps the default's own order, e.g. after Default Order: the default as it is)
         if isInOrder(out, defs) then return defs
+        ' (v1.5.2 ST-11) the v1.3.2 default (My Media last, written in full by a Home row switch) was never
+        ' chosen: the new default
+        if out.count() > 0 and out.peek() = "libraries" and isInOrder(out, oldDefaultIds(defs)) then return defs
         for i = 0 to defs.count() - 1
             id = defs[i]
             if not used.doesExist(id)

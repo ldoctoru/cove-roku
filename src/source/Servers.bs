@@ -322,32 +322,30 @@ namespace Servers
 
     ' ---------------------------------------------------------------- cleanup when a server is removed
     ' (R-8, k2) Everything Cove keeps for a server outside the "servers" record: its Home rows
-    ' (homeRows:<id>), its library order (libOrder:<id>), its libraries' settings (lib:<libId>) and page
-    ' filters (libFilters entries), and its profiles' PIN lockouts (pinWait). The libraries are the ones
-    ' named in its library order and Home rows. Call it before remove(id).
+    ' (homeRows:<id>), its library order (libOrder:<id>), and (v1.5.2 CS-3 / ST-1) everything kept under its tag
+    ' (Prefs.tagOf): its libraries' settings (lib:<tag>:<libId>), its menu lists (navtop:<tag>, navside:<tag>),
+    ' its library page filters and series languages (entries "<tag>:<id>"), and its profiles' PIN lockouts
+    ' (pinWait). Call it before remove(id).
     sub forgetAll(serverId as string)
         if serverId = "" then return
         sec = createObject("roRegistrySection", "Cove")
-        libIds = {}
-        for each tok in Util.readText("libOrder:" + serverId).split(",")
-            if tok <> "" then libIds[tok] = true
+        ' (= Prefs.tagOf: Servers doesn't import Prefs)
+        tg = serverId.left(8)
+        libPrefix = "lib:" + tg + ":"
+        gone = 0
+        for each k in sec.getKeyList()
+            if k.startsWith(libPrefix) or k = "navtop:" + tg or k = "navside:" + tg
+                sec.delete(k)
+                gone = gone + 1
+            end if
         end for
-        for each tok in Util.readText("homeRows:" + serverId).replace("@", "").split(",")
-            t = tok
-            if t.left(1) = "+" or t.left(1) = "-" then t = t.mid(1)
-            if t.left(1) = "L" and t.len() > 1 then libIds[t.mid(1)] = true
+        for each listKey in ["libFilters", "seriesLangs"]
+            list = Util.readJson(listKey)
+            if type(list) = "roArray"
+                kept = Servers.withoutTag(list, tg)
+                if kept.count() <> list.count() then sec.write(listKey, formatJson(kept))
+            end if
         end for
-        for each libId in libIds
-            if sec.exists("lib:" + libId) then sec.delete("lib:" + libId)
-        end for
-        filt = Util.readJson("libFilters")
-        if type(filt) = "roArray" and libIds.count() > 0
-            keptFilters = []
-            for each e in filt
-                if Util.isAA(e) and not libIds.doesExist(Util.toText(e.id)) then keptFilters.push(e)
-            end for
-            if keptFilters.count() <> filt.count() then sec.write("libFilters", formatJson(keptFilters))
-        end if
         waitMap = Util.readJson("pinWait")
         if Util.isAA(waitMap)
             prefix = serverId.left(12) + ":"
@@ -361,8 +359,18 @@ namespace Servers
             if sec.exists(k) then sec.delete(k)
         end for
         if not sec.flush() then print "Cove: registry flush failed after forgetting a server"
-        print "Cove: forgot the settings of a removed server ("; libIds.count(); " libraries)"
+        print "Cove: forgot the settings of a removed server ("; gone; " keys)"
     end sub
+
+    ' The entries ({ id: "<tag>:<id>" }) that don't belong to the server tag
+    function withoutTag(list as object, tg as string) as object
+        out = []
+        prefix = tg + ":"
+        for each e in list
+            if not (Util.isAA(e) and Util.toText(e.id).startsWith(prefix)) then out.push(e)
+        end for
+        return out
+    end function
 
     ' (LAN discovery, DiscoveryTask) { Address: "http://192.168.1.20:8096", Id, Name } → { id, name, address } or
     ' invalid. Any device on the network can answer, so only a plain http(s)://host[:port] address with safe

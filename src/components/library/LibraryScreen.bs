@@ -385,6 +385,7 @@ end sub
 sub checkAdmin()
     if feed() <> "" or Util.toText(m.top.library.id) = "" or m.top.server = invalid then return
     key = MissingArt.adminKey(Util.toText(m.top.server.url), Util.toText(m.top.server.userId))
+    m.adminKey = key
     cache = invalid
     if m.global.hasField("adminCache") then cache = m.global.adminCache
     if Util.isAA(cache) and cache.doesExist(key)
@@ -412,11 +413,24 @@ sub onAdminChecked(ev as object)
         cache[m.adminKey] = m.isAdmin
         m.global.adminCache = cache
     end if
-    if m.isAdmin then drawBar()
+    if hasAdminPill() then drawBar()
 end sub
 
 function hasAdminPill() as boolean
-    return feed() = "" and Util.toText(m.top.library.id) <> "" and MissingArt.showsAdminPill(m.isAdmin, m.top.library.collectionType)
+    if feed() <> "" or Util.toText(m.top.library.id) = "" then return false
+    ' (v1.5.2 CS-1) a profile with a kids limit is never an admin here; (CS-2) a refused refresh drops the answer
+    admin = MissingArt.effectiveAdmin(m.isAdmin, m.top.server)
+    if admin and not adminStillCached()
+        m.isAdmin = false
+        admin = false
+    end if
+    return MissingArt.showsAdminPill(admin, m.top.library.collectionType)
+end function
+
+function adminStillCached() as boolean
+    if not m.global.hasField("adminCache") then return false
+    cache = m.global.adminCache
+    return Util.isAA(cache) and cache.doesExist(Util.toText(m.adminKey))
 end function
 
 ' OK on ⋯: a small flat menu under the pill, headed ADMIN
