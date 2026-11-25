@@ -1,6 +1,6 @@
 {
   "name": "cove-roku",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "private": true,
   "description": "Cove for Roku: Emby and Jellyfin client",
   "license": "GPL-3.0",
