@@ -80,6 +80,7 @@ sub init()
     m.ovMore = false        ' the description is cut: Up from the buttons reaches "MORE"
     m.ovWidth = 0
     m.textPanel = invalid   ' the whole description, while open
+    m.covered = false       ' (SC5-12) hidden under another screen since the last focus
     m.trailers = []         ' trailers stored on the server with this title (LocalTrailers)
     m.extrasList = []       ' (v1.0 F-9) extras / special features (behind the scenes, deleted scenes, ...)
     m.seriesPlay = invalid  ' (v1.0 F-17) the Play All / Shuffle request waiting for its episodes
@@ -1876,12 +1877,14 @@ sub useMore(id as string)
         closeMenu()
         m.status.text = "Getting your collections..."
         get("/Users/" + Util.toText(m.top.server.userId) + "/Items?IncludeItemTypes=BoxSet&Recursive=true&SortBy=SortName&SortOrder=Ascending&Fields=ProductionYear&EnableImageTypes=Primary&ImageTypeLimit=1&Limit=300" + Items.noCount(), { kind: "lists", which: "coll", itemId: Util.toText(it.Id) })
-        enterButtons(false)
+        ' (SC5-9) ⋯ closed: Play focused while the list loads (and when it fails)
+        focusPlayButton()
     else if id = "addlist"
         closeMenu()
         m.status.text = "Getting your playlists..."
         get("/Users/" + Util.toText(m.top.server.userId) + "/Items?IncludeItemTypes=Playlist&Recursive=true&SortBy=SortName&SortOrder=Ascending&Limit=300" + Items.noCount(), { kind: "lists", which: "list", itemId: Util.toText(it.Id) })
-        enterButtons(false)
+        ' (SC5-9) ⋯ closed: Play focused while the list loads (and when it fails)
+        focusPlayButton()
     else if id = "gocoll"
         if m.includedList.count() = 1
             leaveMenu()
@@ -1912,6 +1915,11 @@ sub onLists(r as object)
     m.status.text = ""
     if m.item = invalid or Util.toText(r.tag.itemId) <> Util.toText(m.item.Id) then return
     which = Util.toText(r.tag.which)
+    ' (SC5-9) the page is covered (a person, a title, the player): the list doesn't open over it
+    if not m.top.isInFocusChain() or m.picker <> invalid or m.menu <> invalid or m.textPanel <> invalid
+        print "Cove: lists ("; which; ") answered while the page is covered or busy: dropped"
+        return
+    end if
     if r.code <> 200
         print "Cove: lists ("; which; ") failed: "; Api.describeFailure(r)
         Toasts.notify(Toasts.failedText("get the list"), "info")
@@ -2466,15 +2474,23 @@ sub buildRowsContent()
     end for
     if m.jumpToEpisodes and target >= 0 then m.jumpToEpisodes = false
     ' (Go to Season: the focus goes to that season's episodes once they are there)
-    if m.focusEpisodes = true and target >= 0
+    if m.focusEpisodes = true and target >= 0 and rowsMayTakeFocus()
         if root.getChild(target).rowKind = "episodes" and root.getChild(target).getChildCount() > 0
             m.focusEpisodes = false
             enterRows()
         end if
     end if
     if target >= 0 then m.rows.jumpToRowItem = [target, item]
-    if m.state = "rows" then m.rows.setFocus(true)
+    ' (SC5-3) a late row (More Like This, Extras, Included In) never takes the keys from a page or player on
+    ' top, nor from an open picker / menu / text panel on this page
+    if m.state = "rows" and rowsMayTakeFocus() then m.rows.setFocus(true)
 end sub
+
+' (SC5-3) This page is on top and no overlay of its own holds the keys
+function rowsMayTakeFocus() as boolean
+    if m.picker <> invalid or m.menu <> invalid or m.textPanel <> invalid then return false
+    return m.top.isInFocusChain()
+end function
 
 ' (SP-9) A row from a list's cached cards, when it has any
 sub addRowSpec(specs as object, kind as string, title as string, size as object)
@@ -3047,7 +3063,18 @@ sub playKey()
 end sub
 
 sub onFocusChanged()
+    ' (SC5-12) covered by another screen (MainScene hides a page before it pushes the next one)
+    if not m.top.visible and not m.top.isInFocusChain() then m.covered = true
     if not m.top.hasFocus() then return
+    ' (SC5-12) back from another screen: a menu or picker left open under it is stale, Play gets the focus
+    if m.covered = true
+        m.covered = false
+        if m.picker <> invalid or m.menu <> invalid
+            print "Cove: details back on top: closing a stale menu / picker"
+            closePicker()
+            closeMenu()
+        end if
+    end if
     ' (SC-1) something was played or changed on a page above: Resume, Next Up, the episodes' progress and the
     ' season counts again
     if m.top.stale then onRefresh()
