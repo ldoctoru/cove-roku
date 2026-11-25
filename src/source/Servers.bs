@@ -373,6 +373,16 @@ namespace Servers
             for each u in srv.users
                 PrefScope.forgetProfile(Util.toText(u.i))
             end for
+            ' (v1.6 CS-8) and the sign-in form its address accepted (Api.authShapeOf)
+            shapes = Util.readJson("authShape")
+            origin = Util.originOf(Util.toText(srv.url))
+            if type(shapes) = "roArray"
+                keptShapes = []
+                for each e in shapes
+                    if Util.isAA(e) and Util.toText(e.o) <> origin then keptShapes.push(e)
+                end for
+                if keptShapes.count() <> shapes.count() then sec.write("authShape", formatJson(keptShapes))
+            end if
         end if
         if not sec.flush() then print "Cove: registry flush failed after forgetting a server"
         print "Cove: forgot the settings of a removed server ("; gone; " keys)"

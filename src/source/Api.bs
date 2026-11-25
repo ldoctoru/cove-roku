@@ -5,8 +5,14 @@ import "pkg:/source/Servers.bs"
 ' thread (roUrlTransfer can't run on the render thread).
 namespace Api
 
-    ' The MediaBrowser authorization header. Jellyfin reads it from "Authorization", Emby from
-    ' "X-Emby-Authorization" (+ "X-Emby-Token" once signed in).
+    ' The MediaBrowser authorization header. Jellyfin reads it from "Authorization". Emby reads
+    ' "X-Emby-Authorization" first, else "Authorization" (same MediaBrowser form).
+    ' (v1.6 CS-8) Once signed in, Emby gets the token only in "Authorization" too: roUrlTransfer follows
+    ' redirects and forwards custom headers (X-Emby-Token, X-Emby-Authorization) to another host, while it
+    ' drops "Authorization" when a redirect changes the host (an SSO proxy answering 302 to its login host).
+    ' A server that refused that form once and accepted the old one is remembered (Api.authShapeOf, "l"), and
+    ' keeps the old X-Emby-Authorization + X-Emby-Token. Without a token (sign-in), Emby keeps the old form:
+    ' there is no secret in it.
     function headers(server as object, withToken as boolean) as object
         q = chr(34)
         value = "MediaBrowser Client=" + q + "Cove" + q + ", Device=" + q + headerName(Util.deviceName(), Servers.isJellyfin(server)) + q + ", DeviceId=" + q + Util.deviceId() + q + ", Version=" + q + Util.appVersion() + q
@@ -15,6 +21,8 @@ namespace Api
         if token <> "" then value = value + ", Token=" + q + token + q
         h = { "Accept": "application/json" }
         if Servers.isJellyfin(server)
+            h["Authorization"] = value
+        else if token <> "" and Api.authShapeOf(Util.originOf(Util.toText(server.url))) <> "l"
             h["Authorization"] = value
         else
             h["X-Emby-Authorization"] = value
@@ -44,6 +52,11 @@ namespace Api
     ' → { code (HTTP status, or < 0 for a network error), json (an object / list or invalid), value (a bare JSON
     ' value), error, tag }
     function execute(req as object) as object
+        return Api.afterAuth(req, Api.executeOnce(req))
+    end function
+
+    ' One try of execute() (execute adds the CS-8 sign-in form fallback)
+    function executeOnce(req as object) as object
         res = { code: -1, json: invalid, value: invalid, error: "", tag: req.tag }
         xfer = createObject("roUrlTransfer")
         port = createObject("roMessagePort")
@@ -193,6 +206,10 @@ namespace Api
                 results[job.i].error = "The server didn't answer in time."
             end for
         end while
+        ' (v1.6 CS-8) the sign-in form check, as in execute
+        for i = 0 to reqs.count() - 1
+            Api.afterAuth(reqs[i], results[i])
+        end for
         return results
     end function
 
@@ -317,6 +334,88 @@ namespace Api
         if res.code > 0 then return "The server answered with error " + Util.toText(res.code) + "."
         if res.error <> "" then return res.error
         return "No connection to the server."
+    end function
+
+    ' ---------------------------------------------------------------- v1.6 CORE
+
+    ' (v1.6 CS-8) After a request whose token rode in "Authorization" (the redirect-safe form): a 2xx marks the
+    ' server as accepting it ("m"); a 401 from a server not known yet is tried once with the old Emby headers,
+    ' and "l" is remembered when that answers. Changes res in place (the retry's answer) and returns it.
+    function afterAuth(req as object, res as object) as object
+        if not Util.isAA(req) or not Util.isAA(res) then return res
+        alt = Api.legacyEmbyHeaders(req.headers)
+        if alt = invalid then return res
+        code = Util.toNumber(res.code)
+        origin = Util.originOf(Util.toText(req.url))
+        shape = Api.authShapeOf(origin)
+        if code >= 200 and code < 300
+            if shape = "" then Api.rememberAuthShape(origin, "m")
+            return res
+        end if
+        if code <> 401 or shape <> "" then return res
+        again = {}
+        again.append(req)
+        again.headers = alt
+        again.delay = 0
+        r2 = Api.executeOnce(again)
+        c2 = Util.toNumber(r2.code)
+        print "Cove: http sign-in header refused (401), old Emby headers answered "; c2
+        if c2 >= 200 and c2 < 300 then Api.rememberAuthShape(origin, "l")
+        for each k in ["code", "json", "value", "error", "text"]
+            res[k] = r2[k]
+        end for
+        return res
+    end function
+
+    ' The old Emby headers for headers carrying the token in "Authorization: MediaBrowser ..., Token=..."
+    ' (X-Emby-Authorization with the same value + X-Emby-Token), or invalid when they don't
+    function legacyEmbyHeaders(h as dynamic) as dynamic
+        if not Util.isAA(h) then return invalid
+        if h.doesExist("X-Emby-Authorization") or not h.doesExist("Authorization") then return invalid
+        v = Util.toText(h["Authorization"])
+        if not v.startsWith("MediaBrowser ") then return invalid
+        q = chr(34)
+        found = CreateObject("roRegex", "Token=" + q + "([^" + q + "]+)" + q, "").match(v)
+        if found.count() < 2 then return invalid
+        out = {}
+        for each k in h
+            if LCase(k) <> "authorization" then out[k] = h[k]
+        end for
+        out["X-Emby-Authorization"] = v
+        out["X-Emby-Token"] = found[1]
+        return out
+    end function
+
+    ' The sign-in form a server accepted: "m" (token in Authorization), "l" (old Emby headers) or "" (not
+    ' known). One compact registry key "authShape": [{ o: origin, s }], most recent last, at most 8.
+    function authShapeOf(origin as string) as string
+        if origin = "" then return ""
+        list = Util.readJson("authShape")
+        if type(list) <> "roArray" then return ""
+        for each e in list
+            if Util.isAA(e) and Util.toText(e.o) = origin then return Util.toText(e.s)
+        end for
+        return ""
+    end function
+
+    sub rememberAuthShape(origin as string, shape as string)
+        if origin = "" then return
+        list = Util.readJson("authShape")
+        if type(list) <> "roArray" then list = []
+        Util.writeText("authShape", formatJson(Api.withAuthShape(list, origin, shape)))
+    end sub
+
+    ' The list with origin's entry set to shape (moved to the end; "" removes it), at most 8 entries
+    function withAuthShape(list as object, origin as string, shape as string) as object
+        kept = []
+        for each e in list
+            if Util.isAA(e) and Util.toText(e.o) <> origin and Util.toText(e.o) <> "" then kept.push({ o: Util.toText(e.o), s: Util.toText(e.s) })
+        end for
+        if shape <> "" then kept.push({ o: origin, s: shape })
+        while kept.count() > 8
+            kept.shift()
+        end while
+        return kept
     end function
 
 end namespace

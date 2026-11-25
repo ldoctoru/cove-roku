@@ -27,7 +27,7 @@ sub test_st9_isPersonal()
     t_ok(PrefScope_isPersonal("subBg"), "subtitle style")
     t_ok(not PrefScope_isPersonal("lib:"), "a bare prefix")
     t_ok(not PrefScope_isPersonal("subLang@userAAAA"), "already a profile key")
-    for each k in ["servers", "active", "pinWait", "pscope", "startQualityHome", "startQualityNet", "audioChannels", "dtsPassthrough", "rewindOnResume", "jumpSeconds", "skipSeconds", "background", "dimWatched", "hintOpts", "segSkip", "autoNext", "authLegacy"]
+    for each k in ["servers", "active", "pinWait", "pscope", "startQualityHome", "startQualityNet", "audioChannels", "dtsPassthrough", "rewindOnResume", "jumpSeconds", "skipSeconds", "background", "dimWatched", "hintOpts", "segSkip", "autoNext", "authShape"]
         t_ok(not PrefScope_isPersonal(k), "shared: " + k)
     end for
 end sub
@@ -142,6 +142,57 @@ sub test_st9_forget_and_reset()
     t_ok(sec.exists("navStyle@userBBBB"), "B's menu")
     Servers_forgetAll("srv1aaaa0000")
     t_ok(not sec.exists("navStyle@userBBBB"), "server removed: its profiles' settings go")
+end sub
+
+sub test_cs8_emby_headers()
+    c16_clear()
+    emby = { url: "https://emby.example.com", type: "emby", token: "secret1" }
+    h = Api_headers(emby, true)
+    t_ok(h.doesExist("Authorization"), "Emby with a token: Authorization")
+    t_ok(not h.doesExist("X-Emby-Token"), "no X-Emby-Token")
+    t_ok(not h.doesExist("X-Emby-Authorization"), "no X-Emby-Authorization")
+    t_ok(h["Authorization"].instr("Token=" + chr(34) + "secret1" + chr(34)) > 0, "token in Authorization")
+    h = Api_headers(emby, false)
+    t_ok(h.doesExist("X-Emby-Authorization") and not h.doesExist("Authorization"), "Emby sign-in keeps the old form")
+    jf = Api_headers({ url: "https://jf.example.com", type: "jellyfin", token: "t2" }, true)
+    t_ok(jf.doesExist("Authorization") and not jf.doesExist("X-Emby-Token"), "Jellyfin unchanged")
+    ' (a server remembered as needing the old form)
+    Api_rememberAuthShape(Util_originOf("https://emby.example.com"), "l")
+    h = Api_headers(emby, true)
+    t_eq(Util_toText(h["X-Emby-Token"]), "secret1", "old form after a refusal")
+    t_ok(not h.doesExist("Authorization"), "no Authorization then")
+end sub
+
+sub test_cs8_legacy_headers_and_memory()
+    c16_clear()
+    q = chr(34)
+    v = "MediaBrowser Client=" + q + "Cove" + q + ", Token=" + q + "abc" + q
+    alt = Api_legacyEmbyHeaders({ "Accept": "application/json", "Authorization": v })
+    t_ok(alt <> invalid, "converted")
+    t_eq(Util_toText(alt["X-Emby-Token"]), "abc", "token header")
+    t_eq(Util_toText(alt["X-Emby-Authorization"]), v, "same value")
+    t_ok(not alt.doesExist("Authorization"), "Authorization dropped")
+    t_eq(Util_toText(alt["Accept"]), "application/json", "other headers kept")
+    t_ok(Api_legacyEmbyHeaders({ "Authorization": "MediaBrowser Client=" + q + "Cove" + q }) = invalid, "no token: nothing to retry")
+    t_ok(Api_legacyEmbyHeaders({ "X-Emby-Authorization": v }) = invalid, "already the old form")
+    t_ok(Api_legacyEmbyHeaders({ "Authorization": "Bearer x" }) = invalid, "another scheme")
+    t_ok(Api_legacyEmbyHeaders(invalid) = invalid, "no headers")
+    list = []
+    for i = 1 to 10
+        list = Api_withAuthShape(list, "https://h" + i.toStr() + ":443", "m")
+    end for
+    t_eq(list.count(), 8, "at most 8")
+    t_eq(list[7].o, "https://h10:443", "most recent last")
+    list = Api_withAuthShape(list, "https://h5:443", "l")
+    t_eq(list[7].s, "l", "changed entry moves to the end")
+    t_eq(Api_withAuthShape(list, "https://h5:443", "").count(), 7, "removed")
+    ' (afterAuth without a network: a 2xx remembers the new form, a later 401 is not retried)
+    req = { url: "https://e.example.com/Users/x", headers: { "Authorization": v } }
+    res = Api_afterAuth(req, { code: 200 })
+    t_eq(Api_authShapeOf(Util_originOf("https://e.example.com")), "m", "accepted form remembered")
+    res = Api_afterAuth(req, { code: 401, error: "" })
+    t_eq(res.code, 401, "known server: the 401 stays (expired token)")
+    t_ok(Api_afterAuth({ url: "x", headers: { "Accept": "a" } }, { code: 401 }).code = 401, "not the new form: untouched")
 end sub
 
 sub test_st9_trim_profile_lists()
