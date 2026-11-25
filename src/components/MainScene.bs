@@ -241,6 +241,8 @@ sub detachScreen(s as dynamic)
     if s.screenId = "player" and s.stopNow <> true
         print "Cove: player off the stack (stopNow)"
         s.stopNow = true
+        ' (the pages under it show the new resume point, as after a normal Back)
+        markStale()
     end if
     if s.screenId = "details"
         s.unobserveField("play")
