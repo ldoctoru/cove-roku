@@ -583,10 +583,11 @@ namespace Prefs
     ' Every setting back to its default; the servers and sign-ins are kept (as on the Mac), and so are the
     ' wrong-PIN counters (v0.9.1: a reset must not restart the PIN lockout)
     ' (v1.6 ST-9) The settings of the whole TV and the active profile's own ones; the other profiles keep their
-    ' own (PrefScope.resetGoes). The active profile ("pscope") and the sign-in form memory ("authShape", CS-8) stay.
+    ' own (PrefScope.resetGoes). The active profile ("pscope"), the sign-in form memory ("authShape", CS-8) and the
+    ' What's New version last shown ("whatsNewSeen", Q-1) stay.
     sub resetAll()
         sec = createObject("roRegistrySection", "Cove")
-        keep = { servers: true, active: true, pinWait: true, pscope: true, authShape: true }
+        keep = { servers: true, active: true, pinWait: true, pscope: true, authShape: true, whatsNewSeen: true }
         p = PrefScope.current()
         for each k in sec.getKeyList()
             if PrefScope.resetGoes(k, keep, p) then sec.delete(k)
