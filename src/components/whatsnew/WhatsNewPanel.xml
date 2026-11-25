@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.6 Q-1) What's New: a flat panel over the page (dimmed) with this release's highlights (source/WhatsNew.bs)
+     and one Continue button (solid white with dark text, the flat focus look). OK or Back closes it ("closed");
+     every other key stays here. MainScene shows it once after an update, and from Settings → About. -->
+<component name="WhatsNewPanel" extends="Group">
+    <script type="text/brightscript" uri="WhatsNewPanel.bs" />
+    <interface>
+        <field id="closed" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle id="dim" width="1920" height="1080" color="0x000000B3" />
+        <Poster id="panel" />
+        <Group id="body" />
+        <Group id="keys" focusable="true" />
+    </children>
+</component>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.6 M-2) One page of a Home row's whole list for SeeAllScreen: the preset's request (source/SeeAll.bs) with
+     StartIndex / Limit, the newer Jellyfin route on 404, the profile's rating limit, the cards built.
+     "result" = { nodes, total, served (before the rating filter), startIndex, gen } or "error". -->
+<component name="SeeAllTask" extends="Task">
+    <script type="text/brightscript" uri="SeeAllTask.bs" />
+    <interface>
+        <field id="server" type="assocarray" />
+        <field id="preset" type="assocarray" />
+        <field id="startIndex" type="integer" />
+        <field id="limit" type="integer" />
+        <field id="gen" type="integer" />
+        <field id="result" type="assocarray" />
+        <field id="error" type="string" />
+    </interface>
+</component>

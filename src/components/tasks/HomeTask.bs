@@ -84,8 +84,20 @@ sub load()
     ' Settings → Home → Rows: the order and switches, or the server's Home layout (its web app's Home sections)
     ids = HomeLayout.orderedIds(sid, libs)
     serverMode = HomeLayout.useServerLayout(sid)
+    m.sections = invalid
+    m.spotlightId = ""
     if serverMode
-        fromSrv = HomeLayout.fromServer(displayPrefs(uid), libs)
+        fromSrv = invalid
+        ' (v1.6 H-1) Emby 4.10+: the new Home sections (Spotlight, Dynamic media, custom names); a 404 or an
+        ' empty answer falls back to the legacy CustomPrefs below (Jellyfin keeps those)
+        if HomeLayout.hasHomeSections(Servers.isJellyfin(srv), Util.toText(srv.version))
+            m.sections = homeSections(uid, libs)
+            if m.sections <> invalid
+                fromSrv = m.sections.ids
+                m.spotlightId = m.sections.spotlight
+            end if
+        end if
+        if fromSrv = invalid then fromSrv = HomeLayout.fromServer(displayPrefs(uid), libs)
         if fromSrv = invalid
             print "Cove: home: the server's Home layout couldn't be read, using Cove's"
             serverMode = false
@@ -115,18 +127,30 @@ sub load()
         if isShown
             if id = "resume"
                 queueRow("Continue Watching", getList("/Users/" + uid + "/Items/Resume?Limit=20&MediaTypes=Video&" + f, "/UserItems/Resume?userId=" + uid + "&Limit=20&MediaTypes=Video&" + f), true)
+                m.pendingRows.peek().preset = { kind: "resume" }
             else if id = "nextup"
                 queueRow("Next Up", getList("/Shows/NextUp?UserId=" + uid + "&Limit=20" + nuq + "&" + f, ""), true)
+                m.pendingRows.peek().preset = { kind: "nextup" }
             else if id = "upcoming"
                 ' (v1.1) episodes not aired yet (both servers); no row when the server has none
                 queueRow("Upcoming", getList("/Shows/Upcoming?UserId=" + uid + "&Limit=20&" + f, ""), true, true)
+                m.pendingRows.peek().preset = { kind: "upcoming" }
             else if id = "released"
                 rq = HomeLayout.releasedQuery(Dates.isoNow(), Prefs.hideWatchedLatest()) + "&" + f
                 queueRow("Recently Released", getList("/Users/" + uid + "/Items?" + rq, "/Items?userId=" + uid + "&" + rq), false)
+                m.pendingRows.peek().preset = { kind: "released" }
             else if id = "favorites"
                 queueRow("Favorites", getList("/Users/" + uid + "/Items?Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f, "/Items?userId=" + uid + "&Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Limit=40&" + f), false)
+                m.pendingRows.peek().preset = { kind: "favorites" }
             else if id = "recent"
                 queueRow("Recently Added", getList("/Users/" + uid + "/Items/Latest?Limit=20" + unw + "&" + f, "/Items/Latest?userId=" + uid + "&Limit=20" + unw + "&" + f), false)
+                m.pendingRows.peek().preset = { kind: "recent" }
+            else if m.sections <> invalid and m.sections.rows.doesExist(id)
+                ' (v1.6 H-1) an Emby 4.10 section of its own (Dynamic media, a collection, tag, genre ...)
+                sec = m.sections.rows[id]
+                queueRow(sec.title, getList("/Users/" + uid + "/Sections/" + sec.sectionId + "/Items?Limit=20&" + f, ""), sec.landscape)
+                m.pendingRows.peek().preset = { kind: "section", sectionId: sec.sectionId }
+                m.pendingRows.peek().sectionKind = sec.kind
             else if id = "libraries"
                 print "Cove: home my media "; shown.count(); " libraries"
                 queueRow("My Media", shown, false)
@@ -137,6 +161,7 @@ sub load()
                 ' (v1.5) every library kind has a row (an empty one is left out)
                 queueRow(rowTitle(lp.style, l.title), libraryRow(uid, l, lp.style, f, unw), false)
                 m.pendingRows.peek().libRow = true
+                m.pendingRows.peek().preset = { kind: "library", libId: l.id, collectionType: l.collectionType, style: lp.style }
             end if
         end if
     end for
@@ -197,6 +222,8 @@ end sub
 ' nothing found or a failed request: heroItems stays empty and Home keeps the rows' titles.
 sub loadBanner(libs as dynamic)
     source = Util.toText(m.top.bannerSource)
+    ' (v1.6 H-1) From Home Rows with an Emby 4.10 Spotlight section: the banner shows the Spotlight's titles
+    if source = "rows" and Util.toText(m.spotlightId) <> "" and not m.top.bannerOnly then loadSpotlight()
     if source = "" or source = "rows" then return
     stopwatch = createObject("roTimespan")
     parents = []
@@ -276,7 +303,7 @@ end function
 
 ' A row to load: "what" is a request from getList ({ path, fallback, ... }) or a list already known (Libraries)
 sub queueRow(title as string, what as object, isLandscape as boolean, isUpcoming = false as boolean)
-    p = { title: title, list: [], landscape: isLandscape, upcoming: isUpcoming, spec: invalid }
+    p = { title: title, list: [], landscape: isLandscape, upcoming: isUpcoming, spec: invalid, preset: invalid, sectionKind: "", ms: 0 }
     if type(what) = "roArray"
         p.list = what
     else
@@ -337,6 +364,7 @@ sub fetchQueued(late as boolean)
                 sp.usedNew = true
             else
                 sp.done = true
+                p.ms = r.ms
                 p.list = readList(r, sp)
                 if not m.firstLogged and p.list.count() > 0
                     m.firstLogged = true
@@ -362,13 +390,14 @@ sub buildRows(root as object, skipLate = false as boolean)
         if skipLate and p.spec <> invalid and not p.spec.done
             ' (still loading)
         else if p.upcoming
-            addUpcomingRow(root, p.list)
+            addUpcomingRow(root, p.list, p.preset)
         else if Util.flag(p, "myMedia")
             addMyMediaRow(root, p.list)
         else
             before = root.getChildCount()
-            addRow(root, p.title, p.list, p.landscape)
+            addRow(root, p.title, p.list, p.landscape, p.preset)
             if Util.flag(p, "libRow") and root.getChildCount() > before then m.libRowsShown = m.libRowsShown + 1
+            if Util.toText(p.sectionKind) <> "" then print "Cove: home section "; p.sectionKind; " "; p.list.count(); " titles "; Util.toNumber(p.ms); " ms"
         end if
     end for
     if not skipLate then m.pendingRows = []
@@ -457,7 +486,7 @@ function readList(r as object, sp as object) as object
     return kept
 end function
 
-sub addRow(root as object, title as string, list as object, isLandscape as boolean)
+sub addRow(root as object, title as string, list as object, isLandscape as boolean, preset = invalid as dynamic)
     ' (titles above the profile's rating limit, from routes that ignore MaxOfficialRating; unrated episodes
     ' by their series' rating)
     list = Ratings.keepChecked(m.srv, list)
@@ -468,6 +497,7 @@ sub addRow(root as object, title as string, list as object, isLandscape as boole
     for each it in list
         row.appendChild(Items.node(m.srv, it, isLandscape))
     end for
+    addSeeAll(row, preset)
 end sub
 
 ' (v1.5) My Media, as on Emby: one 16:9 tile per library (its own Primary picture, the name under it); the
@@ -487,7 +517,7 @@ end sub
 ' and has no file yet (BG-6: QuickPlay.isUnaired) carries upcoming = true and its series, so OK opens the series
 ' page and * has no Play; the server also lists yesterday's and today's episodes, and those play as usual.
 ' (BG-3) The dates are in the Roku's own time zone.
-sub addUpcomingRow(root as object, list as object)
+sub addUpcomingRow(root as object, list as object, preset = invalid as dynamic)
     list = Ratings.keepChecked(m.srv, list)
     if list.count() = 0 then return
     today = Dates.localToday()
@@ -512,6 +542,7 @@ sub addUpcomingRow(root as object, list as object)
         c.resumeAt = 0.0
         row.appendChild(c)
     end for
+    addSeeAll(row, preset)
 end sub
 
 ' (v1.2) The rows that answered late (Upcoming), built and put at their place among the rows already shown
@@ -525,7 +556,7 @@ sub insertLateRows(shown as object)
     for each p in m.pendingRows
         if p.spec <> invalid and p.spec.done and p.upcoming and not titles.doesExist(p.title)
             one = createObject("roSGNode", "ContentNode")
-            addUpcomingRow(one, p.list)
+            addUpcomingRow(one, p.list, p.preset)
             if one.getChildCount() > 0
                 row = one.getChild(0)
                 one.removeChild(row)
@@ -536,4 +567,60 @@ sub insertLateRows(shown as object)
             at = at + 1
         end if
     end for
+end sub
+
+' ---------------------------------------------------------------- v1.6 HOME
+
+' (v1.6 H-1) GET /Users/{id}/HomeSections (Emby 4.10+) mapped to Cove rows (HomeLayout.fromSections), or
+' invalid (404, an error, nothing usable): the caller falls back to the legacy CustomPrefs
+function homeSections(uid as string, libs as object) as dynamic
+    r = timedGet("/Users/" + uid + "/HomeSections", 10000)
+    if r.code <> 200
+        print "Cove: home sections -> "; r.code; ", using the legacy Home layout"
+        return invalid
+    end if
+    json = r.json
+    if json = invalid then json = r.value
+    out = HomeLayout.fromSections(json, libs)
+    if out = invalid
+        print "Cove: home sections: none usable, using the legacy Home layout"
+        return invalid
+    end if
+    for each k in out.skipped
+        print "Cove: home section "; k; " skipped"
+    end for
+    print "Cove: home sections "; out.ids.count(); " rows, spotlight "; out.spotlight <> ""
+    return out
+end function
+
+' (v1.6 H-1) The Spotlight section's titles as the banner (films and shows with a backdrop, at most 8); nothing
+' found or a failed request: heroItems stays empty and Home keeps the rows' titles
+sub loadSpotlight()
+    stopwatch = createObject("roTimespan")
+    path = "/Users/" + Util.toText(m.srv.userId) + "/Sections/" + m.spotlightId + "/Items?Limit=24&Fields=Overview,ProductionYear,OfficialRating,CommunityRating,Genres&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb,Logo&EnableUserData=true"
+    r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + Ratings.withLimit(m.srv, path), headers: m.h, timeout: 8000 })
+    print "Cove: "; Util.redact(Api.timingLine("GET", path, r.code, stopwatch.totalMilliseconds()))
+    out = createObject("roSGNode", "ContentNode")
+    if r.code = 200
+        list = Ratings.keepChecked(m.srv, HomeLayout.sectionList(r.json))
+        for each it in HomeBanner.pickTitles(list)
+            out.appendChild(Items.node(m.srv, it, true))
+        end for
+    end if
+    print "Cove: home banner spotlight "; out.getChildCount(); " titles "; stopwatch.totalMilliseconds(); " ms"
+    m.top.heroItems = out
+end sub
+
+' (v1.6 M-2) The row's last card: "See All" in the row's card shape; OK opens the row's whole list (SeeAllScreen).
+' It carries every field of Items.node, so code reading a focused card never meets a missing field.
+sub addSeeAll(row as object, preset as dynamic)
+    if not Util.isAA(preset) or row.getChildCount() = 0 then return
+    c = createObject("roSGNode", "ContentNode")
+    c.addFields({ itemId: "", itemType: "SeeAll", collectionType: "", meta: "", heroMeta: "", chip: "", overview: "", backdrop: "", logo: "", progress: 0.0, landscape: row.landscape, favorite: false, played: false, unplayed: 0, timeLeft: "", resumeAt: 0.0, episode: "" })
+    preset.title = Util.toText(row.title)
+    preset.landscape = row.landscape
+    c.addFields({ kind: "seeall", seeAll: preset })
+    c.title = "See All"
+    c.shortDescriptionLine1 = "See All"
+    row.appendChild(c)
 end sub

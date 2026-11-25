@@ -317,4 +317,101 @@ namespace HomeLayout
         return q + unwatchedQuery(hideWatched) + "&Limit=20"
     end function
 
+    ' ---------------------------------------------------------------- v1.6 HOME: Emby 4.10 Home sections (H-1)
+
+    ' Emby 4.10+ keeps the Home layout in GET /Users/{id}/HomeSections (ContentSection list); Jellyfin and older
+    ' Emby only have the legacy CustomPrefs homesection0..9 (fromServer). version: the server's "4.10.0.4".
+    function hasHomeSections(isJellyfin as boolean, version as string) as boolean
+        if isJellyfin then return false
+        parts = version.split(".")
+        if parts.count() < 2 then return false
+        major = parts[0].toInt()
+        minor = parts[1].toInt()
+        return major > 4 or (major = 4 and minor >= 10)
+    end function
+
+    ' The sections of a HomeSections answer: a bare list, or { Items: [...] }; only objects
+    function sectionList(json as dynamic) as object
+        list = json
+        if Util.isAA(json) then list = Util.field(json, "Items")
+        out = []
+        if type(list) <> "roArray" then return out
+        for each s in list
+            if Util.isAA(s) then out.push(s)
+        end for
+        return out
+    end function
+
+    ' Section kinds Cove can't show (music, books, Live TV, recordings): skipped, with a log line
+    function sectionUnsupported(kind as string) as boolean
+        for each k in ["livetv", "activerecordings", "resumeaudio", "resumebook", "nowplayingaudio", "latestaudio", "latestbooks", "latestmusic", "onnow", "upcomingtv", "recordings"]
+            if k = kind then return true
+        end for
+        return false
+    end function
+
+    ' Emby 4.10 Home sections → Cove rows, in the server's order.
+    ' resume → Continue Watching, nextup → Next Up, latestmedia → that library's row (no ParentId: every
+    ' library's row, as the legacy prefs), librarytiles / smalllibrarytiles / librarybuttons → My Media,
+    ' spotlight → the banner's titles (no row), Cove-unsupported kinds skipped, anything else with an Id (Dynamic
+    ' media, collections, tags, genres, custom lists) → a row of its own filled by /Sections/{Id}/Items.
+    ' Returns invalid when there is nothing usable (the caller falls back to the legacy prefs), else
+    ' { ids: [row ids], rows: { "S:<id>": { title, landscape, sectionId, kind } }, spotlight: "<sectionId>",
+    '   skipped: [kinds] }.
+    function fromSections(list as dynamic, libs as object) as dynamic
+        sections = sectionList(list)
+        if sections.count() = 0 then return invalid
+        libIds = {}
+        for each l in libs
+            id = Util.toText(l.id)
+            if id <> "" then libIds[id] = true
+        end for
+        out = { ids: [], rows: {}, spotlight: "", skipped: [] }
+        for each s in sections
+            kind = LCase(Util.toText(Util.field(s, "SectionType")))
+            sid = Util.toText(Util.field(s, "Id"))
+            pid = Util.toText(Util.field(s, "ParentId"))
+            if pid = "" and Util.isAA(Util.field(s, "ParentItem")) then pid = Util.toText(Util.field(s.ParentItem, "Id"))
+            if kind = "resume" or kind = "resumevideo"
+                addOnce(out.ids, "resume")
+            else if kind = "nextup"
+                addOnce(out.ids, "nextup")
+            else if kind = "librarytiles" or kind = "smalllibrarytiles" or kind = "librarybuttons"
+                addOnce(out.ids, "libraries")
+            else if kind = "latestmedia" and pid <> "" and libIds.doesExist(pid)
+                addOnce(out.ids, libRowId(pid))
+            else if kind = "latestmedia" and pid = ""
+                for each l in libs
+                    if Util.toText(l.id) <> "" then addOnce(out.ids, libRowId(Util.toText(l.id)))
+                end for
+            else if kind = "spotlight" and sid <> ""
+                if out.spotlight = "" then out.spotlight = sid
+            else if sectionUnsupported(kind) or sid = ""
+                out.skipped.push(kind)
+            else
+                rid = "S:" + sid
+                if not out.rows.doesExist(rid)
+                    out.rows[rid] = { title: sectionTitle(s), landscape: sectionWide(s), sectionId: sid, kind: kind }
+                    out.ids.push(rid)
+                end if
+            end if
+        end for
+        if out.ids.count() = 0 and out.spotlight = "" then return invalid
+        return out
+    end function
+
+    ' A section's row title: its CustomName, else its Name, else "More to Watch"
+    function sectionTitle(s as object) as string
+        name = Util.toText(Util.field(s, "CustomName")).trim()
+        if name = "" then name = Util.toText(Util.field(s, "Name")).trim()
+        if name = "" then name = "More to Watch"
+        return name
+    end function
+
+    ' Thumb / Backdrop sections show wide 16:9 cards (as the Home Row Shows option); Primary stays posters
+    function sectionWide(s as object) as boolean
+        it = LCase(Util.toText(Util.field(s, "ImageType")))
+        return it = "thumb" or it = "backdrop"
+    end function
+
 end namespace

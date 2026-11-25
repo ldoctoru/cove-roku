@@ -1,0 +1,301 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/QuickPlay.bs"
+import "pkg:/source/Speak.bs"
+import "pkg:/source/Toasts.bs"
+import "pkg:/source/LibGrid.bs"
+import "pkg:/source/SeeAll.bs"
+
+sub init()
+    m.grid = m.top.findNode("grid")
+    m.status = m.top.findNode("status")
+    m.skeleton = m.top.findNode("skeleton")
+    m.errorPanel = m.top.findNode("errorPanel")
+    m.errorPanel.observeField("chosen", "onErrorChosen")
+    m.grid.observeField("itemFocused", "onFocused")
+    m.grid.observeField("itemSelected", "onSelected")
+    m.top.observeField("focusedChild", "onFocusChanged")
+    t = m.global.theme
+    m.bdFront = m.top.findNode("bdA")
+    m.bdBack = m.top.findNode("bdB")
+    m.bdUrl = ""
+    m.bdPending = ""
+    m.top.findNode("bdScrim").uri = t.scrimBottom
+    m.top.findNode("bdShade").color = Util.toText(t.bg).left(8) + "66"
+    m.bdTimer = m.top.findNode("bdTimer")
+    m.bdTimer.observeField("fire", "onBackdropTimer")
+    m.bdFront.observeField("loadStatus", "onBackdropLoaded")
+    m.cols = 7
+    m.total = 0
+    m.nextStart = 0
+    m.paged = true
+    m.loading = false
+    m.gen = 0
+    m.task = invalid
+    m.keepIndex = -1
+    m.jumpClock = createObject("roTimespan")
+    m.jumpStreak = 0
+    m.jumpForward = true
+    ' (the grid gets the focus as soon as the screen is pushed, before the preset is set)
+    m.grid.content = createObject("roSGNode", "ContentNode")
+    Speak.mute([m.grid])
+end sub
+
+sub onPreset()
+    p = m.top.preset
+    title = Util.toText(p.title)
+    if title = "" then title = "See All"
+    lab = m.top.findNode("title")
+    lab.text = title
+    lab.width = 0
+    w = Int(lab.boundingRect().width) + 4
+    if w > 1000 then w = 1000
+    lab.width = w
+    m.top.findNode("info").translation = [172 + w + 28, 30]
+    if Util.flag(p, "landscape")
+        ' (wide cards as on the row: 396 x 226 in 432 x 262 tiles, 4 across and 3 down)
+        m.cols = SeeAll.columns(true)
+        m.grid.itemSize = [432, 262]
+        m.grid.itemSpacing = [0, 8]
+        m.grid.numColumns = m.cols
+        m.grid.numRows = 3
+        m.skeleton.rows = 3
+        m.skeleton.cols = 4
+        m.skeleton.cardW = 396
+        m.skeleton.cardH = 226
+        m.skeleton.stepX = 432
+        m.skeleton.stepY = 270
+        m.skeleton.titleBars = false
+        m.skeleton.yearBars = false
+    else
+        m.cols = SeeAll.columns(false)
+    end if
+    print "Cove: see all "; Util.toText(p.kind); " opened"
+    reload()
+end sub
+
+sub reload()
+    m.gen = m.gen + 1
+    m.nextStart = 0
+    m.total = 0
+    if m.grid.content = invalid or m.grid.content.getChildCount() = 0
+        m.status.visible = false
+        m.skeleton.active = true
+    end if
+    loadPage(0, SeeAll.firstPage())
+end sub
+
+sub loadPage(startIndex as integer, limit as integer)
+    if m.task <> invalid
+        m.task.unobserveField("result")
+        m.task.unobserveField("error")
+    end if
+    m.loading = true
+    t = createObject("roSGNode", "SeeAllTask")
+    t.server = m.top.server
+    t.preset = m.top.preset
+    t.startIndex = startIndex
+    t.limit = limit
+    t.gen = m.gen
+    t.observeField("result", "onPage")
+    t.observeField("error", "onError")
+    m.task = t
+    t.control = "RUN"
+end sub
+
+sub onPage(ev as object)
+    r = ev.getData()
+    if ev.getRoSGNode().gen <> m.gen or r.gen <> m.gen then return
+    m.loading = false
+    m.skeleton.active = false
+    m.paged = r.paged = true
+    if r.startIndex = 0
+        m.total = r.total
+        m.grid.content = createObject("roSGNode", "ContentNode")
+    end if
+    served = Util.toNumber(r.served)
+    m.nextStart = r.startIndex + served
+    if served = 0 or not m.paged then m.nextStart = m.total
+    holder = r.nodes
+    nodes = []
+    for i = 0 to holder.getChildCount() - 1
+        nodes.push(holder.getChild(i))
+    end for
+    if nodes.count() > 0 then m.grid.content.appendChildren(nodes)
+    count = m.grid.content.getChildCount()
+    ' (titles dropped by the rating limit leave the count short: the cards shown are what there is)
+    if not m.paged or m.nextStart >= m.total then m.total = count
+    m.top.findNode("info").text = SeeAll.countText(m.total)
+    if count = 0
+        m.errorPanel.glyph = "folder"
+        m.errorPanel.detail = "This row has nothing more to show right now."
+        showPanel("Nothing here yet", "info", [{ id: "retry", label: "Try Again" }])
+    else
+        m.status.visible = false
+        hidePanel()
+        if r.startIndex = 0 and m.top.isInFocusChain() then m.grid.setFocus(true)
+        if r.startIndex = 0 and m.keepIndex > 0
+            k = m.keepIndex
+            if k > count - 1 then k = count - 1
+            m.grid.jumpToItem = k
+        end if
+    end if
+    m.keepIndex = -1
+    if count > 0 then pageMore(count)
+end sub
+
+sub onError(ev as object)
+    if ev.getRoSGNode().gen <> m.gen then return
+    m.loading = false
+    m.skeleton.active = false
+    m.keepIndex = -1
+    if m.grid.content <> invalid and m.grid.content.getChildCount() > 0
+        if m.top.isInFocusChain() then Toasts.notify("Couldn't load more titles. " + Util.toText(ev.getData()), "info")
+        return
+    end if
+    m.errorPanel.glyph = ""
+    m.errorPanel.detail = ""
+    showPanel(Util.toText(ev.getData()), "error", [{ id: "retry", label: "Try Again" }, { id: "settings", label: "Settings" }])
+end sub
+
+sub showPanel(text as string, icon as string, buttons as object)
+    m.status.visible = false
+    m.errorPanel.icon = icon
+    m.errorPanel.buttons = buttons
+    m.errorPanel.message = text
+    m.errorPanel.index = 0
+    m.errorPanel.visible = true
+    m.top.findNode("info").text = ""
+    if m.top.isInFocusChain() then m.errorPanel.setFocus(true)
+    if Speak.isOn() then Speak.say(text)
+end sub
+
+sub hidePanel()
+    if not m.errorPanel.visible then return
+    hadFocus = m.errorPanel.isInFocusChain()
+    m.errorPanel.visible = false
+    if hadFocus then m.grid.setFocus(true)
+end sub
+
+sub onErrorChosen(ev as object)
+    id = ev.getData().id
+    if id = "retry"
+        reload()
+    else if id = "settings"
+        m.top.action = { id: "settings" }
+    end if
+end sub
+
+' Near the end of what's loaded: the next page
+sub pageMore(count as integer)
+    if m.paged and not m.loading and m.nextStart < m.total and LibGrid.needsMore(m.grid.itemFocused, count, m.cols) then loadPage(m.nextStart, SeeAll.nextPage())
+end sub
+
+sub onFocused()
+    if m.grid.content = invalid then return
+    f = m.grid.itemFocused
+    c = m.grid.content.getChild(f)
+    if c = invalid then return
+    queueBackdrop(c)
+    if m.grid.isInFocusChain() and Speak.isOn() then Speak.say(Speak.card(c) + Speak.position(f, m.total))
+    pageMore(m.grid.content.getChildCount())
+end sub
+
+function isUnairedCard(c as dynamic) as boolean
+    return c <> invalid and c.hasField("upcoming") and c.upcoming = true
+end function
+
+sub onSelected()
+    if m.grid.content = invalid then return
+    it = m.grid.content.getChild(m.grid.itemSelected)
+    if it = invalid then return
+    ' (as Home: an Upcoming episode not aired yet opens its series)
+    if isUnairedCard(it) and Util.toText(it.seriesId) <> ""
+        m.top.action = { id: "open", itemId: it.seriesId, itemType: "Series", collectionType: "", title: it.title, preview: QuickPlay.seriesPreviewOfCard(it) }
+        return
+    end if
+    m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: it.collectionType, title: it.title, preview: QuickPlay.previewOfCard(it, true) }
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if key = "rewind" or key = "fastforward"
+        if m.grid.isInFocusChain() then pageJump(key = "fastforward")
+        return true
+    end if
+    if key = "play"
+        card = invalid
+        if m.grid.isInFocusChain() and m.grid.content <> invalid then card = m.grid.content.getChild(m.grid.itemFocused)
+        a = QuickPlay.cardAction(card)
+        if a <> invalid then m.top.action = a
+        if a = invalid and isUnairedCard(card) then Toasts.notify("This episode hasn't aired yet", "info")
+        return a <> invalid or isUnairedCard(card)
+    end if
+    return false
+end function
+
+' A screen back or on in the same column; presses less than 0.45 s apart make it 2 and then 4 screens
+sub pageJump(forward as boolean)
+    if m.grid.content = invalid then return
+    gap = m.jumpClock.TotalMilliseconds()
+    m.jumpClock.Mark()
+    if gap < 450 and forward = m.jumpForward
+        m.jumpStreak = m.jumpStreak + 1
+    else
+        m.jumpStreak = 0
+    end if
+    m.jumpForward = forward
+    target = LibGrid.jumpTarget(m.grid.itemFocused, m.grid.content.getChildCount(), LibGrid.jumpSize(m.jumpStreak, m.cols * m.grid.numRows), forward)
+    if target >= 0 then m.grid.jumpToItem = target
+end sub
+
+' The focused title's backdrop, once the focus rests (as the library page)
+sub queueBackdrop(c as object)
+    url = ""
+    if c.hasField("backdrop") then url = Util.toText(c.backdrop)
+    if url = "" or url = m.bdUrl then return
+    m.bdPending = url
+    m.bdTimer.control = "stop"
+    m.bdTimer.control = "start"
+end sub
+
+sub onBackdropTimer()
+    if m.bdPending = "" or m.bdPending = m.bdUrl then return
+    if m.bdFront.loadStatus = "ready"
+        tmp = m.bdFront
+        m.bdFront = m.bdBack
+        m.bdBack = tmp
+    end if
+    m.bdFront.unobserveField("loadStatus")
+    m.bdBack.unobserveField("loadStatus")
+    m.bdFront.observeField("loadStatus", "onBackdropLoaded")
+    m.bdUrl = m.bdPending
+    m.bdFront.uri = m.bdUrl
+    if m.bdFront.loadStatus = "ready" then onBackdropLoaded()
+end sub
+
+sub onBackdropLoaded()
+    if m.bdFront.loadStatus <> "ready" then return
+    a = m.top.findNode("bdFade")
+    a.control = "stop"
+    m.top.findNode("bdIn").fieldToInterp = m.bdFront.id + ".opacity"
+    m.top.findNode("bdIn").keyValue = [m.bdFront.opacity, 0.4]
+    m.top.findNode("bdOut").fieldToInterp = m.bdBack.id + ".opacity"
+    m.top.findNode("bdOut").keyValue = [m.bdBack.opacity, 0.0]
+    a.control = "start"
+end sub
+
+sub onFocusChanged()
+    ' (back after playback or a change on Details: the list again, on the same card)
+    if m.top.stale and m.top.isInFocusChain() and m.top.preset <> invalid
+        m.top.stale = false
+        m.keepIndex = m.grid.itemFocused
+        reload()
+    end if
+    if not m.top.hasFocus() then return
+    if m.errorPanel.visible
+        m.errorPanel.setFocus(true)
+    else if m.grid.content <> invalid and m.grid.content.getChildCount() > 0
+        m.grid.setFocus(true)
+        onFocused()
+    end if
+end sub

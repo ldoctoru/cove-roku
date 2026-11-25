@@ -673,6 +673,8 @@ end sub
 sub aboutRows(out as object)
     out.push(rHead("Cove"))
     out.push(rInfo("Version", "Cove for Roku " + m.version, ""))
+    ' (v1.6 Q-1, HOME) the panel shown once after an update, again
+    out.push(rButton("whatsNew", "What's New"))
     out.push(rInfo("Source", "", "github.com/ldoctoru/cove-roku  ·  the TV companion to Cove for macOS (github.com/J0n4e/cove)"))
     if m.device <> "" then out.push(rInfo("This Roku", "", m.device))
     out.push(rHead("Reset"))

@@ -971,6 +971,9 @@ sub useButton(r as object)
         guarded({ do: "addServer" })
     else if id = "switchProfile"
         m.top.action = { id: "profiles" }
+    else if id = "whatsNew"
+        ' (v1.6 Q-1, HOME) MainScene shows the What's New panel over Settings
+        m.top.action = { id: "whatsNew" }
     else if id = "addProfile"
         guarded({ do: "addProfile" })
     else if id = "reset"
