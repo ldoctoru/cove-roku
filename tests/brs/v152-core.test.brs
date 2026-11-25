@@ -138,3 +138,14 @@ sub test_st5_newRoute()
     t_eq(Api_newRoute("/Users/u1/Views", ""), "", "no user")
     t_eq(Api_routeKind("/Users/u1/Views"), "Views", "same route kind as Home")
 end sub
+
+sub test_cs7_token_origin()
+    t_ok(Util_tokenSafeTarget("http://h:8096", "http://h:8096/videos/1/master.m3u8"), "same origin")
+    t_ok(not Util_tokenSafeTarget("http://h:8096", "http://h:9999/videos/1"), "same host, another port")
+    t_ok(not Util_tokenSafeTarget("https://h:8920", "https://h:8096/x"), "8920 vs 8096")
+    t_ok(Util_tokenSafeTarget("https://h", "https://h:443/x"), "default port written out")
+    t_ok(Util_tokenSafeTarget("http://h", "https://h/x"), "http upgraded 80 → 443")
+    t_ok(Util_tokenSafeTarget("http://h:8096", "https://h:8096/x"), "upgrade on the same port")
+    t_ok(not Util_tokenSafeTarget("http://h:8096", "https://h/x"), "upgrade to another port")
+    t_ok(Util_tokenSafeTarget("http://h:8096", "/videos/1"), "relative")
+end sub
