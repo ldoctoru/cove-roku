@@ -54,9 +54,16 @@ namespace NavPrefs
         return "side"
     end function
 
+    ' (v1.5.2 ST-1) per server: "navtop:<tag>" / "navside:<tag>" (Prefs.libScope)
     function navKey(place as string) as string
-        if place = "top" then return "navtop"
-        return "navside"
+        return NavPrefs.navKeyFor(place, Prefs.libScope())
+    end function
+
+    function navKeyFor(place as string, tg as string) as string
+        k = "navside"
+        if place = "top" then k = "navtop"
+        if tg <> "" then k = k + ":" + tg
+        return k
     end function
 
     ' How many tokens of libraries the server doesn't list right now a saved list keeps
@@ -256,14 +263,15 @@ namespace NavPrefs
         d = Prefs.library(libId)
         d.home = on
         d.homeOwn = true
-        Util.writeText("lib:" + libId, formatJson(d))
+        Prefs.writeLibrary(libId, d)
     end sub
 
     ' (v1.5) A library's tile in Home's My Media row (Emby's My Media), on its own: on by default for every
     ' library, whatever the top bar / sidebar show (before, the row followed the menu's list; no write is needed
     ' to migrate, so everyone sees all libraries there until one is switched off)
     function libraryInMyMedia(libId as string) as boolean
-        return Prefs.library(libId).media <> false
+        ' (v1.5.2 ST-8: Prefs.library fills in media, so this never compares invalid)
+        return Util.flag(Prefs.library(libId), "media")
     end function
 
     sub setLibraryInMyMedia(libId as string, on as boolean)
@@ -334,40 +342,21 @@ namespace NavPrefs
         return n
     end function
 
-    ' Back to the defaults: both lists everything on in the default order (the old switches go too, so the
-    ' defaults no longer follow them); each library's Home row stays as it is
-    sub resetNav()
-        NavPrefs.deleteKey("navtop")
-        NavPrefs.deleteKey("navside")
-        for each k in ["showFavorites", "showNowPlaying", "showRecent"]
-            NavPrefs.deleteKey(k)
-        end for
-        sec = createObject("roRegistrySection", "Cove")
-        for each k in sec.getKeyList()
-            if k.left(4) = "lib:"
-                id = k.mid(4)
-                lp = Prefs.library(id)
-                if lp.nav = false
-                    lp.home = NavPrefs.libraryOnHome(id)
-                    lp.homeOwn = true
-                    lp.nav = true
-                    Util.writeText(k, formatJson(lp))
-                end if
-            end if
-        end for
-    end sub
-
     ' Everything Home's menu and rows are built from, as one text: MainScene compares it before and after
     ' Settings and rebuilds Home when it differs (menu style, either list, a Home row, a library setting)
     function fingerprint(serverId as string) as string
         parts = []
-        for each k in ["navStyle", "topBarLabels", "navtop", "navside", "showFavorites", "showNowPlaying", "showRecent", "showUpNextRow", "homeFavorites", "hideWatchedLatest", "homeRows:" + serverId, "libOrder:" + serverId]
+        ' (the menu lists and library keys of the active server: the one the writers use)
+        tg = Prefs.libScope()
+        for each k in ["navStyle", "topBarLabels", NavPrefs.navKeyFor("top", tg), NavPrefs.navKeyFor("side", tg), "showFavorites", "showNowPlaying", "showRecent", "showUpNextRow", "homeFavorites", "hideWatchedLatest", "homeRows:" + serverId, "libOrder:" + serverId]
             parts.push(k + "=" + Util.readText(k))
         end for
         sec = createObject("roRegistrySection", "Cove")
         libKeys = []
+        prefix = "lib:"
+        if tg <> "" then prefix = "lib:" + tg + ":"
         for each k in sec.getKeyList()
-            if k.left(4) = "lib:" then libKeys.push(k)
+            if k.startsWith(prefix) then libKeys.push(k)
         end for
         libKeys.sort()
         for each k in libKeys

@@ -276,9 +276,34 @@ namespace Prefs
 
     ' ---------------------------------------------------------------- libraries
 
-    ' Per library (Mac LibPref + LibraryDefaults): { nav, home, style, sort, show, name }
+    ' (v1.5.2 ST-1) Library ids are per server (Emby's are short numbers, "3", "4": two servers share them), so
+    ' every per-library or per-series setting is kept under the active server: "lib:<tag>:<libId>", the library
+    ' page filters' and the series languages' ids "<tag>:<id>", the menu lists "navtop:<tag>" / "navside:<tag>".
+    ' tag = the first 8 characters of the server id (compact: the registry also holds the sign-ins).
+    ' migrateScoped moves the old shared keys to the active server once; Servers.forgetAll deletes a server's.
+    function tagOf(serverId as string) as string
+        return serverId.left(8)
+    end function
+
+    ' The active server's tag ("" before any server is chosen: the old shared keys)
+    function libScope() as string
+        return Prefs.tagOf(Util.readText("active"))
+    end function
+
+    ' "<tag>:<id>" for the active server (the id alone without one)
+    function scopedId(id as string) as string
+        sc = Prefs.libScope()
+        if sc = "" then return id
+        return sc + ":" + id
+    end function
+
+    function libKey(id as string) as string
+        return "lib:" + Prefs.scopedId(id)
+    end function
+
+    ' Per library (Mac LibPref + LibraryDefaults): { nav, home, style, sort, show, name, media }
     function library(id as string) as object
-        d = Util.readJson("lib:" + id)
+        d = Util.readJson(Prefs.libKey(id))
         if type(d) <> "roAssociativeArray" then d = {}
         if d.nav = invalid then d.nav = true
         if d.home = invalid then d.home = true
@@ -286,17 +311,77 @@ namespace Prefs
         if d.sort = invalid then d.sort = "name"
         if d.show = invalid then d.show = "all"
         if d.name = invalid then d.name = ""
+        ' (v1.5.2 ST-8) My Media: on until switched off (never read as invalid)
+        if type(d.media) <> "roBoolean" and type(d.media) <> "Boolean" then d.media = true
         return d
     end function
+
+    ' The record as written: the defaults Prefs.library fills in are left out (each lib: key stays small)
+    function compactLibrary(d as object) as object
+        out = {}
+        defaults = { nav: true, home: true, style: "latest", sort: "name", show: "all", name: "", media: true }
+        for each k in d
+            ' (formatJson compares a string with a boolean safely)
+            if not defaults.doesExist(k) or formatJson(d[k]) <> formatJson(defaults[k]) then out[k] = d[k]
+        end for
+        return out
+    end function
+
+    sub writeLibrary(id as string, d as object)
+        Util.writeText(Prefs.libKey(id), formatJson(Prefs.compactLibrary(d)))
+    end sub
 
     sub setLibrary(id as string, key as string, value as dynamic)
         d = library(id)
         d[key] = value
-        Util.writeText("lib:" + id, formatJson(d))
+        Prefs.writeLibrary(id, d)
         ' (a new Settings default replaces the sort / show last chosen on the page, as on the Mac: same lf- dict)
         if key = "sort" then forgetLibFilter(id, "s")
         if key = "show" then forgetLibFilter(id, "w")
     end sub
+
+    ' (v1.5.2 ST-1) Once, at launch (main.bs): the shared keys of v1.5.1 and before ("lib:<libId>", "navtop",
+    ' "navside", unscoped ids in "libFilters" / "seriesLangs") move to the given server (the active one, else the
+    ' first). Returns how many keys or entries moved.
+    function migrateScoped(serverId as string) as integer
+        tg = Prefs.tagOf(serverId)
+        if tg = "" then return 0
+        sec = createObject("roRegistrySection", "Cove")
+        moved = 0
+        for each k in sec.getKeyList()
+            nk = ""
+            if k.left(4) = "lib:" and k.mid(4).instr(":") < 0 and k.len() > 4
+                nk = "lib:" + tg + ":" + k.mid(4)
+            else if k = "navtop" or k = "navside"
+                nk = k + ":" + tg
+            end if
+            if nk <> ""
+                v = sec.read(k)
+                sec.delete(k)
+                if not sec.exists(nk) then sec.write(nk, v)
+                moved = moved + 1
+            end if
+        end for
+        for each listKey in ["libFilters", "seriesLangs"]
+            list = Util.readJson(listKey)
+            if type(list) = "roArray"
+                changed = false
+                for each e in list
+                    if Util.isAA(e) and Util.toText(e.id) <> "" and Util.toText(e.id).instr(":") < 0
+                        e.id = tg + ":" + Util.toText(e.id)
+                        changed = true
+                        moved = moved + 1
+                    end if
+                end for
+                if changed then sec.write(listKey, formatJson(list))
+            end if
+        end for
+        if moved > 0
+            if not sec.flush() then print "Cove: registry flush failed after moving library settings"
+            print "Cove: moved "; moved; " library settings to the active server"
+        end if
+        return moved
+    end function
 
     ' ---------------------------------------------------------------- filters chosen on a library page
 
@@ -305,8 +390,9 @@ namespace Prefs
     ' only the ones that differ from the defaults: the registry also holds the sign-ins.
     function libFilters(libId as string) as dynamic
         if libId = "" then return invalid
+        sid = Prefs.scopedId(libId)
         for each e in libFilterList()
-            if Util.isAA(e) and Util.toText(e.id) = libId then return e
+            if Util.isAA(e) and Util.toText(e.id) = sid then return e
         end for
         return invalid
     end function
@@ -314,14 +400,15 @@ namespace Prefs
     ' f = { s, o, w, g, l } (missing or "" = the default)
     sub setLibFilters(libId as string, f as object)
         if libId = "" then return
-        e = { id: libId }
+        sid = Prefs.scopedId(libId)
+        e = { id: sid }
         for each k in ["s", "o", "w", "g", "l"]
             v = Util.toText(f[k])
             if v <> "" then e[k] = v
         end for
         kept = []
         for each o in libFilterList()
-            if Util.isAA(o) and Util.toText(o.id) <> libId then kept.push(o)
+            if Util.isAA(o) and Util.toText(o.id) <> sid then kept.push(o)
         end for
         if e.count() > 1 then kept.push(e)
         while kept.count() > 25
@@ -334,6 +421,7 @@ namespace Prefs
         e = libFilters(libId)
         if e = invalid or e[k] = invalid then return
         e.delete(k)
+        e.delete("id")
         setLibFilters(libId, e)
     end sub
 
@@ -425,8 +513,9 @@ namespace Prefs
 
     function seriesLangField(seriesId as string, field as string) as string
         if seriesId = "" then return ""
+        sid = Prefs.scopedId(seriesId)
         for each e in seriesLangList()
-            if Util.isAA(e) and Util.toText(e.id) = seriesId then return Util.toText(e[field])
+            if Util.isAA(e) and Util.toText(e.id) = sid then return Util.toText(e[field])
         end for
         return ""
     end function
@@ -435,13 +524,14 @@ namespace Prefs
     ' neither field is dropped. Nothing is written when the value doesn't change.
     sub setSeriesLangField(seriesId as string, field as string, value as string)
         if seriesId = "" then return
+        sid = Prefs.scopedId(seriesId)
         kept = []
-        entry = { id: seriesId }
+        entry = { id: sid }
         list = seriesLangList()
         last = false
         for i = 0 to list.count() - 1
             e = list[i]
-            if Util.isAA(e) and Util.toText(e.id) = seriesId
+            if Util.isAA(e) and Util.toText(e.id) = sid
                 entry = e
                 last = i = list.count() - 1
             else

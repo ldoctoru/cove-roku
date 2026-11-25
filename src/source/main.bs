@@ -34,6 +34,8 @@ sub main(args as dynamic)
     ' (the registry is 16 KB per app, shared by the sign-ins and the settings)
     try
         Prefs.migrateSeriesLangs()
+        ' (v1.5.2 ST-1) library settings per server: the old shared keys go to the active (else the first) server
+        Prefs.migrateScoped(scopeServerId())
         print "Cove: registry space available "; createObject("roRegistry").GetSpaceAvailable(); " bytes"
     catch e
         print "Cove: registry check failed: "; e.message
@@ -83,3 +85,12 @@ sub main(args as dynamic)
         end if
     end while
 end sub
+
+' (v1.5.2 ST-1) The server the old shared library settings belong to: the active one, else the first saved
+function scopeServerId() as string
+    id = Util.readText("active")
+    if id <> "" then return id
+    list = Servers.all()
+    if type(list) = "roArray" and list.count() > 0 then return Util.toText(list[0].id)
+    return ""
+end function
