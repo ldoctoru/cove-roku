@@ -35,7 +35,7 @@ sub test_rowsOfPage()
 end sub
 
 sub test_queries()
-    t_eq(MissingArt_scanPath("u1", "lib9", 300, 300), "/Users/u1/Items?ParentId=lib9&Recursive=true&IncludeItemTypes=Movie,Series,BoxSet&Fields=ProductionYear,Path&EnableImageTypes=Primary,Backdrop&EnableUserData=false&SortBy=SortName&SortOrder=Ascending&StartIndex=300&Limit=300", "scan page")
+    t_eq(MissingArt_scanPath("u1", "lib9", 300, 300), "/Users/u1/Items?ParentId=lib9&Recursive=true&IncludeItemTypes=Movie,Series,BoxSet&Fields=ProductionYear,Path,OfficialRating&EnableImageTypes=Primary,Backdrop&EnableUserData=false&SortBy=SortName&SortOrder=Ascending&StartIndex=300&Limit=300", "scan page")
     t_eq(MissingArt_refreshMissingPath("x1"), "/Items/x1/Refresh?Recursive=true&MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false", "refresh missing")
     t_eq(MissingArt_recordPath("u1", "x1"), "/Users/u1/Items/x1?Fields=DateLastRefreshed,Path,ProductionYear", "record")
     t_eq(MissingArt_pageSize(), 300, "pages of 300")

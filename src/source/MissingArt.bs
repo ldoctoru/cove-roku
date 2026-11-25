@@ -28,7 +28,7 @@ namespace MissingArt
     ' The Mac's query: /Users/{uid}/Items?ParentId=<lib>&Recursive=true&IncludeItemTypes=Movie,Series,BoxSet...
     function scanPath(userId as string, libraryId as string, startIndex as integer, limit as integer) as string
         p = "/Users/" + userId + "/Items?ParentId=" + libraryId.encodeUriComponent() + "&Recursive=true"
-        p = p + "&IncludeItemTypes=Movie,Series,BoxSet&Fields=ProductionYear,Path&EnableImageTypes=Primary,Backdrop"
+        p = p + "&IncludeItemTypes=Movie,Series,BoxSet&Fields=ProductionYear,Path,OfficialRating&EnableImageTypes=Primary,Backdrop"
         p = p + "&EnableUserData=false&SortBy=SortName&SortOrder=Ascending&StartIndex=" + startIndex.toStr() + "&Limit=" + limit.toStr()
         return p
     end function
@@ -149,6 +149,43 @@ namespace MissingArt
         ct = LCase(Util.toText(collectionType))
         skip = { music: true, musicvideos: true, livetv: true, playlists: true, books: true, audiobooks: true, photos: true, homevideos: true }
         return not skip.doesExist(ct)
+    end function
+
+    ' (v1.5.2 CS-1) A profile with a kids limit (Maximum Rating) never gets the admin tools, even when its server
+    ' account is an administrator: the scan would list every title of the library and Refresh would run on them.
+    ' Any non-empty limit counts (Ratings.limitOf reads the same field).
+    function effectiveAdmin(isAdmin as boolean, server as dynamic) as boolean
+        if not isAdmin then return false
+        if not Util.isAA(server) then return false
+        return Util.toText(server.maxRating).trim() = ""
+    end function
+
+    ' (v1.5.2 CS-1) The scan rows whose item is still in the allowed list (Ratings.keep of the page's Items)
+    function keepAllowed(rows as dynamic, allowedItems as dynamic) as object
+        out = []
+        if type(rows) <> "roArray" or type(allowedItems) <> "roArray" then return out
+        ids = {}
+        for each it in allowedItems
+            if Util.isAA(it) then ids[Util.toText(it.Id)] = true
+        end for
+        for each r in rows
+            if Util.isAA(r) and ids.doesExist(Util.toText(r.id)) then out.push(r)
+        end for
+        return out
+    end function
+
+    ' (v1.5.2 CS-2) What a Refresh POST answer means: "ok" (2xx: watch the item), "refused" (401/403: stop the
+    ' whole run, the account lost its admin right or its sign-in), "failed" (anything else: this item is done)
+    function postOutcome(code as dynamic) as string
+        c = Int(Util.toNumber(code))
+        if c >= 200 and c < 300 then return "ok"
+        if c = 401 or c = 403 then return "refused"
+        return "failed"
+    end function
+
+    ' The toast when the server refused a refresh: "The server refused the refresh (403)"
+    function refusedText(code as dynamic) as string
+        return "The server refused the refresh (" + Int(Util.toNumber(code)).toStr() + ")"
     end function
 
     ' The session key of the admin answer: one check per server address and user

@@ -163,7 +163,13 @@ sub onRefreshed(ev as object)
     r = ev.getData()
     m.refreshTask = invalid
     m.refreshing = false
-    if not Util.flag(r, "cancelled")
+    refused = Int(Util.toNumber(Util.field(r, "refused")))
+    if refused <> 0
+        ' (v1.5.2 CS-2) 401/403: the account lost its admin right (or its sign-in) this session. The admin
+        ' answer is dropped, so the library page asks again and hides the ⋯ pill.
+        forgetAdmin()
+        Toasts.notify(MissingArt.refusedText(refused), "info")
+    else if not Util.flag(r, "cancelled")
         if m.refreshAll
             Toasts.notify(MissingArt.summaryText(m.refreshFixed, m.refreshCount, m.kind), "check")
         else if m.refreshFixed > 0
@@ -176,6 +182,18 @@ sub onRefreshed(ev as object)
     drawButton()
     drawRows()
     m.spokenKey = ""
+end sub
+
+sub forgetAdmin()
+    if not m.global.hasField("adminCache") then return
+    cache = m.global.adminCache
+    if not Util.isAA(cache) then return
+    key = MissingArt.adminKey(Util.toText(m.top.server.url), Util.toText(m.top.server.userId))
+    if cache.doesExist(key)
+        cache.delete(key)
+        m.global.adminCache = cache
+    end if
+    print "Cove: missing art admin answer dropped"
 end sub
 
 ' ---------------------------------------------------------------- drawing
