@@ -432,4 +432,117 @@ namespace Tracks
         return firstText
     end function
 
+    ' ---------------------------------------------------------------- v1.6 PLAYER (Q-2)
+
+    ' (v1.6 Q-2) A chapter name → its skip kind (intro / recap / credits / preview), "" when it isn't one.
+    ' The part before " - ", ":", "(", "[" or " | " must be one of the short names exactly (case-insensitive),
+    ' so "OP: Song" is the intro but "Opening Night" isn't. A number after the name is allowed ("Opening 2").
+    function chapterKind(name as dynamic) as string
+        t = LCase(Util.toText(name))
+        for each sep in [" - ", ":", "(", "[", " | "]
+            at = t.instr(sep)
+            if at > 0 then t = t.left(at)
+        end for
+        ' letters and digits only, single spaces
+        clean = ""
+        lastSpace = true
+        for i = 0 to t.len() - 1
+            ch = t.mid(i, 1)
+            if ch = "-" or ch = "_" or ch = "." or ch = " " or ch = "'"
+                if not lastSpace then clean = clean + " "
+                lastSpace = true
+            else
+                clean = clean + ch
+                lastSpace = false
+            end if
+        end for
+        clean = clean.trim()
+        if clean = "" then return ""
+        names = {
+            "intro": "intro", "opening": "intro", "op": "intro", "opening credits": "intro", "opening theme": "intro",
+            "title sequence": "intro", "main title": "intro", "theme song": "intro", "vorspann": "intro",
+            "generique de debut": "intro",
+            "recap": "recap", "previously": "recap", "previously on": "recap", "ruckblick": "recap",
+            "credits": "credits", "end credits": "credits", "ending": "credits", "ending credits": "credits",
+            "ending theme": "credits", "ed": "credits", "outro": "credits", "closing credits": "credits",
+            "abspann": "credits", "generique de fin": "credits", "creditos": "credits",
+            "preview": "preview", "next episode preview": "preview", "next episode": "preview", "next time": "preview",
+            "vorschau": "preview"
+        }
+        if names.doesExist(clean) then return names[clean]
+        ' "Opening 2", "ED1", "Intro 1": a number after the name
+        base = clean
+        while base.len() > 0 and Instr(1, "0123456789 ", base.right(1)) > 0
+            base = base.left(base.len() - 1)
+        end while
+        if base <> clean and (base = "intro" or base = "op" or base = "opening" or base = "ed" or base = "ending" or base = "outro" or base = "credits")
+            return names[base]
+        end if
+        return ""
+    end function
+
+    ' (v1.6 Q-2) When the server gave no intro / credits (no Emby markers, no Jellyfin segments): chapters named
+    ' like one become segments of that kind, from the chapter's start to the next chapter's start (the last
+    ' one to the end). Position gates against false matches: an intro or a recap starts in the first 25 % of
+    ' the runtime, credits and previews in the last 30 %. Adjacent chapters of one kind join. r.chapterMarks
+    ' tells the player that the server's own segments, if they arrive later, replace these.
+    function fromChapterNames(chapters as dynamic, duration as float, r as dynamic) as object
+        if not Util.isAA(r) then r = { introStart: -1.0, introEnd: -1.0, credits: -1.0, creditsEnd: -1.0, segs: [] }
+        if type(r.segs) <> "roArray" then r.segs = []
+        if r.introStart >= 0 or r.credits > 0 then return r
+        if type(chapters) <> "roArray" or duration <= 0 then return r
+        list = []
+        for each c in chapters
+            if Util.isAA(c)
+                mt = Util.toText(c.MarkerType)
+                if mt = "" or mt = "Chapter" then list.push({ kind: chapterKind(c.Name), s: Playback.seconds(c.StartPositionTicks) })
+            end if
+        end for
+        found = false
+        i = 0
+        while i < list.count()
+            kind = list[i].kind
+            st = list[i].s
+            j = i
+            while j + 1 < list.count() and list[j + 1].kind = kind
+                j = j + 1
+            end while
+            en = duration
+            isLast = j + 1 >= list.count()
+            if not isLast then en = list[j + 1].s
+            early = st < duration * 0.25
+            late = st >= duration * 0.7
+            if kind = "" or en <= st + 3
+                ' (not a named part, or too short to skip)
+            else if kind = "intro" and early and r.introStart < 0 and en - st < duration * 0.25
+                r.introStart = st
+                r.introEnd = en
+                found = true
+            else if kind = "recap" and early
+                r.segs.push({ key: r.segs.count().toStr(), kind: "recap", s: st, e: en })
+                found = true
+            else if kind = "credits" and late and r.credits < 0
+                r.credits = st
+                ' (credits up to the end: no known end; a scene after them: they end where it starts)
+                if not isLast then r.creditsEnd = en
+                found = true
+            else if kind = "preview" and late
+                r.segs.push({ key: r.segs.count().toStr(), kind: "preview", s: st, e: en })
+                found = true
+            end if
+            i = j + 1
+        end while
+        if found then r.chapterMarks = true
+        return r
+    end function
+
+    ' (v1.6 Q-2) Jellyfin segments arriving after chapter-name ones: the server wins, so the chapter-name
+    ' parts are dropped first (only when the answer really carries segments)
+    function segmentsReplaceChapters(json as dynamic, r as object) as object
+        if not Util.flag(r, "chapterMarks") then return r
+        if not Util.isAA(json) or type(json.Items) <> "roArray" then return r
+        if json.Items.count() = 0 then return r
+        return { introStart: -1.0, introEnd: -1.0, credits: -1.0, creditsEnd: -1.0, segs: [] }
+    end function
+
 end namespace

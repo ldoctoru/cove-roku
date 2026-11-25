@@ -397,6 +397,11 @@ sub onInfo(r as object)
             print "Cove: player version (first of "; m.versions.count(); ") fixed for the stream request"
         end if
         m.marks = Tracks.markers(r.json)
+        ' (v1.6 Q-2) no server markers: chapters named Intro / Credits / Recap / Preview stand in for them
+        if m.marks.introStart < 0 and m.marks.credits <= 0
+            m.marks = Tracks.fromChapterNames(r.json.Chapters, Playback.seconds(r.json.RunTimeTicks), m.marks)
+            if Util.flag(m.marks, "chapterMarks") then print "Cove: player segments from chapter names intro "; Int(m.marks.introStart); "-"; Int(m.marks.introEnd); " credits "; Int(m.marks.credits); " other "; m.marks.segs.count()
+        end if
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
         chooseStartAudio()
         buildTools()
@@ -2819,6 +2824,11 @@ sub onResponse(ev as object)
         ' (the previous episode's answer after Next / Episodes)
         return
     else if k = "segments" and r.code = 200
+        ' (v1.6 Q-2) the server's own segments win over chapter names
+        if Util.flag(m.marks, "chapterMarks")
+            m.marks = Tracks.segmentsReplaceChapters(r.json, m.marks)
+            if not Util.flag(m.marks, "chapterMarks") then print "Cove: player chapter-name segments replaced by the server's"
+        end if
         m.marks = Tracks.fromSegments(r.json, m.marks)
     else if k = "epSeries"
         ' (C2-4) the series' rating for its unrated episodes, then the list as below
