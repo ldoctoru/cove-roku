@@ -834,7 +834,8 @@ sub startPlayer(item as object)
     ' beginning (not a trailer / extra, not a Shuffle queue); the server decides which titles get intros.
     ' (v1.2 SP-13c) The player opens at once and asks for the intros itself, in parallel with the title's
     ' details (PlayerScreen askIntros); the intros still play before the title.
-    if Prefs.cinemaMode() and m.server <> invalid and not Util.flag(item, "trailer") and type(item.queue) <> "roArray" and Util.toNumber(item.start) <= 0
+    ' (v1.6 M-1: Play Collection's first film gets them too; the films after it never do)
+    if Prefs.cinemaMode() and m.server <> invalid and not Util.flag(item, "trailer") and (type(item.queue) <> "roArray" or Util.isAA(item.collection)) and Util.toNumber(item.start) <= 0
         item.cinema = true
     end if
     openPlayer(item)

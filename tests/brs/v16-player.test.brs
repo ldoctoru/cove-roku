@@ -98,3 +98,68 @@ sub test_segmentsReplaceChapters()
     t_eq(cleared.introStart, -1.0, "segments replace chapter marks")
     t_eq(Tracks_fromSegments(seg, cleared).introStart, 5.0, "then the server's intro")
 end sub
+
+' ---------------------------------------------------------------- M-1 Play Collection (Playback.collection*)
+
+function t_box() as object
+    return [
+        { Id: "a", Name: "Alien", Type: "Movie", ProductionYear: 1979, UserData: { Played: true }, Overview: "long text" },
+        { Id: "s", Name: "A Series", Type: "Series" },
+        { Id: "b", Name: "Aliens", Type: "Movie", ProductionYear: 1986, UserData: { PlaybackPositionTicks: 6000000000& } },
+        { Id: "c", Name: "Alien 3", Type: "Movie", ProductionYear: 1992 }
+    ]
+end function
+
+sub test_collectionQueue_fromTarget()
+    q = Playback_collectionQueue(t_box(), "b")
+    t_eq(q.index, 1, "second playable film (the series is skipped)")
+    t_eq(q.count, 3, "three films")
+    t_eq(q.queue.count(), 1, "one film after it")
+    t_eq(q.queue[0].Id, "c", "Alien 3 follows")
+    t_eq(q.queue[0].collectionIndex, 2, "its place in the collection")
+    t_ok(q.queue[0].Overview = invalid, "trimmed")
+end sub
+
+sub test_collectionQueue_first()
+    q = Playback_collectionQueue(t_box(), "a")
+    t_eq(q.index, 0, "first film")
+    t_eq(q.queue.count(), 2, "two follow")
+    t_eq(q.queue[0].Id, "b", "in the list's order")
+    t_ok(q.queue[0].UserData <> invalid, "UserData kept for the resume point")
+end sub
+
+sub test_collectionQueue_missing()
+    t_eq(Playback_collectionQueue(t_box(), "zz").index, -1, "unknown target")
+    t_eq(Playback_collectionQueue(t_box(), "zz").queue.count(), 0, "nothing queued")
+    t_eq(Playback_collectionQueue(invalid, "a").count, 0, "no list")
+    t_eq(Playback_collectionQueue(t_box(), "s").index, -1, "a series isn't a playable target")
+end sub
+
+sub test_collectionSortBy()
+    t_eq(Playback_collectionSortBy("SortName"), "SortName", "the server's name order")
+    t_eq(Playback_collectionSortBy("PremiereDate"), "PremiereDate,ProductionYear,SortName", "release order")
+    t_eq(Playback_collectionSortBy(invalid), "PremiereDate,ProductionYear,SortName", "default release order")
+end sub
+
+sub test_collectionUpNextStart()
+    t_eq(Playback_collectionUpNextStart(6500.0, 7200.0), 6500.0, "credits marker in the second half")
+    t_eq(Playback_collectionUpNextStart(-1.0, 7200.0), 6900.0, "no marker: 5 min before the end")
+    t_eq(Playback_collectionUpNextStart(1000.0, 7200.0), 6900.0, "marker in the first half ignored")
+    t_eq(Playback_collectionUpNextStart(-1.0, 800.0), 500.0, "short film: never before half")
+    t_eq(Playback_collectionUpNextStart(-1.0, 400.0), -1.0, "under 10 min: no card")
+    t_eq(Playback_collectionUpNextStart(-1.0, 0.0), -1.0, "unknown duration")
+end sub
+
+sub test_collectionHeadingAndTitle()
+    t_eq(Playback_collectionHeading(1, 3), "Up Next · Film 2 of 3", "heading")
+    t_eq(Playback_collectionHeading(-1, 3), "Up Next", "unknown place")
+    t_eq(Playback_filmTitle({ Name: "The Two Towers", ProductionYear: 2002 }), "The Two Towers (2002)", "with year")
+    t_eq(Playback_filmTitle({ Name: "Untitled" }), "Untitled", "no year")
+end sub
+
+sub test_collectionPlayable()
+    t_ok(Playback_isCollectionPlayable({ Id: "1", Type: "Movie" }), "movie")
+    t_ok(not Playback_isCollectionPlayable({ Id: "1", Type: "BoxSet" }), "nested collection")
+    t_ok(not Playback_isCollectionPlayable({ Type: "Movie" }), "no id")
+    t_ok(not Playback_isCollectionPlayable(invalid), "invalid")
+end sub

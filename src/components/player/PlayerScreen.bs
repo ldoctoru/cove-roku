@@ -108,6 +108,7 @@ sub init()
     m.startClock = invalid
     m.keepClock = false     ' (v1.2) the next begin keeps the clock (film -> its first Cinema Mode intro)
     m.hasQueue = false      ' (PL-13) the title came with a Shuffle queue
+    m.collection = invalid  ' (v1.6 M-1) Play Collection: { id, name, index, count }
     m.orphans = []          ' superseded PlayTasks, kept until they answer so their server conversion can be ended
     m.tasksHolder = invalid
     tasksHolder()
@@ -246,6 +247,9 @@ sub begin()
     ' (PL-13: started as a queue, even an empty one now)
     m.hasQueue = type(it.queue) = "roArray"
     if m.hasQueue then m.queue = it.queue
+    ' (v1.6 M-1) Play Collection: { id, name, index, count } of the film playing (Up Next "Film 2 of 3")
+    m.collection = invalid
+    if Util.isAA(it.collection) then m.collection = it.collection
     m.startAt = it.start
     ' Settings → Playback → Rewind on resume: a title resuming from its saved position starts a little earlier
     rw = m.pf.rewind
@@ -367,7 +371,7 @@ sub chooseStartAudio()
         return
     end if
     seriesLang = ""
-    if seriesKey() <> "" then seriesLang = Prefs.seriesAudioLang(seriesKey())
+    if langKey() <> "" then seriesLang = Prefs.seriesAudioLang(langKey())
     wanted = Tracks.wantedAudio(m.tracks, seriesLang, Tracks.serverAudioPref(m.top.server))
     a = Tracks.startAudio(m.tracks, wanted)
     print "Cove: audio wanted ["; Util.join(wanted, ","); "] -> track "; a; " (file default "; m.opts.defaultAudio; ")"
@@ -377,7 +381,7 @@ end sub
 ' The audio language chosen by hand, kept for the series (Prefs.seriesLangs)
 sub rememberAudio(index as integer)
     a = Tracks.findAudio(m.tracks, index)
-    if a <> invalid and seriesKey() <> "" and a.language <> "" then Prefs.setSeriesAudioLang(seriesKey(), a.language)
+    if a <> invalid and langKey() <> "" and a.language <> "" then Prefs.setSeriesAudioLang(langKey(), a.language)
 end sub
 
 sub onInfo(r as object)
@@ -414,7 +418,7 @@ sub onInfo(r as object)
         picked = m.top.item.options <> invalid and m.top.item.options.subPicked = true
         ' a language chosen for this series on its page (or in the player) is more specific and wins
         seriesPref = ""
-        if seriesKey() <> "" then seriesPref = Prefs.seriesSubLang(seriesKey())
+        if langKey() <> "" then seriesPref = Prefs.seriesSubLang(langKey())
         if Prefs.subAlways() and not picked and seriesPref = "" and m.subLang = "" then always = Tracks.subForLanguage(m.tracks, Prefs.subLang())
         langs = []
         for each s in m.tracks.subs
@@ -428,7 +432,7 @@ sub onInfo(r as object)
             print "Cove: subtitles in "; Prefs.subLang(); " (Settings)"
         else if m.top.item.options = invalid
             pref = m.subLang
-            if pref = "" and seriesKey() <> "" then pref = Prefs.seriesSubLang(seriesKey())
+            if pref = "" and langKey() <> "" then pref = Prefs.seriesSubLang(langKey())
             if pref <> "off"
                 s = Tracks.defaultSub(m.tracks, pref)
                 if s >= 0
@@ -500,6 +504,41 @@ function seriesKey() as string
     if m.info = invalid or Util.toText(m.info.SeriesId) = "" then return ""
     return Util.toText(m.info.SeriesId)
 end function
+
+' (v1.6 M-1) The key the audio / subtitle language is remembered under: the series, else (a film of Play
+' Collection) "box:<collection id>", else none
+function langKey() as string
+    k = seriesKey()
+    if k <> "" then return k
+    if Util.isAA(m.collection) and Util.toText(m.collection.id) <> "" then return "box:" + Util.toText(m.collection.id)
+    return ""
+end function
+
+' (v1.6 M-1) Playing a collection and the next title is its next film
+function collectionNext() as boolean
+    return Util.isAA(m.collection) and m.next <> invalid and Util.toText(m.next.Type) <> "Episode" and Util.toText(m.next.Type) <> ""
+end function
+
+' (v1.6 M-1) The Up Next card's heading, title and second line for the next title
+sub setUpNextText(n as object)
+    head = "UP NEXT"
+    if collectionNext()
+        at = Util.toNumber(m.collection.index) + 1
+        if Util.field(n, "collectionIndex") <> invalid then at = Util.toNumber(n.collectionIndex)
+        head = UCase(Playback.collectionHeading(Int(at), Int(Util.toNumber(m.collection.count))))
+        m.top.findNode("upNextTitle").text = Playback.filmTitle(n)
+        m.top.findNode("upNextEpisode").text = ""
+    else
+        m.top.findNode("upNextTitle").text = Util.toText(n.SeriesName)
+        m.top.findNode("upNextEpisode").text = Items.episodeLabel(n)
+        ' (a film from the Shuffle queue: its name)
+        if Util.toText(n.Type) <> "Episode" and Util.toText(n.Type) <> ""
+            m.top.findNode("upNextTitle").text = Util.toText(n.Name)
+            m.top.findNode("upNextEpisode").text = ""
+        end if
+    end if
+    m.top.findNode("upNextHead").text = head
+end sub
 
 ' Asks the server for a stream; forceTranscode after a playback error
 sub start(startSeconds as float, forceTranscode as boolean)
@@ -1275,7 +1314,7 @@ sub autoSkipCredits(atSec as float)
     ' (v1.5.2 P5-1) sleep timer on End of episode: past the credits to the end, where onFinished closes
     if Util.toText(m.sleepMode) = "episode"
         skipCredits()
-    else if isEpisodeNow() and nextIsEpisodeItem() and m.pf.autoNext
+    else if ((isEpisodeNow() and nextIsEpisodeItem()) or collectionNext()) and m.pf.autoNext
         autoPlayNext()
     else
         skipCredits()
@@ -1322,13 +1361,7 @@ sub onFinished()
         m.progressTimer.control = "stop"
         m.started = false
         hideAction()
-        m.top.findNode("upNextTitle").text = Util.toText(m.next.SeriesName)
-        m.top.findNode("upNextEpisode").text = Items.episodeLabel(m.next)
-        ' (a film from the Shuffle queue: its name)
-        if Util.toText(m.next.Type) <> "Episode" and Util.toText(m.next.Type) <> ""
-            m.top.findNode("upNextTitle").text = Util.toText(m.next.Name)
-            m.top.findNode("upNextEpisode").text = ""
-        end if
+        setUpNextText(m.next)
         ' Settings → Playback → Up Next countdown (v1.0 F-11): Off starts the next one at once
         secs = Prefs.upNextSeconds()
         if secs <= 0
@@ -1372,10 +1405,14 @@ end sub
 function creditsCardDue(p as float) as boolean
     ' (v1.5.2 P5-1) sleep timer on End of episode: no Up Next, the credits play to the end
     if Util.toText(m.sleepMode) = "episode" then return false
-    if m.osdShown or m.picker <> invalid or not isEpisodeNow() or not nextIsEpisodeItem() then return false
+    ' (v1.6 M-1) a collection's film with its next film: at the credits marker, else 5 min before the end
+    inColl = collectionNext()
+    if m.osdShown or m.picker <> invalid then return false
+    if not inColl and (not isEpisodeNow() or not nextIsEpisodeItem()) then return false
     if not m.pf.autoNext or m.pf.upNextSecs <= 0 then return false
     d = m.video.duration
     at = Playback.upNextStart(m.marks.credits, d)
+    if inColl then at = Playback.collectionUpNextStart(m.marks.credits, d)
     if at < 0 or p < at
         ' (seeked back before the credits: the next card counts from the start again)
         if not m.upNext.visible then m.cardCount = -1
@@ -1394,8 +1431,7 @@ sub showCreditsCard(p as float)
     if not resumed then m.cardCount = m.cardTotal
     m.count = m.cardCount
     m.cardBtn = 0
-    m.top.findNode("upNextTitle").text = Util.toText(n.SeriesName)
-    m.top.findNode("upNextEpisode").text = Items.episodeLabel(n)
+    setUpNextText(n)
     m.top.findNode("upNextStill").uri = Items.landscape(m.top.server, n, 240)
     drawUpNextCard()
     m.upNext.visible = true
@@ -1558,6 +1594,14 @@ sub playEpisode(n as dynamic)
             ni.title = Util.toText(n.Name)
             ni.subtitle = ""
         end if
+    end if
+    ' (v1.6 M-1) the collection's next film: its place in the collection, and its own resume point
+    if Util.isAA(m.collection) and Util.field(n, "collectionIndex") <> invalid
+        c = m.collection
+        ni.collection = { id: Util.toText(c.id), name: Util.toText(c.name), index: Int(Util.toNumber(n.collectionIndex)), count: Int(Util.toNumber(c.count)) }
+        if not ni.doesExist("queue") then ni.queue = []
+        ni.start = Playback.resumeAtOf(n)
+        print "Cove: player collection film "; ni.collection.index + 1; " of "; ni.collection.count; " (starts at "; Int(ni.start); " s)"
     end if
     m.top.item = ni
 end sub
@@ -1765,7 +1809,7 @@ sub onPicked(ev as object)
         if s <> invalid then m.subLang = s.language
         if s = invalid then m.subLang = "off"
         ' remembered for the series, like on the Mac
-        if seriesKey() <> "" and m.subLang <> "" then Prefs.setSeriesSubLang(seriesKey(), m.subLang)
+        if langKey() <> "" and m.subLang <> "" then Prefs.setSeriesSubLang(langKey(), m.subLang)
         ' Text subtitles are Cove's own layer, so switching them is on the spot; a burned-in one (to or from)
         ' needs the stream again
         if wasBurned or m.opts.burn
@@ -4036,7 +4080,7 @@ sub onStreamsCheck(r as object)
     ' subtitles were off: the language from Settings → Subtitles ("Always load") or the one chosen before
     ' (v1.5.2 P5-9: not when they were turned Off, in the player, on the series page or on the details page)
     lang = Util.toText(m.subLang)
-    if lang = "" and seriesKey() <> "" then lang = Prefs.seriesSubLang(seriesKey())
+    if lang = "" and langKey() <> "" then lang = Prefs.seriesSubLang(langKey())
     picked = m.top.item.options <> invalid and m.top.item.options.subPicked = true
     if m.opts.sub < 0 and lang <> "off" and not picked
         pick = -1
