@@ -202,6 +202,13 @@ namespace Ratings
         return keep(server, list)
     end function
 
+    ' (v1.5.2 CS-1) The admin tools (⋯ More → Refresh Metadata, Items without Poster) only for a server
+    ' administrator whose profile has no kids limit: a limited profile counts as a regular user
+    function effectiveAdmin(server as dynamic, isAdmin as boolean) as boolean
+        if not isAdmin or not Util.isAA(server) then return false
+        return limitOf(server) = 0 and Util.toText(server.maxRating).trim() = ""
+    end function
+
     ' A request path with MaxOfficialRating added when the profile has a limit
     function withLimit(server as dynamic, path as string) as string
         if path = "" or limitOf(server) = 0 then return path

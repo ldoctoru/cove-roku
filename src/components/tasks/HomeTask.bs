@@ -69,13 +69,13 @@ sub load()
     ' (v1.5) My Media (Emby's row of library tiles): each library's own switch, not the menu's list any more
     shown = []
     byId = {}
+    for each l in HomeLayout.myMediaLibs(libs)
+        v = l.view
+        v.Name = l.title
+        shown.push(v)
+    end for
     for each l in libs
         byId[HomeLayout.libRowId(l.id)] = l
-        if NavPrefs.libraryInMyMedia(l.id)
-            v = l.view
-            v.Name = l.title
-            shown.push(v)
-        end if
         l.delete("view")
     end for
     m.top.libraries = libs
@@ -302,18 +302,34 @@ sub fetchQueued(late as boolean)
         end for
         if reqs.count() = 0 then exit while
         answers = Api.executeMany(reqs, 8000, 4)
+        ' (v1.5.2 CS-4) requests with no answer at all: asked again together (one Upcoming request never
+        ' answered while 7 others ran), not one after another; when none of them answered the server is stuck,
+        ' so Home shows its error panel now instead of after 8 s per row
+        silent = []
+        for k = 0 to answers.count() - 1
+            print "Cove: "; Util.redact(Api.timingLine("GET", m.pendingRows[which[k]].spec.path, answers[k].code, answers[k].ms))
+            if answers[k].timedOut = true then silent.push(k)
+        end for
+        if rounds = 1 and Api.retriesSilent(silent.count(), answers.count())
+            print "Cove: home "; silent.count(); " lists didn't answer, asking again together"
+            again = []
+            for each k in silent
+                again.push(reqs[k])
+            end for
+            retried = Api.executeMany(again, 8000, 2)
+            for j = 0 to silent.count() - 1
+                r = retried[j]
+                print "Cove: "; Util.redact(Api.timingLine("GET", m.pendingRows[which[silent[j]]].spec.path, r.code, r.ms))
+                r.timedOut = false
+                answers[silent[j]] = r
+            end for
+        else if silent.count() > 0
+            print "Cove: home "; silent.count(); " of "; answers.count(); " lists didn't answer, not asking again"
+        end if
         for k = 0 to answers.count() - 1
             p = m.pendingRows[which[k]]
             sp = p.spec
             r = answers[k]
-            print "Cove: "; Util.redact(Api.timingLine("GET", sp.path, r.code, r.ms))
-            if r.timedOut = true and rounds = 1
-                ' (v1.2) no answer at all: once more on its own (one Upcoming request never answered while
-                ' 7 others ran, so Home waited 20 s)
-                print "Cove: home list "; sp.path.split("?")[0]; " didn't answer, asking again"
-                r = timedGet(sp.path, 8000)
-                r.timedOut = false
-            end if
             if r.code = 404 and sp.fallback <> "" and rounds = 1
                 ' (the newer route next round)
                 sp.path = sp.fallback

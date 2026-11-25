@@ -390,6 +390,12 @@ sub onInfo(r as object)
         end if
         m.versions = Tracks.versions(r.json)
         m.tracks = Tracks.fromItem(r.json, Util.toText(m.opts.sourceId))
+        ' (v1.5.2 P5-4) several versions and none chosen: ask PlaybackInfo for the file the tracks describe, so
+        ' the server can't answer with another one first (Jellyfin sorts direct-playable sources first)
+        if Util.toText(m.opts.sourceId) = "" and m.versions.count() > 1 and m.tracks.sourceId <> ""
+            m.opts.sourceId = m.tracks.sourceId
+            print "Cove: player version (first of "; m.versions.count(); ") fixed for the stream request"
+        end if
         m.marks = Tracks.markers(r.json)
         m.opts.defaultAudio = Tracks.defaultAudio(m.tracks)
         chooseStartAudio()
@@ -548,6 +554,7 @@ sub onStream(ev as object)
     m.playTask = invalid
     s.itemId = m.top.item.id
     m.session = s
+    if m.tracks <> invalid and m.tracks.sourceId <> "" and Util.toText(s.mediaSourceId) <> "" and Util.toText(s.mediaSourceId) <> m.tracks.sourceId then print "Cove: player stream version differs from the track list's"
     playerMark("PlaybackInfo answered")
     ' left while the server was preparing it: stop that conversion and go
     if m.closing
@@ -876,7 +883,16 @@ sub onState()
         report("/Sessions/Playing/Progress", true)
     else if st = "finished"
         ' (the Video node also reports "finished" right after an error: only a real end counts)
-        if m.started and not m.failed then onFinished()
+        if m.started and not m.failed
+            ' (v1.5.2 P5-8) a stream that ends more than a minute early (not in the credits) isn't the end:
+            ' handled as an error, so it isn't reported at full length and marked watched
+            if not Util.flag(m.top.item, "trailer") and Playback.endedEarly(m.subPos, m.video.duration, m.marks.credits)
+                print "Cove: video finished early at "; Int(m.subPos); " of "; Int(m.video.duration); " s"
+                onEarlyEnd()
+            else
+                onFinished()
+            end if
+        end if
     else if st = "error"
         onVideoError()
     end if
@@ -888,8 +904,8 @@ sub onVideoError()
     ' (the error texts can hold the stream URL with its api_key)
     print "Cove: video error "; m.video.errorCode; " "; Util.redact(Util.toText(m.video.errorMsg)); " | "; Util.redact(Util.toText(m.video.errorStr)); " | "; Util.redact(formatJson(m.video.errorInfo))
     if m.session <> invalid then print "Cove: was "; m.session.method; " "; m.session.streamFormat
-    atSec = m.video.position
-    if atSec < 1 then atSec = m.startAt
+    ' (v1.5.2 P5-7) the position can read 0 after an error: the last one seen, else the start
+    atSec = Playback.errorResumeAt(m.video.position, m.subPos, m.startAt)
     if not m.retried
         retryConverted(atSec)
         return
@@ -897,6 +913,18 @@ sub onVideoError()
     m.video.control = "stop"
     stopEncoding()
     showPlayError("This video can't be played on this Roku. " + Util.redact(Util.toText(m.video.errorMsg)) + "  (" + Util.toText(m.video.errorCode) + ")", atSec, "video error")
+end sub
+
+' (v1.5.2 P5-8) The stream ended early: once, a converted retry from the last position; then the error panel
+sub onEarlyEnd()
+    m.failed = true
+    atSec = m.subPos
+    if not m.retried
+        retryConverted(atSec)
+        return
+    end if
+    stopEncoding()
+    showPlayError("The video stopped before its end. Try again, or choose a lower quality with *.", atSec, "early end")
 end sub
 
 ' Every 10 s: progress while playing; while paused a ping plus the paused progress, so the server keeps
@@ -1239,7 +1267,10 @@ end sub
 sub autoSkipCredits(atSec as float)
     print "Cove: player segment auto-skipped credits at "; Int(atSec); " s"
     Toasts.notify("Skipped " + Tracks.segmentName("credits"))
-    if isEpisodeNow() and nextIsEpisodeItem() and m.pf.autoNext
+    ' (v1.5.2 P5-1) sleep timer on End of episode: past the credits to the end, where onFinished closes
+    if Util.toText(m.sleepMode) = "episode"
+        skipCredits()
+    else if isEpisodeNow() and nextIsEpisodeItem() and m.pf.autoNext
         autoPlayNext()
     else
         skipCredits()
@@ -1334,6 +1365,8 @@ end sub
 ' Episodes only, with a next episode, Play the next episode on and an Up Next countdown; hidden while the
 ' controls show. From the server's credits marker, else the last 30 s, to the end.
 function creditsCardDue(p as float) as boolean
+    ' (v1.5.2 P5-1) sleep timer on End of episode: no Up Next, the credits play to the end
+    if Util.toText(m.sleepMode) = "episode" then return false
     if m.osdShown or m.picker <> invalid or not isEpisodeNow() or not nextIsEpisodeItem() then return false
     if not m.pf.autoNext or m.pf.upNextSecs <= 0 then return false
     d = m.video.duration
@@ -1451,6 +1484,17 @@ end function
 
 ' The next title without a key press (countdown end, credits skipped automatically)
 sub autoPlayNext()
+    ' (v1.5.2 P5-1) sleep timer on End of episode: the player closes instead of playing the next one
+    if Util.toText(m.sleepMode) = "episode"
+        atSec = m.video.position
+        if m.cardMode = "end" or atSec < 1 then atSec = m.video.duration
+        print "Cove: player up next skipped (sleep timer: end of episode)"
+        m.countdown.control = "stop"
+        m.upNext.visible = false
+        m.cardMode = ""
+        sleepExpire(atSec)
+        return
+    end if
     ' Settings → Playback → Are you still watching?: this many episodes in a row without a key press
     ' (PL-8: episodes only, like the idle question: a film from a Shuffle queue is never interrupted)
     lim = m.pf.stillAfter
@@ -1489,9 +1533,15 @@ sub playEpisode(n as dynamic)
     stopEncoding()
     keep = Tracks.findSub(m.tracks, m.opts.sub)
     if keep <> invalid then m.subLang = keep.language
-    if keep = invalid then m.subLang = ""
+    ' (v1.5.2 P5-9: subtitles turned Off stay off for the next title, a film from a Shuffle queue too)
+    if keep = invalid and Util.toText(m.subLang) <> "off" then m.subLang = ""
     m.video.control = "stop"
-    ni = { id: Util.toText(n.Id), title: Util.toText(n.SeriesName), subtitle: Items.episodeLabel(n), start: 0.0 }
+    ' (v1.5.2 P5-2) an episode starts from its own resume point (a film from a Shuffle queue from the start)
+    startSecs = 0.0
+    ty = Util.toText(n.Type)
+    if ty = "Episode" or ty = "" then startSecs = Playback.resumeAtOf(n)
+    if startSecs > 0 then print "Cove: player next title resumes at "; Int(startSecs); " s"
+    ni = { id: Util.toText(n.Id), title: Util.toText(n.SeriesName), subtitle: Items.episodeLabel(n), start: startSecs }
     ' Shuffle queue: this one leaves the queue (an episode picked by hand keeps it), films show their name
     if m.queue <> invalid and m.queue.count() > 0
         rest = []
@@ -1793,7 +1843,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
         else if key = "back"
             dismissAction()
         else
-            dismissAction()
+            ' (v1.5.2 P5-6) only Back dismisses: another key (Pause, Left, *) hides the button for now and does its
+            ' usual job; the button comes back while the part still plays
+            hideAction()
             return onKeyEvent(key, press)
         end if
         return true
@@ -1963,6 +2015,7 @@ sub showEpisodes()
     if not m.epFull
         ' (v1.2 SP-14) only the neighbours so far: the whole list first, the panel opens when it is in
         m.epPanelWanted = true
+        m.epPanelClock = createObject("roTimespan")
         if not m.epFullAsked then requestEpisodes(seriesKey(), false)
         Toasts.notify("Loading episodes...", "info")
         return
@@ -2278,6 +2331,8 @@ sub hideOsd()
     if m.video.state = "paused" or m.seekTarget >= 0 or m.picker <> invalid then return
     m.osdShown = false
     m.spokenKey = ""
+    ' (v1.5.2 P5-10) the controls hid: the Episodes press waiting for its list is dropped
+    m.epPanelWanted = false
     fadeOsd(0.0)
     focusPlayer()
 end sub
@@ -2581,7 +2636,8 @@ sub showPreview(atSec as float, x as integer)
             end if
         end while
         if i <> m.thumbShown
-            f = "tmp:/cove_th" + i.toStr() + ".jpg"
+            ' (v1.5.2 P5-5: named per title, so the texture cache never shows the previous title's frame)
+            f = "tmp:/cove_th" + m.thumbGen.toStr() + "_" + i.toStr() + ".jpg"
             if not m.thumbFiles.doesExist(f)
                 ba = createObject("roByteArray")
                 start_ = th.offsets[i]
@@ -2614,6 +2670,12 @@ sub showPreview(atSec as float, x as integer)
 end sub
 
 sub clearThumbFiles()
+    ' (v1.5.2 P5-5) a new generation of frame file names, and no old frame left on the preview (a random
+    ' start, so a later player doesn't reuse the names of the one before either)
+    if m.thumbGen = invalid then m.thumbGen = Rnd(1000000)
+    m.thumbGen = m.thumbGen + 1
+    pimg = m.top.findNode("previewImg")
+    if pimg <> invalid then pimg.uri = ""
     if m.thumbFiles = invalid then return
     for each f in m.thumbFiles
         DeleteFile(f)
@@ -2775,7 +2837,12 @@ sub onResponse(ev as object)
             requestEpisodes(Util.toText(r.tag.seriesId), false)
             return
         end if
-        if not adjacent and type(list) <> "roArray" then m.epFullAsked = false
+        if not adjacent and type(list) <> "roArray"
+            m.epFullAsked = false
+            ' (v1.5.2 P5-10) a failed list: a later answer doesn't open the panel either
+            if m.epPanelWanted then print "Cove: player episodes list failed ("; r.code; ")"
+            m.epPanelWanted = false
+        end if
         if type(list) = "roArray"
             ' (more than the three neighbours: a server that ignored AdjacentTo sent the whole list)
             m.epFull = not adjacent or list.count() > 3
@@ -2796,7 +2863,8 @@ sub useEpisodes(fullList as object)
     ' (the episode playing stays in, so previous / next are still found around it)
     list = []
     for each ep in fullList
-        if Util.isAA(ep) and (Util.toText(ep.Id) = m.top.item.id or Ratings.allowed(m.top.server, ep)) then list.push(ep)
+        ' (v1.5.2 P5-3: a missing / not yet aired episode without a file can't play, so it isn't listed)
+        if Util.isAA(ep) and (Util.toText(ep.Id) = m.top.item.id or (Ratings.allowed(m.top.server, ep) and not Playback.isMissingEpisode(ep))) then list.push(ep)
     end for
     m.episodes = list
     for i = 0 to list.count() - 1
@@ -2812,9 +2880,23 @@ sub useEpisodes(fullList as object)
     ' (v1.2 SP-14) the Episodes panel was asked for while only the neighbours were known
     if m.epFull and m.epPanelWanted
         m.epPanelWanted = false
-        if m.picker = invalid and not m.upNext.visible and not m.still.visible and not m.closing then showEpisodes()
+        ' (v1.5.2 P5-10) only while the controls still show with Episodes focused and the press is recent (~3 s):
+        ' a late list never pops the panel up over the video by itself
+        if m.picker = invalid and not m.upNext.visible and not m.still.visible and not m.closing and episodesPanelStillWanted()
+            showEpisodes()
+        else
+            print "Cove: player episodes list in late, panel not opened"
+        end if
     end if
 end sub
+
+' (v1.5.2 P5-10) The Episodes press that asked for the whole list still stands: the controls show, the Episodes
+' button has the focus and it was pressed under ~3 s ago
+function episodesPanelStillWanted() as boolean
+    if not m.osdShown or m.epPanelClock = invalid or m.epPanelClock.TotalMilliseconds() > 3000 then return false
+    if m.area <> "row" or m.rowIds = invalid or m.idx < 0 or m.idx >= m.rowIds.count() then return false
+    return m.rowIds[m.idx] = "episodes"
+end function
 
 ' A request whose answer nobody waits for. The task is parked in the scene's "tasks" group so it keeps running
 ' after this screen is gone (finished ones are cleared each time).
@@ -3768,10 +3850,8 @@ sub downloadSubtitle(id as string)
         return
     end if
     subId = Mid(id, 3)
-    m.subsBefore = {}
-    for each s in m.tracks.subs
-        m.subsBefore[s.index.toStr()] = true
-    end for
+    ' (v1.5.2 P5-11: the tracks themselves, matched by language / label / external, since indexes can shift)
+    m.subsBefore = m.tracks.subs
     openPicker("subresults", "Downloading...", [{ id: "none", label: "Downloading the subtitle..." }], "")
     subSearchRequest("POST", "/Items/" + m.top.item.id + "/RemoteSearch/Subtitles/" + subId.encodeUriComponent(), { kind: "subGet", itemId: m.top.item.id }, 0)
 end sub
@@ -3826,12 +3906,7 @@ sub onSubSearch(ev as object)
     else if k = "subRefresh"
         if r.code <> 200 or not Util.isAA(r.json) then return
         fresh = Tracks.fromItem(r.json, Util.toText(m.opts.sourceId))
-        added = invalid
-        for each s in fresh.subs
-            if m.subsBefore = invalid or not m.subsBefore.doesExist(s.index.toStr())
-                if added = invalid and s.isText then added = s
-            end if
-        end for
+        added = Tracks.downloadedSub(Tracks.addedTracks(m.subsBefore, fresh.subs))
         if added = invalid
             m.subTries = m.subTries + 1
             if m.subTries < 10
@@ -3842,7 +3917,7 @@ sub onSubSearch(ev as object)
             return
         end if
         ' the new track list (the item's streams too, for the playback info), and the new subtitle on
-        m.tracks = fresh
+        remapTracks(fresh, false)
         ' (PL-6: the Subtitles button too, for a title that had none)
         buildTools()
         if m.info <> invalid
@@ -3905,21 +3980,43 @@ sub checkStreams(why as string)
     t.control = "RUN"
 end sub
 
+' (v1.5.2 P5-11) A refreshed stream list: the chosen audio and subtitle get their index in it (the server may
+' renumber the streams when it adds a file), so the next restart doesn't ask for another track
+' (m.tracks becomes fresh; reload: a text subtitle whose index moved is loaded again from its new index)
+sub remapTracks(fresh as object, reload as boolean)
+    old = m.tracks
+    m.tracks = fresh
+    if old = invalid then return
+    moved = false
+    if m.opts.sub >= 0
+        ns = Tracks.rematch(old.subs, fresh.subs, m.opts.sub)
+        if ns <> m.opts.sub
+            print "Cove: player subtitle track "; m.opts.sub; " is now "; ns
+            m.opts.sub = ns
+            if ns < 0 then m.opts.burn = false
+            moved = true
+        end if
+    end if
+    if m.replaySub >= 0 then m.replaySub = Tracks.rematch(old.subs, fresh.subs, m.replaySub)
+    if m.opts.audio >= 0
+        na = Tracks.rematch(old.audio, fresh.audio, m.opts.audio)
+        if na <> m.opts.audio then print "Cove: player audio track "; m.opts.audio; " is now "; na
+        m.opts.audio = na
+    end if
+    m.opts.defaultAudio = Tracks.defaultAudio(fresh)
+    ' (a burned-in one stays in the picture until the next restart, which asks for its new index)
+    if moved and reload and not m.opts.burn then loadTextSub()
+end sub
+
 sub onStreamsCheck(r as object)
     if r.code <> 200 or not Util.isAA(r.json) or m.tracks = invalid then return
     fresh = Tracks.fromItem(r.json, Util.toText(m.opts.sourceId))
-    known = {}
-    for each s in m.tracks.subs
-        known[s.index.toStr()] = true
-    end for
-    added = []
-    for each s in fresh.subs
-        if not known.doesExist(s.index.toStr()) then added.push(s)
-    end for
+    ' (v1.5.2 P5-11: new tracks by language / label / external, not by index, which can shift)
+    added = Tracks.addedTracks(m.tracks.subs, fresh.subs)
     if added.count() = 0 then return
     print "Cove: player subtitles check found "; added.count(); " new track(s)"
-    ' (the audio list stays as it is: only the subtitles are new)
-    m.tracks.subs = fresh.subs
+    ' (v1.5.2 P5-11) the chosen audio / subtitle follow their new indexes
+    remapTracks(fresh, true)
     if m.info <> invalid
         m.info.MediaSources = r.json.MediaSources
         m.info.MediaStreams = r.json.MediaStreams
@@ -3927,10 +4024,14 @@ sub onStreamsCheck(r as object)
     buildTools()
     turnedOn = false
     ' subtitles were off: the language from Settings → Subtitles ("Always load") or the one chosen before
-    if m.opts.sub < 0
+    ' (v1.5.2 P5-9: not when they were turned Off, in the player, on the series page or on the details page)
+    lang = Util.toText(m.subLang)
+    if lang = "" and seriesKey() <> "" then lang = Prefs.seriesSubLang(seriesKey())
+    picked = m.top.item.options <> invalid and m.top.item.options.subPicked = true
+    if m.opts.sub < 0 and lang <> "off" and not picked
         pick = -1
-        if Prefs.subAlways() then pick = Tracks.subForLanguage(m.tracks, Prefs.subLang())
-        if pick < 0 and Util.toText(m.subLang) <> "" then pick = Tracks.defaultSub(m.tracks, Util.toText(m.subLang))
+        if Prefs.subAlways() and lang = "" then pick = Tracks.subForLanguage(m.tracks, Prefs.subLang())
+        if pick < 0 and lang <> "" then pick = Tracks.defaultSub(m.tracks, lang)
         if pick >= 0
             nt = Tracks.findSub(m.tracks, pick)
             if nt <> invalid and nt.isText

@@ -1,5 +1,6 @@
 import "pkg:/source/Api.bs"
 import "pkg:/source/MissingArt.bs"
+import "pkg:/source/Ratings.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -27,9 +28,9 @@ sub work()
     end try
 end sub
 
+' (v1.5.2 ST-5) with Home's fallback to the newer Jellyfin route on a 404
 function getJson(path as string, timeoutMs as integer) as object
-    srv = m.top.server
-    return Api.execute({ method: "GET", url: Util.toText(srv.url) + path, headers: Api.headers(srv, true), timeout: timeoutMs })
+    return Api.getRouted(m.top.server, path, timeoutMs)
 end function
 
 sub checkAdmin()
@@ -54,12 +55,15 @@ sub scanLibrary()
     err = ""
     limit = MissingArt.pageSize()
     while not m.top.cancel
-        r = getJson(MissingArt.scanPath(uid, lib, start, limit), 60000)
+        ' (v1.5.2 CS-1) the profile's kids limit applies to the scan too (the server's MaxOfficialRating, then
+        ' Ratings.keep on each page as a second net)
+        r = getJson(Ratings.withLimit(srv, MissingArt.scanPath(uid, lib, start, limit)), 60000)
         if r.code <> 200 or not Util.isAA(r.json)
             err = "Couldn't read the library. " + Api.describeFailure(r)
             exit while
         end if
         page = MissingArt.rowsOfPage(r.json, kind)
+        if Ratings.limitOf(srv) > 0 then page.rows = MissingArt.keepAllowed(page.rows, Ratings.keep(srv, r.json.Items))
         rows.append(page.rows)
         scanned = scanned + page.pageCount
         if page.total >= 0 then total = page.total
@@ -84,6 +88,7 @@ sub refreshRows()
     h = Api.headers(srv, true)
     base = Util.toText(srv.url)
     fixedCount = 0
+    recordsNew = false
     spent = createObject("roTimespan")
     i = 0
     while i < list.count() and not m.top.cancel
@@ -93,32 +98,62 @@ sub refreshRows()
         ' before: the records (refresh date + image tags)
         reads = []
         for each row in batch
-            reads.push({ url: base + MissingArt.recordPath(uid, Util.toText(row.id)), headers: h })
+            rp = MissingArt.recordPath(uid, Util.toText(row.id))
+            if Api.knownRoute(srv, "home:" + Api.routeKind(rp)) = "new" or recordsNew then rp = Api.newRoute(rp, uid)
+            reads.push({ url: base + rp, headers: h })
         end for
         before = Api.executeMany(reads, 15000, 2)
+        ' (v1.5.2 ST-5) a 404 on the legacy record route: the newer one from now on
+        if not recordsNew and before.count() > 0 and before[0].code = 404
+            recordsNew = true
+            for k = 0 to reads.count() - 1
+                reads[k].url = base + Api.newRoute(MissingArt.recordPath(uid, Util.toText(batch[k].id)), uid)
+            end for
+            before = Api.executeMany(reads, 15000, 2)
+        end if
         snaps = []
         for each res in before
             if res.code = 200 then snaps.push(MissingArt.snapshotOf(res.json)) else snaps.push("")
         end for
+        ' (v1.5.2 CS-2) a failed POST can't change the record: that item is done at once and left out of the
+        ' polling; a 401/403 (admin right or sign-in gone) stops the whole run
+        posted = []
+        refused = 0
         for each row in batch
             p = Api.execute({ method: "POST", url: base + MissingArt.refreshMissingPath(Util.toText(row.id)), headers: h, body: "", timeout: 20000 })
             print "Cove: missing art refresh "; Util.toText(row.id); " -> "; p.code
+            outcome = MissingArt.postOutcome(p.code)
+            posted.push(outcome = "ok")
+            if outcome = "refused" and refused = 0 then refused = Int(Util.toNumber(p.code))
+        end for
+        if refused <> 0
+            print "Cove: missing art refresh refused ("; refused; "), stopping"
+            m.top.result = { fixed: fixedCount, count: list.count(), cancelled: false, refused: refused }
+            return
+        end if
+        anyPosted = false
+        for k = 0 to batch.count() - 1
+            if posted[k]
+                anyPosted = true
+            else
+                m.top.itemDone = { id: Util.toText(batch[k].id), fixed: false }
+            end if
         end for
         ' then every 3 s until each record changed (2 s more once it did), at most ~60 s
         changed = []
         latest = []
-        for each row in batch
-            changed.push(false)
+        for k = 0 to batch.count() - 1
+            changed.push(not posted[k])
             latest.push(invalid)
         end for
         waited = 0
-        while waited < 60000 and not m.top.cancel
+        while anyPosted and waited < 60000 and not m.top.cancel
             pause(3000)
             waited = waited + 3000
             now = Api.executeMany(reads, 15000, 2)
             allDone = true
             for k = 0 to batch.count() - 1
-                if now[k].code = 200 and Util.isAA(now[k].json)
+                if posted[k] and now[k].code = 200 and Util.isAA(now[k].json)
                     latest[k] = now[k].json
                     s = MissingArt.snapshotOf(now[k].json)
                     if snaps[k] = ""
@@ -131,16 +166,18 @@ sub refreshRows()
             end for
             if allDone then exit while
         end while
-        if not m.top.cancel
+        if not m.top.cancel and anyPosted
             ' (the server may still be saving the picture when the refresh date moves: one more look)
             pause(2000)
             again = Api.executeMany(reads, 15000, 2)
             for k = 0 to batch.count() - 1
-                rec = latest[k]
-                if again[k].code = 200 and Util.isAA(again[k].json) then rec = again[k].json
-                ok = rec <> invalid and not MissingArt.isMissing(rec, kind)
-                if ok then fixedCount = fixedCount + 1
-                m.top.itemDone = { id: Util.toText(batch[k].id), fixed: ok }
+                if posted[k]
+                    rec = latest[k]
+                    if again[k].code = 200 and Util.isAA(again[k].json) then rec = again[k].json
+                    ok = Util.isAA(rec) and not MissingArt.isMissing(rec, kind)
+                    if ok then fixedCount = fixedCount + 1
+                    m.top.itemDone = { id: Util.toText(batch[k].id), fixed: ok }
+                end if
             end for
         end if
     end while
