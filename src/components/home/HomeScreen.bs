@@ -441,6 +441,8 @@ sub applyHeroes(list as object)
     buildDots()
     m.top.findNode("hero").visible = m.heroes.count() > 0
     if m.heroes.count() > 0 then showHero(m.heroIndex)
+    ' (SC5-11) the banner emptied while it had the focus (a reload): the rows take over
+    if m.heroes.count() = 0 and m.state = "hero" then enterRows(false, m.top.isInFocusChain())
 end sub
 
 ' (v1.3.2) The banner's own titles arrived (load or refresh): only the hero changes, the focus stays where it
@@ -656,6 +658,8 @@ sub holdHero()
 end sub
 
 sub useButton()
+    ' (SC5-11) no banner titles (left behind by a reload): nothing to act on
+    if m.heroIndex < 0 or m.heroIndex >= m.heroes.count() then return
     it = m.heroes[m.heroIndex]
     if m.btn = 1
         toggleFavourite(it)
