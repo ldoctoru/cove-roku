@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.6 M-2) "See All" from a Home row's last card: the row's whole list as a grid (7 posters or 4 wide cards
+     across, as the row), loaded 36 first and then 96 at a time as you scroll, under the row's title and its count.
+     OK opens a title, Play plays it, Rewind / Fast Forward jump a screen, Back returns to the same card on Home.
+     The focused title's backdrop shows faintly behind the grid, as on library pages.
+     "preset" = { kind, title, landscape, ... } (source/SeeAll.bs); "action" = { id: "open" / "quickplay", ... }. -->
+<component name="SeeAllScreen" extends="Group">
+    <script type="text/brightscript" uri="SeeAllScreen.bs" />
+    <interface>
+        <field id="screenId" type="string" value="seeall" />
+        <field id="server" type="assocarray" />
+        <field id="preset" type="assocarray" onChange="onPreset" />
+        <field id="action" type="assocarray" alwaysNotify="true" />
+        <!-- set by MainScene after playback or a change on Details: the page reloads when it is shown again -->
+        <field id="stale" type="boolean" value="false" />
+    </interface>
+    <children>
+        <Group id="bdGroup">
+            <Poster id="bdA" width="1920" height="1080" loadDisplayMode="scaleToZoom" opacity="0" />
+            <Poster id="bdB" width="1920" height="1080" loadDisplayMode="scaleToZoom" opacity="0" />
+            <Poster id="bdScrim" width="1920" height="1080" />
+            <Rectangle id="bdShade" width="1920" height="1080" color="0x00000000" />
+        </Group>
+        <Animation id="bdFade" duration="0.6" easeFunction="linear">
+            <FloatFieldInterpolator id="bdIn" key="[0.0, 1.0]" keyValue="[0.0, 0.4]" fieldToInterp="bdA.opacity" />
+            <FloatFieldInterpolator id="bdOut" key="[0.0, 1.0]" keyValue="[0.4, 0.0]" fieldToInterp="bdB.opacity" />
+        </Animation>
+        <Timer id="bdTimer" duration="0.45" repeat="false" />
+        <Poster id="logo" uri="pkg:/images/logo.png" width="56" height="56" translation="[96,36]" />
+        <Label id="title" height="60" translation="[172,34]" vertAlign="bottom" color="0xFFFFFFFF" text="See All">
+            <Font role="font" uri="font:BoldSystemFontFile" size="44" />
+        </Label>
+        <Label id="info" width="900" height="60" translation="[600,30]" vertAlign="bottom" color="0xFFFFFFCC" text="Loading...">
+            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+        </Label>
+        <MarkupGrid id="grid" translation="[78,140]" itemComponentName="PosterItem" itemSize="[232,432]"
+                    itemSpacing="[22,0]" numColumns="7" numRows="2" vertFocusAnimationStyle="fixedFocus"
+                    drawFocusFeedback="false" />
+        <Label id="status" width="1728" height="44" translation="[96,520]" color="0xFFFFFFCC" text="Loading...">
+            <Font role="font" uri="font:MediumSystemFontFile" size="32" />
+        </Label>
+        <Skeleton id="skeleton" translation="[96,158]" rows="2" cols="7" cardW="196" cardH="294" stepX="254" stepY="432" />
+        <ErrorPanel id="errorPanel" translation="[96,340]" width="1728" visible="false" />
+    </children>
+</component>

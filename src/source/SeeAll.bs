@@ -1,0 +1,106 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/HomeLayout.bs"
+import "pkg:/source/Items.bs"
+
+' (v1.6 M-2) "See All" for Home rows: the whole list behind a row, as a grid (SeeAllScreen + SeeAllTask).
+' A row's preset (set by HomeTask on its last card): { kind, title, landscape } plus, by kind,
+'   resume | nextup | upcoming | released | favorites | recent
+'   library: libId, collectionType, style (the row's Latest / Top Rated / Random / A-Z)
+'   section: sectionId (an Emby 4.10 Home section)
+' Pure helpers (tests/brs/v16-home.test.brs).
+namespace SeeAll
+
+    ' The first page and every page after it, as the library grid (36, then 96)
+    function firstPage() as integer
+        return 36
+    end function
+
+    function nextPage() as integer
+        return 96
+    end function
+
+    ' Columns of the grid: 7 posters, or 4 wide cards
+    function columns(isLandscape as boolean) as integer
+        if isLandscape then return 4
+        return 7
+    end function
+
+    ' The request for a preset, without StartIndex / Limit: { path, fallback, paged } (path "" = unknown kind).
+    ' o: { uid, isJellyfin, rewatch, cutoff (ISO, "" = any), hideWatched, nowIso, fields }. The row's own
+    ' options hold here too: Next Up's rewatch / days (Jellyfin), Hide Watched for Recently Added / Released /
+    ' a library's Latest row. paged = false: one request of maxUnpaged() (Random order can't be paged).
+    function request(preset as dynamic, o as object) as object
+        out = { path: "", fallback: "", paged: true }
+        if not Util.isAA(preset) then return out
+        kind = Util.toText(preset.kind)
+        uid = Util.toText(o.uid)
+        f = Util.toText(o.fields)
+        unw = HomeLayout.unwatchedQuery(o.hideWatched = true)
+        listPath = "/Users/" + uid + "/Items?"
+        itemsNew = "/Items?userId=" + uid + "&"
+        q = ""
+        if kind = "resume"
+            out.path = "/Users/" + uid + "/Items/Resume?MediaTypes=Video&" + f
+            out.fallback = "/UserItems/Resume?userId=" + uid + "&MediaTypes=Video&" + f
+            return out
+        else if kind = "nextup"
+            out.path = "/Shows/NextUp?UserId=" + uid + HomeLayout.nextUpQuery(o.isJellyfin = true, o.rewatch = true, Util.toText(o.cutoff)) + "&" + f
+            return out
+        else if kind = "upcoming"
+            out.path = "/Shows/Upcoming?UserId=" + uid + "&" + f
+            return out
+        else if kind = "section"
+            out.path = "/Users/" + uid + "/Sections/" + Util.toText(preset.sectionId) + "/Items?" + f
+            return out
+        else if kind = "released"
+            q = withoutLimit(HomeLayout.releasedQuery(Util.toText(o.nowIso), o.hideWatched = true))
+        else if kind = "favorites"
+            q = "Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName"
+        else if kind = "recent"
+            ' (/Items/Latest can't page: films and shows by date added, newest first, as the Recently Added page)
+            q = "Recursive=true&IncludeItemTypes=Movie,Series&SortBy=DateCreated,SortName&SortOrder=Descending" + unw
+        else if kind = "library"
+            ct = LCase(Util.toText(preset.collectionType))
+            style = Util.toText(preset.style)
+            q = withoutLimit(HomeLayout.libraryItemsQuery(Util.toText(preset.libId), Items.homeTypesFor(ct), style))
+            ' (a show moves up with its newest episode, as the row's /Items/Latest groups them)
+            if style = "latest" and ct = "tvshows" then q = q.replace("SortBy=DateCreated,SortName", "SortBy=DateLastContentAdded,SortName")
+            if style = "latest" then q = q + unw
+            if style = "random" then out.paged = false
+        else
+            return out
+        end if
+        out.path = listPath + q + "&" + f
+        out.fallback = itemsNew + q + "&" + f
+        return out
+    end function
+
+    ' The most cards of an unpaged list (Random)
+    function maxUnpaged() as integer
+        return 100
+    end function
+
+    ' A query with its "&Limit=n" taken out (the grid adds its own paging)
+    function withoutLimit(q as string) as string
+        parts = []
+        for each p in q.split("&")
+            if p <> "" and not LCase(p).startsWith("limit=") then parts.push(p)
+        end for
+        return Util.join(parts, "&")
+    end function
+
+    ' The page's request: the preset's path with its StartIndex and Limit
+    function pagePath(path as string, startIndex as integer, limit as integer) as string
+        if path = "" then return ""
+        sep = "&"
+        if Instr(1, path, "?") = 0 then sep = "?"
+        return path + sep + "StartIndex=" + startIndex.toStr() + "&Limit=" + limit.toStr()
+    end function
+
+    ' The line after the page title: "24 titles"
+    function countText(total as integer) as string
+        if total = 1 then return "1 title"
+        return total.toStr() + " titles"
+    end function
+
+end namespace

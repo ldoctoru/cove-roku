@@ -51,3 +51,53 @@ sub test_fromSections_latestAll_and_empty()
     out = HomeLayout_fromSections([{ Id: "l", SectionType: "latestmedia", ParentId: "gone" }], t16_libs())
     t_eq(out.ids, ["S:l"], "a latest section of a library Cove doesn't list: its own section row")
 end sub
+
+function t16_opts() as object
+    return { uid: "u1", isJellyfin: false, rewatch: false, cutoff: "", hideWatched: false, nowIso: "", fields: "Fields=X" }
+end function
+
+sub test_seeAll_requests()
+    o = t16_opts()
+    r = SeeAll_request({ kind: "resume" }, o)
+    t_eq(r.path, "/Users/u1/Items/Resume?MediaTypes=Video&Fields=X", "resume")
+    t_eq(r.fallback, "/UserItems/Resume?userId=u1&MediaTypes=Video&Fields=X", "resume, newer Jellyfin route")
+    t_eq(SeeAll_request({ kind: "nextup" }, o).path, "/Shows/NextUp?UserId=u1&Fields=X", "next up on Emby")
+    o.isJellyfin = true
+    o.rewatch = true
+    t_eq(SeeAll_request({ kind: "nextup" }, o).path, "/Shows/NextUp?UserId=u1&enableRewatching=true&Fields=X", "next up keeps the rewatch option (Jellyfin)")
+    t_eq(SeeAll_request({ kind: "upcoming" }, o).path, "/Shows/Upcoming?UserId=u1&Fields=X", "upcoming")
+    t_eq(SeeAll_request({ kind: "section", sectionId: "42" }, o).path, "/Users/u1/Sections/42/Items?Fields=X", "Emby section")
+    fav = SeeAll_request({ kind: "favorites" }, o)
+    t_eq(fav.path, "/Users/u1/Items?Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Fields=X", "favorites")
+    t_eq(fav.fallback, "/Items?userId=u1&Filters=IsFavorite&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&SortBy=SortName&Fields=X", "favorites fallback")
+    o.hideWatched = true
+    t_eq(SeeAll_request({ kind: "recent" }, o).path, "/Users/u1/Items?Recursive=true&IncludeItemTypes=Movie,Series&SortBy=DateCreated,SortName&SortOrder=Descending&IsPlayed=false&Fields=X", "recent, hide watched")
+    rel = SeeAll_request({ kind: "released" }, o).path
+    t_ok(Instr(1, rel, "Limit=") = 0, "released: no row limit")
+    t_ok(Instr(1, rel, "IsPlayed=false") > 0, "released: hide watched")
+    t_eq(SeeAll_request({ kind: "nope" }, o).path, "", "unknown kind")
+    t_eq(SeeAll_request(invalid, o).path, "", "no preset")
+end sub
+
+sub test_seeAll_library()
+    o = t16_opts()
+    lib = SeeAll_request({ kind: "library", libId: "m1", collectionType: "movies", style: "latest" }, o)
+    t_eq(lib.path, "/Users/u1/Items?ParentId=m1&Recursive=true&SortBy=DateCreated,SortName&SortOrder=Descending&IncludeItemTypes=Movie&Fields=X", "films, newest first, no limit")
+    t_ok(lib.paged, "paged")
+    tv = SeeAll_request({ kind: "library", libId: "t1", collectionType: "tvshows", style: "latest" }, o)
+    t_ok(Instr(1, tv.path, "SortBy=DateLastContentAdded,SortName") > 0, "shows by their newest episode")
+    rnd = SeeAll_request({ kind: "library", libId: "m1", collectionType: "movies", style: "random" }, o)
+    t_ok(not rnd.paged, "random: one page")
+    t_ok(Instr(1, SeeAll_request({ kind: "library", libId: "m1", collectionType: "movies", style: "az" }, o).path, "SortBy=SortName&SortOrder=Ascending") > 0, "A-Z")
+end sub
+
+sub test_seeAll_helpers()
+    t_eq(SeeAll_withoutLimit("a=1&Limit=20&b=2"), "a=1&b=2", "limit taken out")
+    t_eq(SeeAll_pagePath("/x?a=1", 36, 96), "/x?a=1&StartIndex=36&Limit=96", "page")
+    t_eq(SeeAll_pagePath("/x", 0, 36), "/x?StartIndex=0&Limit=36", "page without a query")
+    t_eq(SeeAll_pagePath("", 0, 36), "", "no path")
+    t_eq(SeeAll_columns(true), 4, "wide columns")
+    t_eq(SeeAll_columns(false), 7, "poster columns")
+    t_eq(SeeAll_countText(1), "1 title", "one")
+    t_eq(SeeAll_countText(24), "24 titles", "many")
+end sub

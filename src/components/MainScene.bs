@@ -629,6 +629,13 @@ sub onHomeAction(ev as object)
         l.observeField("action", "onHomeAction")
         push(l)
         l.library = { id: "", title: "Recently Added", itemType: "", collectionType: "", feed: a.id }
+    else if a.id = "seeall"
+        ' (v1.6 M-2) a Home row's See All card: the row's whole list (Back returns to the same card)
+        sa = createObject("roSGNode", "SeeAllScreen")
+        sa.server = m.server
+        sa.observeField("action", "onHomeAction")
+        push(sa)
+        sa.preset = a.preset
     else if a.id = "profile"
         ' the sidebar's profile entry: Who's watching? over Home (Back returns)
         showWho(m.server, "", true)
@@ -814,7 +821,7 @@ sub markStale(except = invalid as dynamic)
     m.homeStale = true
     for each s in m.stack
         k = s.screenId
-        if k = "library" or k = "favorites" or k = "details" or k = "person" or k = "search"
+        if k = "library" or k = "favorites" or k = "details" or k = "person" or k = "search" or k = "seeall"
             if except = invalid or not s.isSameNode(except) then s.stale = true
         end if
     end for
