@@ -241,6 +241,12 @@ namespace Api
         return Util.toText(Util.field(server, "id")).left(12) + ":" + kind
     end function
 
+    ' (v1.5.2 CS-4) Ask the silent requests of a round again (together) only when some others answered: when
+    ' none did, the server is stuck and the screen shows its error now
+    function retriesSilent(silent as integer, total as integer) as boolean
+        return silent > 0 and silent < total
+    end function
+
     ' (v1.5.2 ST-5) The newer Jellyfin route for a legacy /Users/{id}/... path ("" when there is none):
     ' /Users/u/Views?x → /UserViews?userId=u&x, /Users/u/Items?x → /Items?userId=u&x,
     ' /Users/u/Items/<id>?x → /Items/<id>?userId=u&x

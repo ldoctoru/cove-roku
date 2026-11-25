@@ -149,3 +149,11 @@ sub test_cs7_token_origin()
     t_ok(not Util_tokenSafeTarget("http://h:8096", "https://h/x"), "upgrade to another port")
     t_ok(Util_tokenSafeTarget("http://h:8096", "/videos/1"), "relative")
 end sub
+
+sub test_cs4_retriesSilent()
+    t_ok(Api_retriesSilent(1, 7), "one silent of seven: ask again")
+    t_ok(Api_retriesSilent(6, 7), "six of seven")
+    t_ok(not Api_retriesSilent(7, 7), "all silent: no retry")
+    t_ok(not Api_retriesSilent(0, 7), "all answered")
+    t_ok(not Api_retriesSilent(1, 1), "the only one silent")
+end sub
