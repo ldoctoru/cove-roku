@@ -971,6 +971,8 @@ sub buildButtons()
         n = Util.toText(target.Name)
         if n.len() > 28 then n = n.left(26) + "..."
         label = label + " " + n
+        ' (v1.6 M-1) from its first film: Play Collection (the films then follow one another either way)
+        if not started and Playback.collectionQueue(m.boxList, Util.toText(target.Id)).index = 0 then label = "Play Collection"
     end if
     btns = []
     for each id in DetailsHead.headerButtonIds(t, started, target <> invalid, m.trailers.count())
@@ -1158,10 +1160,18 @@ sub useButton()
         if target = invalid then return
         start = Items.resumeAt(target)
         if start <= 30 then start = 0
-        requestPlay(target, start)
+        if Util.toText(m.item.Type) = "BoxSet"
+            requestCollectionPlay(target, start)
+        else
+            requestPlay(target, start)
+        end if
     else if id = "restart"
         target = playTarget()
-        if target <> invalid then requestPlay(target, 0)
+        if target <> invalid and Util.toText(m.item.Type) = "BoxSet"
+            requestCollectionPlay(target, 0)
+        else if target <> invalid
+            requestPlay(target, 0)
+        end if
     else if id = "fav"
         toggleFavourite()
     else if id = "watched"
@@ -1206,12 +1216,27 @@ sub requestPlay(it as object, start as float)
     m.top.play = p
 end sub
 
+' (v1.6 M-1) Play Collection: the target film, then the collection's next films back to back (the player's
+' queue; the list is the page's, already rating-filtered and in the collection's order)
+sub requestCollectionPlay(target as object, start as float)
+    cq = Playback.collectionQueue(m.boxList, Util.toText(target.Id))
+    if cq.index < 0
+        requestPlay(target, start)
+        return
+    end if
+    title = Util.toText(target.Name)
+    p = { id: Util.toText(target.Id), title: title, subtitle: "", start: start, queue: cq.queue }
+    p.collection = { id: Util.toText(m.item.Id), name: Util.toText(m.item.Name), index: cq.index, count: cq.count }
+    print "Cove: details play collection film "; cq.index + 1; " of "; cq.count; ", "; cq.queue.count(); " queued"
+    m.top.play = p
+end sub
+
 ' ---------------------------------------------------------------- collections (Mac boxGrid, includedInSection)
 
 ' A collection's titles in release order, oldest first (a film series reads in the order it came out)
 sub loadBoxItems()
     srv = m.top.server
-    get("/Users/" + Util.toText(srv.userId) + "/Items?ParentId=" + Util.toText(m.item.Id) + "&SortBy=PremiereDate,ProductionYear,SortName&SortOrder=Ascending&" + Items.fields(), { kind: "boxItems" })
+    get("/Users/" + Util.toText(srv.userId) + "/Items?ParentId=" + Util.toText(m.item.Id) + "&SortBy=" + Playback.collectionSortBy(m.item.DisplayOrder) + "&SortOrder=Ascending&" + Items.fields(), { kind: "boxItems" })
 end sub
 
 ' The collections a movie or show is in. Jellyfin has its own call (newer servers; older ones answer with an
