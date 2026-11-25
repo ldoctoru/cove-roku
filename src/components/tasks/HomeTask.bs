@@ -69,13 +69,13 @@ sub load()
     ' (v1.5) My Media (Emby's row of library tiles): each library's own switch, not the menu's list any more
     shown = []
     byId = {}
+    for each l in HomeLayout.myMediaLibs(libs)
+        v = l.view
+        v.Name = l.title
+        shown.push(v)
+    end for
     for each l in libs
         byId[HomeLayout.libRowId(l.id)] = l
-        if NavPrefs.libraryInMyMedia(l.id)
-            v = l.view
-            v.Name = l.title
-            shown.push(v)
-        end if
         l.delete("view")
     end for
     m.top.libraries = libs

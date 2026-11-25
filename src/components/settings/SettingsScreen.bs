@@ -326,9 +326,7 @@ function makeRow(parent as object, r as object, y as integer, h as integer, w as
         for i = 0 to r.cols.count() - 1
             cx = libColX(w, i)
             v = r.cols[i]
-            if type(v) <> "roBoolean" and type(v) <> "Boolean"
-                ' (no Home row for this kind of library: an empty cell)
-            else if v
+            if v = true
                 n.cells.push(addPoster(g, "pkg:/images/ui/icon_check_28.png", cx - 14, Int((h - 28) / 2), 28, 28))
             else
                 c = addLabel(g, "Off", cx - 60, 0, 120, h, m.fSub, t.text3)
@@ -374,8 +372,7 @@ function makeRow(parent as object, r as object, y as integer, h as integer, w as
     return n
 end function
 
-' The centre of a Libraries table column (0 Top Bar, 1 Sidebar, 2 Home) in a row w wide
-' (v1.5) four columns: Top Bar, Sidebar, Home Row, My Media
+' The centre of a Libraries table column (0 Top Bar, 1 Sidebar, 2 Home Row, 3 My Media) in a row w wide
 function libColX(w as integer, col as integer) as integer
     return w - 540 + col * 150
 end function
@@ -863,7 +860,7 @@ end sub
 
 ' Saves one setting and builds the page again; Home is rebuilt when Settings closes if it changed something there
 sub applyValue(id as string, value as string)
-    homeKeys = { topBarLabels: 1, showRecent: 1, showUpNextRow: 1, homeFavorites: 1, showFavorites: 1, showNowPlaying: 1, hideSpoilers: 1, hideWatchedLatest: 1, nextUpRewatch: 1, nextUpDays: 1 }
+    homeKeys = { topBarLabels: 1, hideSpoilers: 1, hideWatchedLatest: 1, nextUpRewatch: 1, nextUpDays: 1 }
     isOn = value = "on"
     if id = "askWho"
         ' (kept with the server's profiles, not with the settings that Reset clears; a parent PIN first while a
