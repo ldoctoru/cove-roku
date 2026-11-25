@@ -27,6 +27,7 @@ sub init()
     m.isFav = false
     m.favKnown = false
     m.inHead = false
+    m.headAuto = false   ' (SC5-6) the heart has the focus only as a stand-in until the titles arrive
     m.favBusy = false
     ' Audio Guide: Cove says the cards and the heart itself
     m.speakRow = -1
@@ -90,7 +91,10 @@ sub onResponse(ev as object)
     m.favKnown = true
     drawFav()
     ' (nothing else to focus on this page yet: the heart)
-    if m.top.hasFocus() then enterHead()
+    if m.top.hasFocus()
+        enterHead()
+        m.headAuto = true
+    end if
     srv = m.top.server
     imgTag = ""
     if it.ImageTags <> invalid then imgTag = Util.toText(it.ImageTags.Primary)
@@ -156,7 +160,10 @@ sub buildRows()
         m.errorPanel.message = "Couldn't load the titles with " + Util.toText(m.top.person.name) + ". " + Util.toText(m.titlesError)
         m.errorPanel.index = 0
         m.errorPanel.visible = true
-        if m.top.isInFocusChain() and not m.inHead then m.errorPanel.setFocus(true)
+        if m.top.isInFocusChain() and (not m.inHead or m.headAuto)
+            leaveAutoHead()
+            m.errorPanel.setFocus(true)
+        end if
         return
     end if
     if root.getChildCount() = 0
@@ -179,7 +186,19 @@ sub buildRows()
         if col > n - 1 then col = n - 1
         if col >= 0 then m.rows.jumpToRowItem = [keep[0], col]
     end if
-    if m.top.isInFocusChain() and not m.inHead then m.rows.setFocus(true)
+    ' (SC5-6) also when the heart only stood in for the titles (the person's record answered first)
+    if m.top.isInFocusChain() and (not m.inHead or m.headAuto)
+        leaveAutoHead()
+        m.rows.setFocus(true)
+    end if
+end sub
+
+' (SC5-6) The heart gave up a stand-in focus
+sub leaveAutoHead()
+    if not m.headAuto then return
+    m.headAuto = false
+    m.inHead = false
+    drawFav()
 end sub
 
 sub onSelected()
@@ -319,6 +338,8 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
+    ' (SC5-6) a key pressed on the heart: the user's own focus from now on
+    m.headAuto = false
     if m.inHead
         if key = "OK"
             toggleFavourite()
