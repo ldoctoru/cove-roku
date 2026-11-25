@@ -191,4 +191,20 @@ namespace NavUtil
         return { itemId: id, itemType: t, title: "" }
     end function
 
+    ' ---------------------------------------------------------------- v1.5.2 screens
+
+    ' (SC5-1) The button id buildButtons keeps the focus on: Play while the page still owes Play the focus
+    ' (focusPlay) and Play exists; otherwise the previously focused id. A series or collection has no Play
+    ' until Next Up / its titles answer, so the flag stays set until then. Returns { id, focusPlay }.
+    function buttonFocus(list as object, prevId as string, focusPlay as boolean) as object
+        if focusPlay and indexOfId(list, "play") >= 0 then return { id: "play", focusPlay: false }
+        return { id: prevId, focusPlay: focusPlay }
+    end function
+
+    ' (SC5-4) Whether going back to the details buttons must slide the header back in: every state that hid
+    ' or faded it (rows, About, the season bar); not from the buttons, the media pills or the overview
+    function headerSlidesBack(state as string) as boolean
+        return state <> "buttons" and state <> "media" and state <> "overview" and state <> ""
+    end function
+
 end namespace
