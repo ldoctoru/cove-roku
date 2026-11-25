@@ -97,7 +97,15 @@ sub onServer()
     if srv = invalid then return
     m.libError = ""
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: "GET", url: Util.toText(srv.url) + "/Users/" + Util.toText(srv.userId) + "/Views", headers: Api.headers(srv, true), body: "", tag: { kind: "views" }, timeout: 15000 }
+    ' (v1.5.2 ST-5) the newer Jellyfin route on a 404, or first when Home only got an answer there
+    path = "/Users/" + Util.toText(srv.userId) + "/Views"
+    alt = Api.newRoute(path, Util.toText(srv.userId))
+    if Api.knownRoute(srv, "home:" + Api.routeKind(path)) = "new"
+        tmp = path
+        path = alt
+        alt = tmp
+    end if
+    t.request = { method: "GET", url: Util.toText(srv.url) + path, fallbackUrl: Util.toText(srv.url) + alt, headers: Api.headers(srv, true), body: "", tag: { kind: "views" }, timeout: 15000 }
     t.observeField("response", "onViews")
     m.libTask = t
     t.control = "RUN"

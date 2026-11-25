@@ -241,6 +241,52 @@ namespace Api
         return Util.toText(Util.field(server, "id")).left(12) + ":" + kind
     end function
 
+    ' (v1.5.2 ST-5) The newer Jellyfin route for a legacy /Users/{id}/... path ("" when there is none):
+    ' /Users/u/Views?x → /UserViews?userId=u&x, /Users/u/Items?x → /Items?userId=u&x,
+    ' /Users/u/Items/<id>?x → /Items/<id>?userId=u&x
+    function newRoute(path as string, userId as string) as string
+        pre = "/Users/" + userId + "/"
+        if userId = "" or not path.startsWith(pre) then return ""
+        rest = path.mid(pre.len())
+        q = ""
+        at = rest.instr("?")
+        if at >= 0
+            q = rest.mid(at + 1)
+            rest = rest.left(at)
+        end if
+        if rest = "Views"
+            base = "/UserViews"
+        else if rest = "Items" or (rest.startsWith("Items/") and rest.mid(6).instr("/") < 0 and rest.len() > 6)
+            base = "/" + rest
+        else
+            return ""
+        end if
+        out = base + "?userId=" + userId
+        if q <> "" then out = out + "&" + q
+        return out
+    end function
+
+    ' (v1.5.2 ST-5, Tasks only) GET a legacy /Users/{id}/... path the way Home does: straight to the newer route
+    ' when this server only answered there before (Home's route memory, same kind), else the legacy one and the
+    ' newer one on a 404
+    function getRouted(server as object, path as string, timeoutMs as integer) as object
+        alt = Api.newRoute(path, Util.toText(server.userId))
+        kind = "home:" + Api.routeKind(path)
+        first = path
+        if alt <> "" and Api.knownRoute(server, kind) = "new"
+            first = alt
+            alt = ""
+        end if
+        h = Api.headers(server, true)
+        base = Util.toText(server.url)
+        r = Api.execute({ method: "GET", url: base + first, headers: h, timeout: timeoutMs })
+        if r.code = 404 and alt <> ""
+            r = Api.execute({ method: "GET", url: base + alt, headers: h, timeout: timeoutMs })
+            if r.code = 200 then Api.rememberRoute(server, kind, true)
+        end if
+        return r
+    end function
+
     ' A request path as a route name: no query, no user id ("/Users/abc/Items/Latest?x" → "Items/Latest")
     function routeKind(path as string) as string
         p = path.split("?")[0]

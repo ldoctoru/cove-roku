@@ -126,3 +126,15 @@ sub test_cs3_forgetAll()
     t_eq(Util_readJson("seriesLangs").count(), 0, "A's series language gone")
     t_eq(Servers_withoutTag([{ id: "ab:1" }, { id: "cd:1" }, "x"], "ab").count(), 2, "withoutTag")
 end sub
+
+sub test_st5_newRoute()
+    t_eq(Api_newRoute("/Users/u1/Views", "u1"), "/UserViews?userId=u1", "views")
+    t_eq(Api_newRoute("/Users/u1/Items?ParentId=4&Limit=3", "u1"), "/Items?userId=u1&ParentId=4&Limit=3", "items")
+    t_eq(Api_newRoute("/Users/u1/Items/x9?Fields=Path", "u1"), "/Items/x9?userId=u1&Fields=Path", "one item")
+    t_eq(Api_newRoute("/Users/u1/Items/Latest?Limit=3", "u1"), "/Items/Latest?userId=u1&Limit=3", "latest")
+    t_eq(Api_newRoute("/Users/u1/Items/x9/Refresh", "u1"), "", "deeper path: none")
+    t_eq(Api_newRoute("/Users/u2/Views", "u1"), "", "another user")
+    t_eq(Api_newRoute("/Shows/NextUp", "u1"), "", "not a user route")
+    t_eq(Api_newRoute("/Users/u1/Views", ""), "", "no user")
+    t_eq(Api_routeKind("/Users/u1/Views"), "Views", "same route kind as Home")
+end sub

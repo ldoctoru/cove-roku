@@ -28,9 +28,9 @@ sub work()
     end try
 end sub
 
+' (v1.5.2 ST-5) with Home's fallback to the newer Jellyfin route on a 404
 function getJson(path as string, timeoutMs as integer) as object
-    srv = m.top.server
-    return Api.execute({ method: "GET", url: Util.toText(srv.url) + path, headers: Api.headers(srv, true), timeout: timeoutMs })
+    return Api.getRouted(m.top.server, path, timeoutMs)
 end function
 
 sub checkAdmin()
@@ -88,6 +88,7 @@ sub refreshRows()
     h = Api.headers(srv, true)
     base = Util.toText(srv.url)
     fixedCount = 0
+    recordsNew = false
     spent = createObject("roTimespan")
     i = 0
     while i < list.count() and not m.top.cancel
@@ -97,9 +98,19 @@ sub refreshRows()
         ' before: the records (refresh date + image tags)
         reads = []
         for each row in batch
-            reads.push({ url: base + MissingArt.recordPath(uid, Util.toText(row.id)), headers: h })
+            rp = MissingArt.recordPath(uid, Util.toText(row.id))
+            if Api.knownRoute(srv, "home:" + Api.routeKind(rp)) = "new" or recordsNew then rp = Api.newRoute(rp, uid)
+            reads.push({ url: base + rp, headers: h })
         end for
         before = Api.executeMany(reads, 15000, 2)
+        ' (v1.5.2 ST-5) a 404 on the legacy record route: the newer one from now on
+        if not recordsNew and before.count() > 0 and before[0].code = 404
+            recordsNew = true
+            for k = 0 to reads.count() - 1
+                reads[k].url = base + Api.newRoute(MissingArt.recordPath(uid, Util.toText(batch[k].id)), uid)
+            end for
+            before = Api.executeMany(reads, 15000, 2)
+        end if
         snaps = []
         for each res in before
             if res.code = 200 then snaps.push(MissingArt.snapshotOf(res.json)) else snaps.push("")
