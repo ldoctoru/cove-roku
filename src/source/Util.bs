@@ -256,7 +256,19 @@ namespace Util
         if not LCase(target).startsWith("http") then return true
         if hostOf(target) <> hostOf(serverUrl) then return false
         if schemeOf(serverUrl) = "https" and schemeOf(target) <> "https" then return false
-        return true
+        ' (v1.5.2 CS-7) the same origin, port included: another port on the same host (a proxy, a plugin) gets
+        ' no token. An http → https upgrade keeps the port, or goes from the default 80 to the default 443.
+        so = originOf(serverUrl)
+        tgo = originOf(target)
+        if so = tgo then return true
+        sParts = so.split(":")
+        tParts = tgo.split(":")
+        sp = sParts[sParts.count() - 1]
+        tp = tParts[tParts.count() - 1]
+        if schemeOf(serverUrl) = "http" and schemeOf(target) = "https"
+            return tp = sp or (sp = "80" and tp = "443")
+        end if
+        return false
     end function
 
     ' ---------------------------------------------------------------- untrusted JSON

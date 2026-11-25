@@ -61,6 +61,8 @@ sub init()
     m.libTask = invalid
     m.renameFor = ""
     m.libError = ""
+    m.libsLoaded = false
+    m.autoTabs = false
     m.menuLib = ""
     m.menuServer = ""
     m.menuProfile = ""
@@ -96,8 +98,17 @@ sub onServer()
     srv = m.top.server
     if srv = invalid then return
     m.libError = ""
+    m.libsLoaded = false
     t = createObject("roSGNode", "ApiTask")
-    t.request = { method: "GET", url: Util.toText(srv.url) + "/Users/" + Util.toText(srv.userId) + "/Views", headers: Api.headers(srv, true), body: "", tag: { kind: "views" }, timeout: 15000 }
+    ' (v1.5.2 ST-5) the newer Jellyfin route on a 404, or first when Home only got an answer there
+    path = "/Users/" + Util.toText(srv.userId) + "/Views"
+    alt = Api.newRoute(path, Util.toText(srv.userId))
+    if Api.knownRoute(srv, "home:" + Api.routeKind(path)) = "new"
+        tmp = path
+        path = alt
+        alt = tmp
+    end if
+    t.request = { method: "GET", url: Util.toText(srv.url) + path, fallbackUrl: Util.toText(srv.url) + alt, headers: Api.headers(srv, true), body: "", tag: { kind: "views" }, timeout: 15000 }
     t.observeField("response", "onViews")
     m.libTask = t
     t.control = "RUN"
@@ -119,6 +130,8 @@ sub onViews(ev as object)
         end for
     end if
     m.libs = list
+    ' (v1.5.2 ST-2) loaded, even with no libraries: no more "Loading your libraries..."
+    m.libsLoaded = true
     draw()
 end sub
 
@@ -252,7 +265,16 @@ sub draw()
         entry.key = SetRows.keyOf(rows[m.focusables[f]])
         if m.zone = "content" then paintRow(m.focusables[f], true)
     end if
-    if m.zone = "content" and f < 0 then m.zone = "tabs"
+    ' (v1.5.2 ST-3) a sub-list with nothing to focus yet (libraries still loading): the tabs take the keys, Back
+    ' still closes the sub-list, and the rows get the focus back once they arrive
+    if m.zone = "content" and f < 0
+        m.zone = "tabs"
+        m.autoTabs = m.stack.count() > 1
+    else if m.zone = "tabs" and f >= 0 and Util.flag(m, "autoTabs") and m.stack.count() > 1
+        m.zone = "content"
+        m.autoTabs = false
+        paintRow(m.focusables[f], true)
+    end if
     paintTabs()
     scrollToFocus()
     if m.pop <> invalid then drawPop()
@@ -304,9 +326,7 @@ function makeRow(parent as object, r as object, y as integer, h as integer, w as
         for i = 0 to r.cols.count() - 1
             cx = libColX(w, i)
             v = r.cols[i]
-            if type(v) <> "roBoolean" and type(v) <> "Boolean"
-                ' (no Home row for this kind of library: an empty cell)
-            else if v
+            if v = true
                 n.cells.push(addPoster(g, "pkg:/images/ui/icon_check_28.png", cx - 14, Int((h - 28) / 2), 28, 28))
             else
                 c = addLabel(g, "Off", cx - 60, 0, 120, h, m.fSub, t.text3)
@@ -352,8 +372,7 @@ function makeRow(parent as object, r as object, y as integer, h as integer, w as
     return n
 end function
 
-' The centre of a Libraries table column (0 Top Bar, 1 Sidebar, 2 Home) in a row w wide
-' (v1.5) four columns: Top Bar, Sidebar, Home Row, My Media
+' The centre of a Libraries table column (0 Top Bar, 1 Sidebar, 2 Home Row, 3 My Media) in a row w wide
 function libColX(w as integer, col as integer) as integer
     return w - 540 + col * 150
 end function
@@ -765,6 +784,13 @@ end function
 
 ' The tab row: Left / Right switch tab (its settings show at once), Down or OK go in, Back closes Settings
 function tabsKey(key as string) as boolean
+    m.autoTabs = false
+    if key = "back" and m.stack.count() > 1
+        ' (v1.5.2 ST-3) a sub-list is still drawn: Back closes it instead of Settings
+        m.zone = "content"
+        popPage()
+        return true
+    end if
     if key = "left" or key = "right"
         d = 1
         if key = "left" then d = -1
@@ -834,7 +860,13 @@ end sub
 
 ' Saves one setting and builds the page again; Home is rebuilt when Settings closes if it changed something there
 sub applyValue(id as string, value as string)
-    homeKeys = { topBarLabels: 1, showRecent: 1, showUpNextRow: 1, homeFavorites: 1, showFavorites: 1, showNowPlaying: 1, hideSpoilers: 1, hideWatchedLatest: 1, nextUpRewatch: 1, nextUpDays: 1 }
+    homeKeys = { topBarLabels: 1, hideSpoilers: 1, hideWatchedLatest: 1, nextUpRewatch: 1, nextUpDays: 1 }
+    ' (v1.5.2 CS-9) hiding a library is a parental tool too: its menu, Home and My Media switches ask for a
+    ' parent PIN while a profile with a rating limit is watching
+    if libGuarded(id) and isRestricted() and not Util.flag(m, "guardOk")
+        guarded({ do: "apply", id: id, value: value })
+        return
+    end if
     isOn = value = "on"
     if id = "askWho"
         ' (kept with the server's profiles, not with the settings that Reset clears; a parent PIN first while a
@@ -953,14 +985,13 @@ sub useButton(r as object)
         m.spokenPage = ""
         draw()
     else if id = "libRename"
-        askName("lib", "Library name", libTitle(m.menuLib))
+        guarded({ do: "libRename" })
     else if id = "srvConnect"
         guarded({ do: "connect", serverId: m.menuServer })
     else if id = "srvSignout"
         guarded({ do: "signout" })
     else if id = "srvRename"
-        s = Servers.find(m.menuServer)
-        if s <> invalid then askName("srv", "Server name", Util.toText(s.name))
+        guarded({ do: "srvRename" })
     else if id = "srvRemove"
         guarded({ do: "removeServer", serverId: m.menuServer })
     else if id.startsWith("prof:")
@@ -1054,7 +1085,12 @@ function isRestricted() as boolean
 end function
 
 function restrictedNote() as string
-    return "A profile with a rating limit is watching: changing profiles, PINs, rating limits or servers, and Reset All Settings, ask for a parent PIN."
+    return "A profile with a rating limit is watching: changing profiles, PINs, rating limits or servers, showing or hiding libraries, renaming, and Reset All Settings, ask for a parent PIN."
+end function
+
+' (v1.5.2 CS-9) The library and menu switches a limited profile can't change without a parent PIN
+function libGuarded(id as string) as boolean
+    return id.startsWith("nav:") or id.startsWith("libHome:") or id.startsWith("libMedia:") or id = "libSetAll"
 end function
 
 function profileSub(srv as object, p as object) as string
@@ -1152,7 +1188,20 @@ sub runAct(act as object)
     srv = currentServer()
     if srv = invalid then return
     sid = Util.toText(srv.id)
-    if what = "reset"
+    if what = "apply"
+        ' (v1.5.2 CS-9) a library switch after the parent PIN
+        m.guardOk = true
+        applyValue(Util.toText(act.id), Util.toText(act.value))
+        m.guardOk = false
+        return
+    else if what = "libRename"
+        askName("lib", "Library name", libTitle(m.menuLib))
+        return
+    else if what = "srvRename"
+        found = Servers.find(m.menuServer)
+        if found <> invalid then askName("srv", "Server name", Util.toText(found.name))
+        return
+    else if what = "reset"
         openPop({ kind: "choice", id: "resetConfirm", label: "Reset All Settings?", options: [{ id: "yes", label: "Reset" }, { id: "no", label: "Cancel" }], cur: "no" })
         return
     else if what = "askWho"

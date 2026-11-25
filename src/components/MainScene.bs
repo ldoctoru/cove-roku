@@ -162,8 +162,9 @@ sub onSettingsAction(ev as object)
     a = ev.getData()
     ' (C2-1: Settings asked for the parent PIN before these while a limited profile was on Home)
     if a.id = "connect" or a.id = "signout" or a.id = "switch" or a.id = "addProfile" then m.lock = invalid
+    ' (v1.5.2 ST-4) themeDirty stays set for connect / use profile: only reset() (the stack really replaced)
+    ' clears it, so a sign-in or PIN cancelled there still rebuilds Home when Settings closes
     if a.id = "connect"
-        m.themeDirty = false
         openServer(Servers.find(Util.toText(a.serverId)))
     else if a.id = "signout"
         m.themeDirty = false
@@ -183,7 +184,6 @@ sub onSettingsAction(ev as object)
     else if a.id = "addProfile"
         if m.server <> invalid then openSignIn(m.server, "")
     else if a.id = "useProfile"
-        m.themeDirty = false
         if m.server <> invalid then chooseProfile(m.server, Util.toText(a.userId))
     else if a.id = "renamed"
         ' the current server was renamed: keep MainScene's copy in step, Home is rebuilt when Settings closes
@@ -236,6 +236,14 @@ sub detachScreen(s as dynamic)
     if s = invalid then return
     ' (v1.5.1) the missing-art scan / refresh stops with its page
     if s.screenId = "missingArt" then s.closed = true
+    ' (SC5-2) any pop of a player (Back bubbling up, a dropped top, a reset) ends it like Back: video stopped,
+    ' stop report, transcode ended (close() runs once, so a player that already finished is unchanged)
+    if s.screenId = "player" and s.stopNow <> true
+        print "Cove: player off the stack (stopNow)"
+        s.stopNow = true
+        ' (the pages under it show the new resume point, as after a normal Back)
+        markStale()
+    end if
     if s.screenId = "details"
         s.unobserveField("play")
         s.unobserveField("openItem")
@@ -500,7 +508,7 @@ end sub
 
 sub openDeepLink(link as object)
     stopPlayers()
-    request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(link.contentId), true, "", { kind: "deeplink", mediaType: LCase(Util.toText(link.mediaType)), contentId: Util.toText(link.contentId), linkType: Util.toText(link.mediaType) })
+    request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + Util.toText(link.contentId), true, "", { kind: "deeplink", mediaType: LCase(Util.toText(link.mediaType)), contentId: Util.toText(link.contentId), linkType: Util.toText(link.mediaType), serverId: Util.toText(m.server.id), userId: Util.toText(m.server.userId) })
 end sub
 
 ' A link while a video plays: end that player properly (video, stop report, timers) before the new title,
@@ -524,6 +532,12 @@ sub stopPlayers()
 end sub
 
 sub onDeepLinkItem(r as object)
+    ' (v1.5.2 CS-6) a late answer for another server or profile (Who's watching? picked meanwhile) is dropped:
+    ' its 401 must not clear the sign-in of the profile now on screen
+    if m.server = invalid or Util.toText(r.tag.serverId) <> Util.toText(m.server.id) or Util.toText(r.tag.userId) <> Util.toText(m.server.userId)
+        print "Cove: ignored a deep link answer for another server or profile"
+        return
+    end if
     if r.code = 401
         ' the saved sign-in has expired: sign in again, then the link opens from Home
         holdLink({ contentId: r.tag.contentId, mediaType: r.tag.linkType })
@@ -1964,10 +1978,11 @@ sub onResumeCheck(r as object)
     if m.server = invalid or Util.toText(r.tag.serverId) <> Util.toText(m.server.id) then return
     if r.code = 401 or r.code = 403
         print "Cove: the saved sign-in no longer works after the resume"
-        m.pendingLink = invalid
+        ' (v1.5.2 CS-5) a deep link held by its own 401 stays: it opens after the sign-in (holdLink's age check
+        ' drops it after 90 s)
         m.server.token = ""
         Servers.upsert(m.server)
-        openSignIn(m.server, "Your sign-in has expired. Please sign in again.")
+        if not topIs("signin") then openSignIn(m.server, "Your sign-in has expired. Please sign in again.")
         return
     end if
     if r.code <> 200

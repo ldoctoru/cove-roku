@@ -372,4 +372,64 @@ namespace Tracks
         return Util.toNumber(src.Bitrate) > cap
     end function
 
+    ' ---------------------------------------------------------------- v1.5.2 player
+
+    ' (v1.5.2 P5-11) What identifies a track across a refreshed stream list (whose indexes can shift when the
+    ' server adds a file): language, label (codec, title) and external
+    function trackSig(t as dynamic) as string
+        if not Util.isAA(t) then return ""
+        ext = "0"
+        if Util.flag(t, "external") then ext = "1"
+        return Util.toText(t.language) + "|" + Util.toText(t.label) + "|" + ext
+    end function
+
+    ' (v1.5.2 P5-11) The index in newList of the track that had index in oldList: the same index when it still
+    ' is the same track, else the first track that matches it; -1 when it is gone (or index < 0)
+    function rematch(oldList as dynamic, newList as dynamic, index as integer) as integer
+        if index < 0 or type(oldList) <> "roArray" or type(newList) <> "roArray" then return -1
+        was = invalid
+        for each t in oldList
+            if Util.isAA(t) and t.index = index then was = t
+        end for
+        if was = invalid then return -1
+        sig = trackSig(was)
+        found = -1
+        for each t in newList
+            if Util.isAA(t) and trackSig(t) = sig
+                if t.index = index then return index
+                if found < 0 then found = t.index
+            end if
+        end for
+        return found
+    end function
+
+    ' (v1.5.2 P5-11) The tracks of newList that weren't in oldList (by trackSig, not by index)
+    function addedTracks(oldList as dynamic, newList as dynamic) as object
+        known = {}
+        if type(oldList) = "roArray"
+            for each t in oldList
+                known[trackSig(t)] = true
+            end for
+        end if
+        out = []
+        if type(newList) <> "roArray" then return out
+        for each t in newList
+            if Util.isAA(t) and not known.doesExist(trackSig(t)) then out.push(t)
+        end for
+        return out
+    end function
+
+    ' (v1.5.2 P5-11) The downloaded subtitle among the added ones: the first external text track, else the
+    ' first text track; invalid when none
+    function downloadedSub(added as object) as dynamic
+        firstText = invalid
+        for each t in added
+            if Util.flag(t, "isText")
+                if Util.flag(t, "external") then return t
+                if firstText = invalid then firstText = t
+            end if
+        end for
+        return firstText
+    end function
+
 end namespace

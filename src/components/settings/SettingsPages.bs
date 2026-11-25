@@ -322,6 +322,7 @@ end sub
 ' "Loading your libraries..." or why they didn't load
 function libsState() as string
     if m.libError <> "" then return m.libError
+    if Util.flag(m, "libsLoaded") then return "This server has no libraries for this profile."
     return "Loading your libraries..."
 end function
 
@@ -335,11 +336,13 @@ sub librariesRows(out as object)
         out.push(rChoice("libSetAll", "Set All Libraries", NavPrefs.setAllActions(), ""))
         out.push({ kind: "cols", cols: ["Top Bar", "Sidebar", "Home Row", "My Media"] })
         sel = selectedLibrary()
+        ' (v1.5.2 ST-7) both menu lists and each library's record read once per page, not once per cell
         libs = navLibs()
+        maps = { top: NavPrefs.shownMap("top", libs), side: NavPrefs.shownMap("side", libs) }
         for each l in list
             id = Util.toText(l.id)
-            entryId = "L" + id
-            out.push({ kind: "lib", id: id, label: Util.toText(l.title), value: libSummary(l), icon: SetRows.libIcon(Util.toText(l.collectionType)), cols: [NavPrefs.isShown("top", entryId, libs), NavPrefs.isShown("side", entryId, libs), NavPrefs.libraryOnHome(id), NavPrefs.libraryInMyMedia(id)], selected: id = sel })
+            cols = libCols(id, maps)
+            out.push({ kind: "lib", id: id, label: Util.toText(l.title), value: summaryOfCols(cols), icon: SetRows.libIcon(Util.toText(l.collectionType)), cols: cols, selected: id = sel })
         end for
         out.push(rLink("", "Library Order", "", "libOrder"))
         out.push(rNote("OK on a library shows its options below: where it shows, its row on Home, its My Media tile, how it opens and its name. Set All Libraries shows or hides every library in one place at once."))
@@ -371,13 +374,23 @@ end function
 
 ' A library's state in words: where it shows ("Top Bar · Sidebar · Home Row · My Media", or Hidden), for the Audio Guide
 function libSummary(l as object) as string
-    id = Util.toText(l.id)
     libs = navLibs()
+    maps = { top: NavPrefs.shownMap("top", libs), side: NavPrefs.shownMap("side", libs) }
+    return summaryOfCols(libCols(Util.toText(l.id), maps))
+end function
+
+' [top bar, sidebar, Home row, My Media] of one library (maps: NavPrefs.shownMap of both places)
+function libCols(id as string, maps as object) as object
+    lp = Prefs.library(id)
+    return [Util.flag(maps.top, "L" + id), Util.flag(maps.side, "L" + id), NavPrefs.onHomeOf(lp), Util.flag(lp, "media")]
+end function
+
+function summaryOfCols(cols as object) as string
+    names = ["Top Bar", "Sidebar", "Home Row", "My Media"]
     parts = []
-    if NavPrefs.isShown("top", "L" + id, libs) then parts.push("Top Bar")
-    if NavPrefs.isShown("side", "L" + id, libs) then parts.push("Sidebar")
-    if NavPrefs.libraryOnHome(id) then parts.push("Home Row")
-    if NavPrefs.libraryInMyMedia(id) then parts.push("My Media")
+    for i = 0 to 3
+        if cols[i] = true then parts.push(names[i])
+    end for
     if parts.count() = 0 then return "Hidden"
     return Util.join(parts, " · ")
 end function
@@ -409,7 +422,7 @@ sub libraryRows(out as object, libId as string)
     out.push(rSwitch("libHome:" + libId, "Row on Home", onHome))
     out.push(rDim(rChoice("libset:style:" + libId, "Home Row Shows", libStyleOptions(), lp.style), not onHome))
     out.push(rSwitch("libMedia:" + libId, "Show in My Media", NavPrefs.libraryInMyMedia(libId)))
-    out.push(rNote("The top bar, the sidebar, its row on Home and its My Media tile are set separately: a library can have a row on Home without being in the sidebar. Sort By and Show are where its page starts; you can still change them there. Name: leave it empty to use the server's name."))
+    out.push(rNote("The top bar, the sidebar, its row on Home and its My Media tile are set separately: a library can have a row on Home without being in the sidebar. Sort By and Show are where its page starts: once you pick another sort or show on the page, the page keeps that until you change it here. Name: leave it empty to use the server's name."))
 end sub
 
 function libStyleOptions() as object

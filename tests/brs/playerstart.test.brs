@@ -20,7 +20,7 @@ sub test_adjacentEpisodesPath()
     t_ok(p.instr("EnableUserData=true") > 0, "watched state for the panel")
     t_ok(p.instr("OfficialRating") > 0, "rating for the limit checks")
     f = Playback_seriesEpisodesPath("u1", "s9")
-    t_ok(f.instr("/Shows/s9/Episodes?UserId=u1&Fields=") = 0, "whole list, same fields")
+    t_ok(f.instr("/Shows/s9/Episodes?UserId=u1&IsMissing=false&Fields=") = 0, "whole list, same fields (v1.5.2: no missing episodes)")
     t_ok(f.instr("AdjacentTo") < 0, "whole list has no AdjacentTo")
 end sub
 

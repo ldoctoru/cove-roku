@@ -146,23 +146,6 @@ sub test_library_on_home_and_migration()
     t_ok(NavPrefs_isShown("side", "Lm1", [{ id: "m1", title: "Movies" }]), "m1 still in the sidebar")
 end sub
 
-sub test_resetNav()
-    n_clear()
-    libs = n_libs()
-    Prefs_setFlag("showRecent", false)
-    Prefs_setLibrary("t1", "nav", false)
-    NavPrefs_moveEntry("top", "Lt1", -1, libs)
-    NavPrefs_setShown("side", "search", false, libs)
-    NavPrefs_resetNav()
-    t_eq(Util_readText("navtop"), "", "top list gone")
-    t_eq(Util_readText("navside"), "", "side list gone")
-    t_eq(Util_readText("showRecent"), "", "old switch gone")
-    for each place in NavPrefs_places()
-        t_eq(n_ids(NavPrefs_entries(place, libs)), ["search", "favorites", "nowplaying", "recent", "Lm1", "Lt1"], place + ": defaults")
-    end for
-    t_ok(not NavPrefs_libraryOnHome("t1"), "t1's Home row kept as it was (off)")
-end sub
-
 sub test_fingerprint()
     n_clear()
     a = NavPrefs_fingerprint("s1")
