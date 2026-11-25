@@ -861,6 +861,12 @@ end sub
 ' Saves one setting and builds the page again; Home is rebuilt when Settings closes if it changed something there
 sub applyValue(id as string, value as string)
     homeKeys = { topBarLabels: 1, hideSpoilers: 1, hideWatchedLatest: 1, nextUpRewatch: 1, nextUpDays: 1 }
+    ' (v1.5.2 CS-9) hiding a library is a parental tool too: its menu, Home and My Media switches ask for a
+    ' parent PIN while a profile with a rating limit is watching
+    if libGuarded(id) and isRestricted() and not Util.flag(m, "guardOk")
+        guarded({ do: "apply", id: id, value: value })
+        return
+    end if
     isOn = value = "on"
     if id = "askWho"
         ' (kept with the server's profiles, not with the settings that Reset clears; a parent PIN first while a
@@ -979,14 +985,13 @@ sub useButton(r as object)
         m.spokenPage = ""
         draw()
     else if id = "libRename"
-        askName("lib", "Library name", libTitle(m.menuLib))
+        guarded({ do: "libRename" })
     else if id = "srvConnect"
         guarded({ do: "connect", serverId: m.menuServer })
     else if id = "srvSignout"
         guarded({ do: "signout" })
     else if id = "srvRename"
-        s = Servers.find(m.menuServer)
-        if s <> invalid then askName("srv", "Server name", Util.toText(s.name))
+        guarded({ do: "srvRename" })
     else if id = "srvRemove"
         guarded({ do: "removeServer", serverId: m.menuServer })
     else if id.startsWith("prof:")
@@ -1080,7 +1085,12 @@ function isRestricted() as boolean
 end function
 
 function restrictedNote() as string
-    return "A profile with a rating limit is watching: changing profiles, PINs, rating limits or servers, and Reset All Settings, ask for a parent PIN."
+    return "A profile with a rating limit is watching: changing profiles, PINs, rating limits or servers, showing or hiding libraries, renaming, and Reset All Settings, ask for a parent PIN."
+end function
+
+' (v1.5.2 CS-9) The library and menu switches a limited profile can't change without a parent PIN
+function libGuarded(id as string) as boolean
+    return id.startsWith("nav:") or id.startsWith("libHome:") or id.startsWith("libMedia:") or id = "libSetAll"
 end function
 
 function profileSub(srv as object, p as object) as string
@@ -1178,7 +1188,20 @@ sub runAct(act as object)
     srv = currentServer()
     if srv = invalid then return
     sid = Util.toText(srv.id)
-    if what = "reset"
+    if what = "apply"
+        ' (v1.5.2 CS-9) a library switch after the parent PIN
+        m.guardOk = true
+        applyValue(Util.toText(act.id), Util.toText(act.value))
+        m.guardOk = false
+        return
+    else if what = "libRename"
+        askName("lib", "Library name", libTitle(m.menuLib))
+        return
+    else if what = "srvRename"
+        found = Servers.find(m.menuServer)
+        if found <> invalid then askName("srv", "Server name", Util.toText(found.name))
+        return
+    else if what = "reset"
         openPop({ kind: "choice", id: "resetConfirm", label: "Reset All Settings?", options: [{ id: "yes", label: "Reset" }, { id: "no", label: "Cancel" }], cur: "no" })
         return
     else if what = "askWho"

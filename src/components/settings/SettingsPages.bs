@@ -410,7 +410,7 @@ sub libraryRows(out as object, libId as string)
     out.push(rSwitch("libHome:" + libId, "Row on Home", onHome))
     out.push(rDim(rChoice("libset:style:" + libId, "Home Row Shows", libStyleOptions(), lp.style), not onHome))
     out.push(rSwitch("libMedia:" + libId, "Show in My Media", NavPrefs.libraryInMyMedia(libId)))
-    out.push(rNote("The top bar, the sidebar, its row on Home and its My Media tile are set separately: a library can have a row on Home without being in the sidebar. Sort By and Show are where its page starts; you can still change them there. Name: leave it empty to use the server's name."))
+    out.push(rNote("The top bar, the sidebar, its row on Home and its My Media tile are set separately: a library can have a row on Home without being in the sidebar. Sort By and Show are where its page starts: once you pick another sort or show on the page, the page keeps that until you change it here. Name: leave it empty to use the server's name."))
 end sub
 
 function libStyleOptions() as object
