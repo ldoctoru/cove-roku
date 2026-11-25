@@ -614,6 +614,9 @@ sub showItem(it as object)
         if t = "BoxSet" then m.rowWait["boxItems"] = true
         if t <> "BoxSet" and t <> "Episode" then m.rowWait["includedIn"] = true
         if t = "Series"
+            ' (SC5-5) the series' own rating, cached before any episode list: an unrated episode inherits it, so a
+            ' limited profile's Play All / Shuffle / episode rows don't drop (or show) them for want of it
+            if Ratings.limitOf(srv) > 0 then Ratings.rememberSeries(srv, [Util.toText(it.Id)], [it])
             get("/Shows/" + Util.toText(it.Id) + "/Seasons?UserId=" + Util.toText(srv.userId) + "&" + Items.fields(), { kind: "seasons" })
             ' (SP-10) the seasons wait for this answer
             m.nextUpPending = true
@@ -1358,7 +1361,7 @@ sub loadSeriesPlay(mode as string)
         path = "/Users/" + uid + "/Items?ParentId=" + sid + "&Recursive=true&IncludeItemTypes=Episode&SortBy=Random&Limit=100&Fields=PrimaryImageAspectRatio&EnableUserData=false&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb"
         get(Ratings.withLimit(srv, path), { kind: "seriesPlay", mode: mode, itemId: sid })
     else
-        get("/Shows/" + sid + "/Episodes?UserId=" + uid + "&" + Items.fields(), { kind: "seriesPlay", mode: mode, itemId: sid })
+        get(Ratings.withLimit(srv, "/Shows/" + sid + "/Episodes?UserId=" + uid + "&" + Items.fields()), { kind: "seriesPlay", mode: mode, itemId: sid })
     end if
 end sub
 
@@ -1411,7 +1414,6 @@ end sub
 
 ' POST / DELETE /Users/{id}/FavoriteItems/{item} (Jellyfin 10.9+: /UserFavoriteItems/{item})
 sub toggleFavourite()
-    m.focusPlay = true
     if m.item = invalid then return
     method = "POST"
     if m.isFav then method = "DELETE"
@@ -1428,6 +1430,8 @@ sub onFavourite(r as object)
         if m.item.UserData = invalid then m.item.UserData = {}
         m.item.UserData.IsFavorite = m.isFav
         m.top.changed = true
+        ' (SC5-10) Play focused after a toggle that worked (a failed one leaves the focus and the flag alone)
+        m.focusPlay = true
         buildButtons()
         Toasts.notify(Toasts.favoriteText(Util.toText(m.item.Name), m.isFav), "heart")
     else
@@ -1459,7 +1463,6 @@ sub episodeMenu()
 end sub
 
 sub toggleWatched()
-    m.focusPlay = true
     if m.item = invalid then return
     markPlayed(Util.toText(m.item.Id), not Util.flag(m.item.UserData, "Played"), Util.toText(m.item.Name))
 end sub
@@ -1477,6 +1480,9 @@ sub onWatched(r as object)
     end if
     if r.code >= 200 and r.code < 300
         m.top.changed = true
+        ' (SC5-10) the page's own ✓ worked: Play focused after the refresh (an episode marked from a row keeps
+        ' its focus)
+        if m.item <> invalid and Util.toText(r.tag.itemId) = Util.toText(m.item.Id) then m.focusPlay = true
         onRefresh()
         m.status.text = ""
         name = Util.toText(r.tag.name)
@@ -2191,12 +2197,14 @@ sub loadNextUp()
     srv = m.top.server
     ' (BG-5) Settings → Home → Include rewatching (Jellyfin), as Home's Next Up row; no date cutoff here
     nuq = HomeLayout.nextUpQuery(Servers.isJellyfin(srv), Prefs.nextUpRewatch(), "")
-    get("/Shows/NextUp?SeriesId=" + Util.toText(m.item.Id) + "&UserId=" + Util.toText(srv.userId) + "&Limit=1" + nuq + "&" + Items.fields(), { kind: "nextUp" })
+    ' (SC5-5) the profile's rating limit on every episode query of the page
+    get(Ratings.withLimit(srv, "/Shows/NextUp?SeriesId=" + Util.toText(m.item.Id) + "&UserId=" + Util.toText(srv.userId) + "&Limit=1" + nuq + "&" + Items.fields()), { kind: "nextUp" })
 end sub
 
 sub onNextUp(json as dynamic)
     m.nextUpPending = false
-    list = listOf(json)
+    ' (SC5-5) an episode above the limit (a TV-MA special in a TV-PG show) isn't offered as Play
+    list = Ratings.keep(m.top.server, listOf(json))
     m.nextUp = invalid
     if list.count() > 0 then m.nextUp = list[0]
     buildButtons()
@@ -2285,11 +2293,12 @@ sub loadEpisodes(index as integer)
     m.seasonGen = m.seasonGen + 1
     s = m.seasonList[index]
     srv = m.top.server
-    get("/Shows/" + Util.toText(m.item.Id) + "/Episodes?SeasonId=" + Util.toText(s.Id) + "&UserId=" + Util.toText(srv.userId) + "&" + Items.fields(), { kind: "episodes", gen: m.seasonGen })
+    get(Ratings.withLimit(srv, "/Shows/" + Util.toText(m.item.Id) + "/Episodes?SeasonId=" + Util.toText(s.Id) + "&UserId=" + Util.toText(srv.userId) + "&" + Items.fields()), { kind: "episodes", gen: m.seasonGen })
 end sub
 
 sub onEpisodes(json as object)
-    m.episodeList = listOf(json)
+    ' (SC5-5) the season row follows the profile's limit, as Play All does
+    m.episodeList = Ratings.keep(m.top.server, listOf(json))
     m.episodesSeason = m.seasonIndex
     buildEpisodeNodes()
     if m.rowWait.doesExist("episodes") then m.rowWait.delete("episodes")
