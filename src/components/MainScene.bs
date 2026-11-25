@@ -11,6 +11,7 @@ import "pkg:/source/HomeLayout.bs"
 import "pkg:/source/NavPrefs.bs"
 import "pkg:/source/NavUtil.bs"
 import "pkg:/source/Clock.bs"
+import "pkg:/source/WhatsNew.bs"
 
 sub init()
     Clock.startupMark("MainScene init")
@@ -85,6 +86,8 @@ sub init()
     m.quickPending = invalid    ' (v1.1 U-1) { id, screen, at, title } while the Play key on a card looks up what to play
     ' (Instant Resume: the stop report and the end of a conversion still go out after the app is suspended)
     if m.top.hasField("allowBackgroundTask") then m.top.allowBackgroundTask = true
+    ' (v1.6 Q-1) What's New once after an update (decided now, before a fresh install saves its first server)
+    initWhatsNew()
     Clock.startupMark("MainScene init done")
     start()
 end sub
@@ -129,6 +132,8 @@ sub push(s as object)
     sid0 = Util.toText(s.screenId)
     if not (sid0 = "servers" or sid0 = "signin" or sid0 = "address" or sid0 = "profiles") then capStack()
     if m.stack.count() > 0 then m.stack.peek().visible = false
+    ' (v1.6 Q-1) a page pushed while What's New is open (a deep link): the panel goes
+    if m.whatsNewPanel <> invalid then closeWhatsNew(false)
     m.screens.appendChild(s)
     m.stack.push(s)
     s.setFocus(true)
@@ -185,6 +190,9 @@ sub onSettingsAction(ev as object)
         if m.server <> invalid then openSignIn(m.server, "")
     else if a.id = "useProfile"
         if m.server <> invalid then chooseProfile(m.server, Util.toText(a.userId))
+    else if a.id = "whatsNew"
+        ' (v1.6 Q-1) Settings → About → What's New
+        showWhatsNew(false)
     else if a.id = "renamed"
         ' the current server was renamed: keep MainScene's copy in step, Home is rebuilt when Settings closes
         if m.server <> invalid and Util.toText(m.server.id) = Util.toText(a.serverId) then m.server.name = Util.toText(a.name)
@@ -594,6 +602,7 @@ sub onHomeAction(ev as object)
     if a.id = "ready"
         Clock.startupMark("Home ready (AppLaunchComplete)")
         launchComplete()
+        queueWhatsNew()
     else if a.id = "switch"
         ' (v0.9.1: another server could lift the rating limit: a parent PIN first while a limited profile watches)
         guardedAct(m.server, { do: "servers" })
@@ -2003,5 +2012,68 @@ sub onResumeCheck(r as object)
         top().reload = true
     else
         markStale()
+    end if
+end sub
+
+' ---------------------------------------------------------------- v1.6 HOME: What's New (Q-1)
+
+' At launch: show the panel once Home is up (an update), only remember the version (a fresh install, no server
+' saved yet), or nothing (already seen)
+sub initWhatsNew()
+    m.whatsNewPanel = invalid
+    m.whatsNewTimer = invalid
+    m.whatsNewWanted = false
+    info = createObject("roAppInfo")
+    pick = WhatsNew.decide(Util.readText(WhatsNew.seenKey()), Util.toText(info.getVersion()), Servers.all().count() > 0)
+    print "Cove: whats new "; pick
+    if pick = "store" then WhatsNew.markSeen()
+    m.whatsNewWanted = pick = "show"
+end sub
+
+' Home sent "ready": the panel a moment later, if Home is still the page on top (not over a deep link, Who's
+' watching?, a PIN or a dialog; skipped this launch, it shows at the next one)
+sub queueWhatsNew()
+    if not m.whatsNewWanted or m.whatsNewTimer <> invalid then return
+    m.whatsNewTimer = createObject("roSGNode", "Timer")
+    m.whatsNewTimer.duration = 1.0
+    m.whatsNewTimer.repeat = false
+    m.whatsNewTimer.observeField("fire", "onWhatsNewTimer")
+    m.whatsNewTimer.control = "start"
+end sub
+
+sub onWhatsNewTimer()
+    m.whatsNewWanted = false
+    if m.lastLinkId <> "" or m.pendingLink <> invalid or not topIs("home") or m.top.dialog <> invalid
+        print "Cove: whats new held for the next launch (Home is not on top)"
+        return
+    end if
+    showWhatsNew(true)
+end sub
+
+sub showWhatsNew(afterUpdate as boolean)
+    if m.whatsNewPanel <> invalid then return
+    p = createObject("roSGNode", "WhatsNewPanel")
+    p.observeField("closed", "onWhatsNewClosed")
+    m.top.appendChild(p)
+    m.whatsNewPanel = p
+    p.setFocus(true)
+    if afterUpdate then WhatsNew.markSeen()
+    print "Cove: whats new shown ("; WhatsNew.notes().version; ", after update "; afterUpdate; ")"
+end sub
+
+sub onWhatsNewClosed()
+    closeWhatsNew(true)
+end sub
+
+' refocus: give the page on top its focus back (false when a new page is being pushed and takes it)
+sub closeWhatsNew(refocus as boolean)
+    p = m.whatsNewPanel
+    if p = invalid then return
+    m.whatsNewPanel = invalid
+    p.unobserveField("closed")
+    m.top.removeChild(p)
+    if refocus
+        t = top()
+        if t <> invalid then t.setFocus(true)
     end if
 end sub
