@@ -254,9 +254,22 @@ namespace NavPrefs
     ' Before v1.5 the row needed the library in the sidebar too: a library hidden from the sidebar keeps its row
     ' hidden (migrateHome writes that once; "homeOwn" marks a Home switch that no longer depends on "nav").
     function libraryOnHome(libId as string) as boolean
-        lp = Prefs.library(libId)
+        return NavPrefs.onHomeOf(Prefs.library(libId))
+    end function
+
+    ' (v1.5.2 ST-7) The same from a record already read (Prefs.library)
+    function onHomeOf(lp as object) as boolean
         if lp.nav = false and not Util.flag(lp, "homeOwn") then return false
         return lp.home <> false
+    end function
+
+    ' (v1.5.2 ST-7) { entry id: on } of one place, read once for a whole Settings page
+    function shownMap(place as string, libs as object) as object
+        out = {}
+        for each e in NavPrefs.entries(place, libs)
+            out[e.id] = e.on
+        end for
+        return out
     end function
 
     sub setLibraryOnHome(libId as string, on as boolean)

@@ -157,3 +157,17 @@ sub test_cs4_retriesSilent()
     t_ok(not Api_retriesSilent(0, 7), "all answered")
     t_ok(not Api_retriesSilent(1, 1), "the only one silent")
 end sub
+
+sub test_st7_onHomeOf_shownMap()
+    t_ok(NavPrefs_onHomeOf({ nav: true, home: true }), "on")
+    t_ok(not NavPrefs_onHomeOf({ nav: false, home: true }), "hidden from the sidebar before v1.5")
+    t_ok(NavPrefs_onHomeOf({ nav: false, home: true, homeOwn: true }), "own switch")
+    t_ok(not NavPrefs_onHomeOf({ nav: true, home: false }), "off")
+    v_clear()
+    libs = [{ id: "a", title: "A" }, { id: "b", title: "B" }]
+    NavPrefs_setShown("top", "Lb", false, libs)
+    mp = NavPrefs_shownMap("top", libs)
+    t_eq(mp["La"], true, "a on")
+    t_eq(mp["Lb"], false, "b off")
+    t_eq(mp["search"], true, "pages too")
+end sub
