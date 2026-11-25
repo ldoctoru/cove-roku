@@ -61,6 +61,8 @@ sub init()
     m.libTask = invalid
     m.renameFor = ""
     m.libError = ""
+    m.libsLoaded = false
+    m.autoTabs = false
     m.menuLib = ""
     m.menuServer = ""
     m.menuProfile = ""
@@ -96,6 +98,7 @@ sub onServer()
     srv = m.top.server
     if srv = invalid then return
     m.libError = ""
+    m.libsLoaded = false
     t = createObject("roSGNode", "ApiTask")
     ' (v1.5.2 ST-5) the newer Jellyfin route on a 404, or first when Home only got an answer there
     path = "/Users/" + Util.toText(srv.userId) + "/Views"
@@ -127,6 +130,8 @@ sub onViews(ev as object)
         end for
     end if
     m.libs = list
+    ' (v1.5.2 ST-2) loaded, even with no libraries: no more "Loading your libraries..."
+    m.libsLoaded = true
     draw()
 end sub
 
@@ -260,7 +265,16 @@ sub draw()
         entry.key = SetRows.keyOf(rows[m.focusables[f]])
         if m.zone = "content" then paintRow(m.focusables[f], true)
     end if
-    if m.zone = "content" and f < 0 then m.zone = "tabs"
+    ' (v1.5.2 ST-3) a sub-list with nothing to focus yet (libraries still loading): the tabs take the keys, Back
+    ' still closes the sub-list, and the rows get the focus back once they arrive
+    if m.zone = "content" and f < 0
+        m.zone = "tabs"
+        m.autoTabs = m.stack.count() > 1
+    else if m.zone = "tabs" and f >= 0 and Util.flag(m, "autoTabs") and m.stack.count() > 1
+        m.zone = "content"
+        m.autoTabs = false
+        paintRow(m.focusables[f], true)
+    end if
     paintTabs()
     scrollToFocus()
     if m.pop <> invalid then drawPop()
@@ -773,6 +787,13 @@ end function
 
 ' The tab row: Left / Right switch tab (its settings show at once), Down or OK go in, Back closes Settings
 function tabsKey(key as string) as boolean
+    m.autoTabs = false
+    if key = "back" and m.stack.count() > 1
+        ' (v1.5.2 ST-3) a sub-list is still drawn: Back closes it instead of Settings
+        m.zone = "content"
+        popPage()
+        return true
+    end if
     if key = "left" or key = "right"
         d = 1
         if key = "left" then d = -1

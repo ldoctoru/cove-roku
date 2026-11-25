@@ -322,6 +322,7 @@ end sub
 ' "Loading your libraries..." or why they didn't load
 function libsState() as string
     if m.libError <> "" then return m.libError
+    if Util.flag(m, "libsLoaded") then return "This server has no libraries for this profile."
     return "Loading your libraries..."
 end function
 

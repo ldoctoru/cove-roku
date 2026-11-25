@@ -162,8 +162,9 @@ sub onSettingsAction(ev as object)
     a = ev.getData()
     ' (C2-1: Settings asked for the parent PIN before these while a limited profile was on Home)
     if a.id = "connect" or a.id = "signout" or a.id = "switch" or a.id = "addProfile" then m.lock = invalid
+    ' (v1.5.2 ST-4) themeDirty stays set for connect / use profile: only reset() (the stack really replaced)
+    ' clears it, so a sign-in or PIN cancelled there still rebuilds Home when Settings closes
     if a.id = "connect"
-        m.themeDirty = false
         openServer(Servers.find(Util.toText(a.serverId)))
     else if a.id = "signout"
         m.themeDirty = false
@@ -183,7 +184,6 @@ sub onSettingsAction(ev as object)
     else if a.id = "addProfile"
         if m.server <> invalid then openSignIn(m.server, "")
     else if a.id = "useProfile"
-        m.themeDirty = false
         if m.server <> invalid then chooseProfile(m.server, Util.toText(a.userId))
     else if a.id = "renamed"
         ' the current server was renamed: keep MainScene's copy in step, Home is rebuilt when Settings closes
