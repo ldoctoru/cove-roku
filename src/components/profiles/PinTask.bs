@@ -1,0 +1,36 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Pins.bs"
+
+sub init()
+    m.top.functionName = "work"
+end sub
+
+sub work()
+    q = m.top.request
+    out = { seq: 0, mode: "", matched: "", upgrade: "", hash: "", ms: 0, error: "" }
+    spent = createObject("roTimespan")
+    try
+        if Util.isAA(q)
+            out.seq = Util.toNumber(q.seq)
+            out.mode = Util.toText(q.mode)
+            sid = Util.toText(q.serverId)
+            pin = Util.toText(q.pin)
+            if out.mode = "verify" and type(q.ids) = "roArray"
+                out.matched = Pins.firstMatch(q.ids, sid, pin)
+                for each e in q.ids
+                    if out.matched <> "" and Util.toText(e.uid) = out.matched and Pins.isOldHash(Util.toText(e.stored)) then out.upgrade = Pins.make(sid, out.matched, pin)
+                end for
+            else if out.mode = "make"
+                out.hash = Pins.make(sid, Util.toText(q.userId), pin)
+            end if
+        end if
+    catch e
+        out.error = Util.toText(e.message)
+        print "Cove: pin check failed: "; out.error
+    end try
+    out.ms = spent.totalMilliseconds()
+    print "Cove: pin "; out.mode; " "; out.ms; " ms"
+    ' (the PIN doesn't stay in the task's fields)
+    m.top.request = {}
+    m.top.result = out
+end sub

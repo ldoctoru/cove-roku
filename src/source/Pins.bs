@@ -134,4 +134,20 @@ namespace Pins
         return Int((wait_ + 59) / 60).toStr() + " min"
     end function
 
+    ' ---------------------------------------------------------------- v1.6 CORE
+
+    ' (v1.6 CS-11, PinTask) The first profile of ids ([{ uid, stored }]) whose PIN is pin, "" = none. Each
+    ' stored PIN has its own salt, so a wrong PIN costs one full check per profile: run it on a Task.
+    function firstMatch(ids as object, serverId as string, pin as string) as string
+        if not Pins.isValid(pin) then return ""
+        for each e in ids
+            if Util.isAA(e)
+                uid = Util.toText(e.uid)
+                stored = Util.toText(e.stored)
+                if uid <> "" and stored <> "" and Pins.matches(stored, serverId, uid, pin) then return uid
+            end if
+        end for
+        return ""
+    end function
+
 end namespace

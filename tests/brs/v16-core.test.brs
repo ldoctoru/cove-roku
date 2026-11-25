@@ -195,6 +195,19 @@ sub test_cs8_legacy_headers_and_memory()
     t_ok(Api_afterAuth({ url: "x", headers: { "Accept": "a" } }, { code: 401 }).code = 401, "not the new form: untouched")
 end sub
 
+sub test_cs11_firstMatch()
+    a = Pins_make("srv1", "uA", "1234")
+    b = Pins_make("srv1", "uB", "5678")
+    ids = [{ uid: "uA", stored: a }, { uid: "uB", stored: b }]
+    t_eq(Pins_firstMatch(ids, "srv1", "5678"), "uB", "second parent's PIN")
+    t_eq(Pins_firstMatch(ids, "srv1", "1234"), "uA", "first parent's PIN")
+    t_eq(Pins_firstMatch(ids, "srv1", "0000"), "", "wrong PIN")
+    t_eq(Pins_firstMatch(ids, "srv2", "1234"), "", "another server")
+    t_eq(Pins_firstMatch(ids, "srv1", "12a4"), "", "not 4 digits")
+    t_eq(Pins_firstMatch([{ uid: "uC", stored: "" }, "junk"], "srv1", "1234"), "", "no PIN stored / junk")
+    t_eq(Pins_firstMatch([], "srv1", "1234"), "", "no parents")
+end sub
+
 sub test_st9_trim_profile_lists()
     c16_twoProfiles()
     sec = createObject("roRegistrySection", "Cove")
