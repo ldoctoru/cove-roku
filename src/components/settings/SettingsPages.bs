@@ -122,6 +122,9 @@ function pageRows(entry as object) as object
     else if pid = "about"
         aboutRows(out)
     end if
+    ' (v1.6 ST-9) whose settings these are
+    pn = personalNote(pid)
+    if pn <> "" then out.unshift(rNote(pn))
     ' (a sub-list starts with its own heading, e.g. TOP BAR)
     if m.stack.count() > 1 and out.count() > 0 and out[0].kind <> "head" then out.unshift(rHead(pageTitle(entry)))
     return out
@@ -674,5 +677,34 @@ sub aboutRows(out as object)
     if m.device <> "" then out.push(rInfo("This Roku", "", m.device))
     out.push(rHead("Reset"))
     out.push(rButton("reset", "Reset All Settings..."))
-    out.push(rNote("Puts every setting back to its default. Your servers, profiles, PINs and rating limits are kept."))
+    out.push(rNote(resetNote()))
 end sub
+
+' ---------------------------------------------------------------- v1.6 CORE
+
+' (v1.6 ST-9) The settings each profile keeps for itself (PrefScope): one line on the tabs and sub-lists that
+' hold them, shown while the server has 2 or more profiles ("" = no note)
+function personalNote(pid as string) as string
+    name = personalProfileName()
+    if name = "" then return ""
+    whole = { home: 1, homeOrder: 1, homeLibRows: 1, homeMyMedia: 1, subtitles: 1, libOrder: 1 }
+    if whole.doesExist(pid) or pid.startsWith("navPlace:") then return "These settings are for " + name + "."
+    if pid = "general" then return "Menu Style, Top Bar Labels and the menu lists are for " + name + ". The other settings here are for every profile."
+    if pid = "libraries" then return "Each library's settings, name and order are for " + name + ". Cast & Crew, episode descriptions and spoilers are for every profile."
+    if pid = "playback" then return "These settings are for every profile on this Roku."
+    return ""
+end function
+
+' The active profile's name while its server has 2 or more profiles, else ""
+function personalProfileName() as string
+    srv = currentServer()
+    if srv = invalid or PrefScope.current() = "" then return ""
+    if Servers.profiles(srv).count() < 2 then return ""
+    return Util.toText(srv.userName)
+end function
+
+function resetNote() as string
+    t = "Puts every setting back to its default. Your servers, profiles, PINs and rating limits are kept."
+    if personalProfileName() <> "" then t = t + " Other profiles keep their own Home, menu, library and subtitle settings."
+    return t
+end function
