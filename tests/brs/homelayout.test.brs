@@ -146,7 +146,10 @@ sub test_myMedia_v15()
     libs = t_libs()
     ' a saved order keeps My Media where it was; resetting puts it after Next Up
     Util_writeText("homeRows:s7", "resume,nextup,upcoming,favorites,recent,released,Lm1,Lt1,libraries")
-    t_eq(HomeLayout_orderedIds("s7", libs).peek(), "libraries", "saved order kept")
+    ' (v1.5.2 ST-11) the old v1.3.2 default written in full is read as untouched: the new default
+    t_eq(HomeLayout_orderedIds("s7", libs).slice(0, 3), ["resume", "nextup", "libraries"], "old default: new default")
+    Util_writeText("homeRows:s7", "resume,nextup,favorites,upcoming,recent,released,Lm1,Lt1,libraries")
+    t_eq(HomeLayout_orderedIds("s7", libs).peek(), "libraries", "a real saved order keeps My Media where it was")
     HomeLayout_resetOrder("s7")
     t_eq(HomeLayout_orderedIds("s7", libs).slice(0, 3), ["resume", "nextup", "libraries"], "default: after Next Up")
     ' every library in My Media by default, each switch on its own
