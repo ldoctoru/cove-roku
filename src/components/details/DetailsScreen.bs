@@ -80,6 +80,7 @@ sub init()
     m.ovMore = false        ' the description is cut: Up from the buttons reaches "MORE"
     m.ovWidth = 0
     m.textPanel = invalid   ' the whole description, while open
+    m.covered = false       ' (SC5-12) hidden under another screen since the last focus
     m.trailers = []         ' trailers stored on the server with this title (LocalTrailers)
     m.extrasList = []       ' (v1.0 F-9) extras / special features (behind the scenes, deleted scenes, ...)
     m.seriesPlay = invalid  ' (v1.0 F-17) the Play All / Shuffle request waiting for its episodes
@@ -613,6 +614,9 @@ sub showItem(it as object)
         if t = "BoxSet" then m.rowWait["boxItems"] = true
         if t <> "BoxSet" and t <> "Episode" then m.rowWait["includedIn"] = true
         if t = "Series"
+            ' (SC5-5) the series' own rating, cached before any episode list: an unrated episode inherits it, so a
+            ' limited profile's Play All / Shuffle / episode rows don't drop (or show) them for want of it
+            if Ratings.limitOf(srv) > 0 then Ratings.rememberSeries(srv, [Util.toText(it.Id)], [it])
             get("/Shows/" + Util.toText(it.Id) + "/Seasons?UserId=" + Util.toText(srv.userId) + "&" + Items.fields(), { kind: "seasons" })
             ' (SP-10) the seasons wait for this answer
             m.nextUpPending = true
@@ -953,11 +957,6 @@ sub buildButtons()
     ' (SC-8) the focused button by id: a trailer or collection answer inserts buttons before it
     prevId = ""
     if m.btn >= 0 and m.btn < m.btns.count() then prevId = Util.toText(m.btns[m.btn].id)
-    ' (v1.5, Liviu) a newly shown or refreshed page focuses Play; a toggle (✓, ♡) keeps its own focus
-    if m.focusPlay = true
-        prevId = "play"
-        m.focusPlay = false
-    end if
     target = playTarget()
     resumeAt = 0.0
     if target <> invalid then resumeAt = Items.resumeAt(target)
@@ -999,6 +998,11 @@ sub buildButtons()
         end if
     end for
     m.btns = btns
+    ' (v1.5, Liviu) a newly shown or refreshed page focuses Play; a toggle (✓, ♡) keeps its own focus.
+    ' (SC5-1) a series / collection has no Play until Next Up or its titles answer: keep the flag until it exists
+    bf = NavUtil.buttonFocus(btns, prevId, m.focusPlay = true)
+    prevId = bf.id
+    m.focusPlay = bf.focusPlay
     at = NavUtil.indexOfId(btns, prevId)
     if at >= 0
         m.btn = at
@@ -1357,7 +1361,7 @@ sub loadSeriesPlay(mode as string)
         path = "/Users/" + uid + "/Items?ParentId=" + sid + "&Recursive=true&IncludeItemTypes=Episode&SortBy=Random&Limit=100&Fields=PrimaryImageAspectRatio&EnableUserData=false&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb"
         get(Ratings.withLimit(srv, path), { kind: "seriesPlay", mode: mode, itemId: sid })
     else
-        get("/Shows/" + sid + "/Episodes?UserId=" + uid + "&" + Items.fields(), { kind: "seriesPlay", mode: mode, itemId: sid })
+        get(Ratings.withLimit(srv, "/Shows/" + sid + "/Episodes?UserId=" + uid + "&" + Items.fields()), { kind: "seriesPlay", mode: mode, itemId: sid })
     end if
 end sub
 
@@ -1410,7 +1414,6 @@ end sub
 
 ' POST / DELETE /Users/{id}/FavoriteItems/{item} (Jellyfin 10.9+: /UserFavoriteItems/{item})
 sub toggleFavourite()
-    m.focusPlay = true
     if m.item = invalid then return
     method = "POST"
     if m.isFav then method = "DELETE"
@@ -1427,6 +1430,8 @@ sub onFavourite(r as object)
         if m.item.UserData = invalid then m.item.UserData = {}
         m.item.UserData.IsFavorite = m.isFav
         m.top.changed = true
+        ' (SC5-10) Play focused after a toggle that worked (a failed one leaves the focus and the flag alone)
+        m.focusPlay = true
         buildButtons()
         Toasts.notify(Toasts.favoriteText(Util.toText(m.item.Name), m.isFav), "heart")
     else
@@ -1458,7 +1463,6 @@ sub episodeMenu()
 end sub
 
 sub toggleWatched()
-    m.focusPlay = true
     if m.item = invalid then return
     markPlayed(Util.toText(m.item.Id), not Util.flag(m.item.UserData, "Played"), Util.toText(m.item.Name))
 end sub
@@ -1476,6 +1480,9 @@ sub onWatched(r as object)
     end if
     if r.code >= 200 and r.code < 300
         m.top.changed = true
+        ' (SC5-10) the page's own ✓ worked: Play focused after the refresh (an episode marked from a row keeps
+        ' its focus)
+        if m.item <> invalid and Util.toText(r.tag.itemId) = Util.toText(m.item.Id) then m.focusPlay = true
         onRefresh()
         m.status.text = ""
         name = Util.toText(r.tag.name)
@@ -1876,12 +1883,14 @@ sub useMore(id as string)
         closeMenu()
         m.status.text = "Getting your collections..."
         get("/Users/" + Util.toText(m.top.server.userId) + "/Items?IncludeItemTypes=BoxSet&Recursive=true&SortBy=SortName&SortOrder=Ascending&Fields=ProductionYear&EnableImageTypes=Primary&ImageTypeLimit=1&Limit=300" + Items.noCount(), { kind: "lists", which: "coll", itemId: Util.toText(it.Id) })
-        enterButtons(false)
+        ' (SC5-9) ⋯ closed: Play focused while the list loads (and when it fails)
+        focusPlayButton()
     else if id = "addlist"
         closeMenu()
         m.status.text = "Getting your playlists..."
         get("/Users/" + Util.toText(m.top.server.userId) + "/Items?IncludeItemTypes=Playlist&Recursive=true&SortBy=SortName&SortOrder=Ascending&Limit=300" + Items.noCount(), { kind: "lists", which: "list", itemId: Util.toText(it.Id) })
-        enterButtons(false)
+        ' (SC5-9) ⋯ closed: Play focused while the list loads (and when it fails)
+        focusPlayButton()
     else if id = "gocoll"
         if m.includedList.count() = 1
             leaveMenu()
@@ -1912,6 +1921,11 @@ sub onLists(r as object)
     m.status.text = ""
     if m.item = invalid or Util.toText(r.tag.itemId) <> Util.toText(m.item.Id) then return
     which = Util.toText(r.tag.which)
+    ' (SC5-9) the page is covered (a person, a title, the player): the list doesn't open over it
+    if not m.top.isInFocusChain() or m.picker <> invalid or m.menu <> invalid or m.textPanel <> invalid
+        print "Cove: lists ("; which; ") answered while the page is covered or busy: dropped"
+        return
+    end if
     if r.code <> 200
         print "Cove: lists ("; which; ") failed: "; Api.describeFailure(r)
         Toasts.notify(Toasts.failedText("get the list"), "info")
@@ -2183,12 +2197,14 @@ sub loadNextUp()
     srv = m.top.server
     ' (BG-5) Settings → Home → Include rewatching (Jellyfin), as Home's Next Up row; no date cutoff here
     nuq = HomeLayout.nextUpQuery(Servers.isJellyfin(srv), Prefs.nextUpRewatch(), "")
-    get("/Shows/NextUp?SeriesId=" + Util.toText(m.item.Id) + "&UserId=" + Util.toText(srv.userId) + "&Limit=1" + nuq + "&" + Items.fields(), { kind: "nextUp" })
+    ' (SC5-5) the profile's rating limit on every episode query of the page
+    get(Ratings.withLimit(srv, "/Shows/NextUp?SeriesId=" + Util.toText(m.item.Id) + "&UserId=" + Util.toText(srv.userId) + "&Limit=1" + nuq + "&" + Items.fields()), { kind: "nextUp" })
 end sub
 
 sub onNextUp(json as dynamic)
     m.nextUpPending = false
-    list = listOf(json)
+    ' (SC5-5) an episode above the limit (a TV-MA special in a TV-PG show) isn't offered as Play
+    list = Ratings.keep(m.top.server, listOf(json))
     m.nextUp = invalid
     if list.count() > 0 then m.nextUp = list[0]
     buildButtons()
@@ -2277,11 +2293,12 @@ sub loadEpisodes(index as integer)
     m.seasonGen = m.seasonGen + 1
     s = m.seasonList[index]
     srv = m.top.server
-    get("/Shows/" + Util.toText(m.item.Id) + "/Episodes?SeasonId=" + Util.toText(s.Id) + "&UserId=" + Util.toText(srv.userId) + "&" + Items.fields(), { kind: "episodes", gen: m.seasonGen })
+    get(Ratings.withLimit(srv, "/Shows/" + Util.toText(m.item.Id) + "/Episodes?SeasonId=" + Util.toText(s.Id) + "&UserId=" + Util.toText(srv.userId) + "&" + Items.fields()), { kind: "episodes", gen: m.seasonGen })
 end sub
 
 sub onEpisodes(json as object)
-    m.episodeList = listOf(json)
+    ' (SC5-5) the season row follows the profile's limit, as Play All does
+    m.episodeList = Ratings.keep(m.top.server, listOf(json))
     m.episodesSeason = m.seasonIndex
     buildEpisodeNodes()
     if m.rowWait.doesExist("episodes") then m.rowWait.delete("episodes")
@@ -2466,15 +2483,23 @@ sub buildRowsContent()
     end for
     if m.jumpToEpisodes and target >= 0 then m.jumpToEpisodes = false
     ' (Go to Season: the focus goes to that season's episodes once they are there)
-    if m.focusEpisodes = true and target >= 0
+    if m.focusEpisodes = true and target >= 0 and rowsMayTakeFocus()
         if root.getChild(target).rowKind = "episodes" and root.getChild(target).getChildCount() > 0
             m.focusEpisodes = false
             enterRows()
         end if
     end if
     if target >= 0 then m.rows.jumpToRowItem = [target, item]
-    if m.state = "rows" then m.rows.setFocus(true)
+    ' (SC5-3) a late row (More Like This, Extras, Included In) never takes the keys from a page or player on
+    ' top, nor from an open picker / menu / text panel on this page
+    if m.state = "rows" and rowsMayTakeFocus() then m.rows.setFocus(true)
 end sub
+
+' (SC5-3) This page is on top and no overlay of its own holds the keys
+function rowsMayTakeFocus() as boolean
+    if m.picker <> invalid or m.menu <> invalid or m.textPanel <> invalid then return false
+    return m.top.isInFocusChain()
+end function
 
 ' (SP-9) A row from a list's cached cards, when it has any
 sub addRowSpec(specs as object, kind as string, title as string, size as object)
@@ -3047,7 +3072,18 @@ sub playKey()
 end sub
 
 sub onFocusChanged()
+    ' (SC5-12) covered by another screen (MainScene hides a page before it pushes the next one)
+    if not m.top.visible and not m.top.isInFocusChain() then m.covered = true
     if not m.top.hasFocus() then return
+    ' (SC5-12) back from another screen: a menu or picker left open under it is stale, Play gets the focus
+    if m.covered = true
+        m.covered = false
+        if m.picker <> invalid or m.menu <> invalid
+            print "Cove: details back on top: closing a stale menu / picker"
+            closePicker()
+            closeMenu()
+        end if
+    end if
     ' (SC-1) something was played or changed on a page above: Resume, Next Up, the episodes' progress and the
     ' season counts again
     if m.top.stale then onRefresh()
@@ -3072,8 +3108,8 @@ sub focusPlayButton()
     at = NavUtil.indexOfId(m.btns, "play")
     if at >= 0 then m.btn = at
     m.focusPlay = at < 0
-    slide = m.state = "rows" or m.state = "about"
-    enterButtons(slide)
+    ' (SC5-4) also from the season bar (header faded, rows slid up), e.g. after ▶ played from there
+    enterButtons(NavUtil.headerSlidesBack(m.state))
 end sub
 
 ' ---------------------------------------------------------------- About (Cove for macOS: aboutSection, mediaInfo)
