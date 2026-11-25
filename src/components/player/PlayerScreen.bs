@@ -157,6 +157,7 @@ end sub
 sub resetState()
     refreshPrefs()
     m.loadNote = ""
+    m.audioSwitchId = ""    ' (v1.6 P5-12) an in-place audio switch waiting for its check
     m.loadBase = 0
     m.subPos = 0.0
     ' Subtitle delay (Subtitles menu), for this title only: a new title starts at 0
@@ -1797,7 +1798,8 @@ sub onPicked(ev as object)
         m.opts.audio = v
         ' (v1.1) the language is kept for the series' next episodes
         rememberAudio(v)
-        restart = true
+        ' (v1.6 P5-12) Direct Play: the Roku switches the file's track itself, no server conversion
+        restart = not switchAudioInPlace(v)
     else if c.purpose = "quality" and v <> m.opts.maxBitrate
         m.opts.maxBitrate = v
         restart = true
@@ -1831,6 +1833,53 @@ sub onPicked(ev as object)
     else
         resumeAfterPicker()
     end if
+end sub
+
+' (v1.6 P5-12) A Direct Play stream switches its audio in place through the Video node's audioTrack (Roku
+' docs: availableAudioTracks[].Track); false = restart through the server as before (not Direct Play, the
+' track can't be matched safely, or the Video node lacks the fields). 2.5 s later currentAudioTrack must be
+' the chosen one (the Roku plays another when it can't decode it), else the stream restarts after all.
+function switchAudioInPlace(index as integer) as boolean
+    s = m.session
+    if not m.started or s = invalid or Util.toText(s.method) <> "DirectPlay" then return false
+    if not m.video.hasField("availableAudioTracks") or not m.video.hasField("audioTrack") then return false
+    avail = m.video.availableAudioTracks
+    trackId = Tracks.rokuAudioTrack(m.tracks.audio, index, avail)
+    n = 0
+    if type(avail) = "roArray" then n = avail.count()
+    if trackId = ""
+        print "Cove: player audio in place not possible (track "; index; ", "; n; " Roku tracks), restarting"
+        return false
+    end if
+    m.audioSwitchId = trackId
+    m.audioSwitchClock = createObject("roTimespan")
+    m.video.audioTrack = trackId
+    print "Cove: player audio switched in place to track "; index; " (Roku "; trackId; ")"
+    if m.audioCheckTimer = invalid
+        m.audioCheckTimer = createObject("roSGNode", "Timer")
+        m.audioCheckTimer.duration = 2.5
+        m.audioCheckTimer.repeat = false
+        m.audioCheckTimer.observeField("fire", "onAudioSwitchCheck")
+    end if
+    m.audioCheckTimer.control = "stop"
+    m.audioCheckTimer.control = "start"
+    return true
+end function
+
+sub onAudioSwitchCheck()
+    want = Util.toText(m.audioSwitchId)
+    if want = "" or not m.started then return
+    m.audioSwitchId = ""
+    cur = ""
+    if m.video.hasField("currentAudioTrack") then cur = Util.toText(m.video.currentAudioTrack)
+    ms = 0
+    if m.audioSwitchClock <> invalid then ms = m.audioSwitchClock.totalMilliseconds()
+    if cur = "" or cur = want
+        print "Cove: player audio in place ok after "; ms; " ms"
+        return
+    end if
+    print "Cove: player audio in place not taken (playing "; cur; "), restarting through the server"
+    restartAt(m.video.position)
 end sub
 
 ' Same item, new settings, same position

@@ -157,6 +157,34 @@ sub test_collectionHeadingAndTitle()
     t_eq(Playback_filmTitle({ Name: "Untitled" }), "Untitled", "no year")
 end sub
 
+' ---------------------------------------------------------------- P5-12 in-place audio (Tracks.rokuAudioTrack)
+
+function t_srvAudio() as object
+    return [{ index: 1, language: "eng" }, { index: 2, language: "ger" }, { index: 3, language: "eng" }]
+end function
+
+sub test_rokuAudioTrack_byPosition()
+    roku = [{ Language: "eng", Track: "t1" }, { Language: "ger", Track: "t2" }, { Language: "eng", Track: "t3" }]
+    t_eq(Tracks_rokuAudioTrack(t_srvAudio(), 2, roku), "t2", "German by position")
+    t_eq(Tracks_rokuAudioTrack(t_srvAudio(), 3, roku), "t3", "second English by position")
+    roku[1].Language = "fre"
+    t_eq(Tracks_rokuAudioTrack(t_srvAudio(), 2, roku), "", "languages disagree: restart")
+    roku[1].Language = ""
+    t_eq(Tracks_rokuAudioTrack(t_srvAudio(), 2, roku), "t2", "Roku without a language: by position")
+end sub
+
+sub test_rokuAudioTrack_byLanguage()
+    roku = [{ Language: "eng", Track: "a" }, { Language: "ger", Track: "b" }]
+    t_eq(Tracks_rokuAudioTrack(t_srvAudio(), 2, roku), "b", "only German track")
+    t_eq(Tracks_rokuAudioTrack(t_srvAudio(), 1, roku), "", "two English on the server: ambiguous")
+end sub
+
+sub test_rokuAudioTrack_none()
+    t_eq(Tracks_rokuAudioTrack(t_srvAudio(), 2, []), "", "no Roku tracks")
+    t_eq(Tracks_rokuAudioTrack(t_srvAudio(), 9, [{ Language: "eng", Track: "a" }]), "", "unknown server track")
+    t_eq(Tracks_rokuAudioTrack(invalid, 2, invalid), "", "invalid")
+end sub
+
 sub test_collectionPlayable()
     t_ok(Playback_isCollectionPlayable({ Id: "1", Type: "Movie" }), "movie")
     t_ok(not Playback_isCollectionPlayable({ Id: "1", Type: "BoxSet" }), "nested collection")

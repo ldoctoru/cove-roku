@@ -545,4 +545,54 @@ namespace Tracks
         return { introStart: -1.0, introEnd: -1.0, credits: -1.0, creditsEnd: -1.0, segs: [] }
     end function
 
+    ' ---------------------------------------------------------------- v1.6 PLAYER (P5-12)
+
+    ' (v1.6 P5-12) Two language codes name the same language ("" / "und" match anything)
+    function sameLanguage(a as dynamic, b as dynamic) as boolean
+        x = LCase(Util.toText(a).trim())
+        y = LCase(Util.toText(b).trim())
+        if x = "" or y = "" or x = "und" or y = "und" then return true
+        for each k in codesOfLanguage(x)
+            if k = y then return true
+        end for
+        return false
+    end function
+
+    ' (v1.6 P5-12) The Roku's own audio track (Video.availableAudioTracks[].Track) for the server's audio
+    ' stream `index` of a Direct Play file, so the track can be switched in place; "" when it can't be told
+    ' apart safely (then the stream restarts through the server as before). Same number of tracks: by
+    ' position, if the languages agree; otherwise the only Roku track in that language, if the server has
+    ' only one track in it too.
+    function rokuAudioTrack(serverAudio as dynamic, index as integer, rokuTracks as dynamic) as string
+        if type(serverAudio) <> "roArray" or type(rokuTracks) <> "roArray" or rokuTracks.count() = 0 then return ""
+        at = -1
+        for i = 0 to serverAudio.count() - 1
+            if Util.isAA(serverAudio[i]) and Util.toNumber(serverAudio[i].index) = index then at = i
+        end for
+        if at < 0 then return ""
+        lang = Util.toText(serverAudio[at].language)
+        if rokuTracks.count() = serverAudio.count()
+            rt = rokuTracks[at]
+            if Util.isAA(rt) and Util.toText(rt.Track) <> "" and sameLanguage(rt.Language, lang) then return Util.toText(rt.Track)
+            return ""
+        end if
+        if lang = "" or lang = "und" then return ""
+        sameServer = 0
+        for each s in serverAudio
+            if Util.isAA(s) and LCase(Util.toText(s.language)) <> "" and sameLanguage(s.language, lang) and LCase(Util.toText(s.language)) <> "und" then sameServer = sameServer + 1
+        end for
+        if sameServer <> 1 then return ""
+        found = ""
+        hits = 0
+        for each rt in rokuTracks
+            rl = LCase(Util.toText(Util.field(rt, "Language")))
+            if rl <> "" and rl <> "und" and sameLanguage(rl, lang) and Util.toText(rt.Track) <> ""
+                found = Util.toText(rt.Track)
+                hits = hits + 1
+            end if
+        end for
+        if hits = 1 then return found
+        return ""
+    end function
+
 end namespace
