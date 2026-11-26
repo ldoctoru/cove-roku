@@ -1469,7 +1469,14 @@ sub onRowsAdded(ev as object)
     if m.task = invalid or not ev.getRoSGNode().isSameNode(m.task) then return
     content = m.rows.content
     if content = invalid then return
+    ' (v1.7 NAV M-6) rows put in above the focused row (Because You Watched, seconds later): the same card keeps
+    ' the focus
+    late = ev.getRoSGNode().lateRows
+    f = m.rows.rowItemFocused
     sizeRows(content)
+    if m.state = "rows" and Util.isAA(late) and f <> invalid and f.count() >= 2 and Util.toNumber(late.n) > 0 and f[0] >= Util.toNumber(late.at)
+        m.rows.jumpToRowItem = [f[0] + Util.toNumber(late.n), f[1]]
+    end if
     m.partialShown = false
     Clock.startupMark("home late row added")
 end sub

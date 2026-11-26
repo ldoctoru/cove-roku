@@ -24,9 +24,12 @@ sub work()
             loadBanner(m.top.libraries)
         else
             m.delivered = false
+            m.because = invalid
             load()
             ' (v1.3.2) the banner's own titles after the rows are on screen (never slowing them down)
             if m.delivered and not m.top.authFailed then loadBanner(m.top.libraries)
+            ' (v1.7 NAV M-6) Because You Watched, put in place among the rows on screen
+            if m.delivered and not m.top.authFailed and m.because <> invalid then loadBecause()
         end if
     catch e
         where = ""
@@ -151,6 +154,14 @@ sub load()
                 queueRow(sec.title, getList("/Users/" + uid + "/Sections/" + sec.sectionId + "/Items?Limit=20&" + f, ""), sec.landscape)
                 m.pendingRows.peek().preset = { kind: "section", sectionId: sec.sectionId }
                 m.pendingRows.peek().sectionKind = sec.kind
+            else if id = "because"
+                ' (v1.7 NAV M-6) fetched after the rows are delivered (loadBecause); placed after the rows
+                ' queued before it
+                before = {}
+                for each p in m.pendingRows
+                    before[p.title] = true
+                end for
+                m.because = { before: before }
             else if id = "libraries"
                 print "Cove: home my media "; shown.count(); " libraries"
                 queueRow("My Media", shown, false)
@@ -623,4 +634,72 @@ sub addSeeAll(row as object, preset as dynamic)
     c.title = "See All"
     c.shortDescriptionLine1 = "See All"
     row.appendChild(c)
+end sub
+
+' ---------------------------------------------------------------- v1.7 NAV
+
+' (M-6) Because You Watched: 1-3 rows (Settings → Home) from GET /Movies/Recommendations (its Similar To
+' Recently Played categories), filled up from /Items/{id}/Similar of the last titles watched to the end (an
+' episode stands for its series), so shows get rows too. The profile's rating limit applies; rows without a
+' title left are not shown; no See All card (v1.6 See All has no query for these lists). The rows go into the
+' content already on screen (late-row insert), after the rows queued before "because".
+sub loadBecause()
+    stopwatch = createObject("roTimespan")
+    want = HomeLayout.becauseRows()
+    uid = Util.toText(m.srv.userId)
+    f = Items.fields()
+    pq = HomeLayout.playedQuery()
+    m.pendingRows = []
+    queueRow("rec", getList(HomeLayout.recommendationsPath(uid, f), ""), true)
+    queueRow("played", getList("/Users/" + uid + "/Items?" + pq, "/Items?userId=" + uid + "&" + pq), true)
+    fetchQueued(true)
+    if m.top.authFailed then return
+    rows = HomeLayout.becauseFromRecommendations(m.pendingRows[0].list, want)
+    fromRec = rows.count()
+    played = m.pendingRows[1].list
+    used = {}
+    for each r in rows
+        used[LCase(r.name)] = true
+    end for
+    ' (fewer Because categories than rows asked for: Similar of the last titles watched)
+    if rows.count() < want
+        bases = HomeLayout.becauseBaselines(played, used, want - rows.count())
+        m.pendingRows = []
+        for each b in bases
+            queueRow(b.name, getList(HomeLayout.similarPath(b.id, uid, f), ""), true)
+        end for
+        if bases.count() > 0 then fetchQueued(true)
+        if m.top.authFailed then return
+        for each p in m.pendingRows
+            rows.push({ name: p.title, baseId: "", items: p.list })
+        end for
+    end if
+    m.pendingRows = []
+    if Ratings.limitOf(m.srv) > 0
+        everything = []
+        for each r in rows
+            everything.append(r.items)
+        end for
+        Ratings.prefetchSeries(m.srv, everything)
+    end if
+    one = createObject("roSGNode", "ContentNode")
+    for each r in rows
+        if one.getChildCount() < want then addRow(one, HomeLayout.becauseTitle(r.name), r.items, true, invalid)
+    end for
+    n = one.getChildCount()
+    print "Cove: home because "; n; " rows ("; fromRec; " from recommendations, "; rows.count() - fromRec; " from similar) "; stopwatch.totalMilliseconds(); " ms"
+    shown = m.top.content
+    if n = 0 or shown = invalid then return
+    titles = []
+    for i = 0 to shown.getChildCount() - 1
+        titles.push(shown.getChild(i).title)
+    end for
+    at = HomeLayout.lateRowIndex(titles, m.because.before)
+    for i = 0 to n - 1
+        row = one.getChild(0)
+        one.removeChild(row)
+        shown.insertChild(row, at + i)
+    end for
+    m.top.lateRows = { at: at, n: n }
+    m.top.rowsAdded = m.top.rowsAdded + 1
 end sub

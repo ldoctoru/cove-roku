@@ -179,6 +179,7 @@ function homeRowLabel(id as string) as string
     if id = "favorites" then return "Favorites"
     if id = "recent" then return "Recently Added"
     if id = "released" then return "Recently Released"
+    if id = "because" then return "Because You Watched"
     if id = "libraries" then return "My Media"
     if id.left(1) = "L"
         t = libTitle(id.mid(1))
@@ -236,6 +237,16 @@ sub homeRows(out as object)
     else
         out.push(rNote("Rewatching and the Next Up time limit need a Jellyfin server: Emby's Next Up has no such options."))
     end if
+    ' --- v1.7 NAV ---
+    out.push(rHead("Because You Watched"))
+    out.push(rDim(rSwitch("home:because", "Because You Watched", HomeLayout.isOn(sid, "because")), srvOn))
+    rowsN = []
+    for each n in ["1", "2", "3"]
+        rowsN.push({ id: n, label: n })
+    end for
+    out.push(rDim(rChoice("becauseRows", "Rows", rowsN, HomeLayout.becauseRows().toStr()), srvOn or not HomeLayout.isOn(sid, "because")))
+    out.push(rNote("Rows of titles like the ones you watched last, from the server's recommendations. They show after Recently Added and appear a moment after the other rows. Not shown with the server's Home layout."))
+    ' --- end v1.7 NAV ---
 end sub
 
 ' Every library with its Home row switch (v1.5: every kind of library has one): [{ id, label, on }]
