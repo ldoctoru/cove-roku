@@ -6,6 +6,7 @@ import "pkg:/source/Speak.bs"
 import "pkg:/source/Toasts.bs"
 import "pkg:/source/LibGrid.bs"
 import "pkg:/source/MissingArt.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.grid = m.top.findNode("grid")
@@ -99,7 +100,7 @@ sub onLibrary()
             if sv = "all" or sv = "unwatched" or sv = "watched" or sv = "favourites" then m.show = sv
             m.genre = Util.toText(saved.g)
             m.letter = Util.toText(saved.l)
-            print "Cove: library filters kept: "; m.sort; " "; m.order; " / "; m.show; " / "; m.genre; " / "; m.letter
+            Log.line("Cove: library filters kept: " + Util.toText(m.sort) + " " + Util.toText(m.order) + " / " + Util.toText(m.show) + " / " + Util.toText(m.genre) + " / " + Util.toText(m.letter))
         end if
     end if
     checkAdmin()
@@ -188,7 +189,7 @@ function restoredIndex(count as integer) as integer
         ' (past what one request may load: the nearest loaded titles instead of a long wait)
         Toasts.notify("Back near where you were", "info")
     end if
-    print "Cove: library "; m.restoreClock.TotalMilliseconds(); " restored at "; k
+    Log.line("Cove: library " + Util.toText(m.restoreClock.TotalMilliseconds()) + " restored at " + Util.toText(k))
     return k
 end function
 
@@ -270,7 +271,7 @@ sub toggleOrder()
     m.order = "asc"
     if wantDesc then m.order = "desc"
     if wantDesc = (m.sort <> "name") then m.order = ""
-    print "Cove: library order "; orderLabel()
+    Log.line("Cove: library order " + Util.toText(orderLabel()))
     m.spokenKey = ""
     saveFilters()
     drawBar()
@@ -352,7 +353,7 @@ sub loadGenres()
     if m.global.hasField("genreCache") then cache = m.global.genreCache
     if Util.isAA(cache) and type(cache[m.genreKey]) = "roArray"
         m.genres = cache[m.genreKey]
-        print "Cove: library genres from the session cache ("; m.genres.count(); ")"
+        Log.line("Cove: library genres from the session cache (" + Util.toText(m.genres.count()) + ")")
         drawBar()
         return
     end if
@@ -468,7 +469,7 @@ sub onAdminChosen(ev as object)
     ' (Back from the list lands on the card the grid was on)
     leaveBar()
     lib = m.top.library
-    print "Cove: library admin "; kind
+    Log.line("Cove: library admin " + Util.toText(kind))
     m.top.action = { id: "missingArt", kind: kind, libraryId: Util.toText(lib.id), libraryTitle: Util.toText(lib.title) }
 end sub
 
@@ -779,7 +780,7 @@ sub onShuffle(ev as object)
         title = Util.toText(head.SeriesName)
         subtitle = Items.episodeLabel(head)
     end if
-    print "Cove: shuffle plays "; list.count(); " titles"
+    Log.line("Cove: shuffle plays " + Util.toText(list.count()) + " titles")
     m.top.action = { id: "play", itemId: Util.toText(head.Id), title: title, subtitle: subtitle, start: 0.0, queue: rest }
 end sub
 

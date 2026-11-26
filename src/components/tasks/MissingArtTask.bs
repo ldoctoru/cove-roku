@@ -1,6 +1,7 @@
 import "pkg:/source/Api.bs"
 import "pkg:/source/MissingArt.bs"
 import "pkg:/source/Ratings.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -23,7 +24,7 @@ sub work()
             frame = e.backtrace[e.backtrace.count() - 1]
             if Util.isAA(frame) then where = " (" + Util.toText(frame.filename) + ":" + Util.toText(frame.line_number) + ")"
         end if
-        print "Cove: MissingArtTask failed: "; Util.redact(msg + where)
+        Log.line("Cove: MissingArtTask failed: " + Util.redact(msg + where))
         m.top.result = { error: "Something went wrong: " + msg, rows: [], scanned: 0, total: -1, fixed: 0, count: 0, isAdmin: false }
     end try
 end sub
@@ -38,7 +39,7 @@ sub checkAdmin()
     r = getJson("/Users/" + Util.toText(srv.userId), 15000)
     isAdmin = false
     if r.code = 200 then isAdmin = Util.flag(Util.field(r.json, "Policy"), "IsAdministrator")
-    print "Cove: admin check -> "; r.code; " "; isAdmin
+    Log.line("Cove: admin check -> " + Util.toText(r.code) + " " + Util.toText(isAdmin))
     m.top.result = { isAdmin: isAdmin, code: r.code }
 end sub
 
@@ -74,7 +75,7 @@ sub scanLibrary()
     ms = spent.TotalMilliseconds()
     shownTotal = total
     if shownTotal < 0 then shownTotal = scanned
-    print "Cove: missing art "; kind; " "; rows.count(); " of "; shownTotal; " "; ms; " ms"
+    Log.line("Cove: missing art " + Util.toText(kind) + " " + Util.toText(rows.count()) + " of " + Util.toText(shownTotal) + " " + Util.toText(ms) + " ms")
     m.top.result = { rows: rows, scanned: scanned, total: total, ms: ms, error: err }
 end sub
 
@@ -121,13 +122,13 @@ sub refreshRows()
         refused = 0
         for each row in batch
             p = Api.execute({ method: "POST", url: base + MissingArt.refreshMissingPath(Util.toText(row.id)), headers: h, body: "", timeout: 20000 })
-            print "Cove: missing art refresh "; Util.toText(row.id); " -> "; p.code
+            Log.line("Cove: missing art refresh " + Util.toText(row.id) + " -> " + Util.toText(p.code))
             outcome = MissingArt.postOutcome(p.code)
             posted.push(outcome = "ok")
             if outcome = "refused" and refused = 0 then refused = Int(Util.toNumber(p.code))
         end for
         if refused <> 0
-            print "Cove: missing art refresh refused ("; refused; "), stopping"
+            Log.line("Cove: missing art refresh refused (" + Util.toText(refused) + "), stopping")
             m.top.result = { fixed: fixedCount, count: list.count(), cancelled: false, refused: refused }
             return
         end if
@@ -181,7 +182,7 @@ sub refreshRows()
             end for
         end if
     end while
-    print "Cove: missing art refreshed "; kind; " "; fixedCount; " of "; list.count(); " "; spent.TotalMilliseconds(); " ms"
+    Log.line("Cove: missing art refreshed " + Util.toText(kind) + " " + Util.toText(fixedCount) + " of " + Util.toText(list.count()) + " " + Util.toText(spent.TotalMilliseconds()) + " ms")
     m.top.result = { fixed: fixedCount, count: list.count(), cancelled: m.top.cancel }
 end sub
 

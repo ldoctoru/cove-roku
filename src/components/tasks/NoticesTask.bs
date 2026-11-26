@@ -4,6 +4,7 @@ import "pkg:/source/Items.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/Dates.bs"
 import "pkg:/source/Live.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -26,7 +27,7 @@ sub work()
             checkNew(srv, base)
         end if
     catch e
-        print "Cove: notices "; op; " failed: "; Util.redact(Util.toText(e.message))
+        Log.line("Cove: notices " + Util.toText(op) + " failed: " + Util.redact(Util.toText(e.message)))
         base.error = Util.toText(e.message)
         m.top.result = base
     end try
@@ -60,7 +61,7 @@ sub checkNew(srv as object, out as object)
     if r.code = 404 then r = Api.execute({ method: "GET", url: Util.toText(srv.url) + "/Items?userId=" + uid + "&" + q, headers: Api.headers(srv, true), timeout: 20000 })
     list = Util.field(r.json, "Items")
     if type(list) <> "roArray"
-        print "Cove: notices check "; out.reason; " -> "; r.code; " ("; spent.totalMilliseconds(); " ms)"
+        Log.line("Cove: notices check " + Util.toText(out.reason) + " -> " + Util.toText(r.code) + " (" + Util.toText(spent.totalMilliseconds()) + " ms)")
         out.error = Api.describeFailure(r)
         m.top.result = out
         return
@@ -90,7 +91,7 @@ sub checkNew(srv as object, out as object)
     out.unread = d.entry.u.count()
     out.fresh = notes
     out.baseline = d.baseline
-    print "Cove: notices check "; out.reason; " "; r.code; " "; found.count(); " items, "; fresh.count(); " new, "; notes.count(); " announced, "; out.unread; " unread, baseline "; d.baseline; " ("; spent.totalMilliseconds(); " ms)"
+    Log.line("Cove: notices check " + Util.toText(out.reason) + " " + Util.toText(r.code) + " " + Util.toText(found.count()) + " items, " + Util.toText(fresh.count()) + " new, " + Util.toText(notes.count()) + " announced, " + Util.toText(out.unread) + " unread, baseline " + Util.toText(d.baseline) + " (" + Util.toText(spent.totalMilliseconds()) + " ms)")
     m.top.result = out
 end sub
 
@@ -129,7 +130,7 @@ function followedSeries(srv as object, ids as object) as object
             end if
         end for
     end for
-    print "Cove: notices followed "; out.count(); " of "; ids.count(); " series (asked "; asked; ")"
+    Log.line("Cove: notices followed " + Util.toText(out.count()) + " of " + Util.toText(ids.count()) + " series (asked " + Util.toText(asked) + ")")
     return out
 end function
 
@@ -151,7 +152,7 @@ sub unreadRows(srv as object, out as object)
     q = "Ids=" + Util.join(ids, ",") + "&Fields=DateCreated,SeriesId,Overview,ProductionYear,PrimaryImageAspectRatio,OfficialRating&ImageTypeLimit=1&EnableImageTypes=Primary,Thumb,Backdrop&EnableUserData=true"
     r = Api.execute({ method: "GET", url: Util.toText(srv.url) + Ratings.withLimit(srv, "/Users/" + uid + "/Items?" + q), headers: Api.headers(srv, true), timeout: 20000 })
     list = Util.field(r.json, "Items")
-    print "Cove: notices list "; r.code; " "; ids.count(); " unread ("; spent.totalMilliseconds(); " ms)"
+    Log.line("Cove: notices list " + Util.toText(r.code) + " " + Util.toText(ids.count()) + " unread (" + Util.toText(spent.totalMilliseconds()) + " ms)")
     if type(list) <> "roArray"
         out.error = Api.describeFailure(r)
         out.unread = ids.count()
@@ -198,7 +199,7 @@ sub markAllRead(out as object)
         entry.u = []
         writeStore(store, entry)
     end if
-    print "Cove: notices marked all as read"
+    Log.line("Cove: notices marked all as read")
     out.unread = 0
     m.top.result = out
 end sub

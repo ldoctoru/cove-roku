@@ -3,6 +3,7 @@ import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Prefs.bs"
 import "pkg:/source/Speak.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.rows = m.top.findNode("rows")
@@ -69,7 +70,7 @@ end sub
 sub onListError(ev as object)
     t = ev.getRoSGNode()
     if t.gen <> m.gen then return
-    print "Cove: favorites "; t.listKey; ": "; ev.getData()
+    Log.line("Cove: favorites " + Util.toText(t.listKey) + ": " + Util.toText(ev.getData()))
     if t.listKey = "items" then m.loadError = ev.getData()
     listDone()
 end sub
@@ -141,7 +142,7 @@ sub buildRows()
     if titleCount = 1 then info = "1 Item"
     if titleCount > 1 then info = titleCount.toStr() + " Items"
     m.top.findNode("info").text = info
-    print "Cove: favorites "; titleCount; " titles, "; groups.people.count(); " people"
+    Log.line("Cove: favorites " + Util.toText(titleCount) + " titles, " + Util.toText(groups.people.count()) + " people")
     if root.getChildCount() = 0
         ' (SC-7) the last favourite was removed: the focus leaves the hidden list
         if m.rows.isInFocusChain() then m.top.setFocus(true)

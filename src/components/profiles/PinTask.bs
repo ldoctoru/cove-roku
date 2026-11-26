@@ -1,5 +1,6 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Pins.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -26,10 +27,10 @@ sub work()
         end if
     catch e
         out.error = Util.toText(e.message)
-        print "Cove: pin check failed: "; out.error
+        Log.line("Cove: pin check failed: " + Util.toText(out.error))
     end try
     out.ms = spent.totalMilliseconds()
-    print "Cove: pin "; out.mode; " "; out.ms; " ms"
+    Log.line("Cove: pin " + Util.toText(out.mode) + " " + Util.toText(out.ms) + " ms")
     ' (the PIN doesn't stay in the task's fields)
     m.top.request = {}
     m.top.result = out

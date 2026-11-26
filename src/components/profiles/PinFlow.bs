@@ -1,6 +1,7 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/Pins.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.stepTimer = m.top.findNode("stepTimer")
@@ -273,7 +274,7 @@ sub onPinChecked(ev as object)
         end for
         passFlow(matched)
     else
-        print "Cove: wrong profile PIN"
+        Log.line("Cove: wrong profile PIN")
         ' (a wrong parent PIN counts for every parent, so trying it here is no faster than on each profile)
         wait_ = 0
         for each uid in ids

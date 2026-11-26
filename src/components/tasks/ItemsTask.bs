@@ -1,6 +1,7 @@
 import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Ratings.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -15,7 +16,7 @@ sub work()
         r = Api.execute({ method: "GET", url: Util.toText(srv.url) + Ratings.withLimit(srv, m.top.path), headers: h, timeout: 20000 })
         if r.code = 404 and m.top.fallback <> "" then r = Api.execute({ method: "GET", url: Util.toText(srv.url) + Ratings.withLimit(srv, m.top.fallback), headers: h, timeout: 20000 })
         ' (v1.1.1: the time per request, so a device test gives real numbers)
-        print "Cove: items "; m.top.path.split("?")[0]; " -> "; r.code; " ("; spent.TotalMilliseconds(); " ms)"
+        Log.line("Cove: items " + Util.toText(m.top.path.split("?")[0]) + " -> " + Util.toText(r.code) + " (" + Util.toText(spent.TotalMilliseconds()) + " ms)")
         if r.code <> 200 or r.json = invalid
             m.top.error = "Couldn't load the list. " + Api.describeFailure(r)
             return
@@ -57,7 +58,7 @@ sub work()
         end for
         m.top.result = { nodes: holder, total: total, served: served, startIndex: m.top.startIndex, gen: m.top.gen, kind: kind }
     catch e
-        print "Cove: ItemsTask failed: "; Util.redact(Util.toText(e.message))
+        Log.line("Cove: ItemsTask failed: " + Util.redact(Util.toText(e.message)))
         m.top.error = "Loading failed: " + Util.toText(e.message)
     end try
 end sub

@@ -5,6 +5,7 @@ import "pkg:/source/Playback.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/NavUtil.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.top.findNode("bg").color = m.global.theme.bg
@@ -176,7 +177,7 @@ sub onLiveSessions()
     if not Util.isAA(d) or srv = invalid or type(d.list) <> "roArray" then return
     if Util.toText(d.serverId) <> Util.toText(srv.id) or Util.toText(d.userId) <> Util.toText(srv.userId) then return
     if not m.top.isInFocusChain() or m.top.suspended then return
-    if m.liveAt = 0 then print "Cove: now playing live (pushed by the server)"
+    if m.liveAt = 0 then Log.line("Cove: now playing live (pushed by the server)")
     m.liveAt = nowSecs()
     showSessions(d.list)
 end sub

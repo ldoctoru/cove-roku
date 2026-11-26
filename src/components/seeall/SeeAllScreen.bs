@@ -4,6 +4,7 @@ import "pkg:/source/Speak.bs"
 import "pkg:/source/Toasts.bs"
 import "pkg:/source/LibGrid.bs"
 import "pkg:/source/SeeAll.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.grid = m.top.findNode("grid")
@@ -69,7 +70,7 @@ sub onPreset()
     else
         m.cols = SeeAll.columns(false)
     end if
-    print "Cove: see all "; Util.toText(p.kind); " opened"
+    Log.line("Cove: see all " + Util.toText(p.kind) + " opened")
     reload()
 end sub
 

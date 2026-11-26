@@ -13,6 +13,7 @@ import "pkg:/source/NavUtil.bs"
 import "pkg:/source/Clock.bs"
 import "pkg:/source/WhatsNew.bs"
 import "pkg:/source/Live.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     Clock.startupMark("MainScene init")
@@ -222,7 +223,7 @@ sub pop()
     ' navtop / navside, lib:<id>, homeRows:<server>, ...), whether or not Settings flagged it
     if Util.toText(s.screenId) = "settings" and m.server <> invalid and m.themeDirty <> true and Util.toText(m.navPrint) <> ""
         if NavPrefs.fingerprint(Util.toText(m.server.id)) <> m.navPrint
-            print "Cove: home rebuilt after Settings (menu or Home rows changed)"
+            Log.line("Cove: home rebuilt after Settings (menu or Home rows changed)")
             m.themeDirty = true
         end if
     end if
@@ -257,7 +258,7 @@ sub detachScreen(s as dynamic)
     ' (SC5-2) any pop of a player (Back bubbling up, a dropped top, a reset) ends it like Back: video stopped,
     ' stop report, transcode ended (close() runs once, so a player that already finished is unchanged)
     if s.screenId = "player" and s.stopNow <> true
-        print "Cove: player off the stack (stopNow)"
+        Log.line("Cove: player off the stack (stopNow)")
         s.stopNow = true
         ' (the pages under it show the new resume point, as after a normal Back)
         markStale()
@@ -436,7 +437,7 @@ sub pickFound(index as integer)
     hostPort = foundAddress(f)
     cands = ["https://" + hostPort]
     if LCase(addr).startsWith("http://") then cands.push(addr)
-    print "Cove: picked a discovered server"
+    Log.line("Cove: picked a discovered server")
     startProbe(cands, Util.toText(f.name))
 end sub
 
@@ -488,7 +489,7 @@ sub showHome(server as object)
         m.pendingLink = invalid
         ' (C2-16: a link held for long, or for another server, is no longer what the user asked for)
         if nowSecs() - m.pendingLinkAt > 90 or (m.pendingLinkServer <> "" and m.pendingLinkServer <> Util.toText(server.id))
-            print "Cove: dropped a deep link that waited too long or was for another server"
+            Log.line("Cove: dropped a deep link that waited too long or was for another server")
         else
             openDeepLink(link)
         end if
@@ -514,13 +515,13 @@ sub onDeepLink()
     ' (from Roku Search / voice, or from any device on the network via ECP: only plain item ids go into the
     ' request path, anything else is ignored)
     if not Util.isSafeId(link.contentId, false) or not Util.isSafeId(link.mediaType, true)
-        print "Cove: ignored a deep link with an invalid contentId / mediaType"
+        Log.line("Cove: ignored a deep link with an invalid contentId / mediaType")
         return
     end if
     ' (R-13: one launch can arrive twice, as resume launchParams and as an roInputEvent: once within 2 s)
     cid = Util.toText(link.contentId)
     if cid = m.lastLinkId and nowSecs() - m.lastLinkAt <= 2
-        print "Cove: ignored a repeated deep link"
+        Log.line("Cove: ignored a repeated deep link")
         return
     end if
     m.lastLinkId = cid
@@ -561,7 +562,7 @@ sub onDeepLinkItem(r as object)
     ' (v1.5.2 CS-6) a late answer for another server or profile (Who's watching? picked meanwhile) is dropped:
     ' its 401 must not clear the sign-in of the profile now on screen
     if m.server = invalid or Util.toText(r.tag.serverId) <> Util.toText(m.server.id) or Util.toText(r.tag.userId) <> Util.toText(m.server.userId)
-        print "Cove: ignored a deep link answer for another server or profile"
+        Log.line("Cove: ignored a deep link answer for another server or profile")
         return
     end if
     if r.code = 401
@@ -613,7 +614,7 @@ sub onHomeAction(ev as object)
     ' start playback or open a page over whatever is on top now; "ready" and "changed" are always fine
     if a.id <> "ready" and a.id <> "changed" and not isTopScreen(sender)
         if not (a.id = "expired" and inStack(sender))
-            print "Cove: ignored a late "; Util.toText(a.id); " from a screen that is no longer on top"
+            Log.line("Cove: ignored a late " + Util.toText(a.id) + " from a screen that is no longer on top")
             return
         end if
     end if
@@ -821,14 +822,14 @@ sub capStack()
         m.stack.delete(i)
         m.screens.removeChild(old)
         detachScreen(old)
-        print "Cove: closed the oldest page ("; kinds[i]; "), "; m.stack.count(); " screens open"
+        Log.line("Cove: closed the oldest page (" + Util.toText(kinds[i]) + "), " + Util.toText(m.stack.count()) + " screens open")
     end while
 end sub
 
 ' More Like This: open that title on top
 sub onDetailsOpen(ev as object)
     if not isTopScreen(ev.getRoSGNode())
-        print "Cove: ignored a late page from a details page that is no longer on top"
+        Log.line("Cove: ignored a late page from a details page that is no longer on top")
         return
     end if
     a = ev.getData()
@@ -862,7 +863,7 @@ end sub
 sub onPlay(ev as object)
     ' (SC-3: Play All / Shuffle answering after Back)
     if not isTopScreen(ev.getRoSGNode())
-        print "Cove: ignored a late play from a details page that is no longer on top"
+        Log.line("Cove: ignored a late play from a details page that is no longer on top")
         return
     end if
     startPlayer(ev.getData())
@@ -892,12 +893,12 @@ sub playFromCard(a as object)
     if not Util.isSafeId(id, false) or QuickPlay.playKind(Util.toText(a.itemType)) = "" then return
     ' (a second press while the first is looked up: wait for it, at most 10 s)
     if m.quickPending <> invalid and nowSecs() - m.quickPending.at < 10
-        print "Cove: play key: still looking up the last one"
+        Log.line("Cove: play key: still looking up the last one")
         return
     end if
     rid = nextReqId()
     m.quickPending = { id: rid, screen: top(), at: nowSecs(), title: Util.toText(a.title), card: { itemId: id, itemType: Util.toText(a.itemType) } }
-    print "Cove: play key on "; Util.toText(a.itemType); " "; id
+    Log.line("Cove: play key on " + Util.toText(a.itemType) + " " + Util.toText(id))
     request("GET", m.server, "/Users/" + Util.toText(m.server.userId) + "/Items/" + id, true, "", { kind: "qpItem", reqId: rid })
 end sub
 
@@ -905,12 +906,12 @@ end sub
 function quickCurrent(r as object) as boolean
     p = m.quickPending
     if p = invalid or Util.toNumber(Util.field(r.tag, "reqId")) <> p.id
-        print "Cove: ignored an old play key answer"
+        Log.line("Cove: ignored an old play key answer")
         return false
     end if
     if not isTopScreen(p.screen)
         m.quickPending = invalid
-        print "Cove: dropped the play key answer: the page that asked is no longer on top"
+        Log.line("Cove: dropped the play key answer: the page that asked is no longer on top")
         return false
     end if
     return true
@@ -1015,7 +1016,7 @@ sub quickStart(it as object)
     item = QuickPlay.playerItem(it)
     ' (v1.3.1) the Play key on a Home card: that card's page opens when playback ends (Cove for macOS playFromHome)
     if p <> invalid and p.screen <> invalid and Util.toText(p.screen.screenId) = "home" then item.returnTo = p.card
-    print "Cove: play key starts "; item.id; " at "; item.start
+    Log.line("Cove: play key starts " + Util.toText(item.id) + " at " + Util.toText(item.start))
     startPlayer(item)
 end sub
 
@@ -1053,7 +1054,7 @@ sub onPlayerDone(ev as object)
     if seriesId <> "" and not (t <> invalid and t.screenId = "details" and Util.toText(t.itemId) = seriesId)
         openItem({ itemId: seriesId, itemType: "Series", title: "" })
     else if seriesId = "" and back <> invalid and t <> invalid and Util.toText(t.screenId) = "home"
-        print "Cove: player closed after Home playback: opening "; back.itemType; " "; back.itemId; " (season "; Util.toText(back.seasonId); ")"
+        Log.line("Cove: player closed after Home playback: opening " + Util.toText(back.itemType) + " " + Util.toText(back.itemId) + " (season " + Util.toText(back.seasonId) + ")")
         openItem(back)
     end if
 end sub
@@ -1289,7 +1290,7 @@ sub onResponse(ev as object)
             f = e.backtrace[e.backtrace.count() - 1]
             where = " at " + Util.toText(f.filename).replace("pkg:/", "") + ":" + Util.toText(f.line_number)
         end if
-        print "Cove: couldn't handle a server answer: "; Util.redact(Util.toText(e.message)); where
+        Log.line("Cove: couldn't handle a server answer: " + Util.redact(Util.toText(e.message)) + Util.toText(where))
         showNotice("Unexpected answer", "The server sent an answer Cove couldn't read. Please try again.")
     end try
 end sub
@@ -1299,7 +1300,7 @@ sub dispatchResponse(r as object)
     if kind = "probe"
         onProbe(r)
     else if (kind = "users" or kind = "qcEnabled") and (m.server = invalid or Util.toText(r.tag.serverId) <> Util.toText(m.server.id))
-        print "Cove: ignored a sign-in answer from another server"
+        Log.line("Cove: ignored a sign-in answer from another server")
     else if kind = "users"
         onUsers(r)
     else if kind = "qcEnabled"
@@ -1307,7 +1308,7 @@ sub dispatchResponse(r as object)
         showSignInItems("")
     else if kind = "signin" and (m.server = invalid or Util.toText(r.tag.serverId) <> Util.toText(m.server.id) or not topIs("signin"))
         ' (C2-5: Back and another server picked meanwhile: its token must not be saved under, or sent to, that one)
-        print "Cove: ignored a sign-in answer for another server or a closed sign-in"
+        Log.line("Cove: ignored a sign-in answer for another server or a closed sign-in")
     else if kind = "signin"
         onSignIn(r)
     else if kind = "validate"
@@ -1328,7 +1329,7 @@ sub dispatchResponse(r as object)
         ' (SC-3) dropped when the page with the season card was closed or covered meanwhile
         p = m.seasonPending
         if p = invalid or Util.toNumber(r.tag.reqId) <> p.id or not isTopScreen(p.screen)
-            print "Cove: ignored a late season answer"
+            Log.line("Cove: ignored a late season answer")
             return
         end if
         m.seasonPending = invalid
@@ -1352,7 +1353,7 @@ sub dispatchResponse(r as object)
     else if kind = "qpList"
         onQuickList(r)
     else if kind = "logout"
-        print "Cove: signed out of the removed server -> "; r.code
+        Log.line("Cove: signed out of the removed server -> " + Util.toText(r.code))
     end if
 end sub
 
@@ -1383,7 +1384,7 @@ end sub
 sub onProbe(r as object)
     ' (C2-10: a newer probe started, or the list it came from has gone: it must not open a server over another screen)
     if Util.toNumber(r.tag.gen) <> m.probeGen or not (topIs("servers") or topIs("address"))
-        print "Cove: ignored the answer of an earlier server probe"
+        Log.line("Cove: ignored the answer of an earlier server probe")
         return
     end if
     j = r.json
@@ -1436,7 +1437,7 @@ sub addProbed(srv as object)
     if prev <> invalid and Util.originOf(Util.toText(prev.url)) <> Util.originOf(Util.toText(srv.url))
         ' (every profile's sign-in: Servers.upsert clears their tokens, the profiles stay to sign in again)
         for each us in Servers.sessions(prev)
-            print "Cove: known server at a new address: the saved sign-in is not reused"
+            Log.line("Cove: known server at a new address: the saved sign-in is not reused")
             request("POST", us, "/Sessions/Logout", true, "", { kind: "logout" })
         end for
         srv.token = ""
@@ -1910,7 +1911,7 @@ sub switchProfile(srv as object, userId as string)
     end if
     s = Servers.useUser(Util.toText(srv.id), userId)
     if s = invalid then return
-    print "Cove: switching profile on "; Util.toText(s.name)
+    Log.line("Cove: switching profile on " + Util.toText(s.name))
     m.toastOnHome = "Switched to " + Util.toText(s.userName)
     if Util.toText(s.token) <> ""
         validate(s)
@@ -1941,7 +1942,7 @@ sub customSuspend(args as dynamic)
     where = ""
     t = top()
     if t <> invalid then where = Util.toText(t.screenId)
-    print "Cove: suspended ("; reason; ") on "; where
+    Log.line("Cove: suspended (" + Util.toText(reason) + ") on " + Util.toText(where))
     m.suspendedAt = nowSecs()
     try
         stopNextAsk()
@@ -1954,7 +1955,7 @@ sub customSuspend(args as dynamic)
         ' (v1.7 LIVE) the socket closes in the background; it opens again on resume
         liveSuspend()
     catch e
-        print "Cove: suspend failed: "; Util.redact(Util.toText(e.message))
+        Log.line("Cove: suspend failed: " + Util.redact(Util.toText(e.message)))
     end try
 end sub
 
@@ -1966,7 +1967,7 @@ sub customResume(args as dynamic)
     if m.suspendedAt > 0 then away = nowSecs() - m.suspendedAt
     reason = ""
     if Util.isAA(args) then reason = Util.toText(args.lastSuspendOrResumeReason)
-    print "Cove: resumed ("; reason; ") after "; away; " s"
+    Log.line("Cove: resumed (" + Util.toText(reason) + ") after " + Util.toText(away) + " s")
     try
         for each s in m.stack
             if s.hasField("suspended") then s.suspended = false
@@ -1975,7 +1976,7 @@ sub customResume(args as dynamic)
             ' (v0.9.1) someone else may be in front of the TV now: Who's watching? (and the profile's PIN) before
             ' anything else; a link that came with the launch waits until a profile is picked (reset() clears
             ' homeReady, so onDeepLink keeps it in pendingLink)
-            print "Cove: resumed after a while: asking who's watching"
+            Log.line("Cove: resumed after a while: asking who's watching")
             stopPlayers()
             showWho(m.server, "", false)
         else if m.homeReady and m.server <> invalid and Util.toText(m.server.token) <> ""
@@ -1990,14 +1991,14 @@ sub customResume(args as dynamic)
         if Util.isAA(args) and Util.isAA(args.launchParams)
             lp = args.launchParams
             if lp.contentId <> invalid and lp.mediaType <> invalid
-                print "Cove: resumed with contentId="; Util.toText(lp.contentId); " mediaType="; Util.toText(lp.mediaType)
+                Log.line("Cove: resumed with contentId=" + Util.toText(lp.contentId) + " mediaType=" + Util.toText(lp.mediaType))
                 m.top.deepLink = { contentId: lp.contentId, mediaType: lp.mediaType }
             end if
         end if
         ' (v1.7 LIVE) the socket again, and a look for new episodes
         liveResume()
     catch e
-        print "Cove: resume failed: "; Util.redact(Util.toText(e.message))
+        Log.line("Cove: resume failed: " + Util.redact(Util.toText(e.message)))
     end try
     ' (the screen is on and can be used: Roku measures the resume up to here)
     m.top.signalBeacon("AppResumeComplete")
@@ -2023,7 +2024,7 @@ end function
 sub onResumeCheck(r as object)
     if m.server = invalid or Util.toText(r.tag.serverId) <> Util.toText(m.server.id) then return
     if r.code = 401 or r.code = 403
-        print "Cove: the saved sign-in no longer works after the resume"
+        Log.line("Cove: the saved sign-in no longer works after the resume")
         ' (v1.5.2 CS-5) a deep link held by its own 401 stays: it opens after the sign-in (holdLink's age check
         ' drops it after 90 s)
         m.server.token = ""
@@ -2032,7 +2033,7 @@ sub onResumeCheck(r as object)
         return
     end if
     if r.code <> 200
-        print "Cove: sign-in check after the resume -> "; r.code
+        Log.line("Cove: sign-in check after the resume -> " + Util.toText(r.code))
         return
     end if
     ' rows older than 5 minutes: Home reloads now if it is on top, otherwise when it is shown again
@@ -2055,7 +2056,7 @@ sub initWhatsNew()
     m.whatsNewWanted = false
     info = createObject("roAppInfo")
     pick = WhatsNew.decide(Util.readText(WhatsNew.seenKey()), Util.toText(info.getVersion()), Servers.all().count() > 0)
-    print "Cove: whats new "; pick
+    Log.line("Cove: whats new " + Util.toText(pick))
     if pick = "store" then WhatsNew.markSeen()
     m.whatsNewWanted = pick = "show"
 end sub
@@ -2074,7 +2075,7 @@ end sub
 sub onWhatsNewTimer()
     m.whatsNewWanted = false
     if m.lastLinkId <> "" or m.pendingLink <> invalid or not topIs("home") or m.top.dialog <> invalid
-        print "Cove: whats new held for the next launch (Home is not on top)"
+        Log.line("Cove: whats new held for the next launch (Home is not on top)")
         return
     end if
     showWhatsNew(true)
@@ -2088,7 +2089,7 @@ sub showWhatsNew(afterUpdate as boolean)
     m.whatsNewPanel = p
     p.setFocus(true)
     if afterUpdate then WhatsNew.markSeen()
-    print "Cove: whats new shown ("; WhatsNew.notes().version; ", after update "; afterUpdate; ")"
+    Log.line("Cove: whats new shown (" + Util.toText(WhatsNew.notes().version) + ", after update " + Util.toText(afterUpdate) + ")")
 end sub
 
 sub onWhatsNewClosed()
@@ -2173,7 +2174,7 @@ sub syncSideNav()
     if want and t <> invalid then sig = "shown on " + Util.toText(t.screenId)
     if sig <> m.sideNavLog
         m.sideNavLog = sig
-        print "Cove: nav overlay " + sig
+        Log.line(Util.toText("Cove: nav overlay " + sig))
     end if
 end sub
 
@@ -2184,7 +2185,7 @@ function sideNavKey(key as string) as boolean
     act = NavUtil.overlayKeyAction(key, m.sideNav.visible, isOpen)
     if act = "open"
         t = top()
-        print "Cove: nav overlay open on " + Util.toText(t.screenId)
+        Log.line(Util.toText("Cove: nav overlay open on " + Util.toText(t.screenId)))
         ' (SideBar.onFocus opens it on the current page's entry and speaks it)
         m.sideNav.setFocus(true)
         return true
@@ -2212,7 +2213,7 @@ sub onSideNavChosen(ev as object)
             exit for
         end if
     end for
-    print "Cove: nav overlay chose " + id
+    Log.line(Util.toText("Cove: nav overlay chose " + id))
     if homeAt < 0 or id = ""
         closeSideNav()
         return
@@ -2278,7 +2279,7 @@ sub liveSync()
     srv = m.server
     want = not m.liveSuspended and m.homeReady and srv <> invalid and Util.toText(Util.field(srv, "token")) <> ""
     if want and not Live.liveOn()
-        if not m.liveOffLogged then print "Cove: live off (Settings > Connect)"
+        if not m.liveOffLogged then Log.line("Cove: live off (Settings > Connect)")
         m.liveOffLogged = true
         want = false
     end if
@@ -2339,7 +2340,7 @@ sub onLiveEvent(ev as object)
         m.liveDataTimer.control = "start"
     else if d.kind = "library"
         ' (M-3) new items: a look for new episodes once the server has their details (30 s later)
-        print "Cove: live library changed, "; d.ids.count(); " added"
+        Log.line("Cove: live library changed, " + Util.toText(d.ids.count()) + " added")
         noticesSoon("library", 30)
     end if
 end sub
@@ -2374,7 +2375,7 @@ sub liveApplyUserData()
         t.setFocus(true)
         what = sid + " reloaded"
     end if
-    print "Cove: live user data "; n; " items: "; what
+    Log.line("Cove: live user data " + Util.toText(n) + " items: " + Util.toText(what))
 end sub
 
 sub liveAfterSettings()
@@ -2392,7 +2393,7 @@ sub liveSuspend()
     m.liveDataTimer.control = "stop"
     m.noticesSoonTimer.control = "stop"
     m.liveIds = {}
-    if m.liveTask <> invalid then print "Cove: live closing (suspended)"
+    if m.liveTask <> invalid then Log.line("Cove: live closing (suspended)")
     liveStop()
 end sub
 

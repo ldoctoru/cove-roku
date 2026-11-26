@@ -10,6 +10,7 @@ import "pkg:/source/Toasts.bs"
 import "pkg:/source/Hints.bs"
 import "pkg:/source/NavUtil.bs"
 import "pkg:/source/Clock.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     Clock.startupMark("HomeScreen init")
@@ -239,7 +240,7 @@ sub onContent(ev as object)
         ' (SC5-2) a cold-launch deep link may already have pushed the player or a page over Home: lay Home out
         ' but leave the remote there; onFocusChanged focuses the hero or rows when Home is back on top
         onTop = m.top.isInFocusChain()
-        if not onTop then print "Cove: home rows arrived under another screen (focus left there)"
+        if not onTop then Log.line("Cove: home rows arrived under another screen (focus left there)")
         if m.heroes.count() > 0
             enterHero(false, onTop)
         else
@@ -286,7 +287,7 @@ end sub
 
 sub onAuthCheck(ev as object)
     r = ev.getData()
-    print "Cove: sign-in check -> "; r.code
+    Log.line("Cove: sign-in check -> " + Util.toText(r.code))
     if r.code = 401 then m.top.action = { id: "expired" }
 end sub
 
@@ -358,7 +359,7 @@ sub buildNav()
     sig = place + ":" + shownList.count().toStr()
     if sig <> m.navLogged
         m.navLogged = sig
-        print "Cove: nav " + place + " " + shownList.count().toStr() + " entries"
+        Log.line(Util.toText("Cove: nav " + place + " " + shownList.count().toStr() + " entries"))
     end if
     m.nav.items = items
     ' (v1.7 NAV M-4) the same entries for the sidebar on the other top-level pages (MainScene)
@@ -509,7 +510,7 @@ sub onBannerTick()
         if m.bannerNodes.count() > 0 then return
         m.bannerRound = m.bannerRound + 1
         applyHeroes(rowHeroes(m.rows.content, m.bannerRound))
-        print "Cove: home banner rows "; m.heroes.count(); " titles 0 ms (refresh "; m.bannerRound; ")"
+        Log.line("Cove: home banner rows " + Util.toText(m.heroes.count()) + " titles 0 ms (refresh " + Util.toText(m.bannerRound) + ")")
         return
     end if
     if m.bannerTask <> invalid
@@ -1355,12 +1356,12 @@ end sub
 
 sub unresumeStep(tag as object)
     st = tag.steps[tag.at]
-    print "Cove: remove from Continue Watching: "; st.method; " "; st.path.split("?")[0]
+    Log.line("Cove: remove from Continue Watching: " + Util.toText(st.method) + " " + Util.toText(st.path.split("?")[0]))
     send(st.method, st.path, tag, st.body)
 end sub
 
 sub onUnresume(r as object)
-    print "Cove:   -> "; r.code
+    Log.line("Cove:   -> " + Util.toText(r.code))
     tag = r.tag
     if r.code >= 200 and r.code < 300
         ' the row reloads in place (the focus stays on the same place in it)
@@ -1374,7 +1375,7 @@ sub onUnresume(r as object)
         return
     end if
     ' (the card stays: the row shows the server's state)
-    print "Cove: remove from Continue Watching failed "; r.code
+    Log.line("Cove: remove from Continue Watching failed " + Util.toText(r.code))
     Toasts.notify(Toasts.failedText("remove it from Continue Watching"), "info")
 end sub
 

@@ -1,6 +1,7 @@
 import "pkg:/source/Api.bs"
 import "pkg:/source/Util.bs"
 import "pkg:/source/Ratings.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -18,10 +19,10 @@ sub work()
         if show = "favourites" then flag = "IsFavorite"
         found = pick(q, ct, genre, flag)
         if found.count() = 0 and flag = "IsUnplayed" and show <> "unwatched" then found = pick(q, ct, genre, "")
-        print "Cove: shuffle -> "; found.count(); " titles"
+        Log.line("Cove: shuffle -> " + Util.toText(found.count()) + " titles")
         m.top.result = { queue: found }
     catch e
-        print "Cove: ShuffleTask failed: "; Util.redact(Util.toText(e.message))
+        Log.line("Cove: ShuffleTask failed: " + Util.redact(Util.toText(e.message)))
         m.top.error = "Shuffle failed: " + Util.toText(e.message)
     end try
 end sub
@@ -57,7 +58,7 @@ function fetchItems(params as string) as object
     uid = Util.toText(srv.userId)
     ' (the profile's rating limit, v0.9.0)
     r = Api.execute({ method: "GET", url: Util.toText(srv.url) + Ratings.withLimit(srv, "/Users/" + uid + "/Items?" + params + "&Fields=PrimaryImageAspectRatio&EnableUserData=false&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb"), headers: Api.headers(srv, true), timeout: 20000 })
-    print "Cove: shuffle items -> "; r.code
+    Log.line("Cove: shuffle items -> " + Util.toText(r.code))
     out = []
     if r.code <> 200 or not Util.isAA(r.json) or type(r.json.Items) <> "roArray" then return out
     ' (v0.9.1: the series ratings of unrated episodes, one request)

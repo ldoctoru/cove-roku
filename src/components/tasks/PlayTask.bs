@@ -1,6 +1,7 @@
 import "pkg:/source/Api.bs"
 import "pkg:/source/Playback.bs"
 import "pkg:/source/Tracks.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -14,7 +15,7 @@ sub work()
         if opts = invalid or opts.audio = invalid then opts = Playback.options(srv)
         url = Util.toText(srv.url) + "/Items/" + m.top.itemId + "/PlaybackInfo?" + Playback.infoQuery(srv, m.top.forceTranscode, opts)
         r = Api.execute({ method: "POST", url: url, headers: Api.headers(srv, true), body: Playback.infoBody(caps, opts, Servers.isJellyfin(srv)), timeout: 30000 })
-        print "Cove: PlaybackInfo -> "; r.code
+        Log.line("Cove: PlaybackInfo -> " + Util.toText(r.code))
         if r.code <> 200
             m.top.error = "The server couldn't prepare this video. " + Api.describeFailure(r)
             return
@@ -22,7 +23,7 @@ sub work()
         force = m.top.forceTranscode
         ' (PL-11: the quality cap is below the file's bitrate: the server encodes, as for a conversion)
         if not force and Tracks.capForcesEncode(r.json, Util.toText(opts.sourceId), opts.maxBitrate)
-            print "Cove: quality cap below the file's bitrate, converting"
+            Log.line("Cove: quality cap below the file's bitrate, converting")
             force = true
         end if
         s = Playback.streamFrom(srv, m.top.itemId, r.json, force, opts)
@@ -30,10 +31,10 @@ sub work()
             m.top.error = "The server offered no way to play this video on this Roku."
             return
         end if
-        print "Cove: play "; s.method; " ("; s.streamFormat; ", source video "; s.sourceVideoCodec; ")"
+        Log.line("Cove: play " + Util.toText(s.method) + " (" + Util.toText(s.streamFormat) + ", source video " + Util.toText(s.sourceVideoCodec) + ")")
         m.top.stream = s
     catch e
-        print "Cove: PlayTask failed: "; Util.redact(Util.toText(e.message))
+        Log.line("Cove: PlayTask failed: " + Util.redact(Util.toText(e.message)))
         m.top.error = "Couldn't start playback: " + Util.redact(Util.toText(e.message))
     end try
 end sub

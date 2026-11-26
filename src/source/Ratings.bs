@@ -1,5 +1,6 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Api.bs"
+import "pkg:/source/Log.bs"
 
 ' Kids limit (per profile, Settings → Profiles → a profile → Maximum rating): Off / G / PG / PG-13 / R. Lists
 ' ask the server with MaxOfficialRating (it compares with its own rating scale), and titles with a known rating
@@ -179,7 +180,7 @@ namespace Ratings
         ids = missingSeries(server, list)
         if ids.count() = 0 then return
         r = Api.execute({ method: "GET", url: Util.toText(server.url) + seriesPath(server, ids), headers: Api.headers(server, true), timeout: 15000 })
-        print "Cove: series ratings for "; ids.count(); " -> "; r.code
+        Log.line("Cove: series ratings for " + Util.toText(ids.count()) + " -> " + Util.toText(r.code))
         if r.code = 200 then rememberSeries(server, ids, r.json)
     end sub
 

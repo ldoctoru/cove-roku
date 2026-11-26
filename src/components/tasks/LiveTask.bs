@@ -2,6 +2,7 @@ import "pkg:/source/Util.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/Live.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -16,7 +17,7 @@ sub work()
             frame = e.backtrace[e.backtrace.count() - 1]
             if Util.isAA(frame) then where = " (" + Util.toText(frame.filename) + ":" + Util.toText(frame.line_number) + ")"
         end if
-        print "Cove: live failed: "; Util.redact(Util.toText(e.message) + where)
+        Log.line("Cove: live failed: " + Util.redact(Util.toText(e.message) + where))
         m.top.liveState = "failed"
     end try
 end sub
@@ -35,7 +36,7 @@ sub socketLoop()
     end if
     url = Live.socketUrl(Util.toText(srv.url), Servers.isJellyfin(srv), Util.toText(srv.token), Util.deviceId())
     if url = ""
-        print "Cove: live unsupported for this server address (polling as before)"
+        Log.line("Cove: live unsupported for this server address (polling as before)")
         m.top.liveState = "unsupported"
         return
     end if
@@ -47,7 +48,7 @@ sub socketLoop()
     while true
         ws = CreateObject(socketKind())
         if ws = invalid
-            print "Cove: live unsupported (no roWebSocket on this Roku OS): polling as before"
+            Log.line("Cove: live unsupported (no roWebSocket on this Roku OS): polling as before")
             m.top.liveState = "unsupported"
             return
         end if
@@ -63,13 +64,13 @@ sub socketLoop()
             failures = failures + 1
         end if
         if Live.gaveUp(failures)
-            print "Cove: live gave up after "; failures; " failed attempts: polling as before"
+            Log.line("Cove: live gave up after " + Util.toText(failures) + " failed attempts: polling as before")
             m.top.liveState = "failed"
             return
         end if
         secs = Live.backoffSecs(attempt)
         attempt = attempt + 1
-        print "Cove: live reconnect in "; secs; " s"
+        Log.line("Cove: live reconnect in " + Util.toText(secs) + " s")
         m.top.liveState = "waiting"
         if not waitOrClose(secs * 1000)
             m.top.liveState = "closed"
@@ -90,7 +91,7 @@ function waitOrClose(ms as integer) as boolean
         msg = wait(500, m.port)
         if type(msg) = "roSGNodeEvent"
             if msg.getField() = "command" and Util.toText(msg.getData()) = "close"
-                print "Cove: live closed by the app"
+                Log.line("Cove: live closed by the app")
                 return false
             end if
             if msg.getField() = "liveWantSessions" then m.wantSessions = msg.getData() = true
@@ -110,7 +111,7 @@ function openAndRead(ws as object, url as string, attempt as integer) as boolean
     end for
     sid = ws.getSocketId()
     spent = createObject("roTimespan")
-    print "Cove: live connecting "; Util.redact(url); " (attempt "; attempt + 1; ")"
+    Log.line("Cove: live connecting " + Util.redact(url) + " (attempt " + Util.toText(attempt + 1) + ")")
     m.top.liveState = "connecting"
     ws.open()
     opened = false
@@ -125,7 +126,7 @@ function openAndRead(ws as object, url as string, attempt as integer) as boolean
                 et = msg.getType()
                 if et = 1
                     opened = true
-                    print "Cove: live open "; spent.totalMilliseconds(); " ms"
+                    Log.line("Cove: live open " + Util.toText(spent.totalMilliseconds()) + " ms")
                     m.top.liveState = "open"
                     keepAt.mark()
                     if m.wantSessions
@@ -145,7 +146,7 @@ function openAndRead(ws as object, url as string, attempt as integer) as boolean
                     if reason = "" then reason = Util.toText(Util.field(info, "Reason"))
                     kind = "closed"
                     if et = 3 then kind = "error"
-                    print "Cove: live "; kind; " code "; Util.toText(Util.field(info, "Code")); " "; Util.redact(reason); " after "; spent.totalMilliseconds(); " ms"
+                    Log.line("Cove: live " + Util.toText(kind) + " code " + Util.toText(Util.field(info, "Code")) + " " + Util.redact(reason) + " after " + Util.toText(spent.totalMilliseconds()) + " ms")
                     flushCounts()
                     return opened
                 end if
@@ -157,14 +158,14 @@ function openAndRead(ws as object, url as string, attempt as integer) as boolean
                 if opened and sessionsOn then ws.send(Live.sessionsFrame(false))
                 ws.close(1000, "")
                 flushCounts()
-                print "Cove: live closed by the app"
+                Log.line("Cove: live closed by the app")
                 return opened
             else if f = "liveWantSessions"
                 m.wantSessions = msg.getData() = true
                 if opened and m.wantSessions <> sessionsOn
                     ws.send(Live.sessionsFrame(m.wantSessions))
                     sessionsOn = m.wantSessions
-                    print "Cove: live sessions "; sessionsOn
+                    Log.line("Cove: live sessions " + Util.toText(sessionsOn))
                 end if
             end if
         end if
@@ -174,7 +175,7 @@ function openAndRead(ws as object, url as string, attempt as integer) as boolean
         end if
         ' (the handshake never answered: give it up after 15 s, as the Mac does)
         if not opened and spent.totalMilliseconds() > 15000
-            print "Cove: live open timed out after 15000 ms"
+            Log.line("Cove: live open timed out after 15000 ms")
             ws.close(1000, "")
             return false
         end if
@@ -204,14 +205,14 @@ function onText(ws as object, text as dynamic) as integer
             m.global.liveSessions = { serverId: Util.toText(srv.id), userId: Util.toText(srv.userId), list: f.data, at: createObject("roDateTime").asSeconds() }
         end if
     else if Live.isRemoteCommand(t)
-        print "Cove: live ignored "; t; " (no remote control)"
+        Log.line("Cove: live ignored " + Util.toText(t) + " (no remote control)")
     end if
     return 0
 end function
 
 ' "Cove: live messages Sessions 12, UserDataChanged 1" (at most once a minute)
 sub flushCounts()
-    if m.counts.count() > 0 then print "Cove: live messages "; Live.countsText(m.counts); " in "; m.countsAt.totalMilliseconds(); " ms"
+    if m.counts.count() > 0 then Log.line("Cove: live messages " + Util.toText(Live.countsText(m.counts)) + " in " + Util.toText(m.countsAt.totalMilliseconds()) + " ms")
     m.counts = {}
     m.countsAt.mark()
 end sub
