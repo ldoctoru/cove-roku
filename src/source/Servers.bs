@@ -30,6 +30,8 @@ namespace Servers
             clean.push(stripped(s))
         end for
         Util.writeText("servers", formatJson(clean))
+        ' (v1.6 ST-9) the personal settings follow the active profile
+        PrefScope.sync()
     end sub
 
     ' A record in the current shape: users (from the old single-user fields when needed) and cur
@@ -201,6 +203,8 @@ namespace Servers
                 s.users = kept
                 if Util.toText(s.cur) = userId then s.cur = ""
                 saveAll(list)
+                ' (v1.6 ST-9) their own settings go with them
+                PrefScope.forgetProfile(userId)
                 return
             end if
         end for
@@ -291,6 +295,7 @@ namespace Servers
         end for
         saveAll(kept)
         if Util.readText("active") = id then Util.writeText("active", "")
+        PrefScope.sync()
         ' (its library order goes with it)
         sec = createObject("roRegistrySection", "Cove")
         if sec.exists("libOrder:" + id)
@@ -309,6 +314,7 @@ namespace Servers
         ' (v1.2) a registry write + flush on every launch cost time before Home: only when it changes
         if Util.readText("active") = id then return
         Util.writeText("active", id)
+        PrefScope.sync()
     end sub
 
     function isJellyfin(server as object) as boolean
@@ -339,11 +345,14 @@ namespace Servers
                 gone = gone + 1
             end if
         end for
-        for each listKey in ["libFilters", "seriesLangs"]
-            list = Util.readJson(listKey)
-            if type(list) = "roArray"
-                kept = Servers.withoutTag(list, tg)
-                if kept.count() <> list.count() then sec.write(listKey, formatJson(kept))
+        ' (v1.6 ST-9: the shared lists and every profile's own copy, read as stored)
+        for each listKey in sec.getKeyList()
+            if listKey = "libFilters" or listKey = "seriesLangs" or listKey.startsWith("libFilters@") or listKey.startsWith("seriesLangs@")
+                list = parseJson(sec.read(listKey))
+                if type(list) = "roArray"
+                    kept = Servers.withoutTag(list, tg)
+                    if kept.count() <> list.count() then sec.write(listKey, formatJson(kept))
+                end if
             end if
         end for
         waitMap = Util.readJson("pinWait")
@@ -358,6 +367,23 @@ namespace Servers
         for each k in ["homeRows:" + serverId, "libOrder:" + serverId]
             if sec.exists(k) then sec.delete(k)
         end for
+        ' (v1.6 ST-9) and its profiles' own settings
+        srv = Servers.find(serverId)
+        if srv <> invalid
+            for each u in srv.users
+                PrefScope.forgetProfile(Util.toText(u.i))
+            end for
+            ' (v1.6 CS-8) and the sign-in form its address accepted (Api.authShapeOf)
+            shapes = Util.readJson("authShape")
+            origin = Util.originOf(Util.toText(srv.url))
+            if type(shapes) = "roArray"
+                keptShapes = []
+                for each e in shapes
+                    if Util.isAA(e) and Util.toText(e.o) <> origin then keptShapes.push(e)
+                end for
+                if keptShapes.count() <> shapes.count() then sec.write("authShape", formatJson(keptShapes))
+            end if
+        end if
         if not sec.flush() then print "Cove: registry flush failed after forgetting a server"
         print "Cove: forgot the settings of a removed server ("; gone; " keys)"
     end sub

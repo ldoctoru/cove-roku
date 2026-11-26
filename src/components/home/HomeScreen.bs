@@ -497,6 +497,8 @@ sub onBannerTick()
     m.bannerLast = bannerNowSecs()
     src = m.bannerPref.source
     if src = "rows"
+        ' (v1.6 H-1) an Emby 4.10 Spotlight banner keeps its titles (they come with the next Home load)
+        if m.bannerNodes.count() > 0 then return
         m.bannerRound = m.bannerRound + 1
         applyHeroes(rowHeroes(m.rows.content, m.bannerRound))
         print "Cove: home banner rows "; m.heroes.count(); " titles 0 ms (refresh "; m.bannerRound; ")"
@@ -924,6 +926,10 @@ sub onItemFocused()
     if m.state <> "rows" then return
     it = focusedItem()
     if it = invalid then return
+    if isSeeAllCard(it)
+        focusSeeAll()
+        return
+    end if
     m.top.findNode("title").text = it.title
     maybeShowHint()
     if Speak.isOn()
@@ -957,7 +963,13 @@ end sub
 
 sub onItemSelected()
     it = focusedItem()
-    if it <> invalid then m.top.action = openAction(it)
+    if it = invalid then return
+    ' (v1.6 M-2) the row's See All card: the row's whole list
+    if isSeeAllCard(it)
+        m.top.action = { id: "seeall", preset: it.seeAll }
+        return
+    end if
+    m.top.action = openAction(it)
 end sub
 
 ' (v1.1) Upcoming cards haven't aired: they open their series page, and have no Play or Mark as watched
@@ -1052,7 +1064,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
         end if
         m.hintBar.show = false
         ' on a card: what to do with that title; elsewhere the app options
-        if m.state = "rows" and focusedItem() <> invalid
+        if m.state = "rows" and isSeeAllCard(focusedItem())
+            ' (v1.6 M-2: nothing to do with the See All card)
+        else if m.state = "rows" and focusedItem() <> invalid
             itemMenu(focusedItem())
         else
             showOptions()
@@ -1456,4 +1470,28 @@ sub onRowsAdded(ev as object)
     sizeRows(content)
     m.partialShown = false
     Clock.startupMark("home late row added")
+end sub
+
+' ---------------------------------------------------------------- v1.6 HOME
+
+' (v1.6 M-2) A row's last card, "See All" (HomeTask.addSeeAll)
+function isSeeAllCard(it as dynamic) as boolean
+    return it <> invalid and it.hasField("kind") and it.kind = "seeall"
+end function
+
+' (v1.6 M-2) The See All card has the focus: the text above the rows names the row, the backdrop stays
+sub focusSeeAll()
+    row = focusedRowTitle()
+    m.top.findNode("title").text = "See All"
+    m.top.findNode("meta").text = row
+    for i = 0 to 2
+        m.top.findNode("ov" + i.toStr()).text = ""
+    end for
+    m.backdropTimer.control = "stop"
+    if Speak.isOn()
+        f = m.rows.rowItemFocused
+        text = "See All, " + row + ", button"
+        if f[0] <> m.spokenRow then m.spokenRow = f[0]
+        Speak.say(text)
+    end if
 end sub

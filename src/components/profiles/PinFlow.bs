@@ -10,6 +10,9 @@ sub init()
     m.noticeText = ""
     m.doneResult = invalid
     m.dialog = invalid
+    ' (v1.6 CS-11) the PIN check running on PinTask, and its sequence number
+    m.pinTask = invalid
+    m.pinSeq = 0
 end sub
 
 sub onRequest()
@@ -190,30 +193,13 @@ sub onPadButton(ev as object)
     if f.stepName = "verify"
         ids = [f.userId]
         if f.goal = "parent" then ids = Servers.parentIds(srv)
-        matched = ""
+        ' (v1.6 CS-11) the hashing (1000 rounds per profile) runs on PinTask; the answer goes on in onPinChecked
+        list = []
         for each uid in ids
-            stored = Servers.pinOf(srv, uid)
-            if matched = "" and Pins.matches(stored, sid, uid, pin)
-                matched = uid
-                ' (a v0.9.0 hash: saved again in the v0.9.1 form)
-                if Pins.isOldHash(stored) then Servers.setUserField(sid, uid, "p", Pins.make(sid, uid, pin))
-            end if
+            list.push({ uid: uid, stored: Servers.pinOf(srv, uid) })
         end for
-        if matched <> ""
-            for each uid in ids
-                Pins.clearWrong(sid, uid)
-            end for
-            passFlow(matched)
-        else
-            print "Cove: wrong profile PIN"
-            ' (a wrong parent PIN counts for every parent, so trying it here is no faster than on each profile)
-            wait_ = 0
-            for each uid in ids
-                w = Pins.noteWrong(sid, uid)
-                if w > wait_ then wait_ = w
-            end for
-            failFlow(Pins.wrongText(wait_))
-        end if
+        f.checkIds = ids
+        startPinTask({ mode: "verify", serverId: sid, pin: pin, ids: list })
     else if f.stepName = "new"
         if not Pins.isValid(pin)
             later("new")
@@ -227,10 +213,74 @@ sub onPadButton(ev as object)
             failFlow("The PINs didn't match. The PIN wasn't changed.")
             return
         end if
-        Servers.setUserField(sid, f.userId, "p", Pins.make(sid, f.userId, pin))
-        Pins.clearWrong(sid, f.userId)
         f.newPin = ""
+        ' (v1.6 CS-11) the new hash is made on PinTask; saved in onPinChecked
+        startPinTask({ mode: "make", serverId: sid, userId: f.userId, pin: pin })
+    end if
+end sub
+
+' ---------------------------------------------------------------- v1.6 CORE
+
+' (v1.6 CS-11) Runs one PIN check / hash on PinTask, tagged with a sequence number so an answer for an older
+' flow (cancelled, replaced) is dropped. The remote stays free while it runs.
+sub startPinTask(q as object)
+    if m.pinTask <> invalid
+        m.pinTask.unobserveField("result")
+        m.pinTask.control = "stop"
+    end if
+    if m.pinSeq = invalid then m.pinSeq = 0
+    m.pinSeq = m.pinSeq + 1
+    q.seq = m.pinSeq
+    m.flow.checking = m.pinSeq
+    t = createObject("roSGNode", "PinTask")
+    t.observeField("result", "onPinChecked")
+    t.request = q
+    t.control = "RUN"
+    m.pinTask = t
+end sub
+
+sub onPinChecked(ev as object)
+    t = ev.getRoSGNode()
+    r = ev.getData()
+    t.unobserveField("result")
+    if m.pinTask <> invalid and m.pinTask.isSameNode(t) then m.pinTask = invalid
+    f = m.flow
+    if f = invalid or not Util.isAA(r) or Util.toNumber(r.seq) <> Util.toNumber(f.checking) then return
+    f.checking = 0
+    sid = f.serverId
+    if Util.toText(r.error) <> ""
+        failFlow("The PIN couldn't be checked. Please try again.")
+        return
+    end if
+    if Util.toText(r.mode) = "make"
+        if Util.toText(r.hash) = ""
+            failFlow("The PIN wasn't changed.")
+            return
+        end if
+        Servers.setUserField(sid, f.userId, "p", Util.toText(r.hash))
+        Pins.clearWrong(sid, f.userId)
         passFlow(f.userId)
+        return
+    end if
+    ids = f.checkIds
+    if type(ids) <> "roArray" then ids = []
+    matched = Util.toText(r.matched)
+    if matched <> ""
+        ' (a v0.9.0 hash: saved again in the v0.9.1 form, made on the task)
+        if Util.toText(r.upgrade) <> "" then Servers.setUserField(sid, matched, "p", Util.toText(r.upgrade))
+        for each uid in ids
+            Pins.clearWrong(sid, uid)
+        end for
+        passFlow(matched)
+    else
+        print "Cove: wrong profile PIN"
+        ' (a wrong parent PIN counts for every parent, so trying it here is no faster than on each profile)
+        wait_ = 0
+        for each uid in ids
+            w = Pins.noteWrong(sid, uid)
+            if w > wait_ then wait_ = w
+        end for
+        failFlow(Pins.wrongText(wait_))
     end if
 end sub
 

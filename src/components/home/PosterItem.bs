@@ -25,6 +25,7 @@ sub init()
     m.libTile = false
     m.selected = false
     m.phBars = invalid
+    m.seeAll = invalid
 end sub
 
 ' The tile keeps a margin of PAD around the card, because a list clips each item to its own area: without
@@ -192,6 +193,7 @@ sub onContent()
         mk.uri = t.maskPoster
     end if
     if drawPlaceholder(c) then return
+    if drawSeeAll(c) then return
     m.initials.text = UCase(Left(c.title, 1))
     m.initials.visible = true
     m.image.uri = c.hdPosterUrl
@@ -403,6 +405,60 @@ function drawPlaceholder(c as object) as boolean
     m.initials.visible = false
     m.title.visible = false
     m.year.visible = false
+    for each id in ["barTrack", "barFill", "scrim", "overTitle", "overSub", "overTop", "overTopShadow", "resume", "miniTrack", "miniFill", "miniLeft", "ep", "heart", "badge", "badgeIcon", "badgeText"]
+        m.top.findNode(id).visible = false
+    end for
+    return true
+end function
+
+' (v1.6 M-2) A Home row's last card, "See All": a flat tile in the row's card shape (the page's control fill,
+' the label and a right chevron in the middle, no picture); the focus ring as on every card. Made the first
+' time one is shown; a recycled tile hides it again.
+function drawSeeAll(c as object) as boolean
+    isSeeAll = c.hasField("kind") and c.kind = "seeall"
+    if m.seeAll <> invalid then m.seeAll.visible = isSeeAll
+    ph = m.top.findNode("ph")
+    if not isSeeAll
+        ph.color = m.global.theme.placeholder
+        return false
+    end if
+    t = m.global.theme
+    if m.seeAll = invalid
+        m.seeAll = m.top.findNode("card").createChild("Group")
+        lab = m.seeAll.createChild("Label")
+        lab.id = "seeAllText"
+        lab.text = "See All"
+        lab.horizAlign = "center"
+        lab.vertAlign = "center"
+        fnt = createObject("roSGNode", "Font")
+        fnt.uri = "font:BoldSystemFontFile"
+        fnt.size = 30
+        lab.font = fnt
+        chev = m.seeAll.createChild("Poster")
+        chev.id = "seeAllChev"
+        chev.uri = "pkg:/images/ui/icon_chevron_28.png"
+        chev.width = 28
+        chev.height = 28
+        chev.scaleRotateCenter = [14, 14]
+        ' (the down chevron turned to point right)
+        chev.rotation = 1.5708
+    end if
+    lab = m.seeAll.findNode("seeAllText")
+    lab.color = t.text
+    lab.width = m.w
+    lab.height = 44
+    lab.translation = [0, Int(m.h / 2) - 40]
+    chev = m.seeAll.findNode("seeAllChev")
+    chev.blendColor = t.text
+    chev.translation = [Int(m.w / 2) - 14, Int(m.h / 2) + 12]
+    ph.color = t.controlFill
+    m.image.uri = ""
+    m.image.opacity = 1.0
+    m.initials.text = ""
+    m.initials.visible = false
+    m.title.visible = false
+    m.year.visible = false
+    m.selected = false
     for each id in ["barTrack", "barFill", "scrim", "overTitle", "overSub", "overTop", "overTopShadow", "resume", "miniTrack", "miniFill", "miniLeft", "ep", "heart", "badge", "badgeIcon", "badgeText"]
         m.top.findNode(id).visible = false
     end for

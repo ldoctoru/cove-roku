@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.6 CS-11) The PIN hashing off the render thread (1000 SHA-256 rounds per stored PIN, Pins.bs). Set
+     "request", then control = "RUN":
+       { mode: "verify", seq, serverId, pin, ids: [{ uid, stored }] } → result { seq, mode, matched (the first uid
+         whose PIN is right, "" = none), upgrade (a v0.9.1 hash to save for matched when its old one was v0.9.0) }
+       { mode: "make", seq, serverId, userId, pin } → result { seq, mode, hash }
+     result also has ms and error ("" = none). -->
+<component name="PinTask" extends="Task">
+    <script type="text/brightscript" uri="PinTask.bs" />
+    <interface>
+        <field id="request" type="assocarray" />
+        <field id="result" type="assocarray" />
+    </interface>
+</component>

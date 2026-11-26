@@ -200,12 +200,9 @@ namespace NavPrefs
         end if
     end sub
 
+    ' (v1.6 ST-9: a menu list is personal, so this is the profile's "back to default", Util.deletePref)
     sub deleteKey(key as string)
-        sec = createObject("roRegistrySection", "Cove")
-        if sec.exists(key)
-            sec.delete(key)
-            sec.flush()
-        end if
+        Util.deletePref(key)
     end sub
 
     function isShown(place as string, id as string, libs as object) as boolean

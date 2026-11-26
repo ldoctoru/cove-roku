@@ -1,0 +1,99 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Speak.bs"
+import "pkg:/source/WhatsNew.bs"
+
+sub init()
+    t = m.global.theme
+    m.keys = m.top.findNode("keys")
+    m.top.observeField("focusedChild", "onFocusChanged")
+    Speak.mute([m.keys])
+    n = WhatsNew.notes()
+    w = 1120
+    x = Int((1920 - w) / 2)
+    body = m.top.findNode("body")
+    y = 56
+    title = body.createChild("Label")
+    title.font = panelFont(true, 44)
+    title.color = t.text
+    title.text = n.title
+    title.width = w - 112
+    title.height = 60
+    title.translation = [56, y]
+    y = y + 92
+    for each line in n.lines
+        parts = Util.wrapLines(line, 58, 2)
+        for i = 0 to parts.count() - 1
+            l = body.createChild("Label")
+            l.font = panelFont(false, 28)
+            l.color = t.text1
+            l.width = w - 150
+            l.height = 40
+            l.translation = [94, y]
+            l.text = parts[i]
+            if i = 0
+                dot = body.createChild("Label")
+                dot.font = panelFont(true, 28)
+                dot.color = t.text
+                dot.text = "·"
+                dot.width = 30
+                dot.height = 40
+                dot.translation = [60, y]
+            end if
+            y = y + 40
+        end for
+        y = y + 14
+    end for
+    y = y + 24
+    ' the one button: solid white with dark text (it always has the focus)
+    bw = 260
+    bh = 68
+    btn = body.createChild("Poster")
+    btn.uri = "pkg:/images/ui/flat_pill_68.9.png"
+    btn.blendColor = t.focusFill
+    btn.width = bw
+    btn.height = bh
+    btn.translation = [56, y]
+    lab = body.createChild("Label")
+    lab.font = panelFont(true, 30)
+    lab.color = t.onFocus
+    lab.text = "Continue"
+    lab.width = bw
+    lab.height = bh
+    lab.horizAlign = "center"
+    lab.vertAlign = "center"
+    lab.translation = [56, y]
+    h = y + bh + 56
+    top = Int((1080 - h) / 2)
+    if top < 40 then top = 40
+    p = m.top.findNode("panel")
+    p.uri = t.panel
+    p.width = w
+    p.height = h
+    p.translation = [x, top]
+    body.translation = [x, top]
+end sub
+
+function panelFont(bold as boolean, size as integer) as object
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    if bold then f.uri = "font:BoldSystemFontFile"
+    f.size = size
+    return f
+end function
+
+sub onFocusChanged()
+    if m.top.hasFocus() then m.keys.setFocus(true)
+    if m.keys.hasFocus() and m.spoken <> true
+        m.spoken = true
+        if Speak.isOn() then Speak.say(WhatsNew.spoken())
+    end if
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return true
+    if key = "OK" or key = "back"
+        m.top.closed = true
+    end if
+    ' (the panel keeps every key while it is open)
+    return true
+end function
