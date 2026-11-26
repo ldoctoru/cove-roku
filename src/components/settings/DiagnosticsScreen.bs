@@ -1,0 +1,302 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Servers.bs"
+import "pkg:/source/DeviceCaps.bs"
+import "pkg:/source/Ratings.bs"
+import "pkg:/source/Speak.bs"
+import "pkg:/source/Diag.bs"
+import "pkg:/source/Log.bs"
+
+' (v1.7 DIAG M-9) Settings → About → Diagnostics (see DiagnosticsScreen.xml). The rows are built once (facts)
+' plus once per log copy; only the visible window of rows has Labels (a pool of m.page rows, re-filled on scroll).
+
+sub init()
+    t = m.global.theme
+    m.top.findNode("bg").color = t.bg
+    m.list = m.top.findNode("list")
+    m.keys = m.top.findNode("keys")
+    m.where = m.top.findNode("where")
+    m.fTitle = diagFont(true, 40)
+    m.fHead = diagFont(true, 22)
+    m.fRow = diagFont(false, 24)
+    m.fLog = diagFont(false, 22)
+    m.top.findNode("title").font = m.fTitle
+    m.top.findNode("hint").font = diagFont(false, 22)
+    m.where.font = diagFont(false, 22)
+    m.rowH = 30
+    m.page = 29
+    m.logWidth = 140        ' characters per log row at 22 px across 1728 px
+    m.first = 0
+    m.facts = []
+    m.logLines = invalid    ' (invalid until the ring's copy arrives)
+    m.rowsAll = []
+    m.spokenKey = ""
+    m.pool = []
+    for i = 0 to m.page - 1
+        g = m.list.createChild("Group")
+        g.translation = [0, i * m.rowH]
+        k = g.createChild("Label")
+        k.width = 380
+        k.height = m.rowH
+        k.vertAlign = "center"
+        v = g.createChild("Label")
+        v.height = m.rowH
+        v.vertAlign = "center"
+        m.pool.push({ g: g, k: k, v: v })
+    end for
+    Speak.mute([m.keys])
+    m.top.observeField("focusedChild", "onDiagFocus")
+    m.top.observeField("server", "onDiagServer")
+    if m.global.hasField("coveLog") then m.global.observeField("coveLog", "onDiagLog")
+    buildFacts()
+    askLog()
+    Log.line("Cove: diagnostics opened")
+end sub
+
+function diagFont(bold as boolean, size as integer) as object
+    f = createObject("roSGNode", "Font")
+    f.uri = "font:MediumSystemFontFile"
+    if bold then f.uri = "font:BoldSystemFontFile"
+    f.size = size
+    return f
+end function
+
+sub onDiagFocus()
+    if m.top.hasFocus() then m.keys.setFocus(true)
+end sub
+
+sub onDiagServer()
+    buildFacts()
+end sub
+
+' A fresh copy of the ring (main.bs answers logAsk with coveLog)
+sub askLog()
+    if m.global.hasField("logAsk")
+        m.global.logAsk = true
+    else
+        m.logLines = []
+        rebuildRows()
+    end if
+end sub
+
+sub onDiagLog(ev as object)
+    m.logLines = Log.lastOf(ev.getData(), 60)
+    rebuildRows()
+end sub
+
+' ---------------------------------------------------------------- facts
+
+sub addHead(text as string)
+    m.facts.push({ kind: "head", k: UCase(text), v: "" })
+end sub
+
+sub addInfo(k as string, v as string)
+    if v = "" then v = "-"
+    m.facts.push({ kind: "info", k: k, v: v })
+end sub
+
+sub buildFacts()
+    m.facts = []
+    try
+        info = createObject("roAppInfo")
+        ver = Util.toText(info.getVersion())
+        parts = ver.split(".")
+        addHead("Cove")
+        verText = "Cove for Roku " + ver
+        if parts.count() >= 3 then verText = verText + "  ·  build " + parts[2]
+        if info.IsDev() then verText = verText + "  ·  sideloaded"
+        addInfo("Version", verText)
+        di = createObject("roDeviceInfo")
+        caps = DeviceCaps.get()
+        addHead("This Roku")
+        addInfo("Model", caps.modelName + " (" + caps.model + ")")
+        addInfo("Roku OS", caps.os)
+        addInfo("Display", displayText(di, caps))
+        addInfo("Network", networkText(di))
+        addInfo("Memory", memoryText())
+        addInfo("Registry", Diag.spaceLine(createObject("roRegistry").GetSpaceAvailable()))
+        srv = m.top.server
+        addHead("Server")
+        if Util.isAA(srv) and Util.toText(srv.url) <> ""
+            addInfo("Server", Diag.serverLine(Servers.typeName(srv), Util.toText(srv.version)) + "  ·  " + Util.toText(srv.name))
+            addInfo("Address", Diag.addressOf(Util.toText(srv.url)))
+            addInfo("Where", Diag.serverPlace(Util.toText(srv.url)))
+            addInfo("Signed In As", Util.toText(srv.userName))
+            addInfo("Profile", profileText(srv))
+        else
+            addInfo("Server", "Not signed in")
+        end if
+        addHead("Playback")
+        lp = invalid
+        if m.global.hasField("lastPlay") then lp = m.global.lastPlay
+        for each r in Diag.playRows(lp)
+            m.facts.push(r)
+        end for
+    catch e
+        m.facts.push({ kind: "note", k: "", v: "Some facts couldn't be read: " + e.message })
+        Log.line("Cove: diagnostics facts failed: " + e.message)
+    end try
+    rebuildRows()
+end sub
+
+function displayText(di as object, caps as object) as string
+    t = Util.toText(caps.videoMode)
+    dt = Util.toText(di.GetDisplayType())
+    if dt <> "" then t = t + "  ·  " + dt
+    hdr = []
+    if caps.hdr10 then hdr.push("HDR10")
+    if caps.hlg then hdr.push("HLG")
+    if caps.dolbyVision then hdr.push("Dolby Vision")
+    if hdr.count() > 0
+        t = t + "  ·  " + Util.join(hdr, ", ")
+    else
+        t = t + "  ·  no HDR"
+    end if
+    ui = di.GetUIResolution()
+    if Util.isAA(ui) and Util.toText(ui.name) <> "" then t = t + "  ·  UI " + Util.toText(ui.name)
+    return t
+end function
+
+function networkText(di as object) as string
+    t = Diag.connectionName(Util.toText(di.GetConnectionType()))
+    addrs = di.GetIPAddrs()
+    if Util.isAA(addrs)
+        for each iface in addrs
+            ip = Util.toText(addrs[iface])
+            if ip <> ""
+                t = t + "  ·  Roku IP " + ip
+                exit for
+            end if
+        end for
+    end if
+    return t
+end function
+
+function memoryText() as string
+    mon = createObject("roAppMemoryMonitor")
+    if mon = invalid then return ""
+    availKb = mon.GetChannelAvailableMemory()
+    if availKb = invalid then return ""
+    t = Util.toText(availKb) + " KB available"
+    pct = mon.GetMemoryLimitPercent()
+    if pct <> invalid then t = t + "  ·  " + Util.toText(pct) + "% of the limit used"
+    return t
+end function
+
+function profileText(srv as object) as string
+    name = Util.toText(srv.userName)
+    u = Servers.userOf(srv, Util.toText(srv.userId))
+    if u <> invalid and Util.toText(u.r) <> "" then name = name + "  ·  limit " + Ratings.labelFor(Util.toText(u.r))
+    n = Servers.profiles(srv).count()
+    if n = 1
+        name = name + "  ·  the only profile on this Roku"
+    else if n > 1
+        name = name + "  ·  " + n.toStr() + " profiles on this Roku"
+    end if
+    return name
+end function
+
+' ---------------------------------------------------------------- rows and drawing
+
+sub rebuildRows()
+    rows = []
+    for each f in m.facts
+        rows.push(f)
+    end for
+    rows.push({ kind: "head", k: "RECENT LOG (LAST 60 COVE: LINES, OLDEST FIRST)", v: "" })
+    if m.logLines = invalid
+        rows.push({ kind: "note", k: "", v: "Reading the log..." })
+    else if m.logLines.count() = 0
+        rows.push({ kind: "note", k: "", v: "No Cove: lines yet." })
+    else
+        for each r in Diag.logRows(m.logLines, m.logWidth)
+            rows.push(r)
+        end for
+    end if
+    m.rowsAll = rows
+    m.first = Diag.clampTop(m.first, 0, rows.count(), m.page)
+    drawRows()
+end sub
+
+sub drawRows()
+    t = m.global.theme
+    for i = 0 to m.page - 1
+        p = m.pool[i]
+        idx = m.first + i
+        if idx >= m.rowsAll.count()
+            p.g.visible = false
+        else
+            r = m.rowsAll[idx]
+            p.g.visible = true
+            if r.kind = "head"
+                p.k.font = m.fHead
+                p.k.width = 1728
+                p.k.color = t.text2
+                p.k.text = r.k
+                p.v.text = ""
+            else if r.kind = "info"
+                p.k.font = m.fRow
+                p.k.width = 380
+                p.k.color = t.text2
+                p.k.text = r.k
+                p.v.font = m.fRow
+                p.v.translation = [400, 0]
+                p.v.width = 1328
+                p.v.color = "0xFFFFFFFF"
+                p.v.text = r.v
+            else
+                ' log lines and notes: across the whole width
+                p.k.text = ""
+                p.v.font = m.fLog
+                if r.kind = "note" then p.v.font = m.fRow
+                p.v.translation = [0, 0]
+                p.v.width = 1728
+                p.v.color = "0xFFFFFFDD"
+                if r.kind = "note" then p.v.color = t.text2
+                p.v.text = r.v
+            end if
+        end if
+    end for
+    m.where.text = Diag.positionText(m.first, m.page, m.rowsAll.count())
+    speakTop()
+end sub
+
+sub speakTop()
+    if not Speak.isOn() or m.rowsAll.count() = 0 then return
+    key = m.first.toStr() + ":" + m.rowsAll.count().toStr()
+    if key = m.spokenKey then return
+    first = m.spokenKey = ""
+    m.spokenKey = key
+    r = m.rowsAll[m.first]
+    text = Util.toText(r.k)
+    if Util.toText(r.v) <> "" then text = text + ", " + Util.toText(r.v)
+    if first then text = "Diagnostics. Up and down scroll, rewind and fast forward page, back closes. " + text
+    Speak.say(Speak.clean(text))
+end sub
+
+sub scrollBy(delta as integer)
+    nt = Diag.clampTop(m.first, delta, m.rowsAll.count(), m.page)
+    if nt = m.first then return
+    m.first = nt
+    drawRows()
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return true
+    if key = "up"
+        scrollBy(-1)
+    else if key = "down"
+        scrollBy(1)
+    else if key = "rewind" or key = "left"
+        scrollBy(-(m.page - 1))
+    else if key = "fastforward" or key = "right"
+        scrollBy(m.page - 1)
+    else if key = "OK" or key = "replay"
+        buildFacts()
+        askLog()
+    else if key = "back"
+        if m.global.hasField("coveLog") then m.global.unobserveField("coveLog")
+        Log.line("Cove: diagnostics closed")
+        m.top.closed = true
+    end if
+    return true
+end function

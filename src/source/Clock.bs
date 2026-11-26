@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Log.bs"
 
 ' Times of day in the Roku's own format (Settings → System → Time → Clock format: 12 hour / 24 hour):
 ' "10:41 PM" or "22:41". Used for the player's and the details page's "Ends at".
@@ -70,7 +71,7 @@ namespace Clock
             if m.global.hasField("startupDone") then m.global.startupDone = true
             return
         end if
-        print "Cove: startup "; ms; " ms  "; label
+        Log.line("Cove: startup " + Util.toText(ms) + " ms  " + Util.toText(label))
     end sub
 
 end namespace

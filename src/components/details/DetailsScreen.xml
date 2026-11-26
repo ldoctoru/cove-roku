@@ -27,6 +27,8 @@
         <field id="changed" type="boolean" alwaysNotify="true" />
         <!-- (SC-1) set by MainScene after playback or a change elsewhere: reloads when it has the focus again -->
         <field id="stale" type="boolean" value="false" />
+        <!-- (v1.7 DIAG M-7) set by MainScene on Instant Resume (customSuspend / customResume): the theme song stops -->
+        <field id="suspended" type="boolean" onChange="onThemeSuspended" />
         <!-- (SC-11) a series page already open, asked for again with "Go to Season": that season -->
         <field id="openSeason" type="string" alwaysNotify="true" onChange="onOpenSeason" />
     </interface>

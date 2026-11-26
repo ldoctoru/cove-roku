@@ -13,6 +13,8 @@ import "pkg:/source/Toasts.bs"
 import "pkg:/source/NavPrefs.bs"
 import "pkg:/source/SetRows.bs"
 import "pkg:/source/Live.bs"
+import "pkg:/source/ThemeMusic.bs"
+import "pkg:/source/Log.bs"
 
 ' (v1.5) Settings in the Cove for Mac format (SettingsPages.bs builds each tab's rows), drawn here, flat.
 ' Layout (1920 x 1080): 9 tabs of 150 x 108 across the top (y 36), a line at y 162, then the tab's rows in a
@@ -76,7 +78,7 @@ sub init()
         m.caps = DeviceCaps.get()
         m.device = DeviceCaps.deviceLine(m.caps)
     catch e
-        print "Cove: settings device line failed "; e.message
+        Log.line("Cove: settings device line failed " + Util.toText(e.message))
         m.device = ""
     end try
     m.top.observeField("focusedChild", "onFocusChanged")
@@ -120,7 +122,7 @@ sub onViews(ev as object)
     if r.code <> 200 or r.json = invalid
         ' (instead of "Loading your libraries..." for ever)
         m.libError = "Couldn't load your libraries. " + Api.describeFailure(r)
-        print "Cove: settings views -> "; r.code
+        Log.line("Cove: settings views -> " + Util.toText(r.code))
         draw()
         return
     end if
@@ -975,6 +977,9 @@ sub useButton(r as object)
     else if id = "whatsNew"
         ' (v1.6 Q-1, HOME) MainScene shows the What's New panel over Settings
         m.top.action = { id: "whatsNew" }
+    else if id = "diagnostics"
+        ' (v1.7 DIAG M-9) Settings → About → Diagnostics, over Settings
+        openDiagnostics()
     else if id = "addProfile"
         guarded({ do: "addProfile" })
     else if id = "reset"
@@ -1402,4 +1407,28 @@ end sub
 
 sub onFocusChanged()
     if m.top.hasFocus() then m.keys.setFocus(true)
+end sub
+
+' ---------------------------------------------------------------- v1.7 DIAG
+
+' (M-9) Settings → About → Diagnostics: a page over Settings that keeps the focus until Back
+sub openDiagnostics()
+    if m.diag <> invalid then return
+    d = createObject("roSGNode", "DiagnosticsScreen")
+    if d = invalid then return
+    d.server = m.top.server
+    d.observeField("closed", "onDiagnosticsClosed")
+    m.top.appendChild(d)
+    m.diag = d
+    d.setFocus(true)
+end sub
+
+sub onDiagnosticsClosed()
+    if m.diag = invalid then return
+    m.diag.unobserveField("closed")
+    m.top.removeChild(m.diag)
+    m.diag = invalid
+    m.keys.setFocus(true)
+    m.spokenKey = ""
+    speakFocus()
 end sub

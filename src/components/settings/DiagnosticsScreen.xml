@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.7 DIAG M-9) Settings → About → Diagnostics: a full-screen flat page over Settings (SettingsScreen adds it
+     as a child and gives it the focus). The facts a bug report needs (version and build, Roku model and OS,
+     display, network, server kind / version / address without a token, user and profile, the last play method,
+     registry space), then the last 60 "Cove:" lines from the Log ring buffer (source/Log.bs, redacted), so a
+     phone photo replaces telnet. Up / Down scroll one row, Rewind / Fast Forward a page, OK reads the log again,
+     Back closes it ("closed"). Flat: grey caps headings, grey labels, white values; no focus ring (nothing to
+     pick), a grey row count at the top right. -->
+<component name="DiagnosticsScreen" extends="Group">
+    <script type="text/brightscript" uri="DiagnosticsScreen.bs" />
+    <interface>
+        <field id="server" type="assocarray" />
+        <field id="closed" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle id="bg" width="1920" height="1080" color="0x000000FF" />
+        <Label id="title" translation="[96,40]" width="1000" height="60" vertAlign="center" text="Diagnostics" />
+        <Label id="hint" translation="[96,100]" width="1400" height="36" vertAlign="center" color="0xFFFFFF9E" text="Up / Down scroll, Rewind / Fast Forward page, OK reads the log again, Back closes" />
+        <Label id="where" translation="[1324,52]" width="500" height="36" horizAlign="right" vertAlign="center" color="0xFFFFFF9E" text="" />
+        <Rectangle id="line" translation="[96,148]" width="1728" height="2" color="0xFFFFFF1F" />
+        <Group id="list" translation="[96,166]" />
+        <Group id="keys" focusable="true" />
+    </children>
+</component>
