@@ -14,6 +14,7 @@ import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/HomeLayout.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/DetailsHead.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     ' (v1.2) "Cove: details <ms> header / item answered / rows ready": from the screen's creation (MainScene
@@ -204,7 +205,7 @@ end sub
 
 ' (v1.2) one "Cove: details <ms> <what>" line, ms since the screen was created
 sub detailsMark(what as string)
-    print "Cove: details "; m.pushClock.totalMilliseconds(); " "; what
+    Log.line("Cove: details " + Util.toText(m.pushClock.totalMilliseconds()) + " " + Util.toText(what))
 end sub
 
 ' (v1.2 SP-12) The header from the card that opened the page: backdrop, artwork, logo or title, the meta line and
@@ -427,7 +428,7 @@ sub onResponse(ev as object)
                 showLoadError("Couldn't load this title. " + Api.describeFailure(r))
             else
                 ' (a refresh: the page stays as it is)
-                print "Cove: details refresh failed -> "; r.code
+                Log.line("Cove: details refresh failed -> " + Util.toText(r.code))
             end if
         end if
         return
@@ -454,7 +455,7 @@ sub onResponse(ev as object)
         onSeasonCounts(r.json)
     else if k = "boxItems"
         m.boxList = Ratings.keep(m.top.server, listOf(r.json))
-        print "Cove: collection titles -> "; m.boxList.count()
+        Log.line("Cove: collection titles -> " + Util.toText(m.boxList.count()))
         setRowNodes("box", m.boxList)
         buildButtons()
         rowAnswered("boxItems")
@@ -636,7 +637,7 @@ sub showItem(it as object)
     end if
     if first and not m.layoutTimed
         m.layoutTimed = true
-        print "Cove: details layout "; t; " "; m.pushClock.totalMilliseconds(); " ms"
+        Log.line("Cove: details layout " + Util.toText(t) + " " + Util.toText(m.pushClock.totalMilliseconds()) + " ms")
     end if
     rebuildRows()
     if first and m.top.isInFocusChain() then enterButtons(false)
@@ -1227,7 +1228,7 @@ sub requestCollectionPlay(target as object, start as float)
     title = Util.toText(target.Name)
     p = { id: Util.toText(target.Id), title: title, subtitle: "", start: start, queue: cq.queue }
     p.collection = { id: Util.toText(m.item.Id), name: Util.toText(m.item.Name), index: cq.index, count: cq.count }
-    print "Cove: details play collection film "; cq.index + 1; " of "; cq.count; ", "; cq.queue.count(); " queued"
+    Log.line("Cove: details play collection film " + Util.toText(cq.index + 1) + " of " + Util.toText(cq.count) + ", " + Util.toText(cq.queue.count()) + " queued")
     m.top.play = p
 end sub
 
@@ -1280,7 +1281,7 @@ sub onTrailers(r as object)
     for each tr in listOf(r.json)
         if Util.isAA(tr) and Util.toText(tr.Id) <> "" then list.push(tr)
     end for
-    print "Cove: local trailers -> "; list.count()
+    Log.line("Cove: local trailers -> " + Util.toText(list.count()))
     m.trailers = list
     buildButtons()
 end sub
@@ -1333,7 +1334,7 @@ sub onExtras(r as object)
     for each x in Ratings.keep(m.top.server, listOf(r.json))
         if Util.isAA(x) and Util.toText(x.Id) <> "" and list.count() < 30 then list.push(x)
     end for
-    print "Cove: extras -> "; list.count()
+    Log.line("Cove: extras -> " + Util.toText(list.count()))
     m.extrasList = list
     setRowNodes("extras", m.extrasList)
     rowAnswered("extras")
@@ -1395,7 +1396,7 @@ sub onSeriesPlay(r as object)
     m.status.text = ""
     if m.item = invalid or r.tag.itemId <> Util.toText(m.item.Id) then return
     if r.code <> 200
-        print "Cove: series play failed: "; Api.describeFailure(r)
+        Log.line("Cove: series play failed: " + Util.toText(Api.describeFailure(r)))
         Toasts.notify(Toasts.failedText("get the episodes"), "info")
         return
     end if
@@ -1412,7 +1413,7 @@ sub onSeriesPlay(r as object)
         end if
     end for
     if eps.count() = 0 then eps = specials
-    print "Cove: series "; r.tag.mode; " -> "; eps.count(); " episodes"
+    Log.line("Cove: series " + Util.toText(r.tag.mode) + " -> " + Util.toText(eps.count()) + " episodes")
     if eps.count() = 0
         Toasts.notify("No episodes to play", "info")
         return
@@ -1460,7 +1461,7 @@ sub onFavourite(r as object)
         buildButtons()
         Toasts.notify(Toasts.favoriteText(Util.toText(m.item.Name), m.isFav), "heart")
     else
-        print "Cove: favourite failed: "; Api.describeFailure(r)
+        Log.line("Cove: favourite failed: " + Util.toText(Api.describeFailure(r)))
         Toasts.notify(Toasts.failedText("update Favorites"), "info")
     end if
 end sub
@@ -1514,7 +1515,7 @@ sub onWatched(r as object)
         if name = "" and m.item <> invalid then name = Util.toText(m.item.Name)
         Toasts.notify(Toasts.watchedText(name, r.tag.method = "POST"), "check")
     else
-        print "Cove: watched change failed: "; Api.describeFailure(r)
+        Log.line("Cove: watched change failed: " + Util.toText(Api.describeFailure(r)))
         Toasts.notify(Toasts.failedText("change the watched state"), "info")
     end if
 end sub
@@ -1533,7 +1534,7 @@ end function
 sub onUserAudio(r as object)
     json = invalid
     if r.code = 200 then json = r.json
-    if r.code <> 200 then print "Cove: user settings -> "; r.code
+    if r.code <> 200 then Log.line("Cove: user settings -> " + Util.toText(r.code))
     if Tracks.serverAudioPref(m.top.server) = invalid then Tracks.rememberServerAudio(m.top.server, json)
     ' (v1.5 details) ⋯ More → Refresh Metadata for administrators only; (v1.5.2 CS-1) not under a kids limit
     m.isAdmin = Ratings.effectiveAdmin(m.top.server, DetailsHead.isAdminUser(json))
@@ -1762,7 +1763,7 @@ sub applyTrackChoice(purpose as string, id as string)
         m.opts.maxBitrate = id.toInt()
         Toasts.notify("Quality: " + Tracks.qualityLabel(m.opts.maxBitrate), "check")
     end if
-    print "Cove: details "; purpose; " -> "; id
+    Log.line("Cove: details " + Util.toText(purpose) + " -> " + Util.toText(id))
     buildMediaRow()
     layoutHeader()
 end sub
@@ -1948,11 +1949,11 @@ sub onLists(r as object)
     which = Util.toText(r.tag.which)
     ' (SC5-9) the page is covered (a person, a title, the player): the list doesn't open over it
     if not m.top.isInFocusChain() or m.picker <> invalid or m.menu <> invalid or m.textPanel <> invalid
-        print "Cove: lists ("; which; ") answered while the page is covered or busy: dropped"
+        Log.line("Cove: lists (" + Util.toText(which) + ") answered while the page is covered or busy: dropped")
         return
     end if
     if r.code <> 200
-        print "Cove: lists ("; which; ") failed: "; Api.describeFailure(r)
+        Log.line("Cove: lists (" + Util.toText(which) + ") failed: " + Util.toText(Api.describeFailure(r)))
         Toasts.notify(Toasts.failedText("get the list"), "info")
         return
     end if
@@ -1974,7 +1975,7 @@ sub onLists(r as object)
             first = false
         end if
     end for
-    print "Cove: "; which; " lists -> "; o.count() - 1
+    Log.line("Cove: " + Util.toText(which) + " lists -> " + Util.toText(o.count() - 1))
     m.menuBack = "buttons"
     openMenu(which, title, o, "", moreAnchor(), invalid, 620)
 end sub
@@ -2060,7 +2061,7 @@ sub onListAdd(r as object)
         ' (Included In and ⋯ More → Go to Collection follow)
         if which = "coll" and m.item <> invalid and Util.toText(m.item.Type) <> "Episode" then loadIncludedIn(m.item)
     else
-        print "Cove: add to "; kindWord; " failed: "; Api.describeFailure(r)
+        Log.line("Cove: add to " + Util.toText(kindWord) + " failed: " + Util.toText(Api.describeFailure(r)))
         Toasts.notify(Toasts.failedText("add it to the " + kindWord), "info")
     end if
 end sub
@@ -2069,7 +2070,7 @@ sub onRefreshMeta(r as object)
     if r.code >= 200 and r.code < 300
         Toasts.notify("Refreshing metadata for " + Toasts.quoted(Util.toText(r.tag.name)), "check")
     else
-        print "Cove: refresh metadata failed: "; Api.describeFailure(r)
+        Log.line("Cove: refresh metadata failed: " + Util.toText(Api.describeFailure(r)))
         Toasts.notify(Toasts.failedText("refresh the metadata"), "info")
     end if
 end sub
@@ -2656,7 +2657,7 @@ sub useBar()
     id = m.barIds[m.barIdx]
     if id = "filter"
         m.showAllEps = not m.showAllEps
-        print "Cove: season episodes, show all = "; m.showAllEps
+        Log.line("Cove: season episodes, show all = " + Util.toText(m.showAllEps))
         rebuildRowsNow()
         return
     end if
@@ -2809,7 +2810,7 @@ end sub
 sub useSeasonMenu(id as string)
     if m.seasonIndex < 0 or m.seasonIndex >= m.seasonList.count() then return
     sid = Util.toText(m.seasonList[m.seasonIndex].Id)
-    print "Cove: mark season "; sid; " "; id
+    Log.line("Cove: mark season " + Util.toText(sid) + " " + Util.toText(id))
     if id = "swatched"
         markPlayed(sid, true, seasonName())
     else if id = "sunwatched"
@@ -3104,7 +3105,7 @@ sub onFocusChanged()
     if m.covered = true
         m.covered = false
         if m.picker <> invalid or m.menu <> invalid
-            print "Cove: details back on top: closing a stale menu / picker"
+            Log.line("Cove: details back on top: closing a stale menu / picker")
             closePicker()
             closeMenu()
         end if
@@ -3279,7 +3280,7 @@ end function
 sub openTag()
     if m.tagIdx < 0 or m.tagIdx >= m.tags.count() then return
     tg_ = m.tags[m.tagIdx]
-    print "Cove: open "; tg_.kind; " "; tg_.name
+    Log.line("Cove: open " + Util.toText(tg_.kind) + " " + Util.toText(tg_.name))
     m.top.openItem = { id: "open", itemId: tg_.id, itemType: tg_.kind, collectionType: "", title: tg_.name, tagTypes: tagTypes() }
 end sub
 

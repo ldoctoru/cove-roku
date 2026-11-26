@@ -1,0 +1,65 @@
+import "pkg:/source/Util.bs"
+
+' (v1.7 DIAG M-9) Every "Cove: ..." console line also goes into a ring buffer of the last 200 lines, shown in
+' Settings → About → Diagnostics (a phone photo of it replaces telnet). Log.line(text) redacts the text
+' (Util.redact: api_key=, Token="...", X-Emby-Token, AccessToken), prints it, and hands it on:
+' - on the main thread (main.bs keeps m.coveRing): straight into that ring, with the time of day;
+' - on the render thread and in Tasks: one write to m.global.logIn (one rendezvous per line, no read), which
+'   main.bs observes on its port and adds to the ring. Diagnostics asks for a copy with m.global.logAsk and
+'   gets it in m.global.coveLog.
+' Without m.global (unit tests) the line is only printed.
+' (Locals here are named so they can't clash with a component's subs: no "line", "text", "keep".)
+namespace Log
+
+    sub line(msg as string)
+        clean = Util.redact(msg)
+        print clean
+        if type(m.coveRing) = "roArray"
+            Log.keepLine(m.coveRing, Log.stamped(clean, createObject("roDateTime")), Log.capacity())
+            return
+        end if
+        if m.coveLogOk = invalid
+            m.coveLogOk = false
+            if m.global <> invalid and type(m.global) = "roSGNode" then m.coveLogOk = m.global.hasField("logIn")
+        end if
+        if m.coveLogOk = true then m.global.logIn = clean
+    end sub
+
+    ' (the size of the ring)
+    function capacity() as integer
+        return 200
+    end function
+
+    ' Adds one entry to a ring kept as an array, dropping the oldest past cap; returns the ring
+    function keepLine(ring as object, entry as string, cap as integer) as object
+        ring.push(entry)
+        while ring.count() > cap and cap > 0
+            ring.shift()
+        end while
+        return ring
+    end function
+
+    ' "12:04:31.207 Cove: http GET ..." (the Roku's local time; dt = an roDateTime of now, passed in for tests)
+    function stamped(entry as string, dt as object) as string
+        dt.toLocalTime()
+        return Log.clockText(dt.getHours(), dt.getMinutes(), dt.getSeconds(), dt.getMilliseconds()) + " " + entry
+    end function
+
+    ' 9, 5, 3, 7 → "09:05:03.007"
+    function clockText(hh as integer, mi as integer, ss as integer, ms as integer) as string
+        return Right("0" + hh.toStr(), 2) + ":" + Right("0" + mi.toStr(), 2) + ":" + Right("0" + ss.toStr(), 2) + "." + Right("00" + ms.toStr(), 3)
+    end function
+
+    ' The last n entries of a ring, oldest first (fewer when it holds fewer)
+    function lastOf(ring as dynamic, n as integer) as object
+        out = []
+        if type(ring) <> "roArray" or n <= 0 then return out
+        first = ring.count() - n
+        if first < 0 then first = 0
+        for i = first to ring.count() - 1
+            out.push(Util.toText(ring[i]))
+        end for
+        return out
+    end function
+
+end namespace

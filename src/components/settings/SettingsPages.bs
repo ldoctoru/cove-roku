@@ -680,6 +680,12 @@ sub aboutRows(out as object)
     out.push(rHead("Reset"))
     out.push(rButton("reset", "Reset All Settings..."))
     out.push(rNote(resetNote()))
+    ' --- v1.7 DIAG ---
+    ' (M-9) the facts and the recent log for a bug report, on one page
+    out.push(rHead("Diagnostics"))
+    out.push(rButton("diagnostics", "Diagnostics"))
+    out.push(rNote("Version, this Roku, the network, the server, the last play method and the last 60 Cove log lines (sign-in keys hidden). A photo of it helps with a bug report."))
+    ' --- end v1.7 DIAG ---
 end sub
 
 ' ---------------------------------------------------------------- v1.6 CORE

@@ -3332,6 +3332,8 @@ sub onMethodInfo(ev as object)
         if Util.flag(ti, "IsAudioDirect") then aud = "copied"
     end if
     print "Cove: player play method reported "; fixed; " (first guess "; s.method; "; server: video "; vid; ", audio "; aud; ", after "; m.methodTries; " checks)"
+    ' (v1.7 DIAG M-9) the last play method, for Settings → About → Diagnostics
+    if m.global.hasField("lastPlay") then m.global.lastPlay = { title: Util.toText(m.top.item.title), subtitle: Util.toText(m.top.item.subtitle), method: fixed, lines: playbackInfoLines() }
     if fixed = s.method then return
     s.method = fixed
     m.session = s
