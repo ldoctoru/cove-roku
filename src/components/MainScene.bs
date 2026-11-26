@@ -30,6 +30,7 @@ sub init()
     m.top.findNode("background").color = look.bg
     m.screens = m.top.findNode("screens")
     m.stack = []
+    initSideNav()               ' (v1.7 NAV M-4) the sidebar on the other top-level pages
     m.pending = []              ' running ApiTasks (kept referenced until they answer)
     m.beaconSent = false
     m.inDialog = false
@@ -140,6 +141,7 @@ sub push(s as object)
     ' the server list / sign-in shown before Home is a dialog for Roku's launch timing
     sid = Util.toText(s.screenId)
     if sid = "servers" or sid = "signin" or sid = "address" or sid = "profiles" then dialogStarted()
+    syncSideNav()
 end sub
 
 ' A screen that waits for the user before Home (server list, sign-in, Who's watching?, "Couldn't reach"):
@@ -236,6 +238,7 @@ sub pop()
         t.reload = true
         m.homeLoadedAt = nowSecs()
     end if
+    syncSideNav()
 end sub
 
 ' (SC-3) A removed screen can still answer (its tasks keep it alive): it may not start playback or open pages.
@@ -453,6 +456,9 @@ sub showHome(server as object)
     h = createObject("roSGNode", "HomeScreen")
     Clock.startupMark("HomeScreen created")
     h.observeField("action", "onHomeAction")
+    ' (v1.7 NAV M-4) this Home's sidebar entries feed the sidebar of the other top-level pages
+    m.sideNav.items = []
+    h.observeField("navItems", "onHomeNavItems")
     reset(h)
     h.server = server
     Clock.startupMark("HomeScreen pushed")
@@ -1159,6 +1165,8 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
+    ' (v1.7 NAV M-4) Left from a top-level page's first column opens its sidebar; Right / Back close it
+    if sideNavKey(key) then return true
     if key = "back" and m.stack.count() > 1
         stopQuickConnect()
         pop()
@@ -2077,4 +2085,132 @@ sub closeWhatsNew(refocus as boolean)
         t = top()
         if t <> invalid then t.setFocus(true)
     end if
+end sub
+
+' ---------------------------------------------------------------- v1.7 NAV (M-4 sidebar on top-level pages)
+
+' With Menu Style = Sidebar, the other top-level pages (NavUtil.overlayScreenIds: library pages, Recently
+' Added, Favorites, See All, Now Playing, Search, New) show Home's sidebar as a slim rail on the left. Left
+' from a page's first column (grid column 0, the first pill) opens it over the page (no push-aside); an entry
+' replaces the page (the pages above Home close, so Back still returns to Home); Right / Back close it and
+' give the focus back to the page. Hidden on details pages, the player and while the page has a menu open.
+sub initSideNav()
+    m.sideNav = m.top.findNode("sideNav")
+    m.sideNavLog = ""
+    m.sideNav.observeField("chosen", "onSideNavChosen")
+    ' (any focus move: a page pushed or closed, a picker opened on the page, the sidebar opened)
+    m.top.observeField("focusedChild", "syncSideNav")
+end sub
+
+' Home's entries (HomeScreen.buildNav; [] with the top bar), from the Home at the bottom of the stack only
+sub onHomeNavItems(ev as object)
+    if m.stack.count() = 0 or not m.stack[0].isSameNode(ev.getRoSGNode()) then return
+    items = ev.getData()
+    if type(items) <> "roArray" then items = []
+    m.sideNav.items = items
+    syncSideNav()
+end sub
+
+function sideNavKinds() as object
+    kinds = []
+    for each sc in m.stack
+        kinds.push(Util.toText(sc.screenId))
+    end for
+    return kinds
+end function
+
+' The page has a picker or menu of its own open (the rail would sit over its shade)
+function sideNavBlocked(sc as object) as boolean
+    n = sc
+    for i = 0 to 30
+        st = n.subtype()
+        if st = "Picker" or st = "DetailsMenu" then return true
+        c = n.focusedChild
+        if c = invalid or c.isSameNode(n) then return false
+        n = c
+    end for
+    return false
+end function
+
+sub syncSideNav()
+    if m.sideNav = invalid then return
+    isOpen = m.sideNav.isInFocusChain()
+    t = top()
+    want = false
+    its = m.sideNav.items
+    if t <> invalid and type(its) = "roArray" and its.count() > 0 and NavUtil.sideOverlayOn(sideNavKinds())
+        want = isOpen or not sideNavBlocked(t)
+    end if
+    if want
+        lib = invalid
+        if t.hasField("library") then lib = t.library
+        cur = NavUtil.overlayCurrent(its, Util.toText(t.screenId), lib)
+        if m.sideNav.current <> cur then m.sideNav.current = cur
+    end if
+    if m.sideNav.visible <> want then m.sideNav.visible = want
+    sig = "hidden"
+    if want and t <> invalid then sig = "shown on " + Util.toText(t.screenId)
+    if sig <> m.sideNavLog
+        m.sideNavLog = sig
+        print "Cove: nav overlay " + sig
+    end if
+end sub
+
+' A key that bubbled up to the scene (NavUtil.overlayKeyAction): true when the sidebar used it
+function sideNavKey(key as string) as boolean
+    if m.sideNav = invalid then return false
+    isOpen = m.sideNav.isInFocusChain()
+    act = NavUtil.overlayKeyAction(key, m.sideNav.visible, isOpen)
+    if act = "open"
+        t = top()
+        print "Cove: nav overlay open on " + Util.toText(t.screenId)
+        ' (SideBar.onFocus opens it on the current page's entry and speaks it)
+        m.sideNav.setFocus(true)
+        return true
+    else if act = "close"
+        closeSideNav()
+        return true
+    end if
+    return act = "keep"
+end function
+
+' Back to the page, which puts the focus on its grid / pills where it was
+sub closeSideNav()
+    t = top()
+    if t <> invalid then t.setFocus(true)
+    syncSideNav()
+end sub
+
+' An entry: the pages above Home close (no redraw of each), then Home opens the entry as from its own sidebar
+sub onSideNavChosen(ev as object)
+    id = Util.toText(ev.getData().id)
+    homeAt = -1
+    for i = 0 to m.stack.count() - 1
+        if Util.toText(m.stack[i].screenId) = "home"
+            homeAt = i
+            exit for
+        end if
+    end for
+    print "Cove: nav overlay chose " + id
+    if homeAt < 0 or id = ""
+        closeSideNav()
+        return
+    end if
+    while m.stack.count() - 1 > homeAt
+        dropTop()
+    end while
+    h = m.stack.peek()
+    h.visible = true
+    h.setFocus(true)
+    if id = "home"
+        ' (as Back to Home: rows changed by what was played meanwhile load again)
+        if m.homeStale
+            m.homeStale = false
+            h.reload = true
+            m.homeLoadedAt = nowSecs()
+        end if
+    else
+        h.navOpen = id
+    end if
+    syncSideNav()
 end sub

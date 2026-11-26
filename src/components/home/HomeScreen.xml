@@ -14,6 +14,10 @@
         <field id="reload" type="boolean" alwaysNotify="true" onChange="onReload" />
         <!-- Instant Resume: true while the app is in the background (no hero rotation, no session polling) -->
         <field id="suspended" type="boolean" onChange="onSuspended" />
+        <!-- (v1.7 NAV M-4) the sidebar's entries for MainScene's copy on other top-level pages ([] with the top
+             bar), and the entry chosen there, opened as if chosen in Home's own sidebar -->
+        <field id="navItems" type="array" />
+        <field id="navOpen" type="string" alwaysNotify="true" onChange="onNavOpen" />
     </interface>
     <children>
         <!-- backdrop: two layers that crossfade -->

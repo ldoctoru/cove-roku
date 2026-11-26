@@ -322,7 +322,7 @@ sub buildNav()
                 ic = "folder"
                 if e.collectionType = "movies" then ic = "film"
                 if e.collectionType = "tvshows" then ic = "tv"
-                shownList.push({ id: "lib:" + libAt[e.id].toStr(), label: e.label, icon: ic, media: true })
+                shownList.push({ id: "lib:" + libAt[e.id].toStr(), label: e.label, icon: ic, media: true, libId: Util.toText(m.libraries[libAt[e.id]].id) })
             end if
         end if
     end for
@@ -355,6 +355,8 @@ sub buildNav()
         print "Cove: nav " + place + " " + shownList.count().toStr() + " entries"
     end if
     m.nav.items = items
+    ' (v1.7 NAV M-4) the same entries for the sidebar on the other top-level pages (MainScene)
+    if m.side then m.top.navItems = items else m.top.navItems = []
 end sub
 
 ' How many are playing on the server right now (the Now Playing badge)
@@ -1494,4 +1496,14 @@ sub focusSeeAll()
         if f[0] <> m.spokenRow then m.spokenRow = f[0]
         Speak.say(text)
     end if
+end sub
+
+' ---------------------------------------------------------------- v1.7 NAV
+
+' (M-4) An entry chosen in the sidebar of another top-level page: MainScene has closed the pages above Home,
+' so the entry opens over Home as from Home's own sidebar (Back returns to Home)
+sub onNavOpen()
+    id = Util.toText(m.top.navOpen)
+    if id = "" or id = "home" then return
+    openNavPage(id)
 end sub
