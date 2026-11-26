@@ -1,0 +1,95 @@
+import "pkg:/source/Api.bs"
+import "pkg:/source/Items.bs"
+import "pkg:/source/Prefs.bs"
+import "pkg:/source/Ratings.bs"
+import "pkg:/source/Servers.bs"
+import "pkg:/source/Dates.bs"
+import "pkg:/source/QuickPlay.bs"
+import "pkg:/source/SeeAll.bs"
+
+sub init()
+    m.top.functionName = "work"
+end sub
+
+sub work()
+    try
+        srv = m.top.server
+        preset = m.top.preset
+        h = Api.headers(srv, true)
+        cutoff = ""
+        if Prefs.nextUpDays() > 0 then cutoff = Dates.isoDaysAgo(Prefs.nextUpDays())
+        o = { uid: Util.toText(srv.userId), isJellyfin: Servers.isJellyfin(srv), rewatch: Prefs.nextUpRewatch(), cutoff: cutoff, hideWatched: Prefs.hideWatchedLatest(), nowIso: Dates.isoNow(), fields: Items.fields() }
+        rq = SeeAll.request(preset, o)
+        if rq.path = ""
+            m.top.error = "This row has no full list."
+            return
+        end if
+        startAt = m.top.startIndex
+        limit = m.top.limit
+        if not rq.paged
+            startAt = 0
+            limit = SeeAll.maxUnpaged()
+        end if
+        path = SeeAll.pagePath(rq.path, startAt, limit)
+        spent = createObject("roTimespan")
+        r = Api.execute({ method: "GET", url: Util.toText(srv.url) + Ratings.withLimit(srv, path), headers: h, timeout: 20000 })
+        if r.code = 404 and rq.fallback <> ""
+            path = SeeAll.pagePath(rq.fallback, startAt, limit)
+            r = Api.execute({ method: "GET", url: Util.toText(srv.url) + Ratings.withLimit(srv, path), headers: h, timeout: 20000 })
+        end if
+        print "Cove: see all "; Util.toText(preset.kind); " "; Util.redact(Api.timingLine("GET", path, r.code, spent.TotalMilliseconds()))
+        if r.code <> 200 or r.json = invalid
+            m.top.error = "Couldn't load the list. " + Api.describeFailure(r)
+            return
+        end if
+        list = r.json
+        total = 0
+        if Util.isAA(list)
+            total = Int(Util.toNumber(list.TotalRecordCount))
+            list = list.Items
+        end if
+        if type(list) <> "roArray" then list = []
+        served = list.count()
+        kept = []
+        for each it in list
+            if Util.isAA(it) then kept.push(it)
+        end for
+        kept = Ratings.keepChecked(srv, kept)
+        ' (a route without a total, or an unpaged list: what came is all there is)
+        if total = 0 or not rq.paged then total = startAt + served
+        isWide = Util.flag(preset, "landscape")
+        holder = createObject("roSGNode", "ContentNode")
+        isUpcoming = Util.toText(preset.kind) = "upcoming"
+        today = Dates.localToday()
+        monthFirst = Dates.usesMonthFirst()
+        tz = Dates.localOffsetSecs()
+        nowIso = QuickPlay.nowStamp()
+        for each it in kept
+            c = Items.node(srv, it, isWide)
+            if isUpcoming
+                ' (as Home's Upcoming row: the air date first; one not aired yet opens its series, no Play)
+                air = Dates.airLabel(it.PremiereDate, today, monthFirst, tz)
+                if air = "" then air = "Coming soon"
+                c.addFields({ upcoming: QuickPlay.isUnaired(it, nowIso), seriesId: Util.toText(it.SeriesId), airLabel: air })
+                if c.episode <> ""
+                    c.episode = air + "  ·  " + c.episode
+                else
+                    c.episode = air
+                end if
+                c.progress = 0.0
+                c.timeLeft = ""
+                c.resumeAt = 0.0
+            end if
+            holder.appendChild(c)
+        end for
+        m.top.result = { nodes: holder, total: total, served: served, startIndex: startAt, gen: m.top.gen, paged: rq.paged }
+    catch e
+        where = ""
+        if e.backtrace <> invalid and e.backtrace.count() > 0
+            fr = e.backtrace[e.backtrace.count() - 1]
+            where = " at " + Util.toText(fr.filename).replace("pkg:/", "") + ":" + Util.toText(fr.line_number)
+        end if
+        print "Cove: see all failed: "; Util.redact(Util.toText(e.message)); where
+        m.top.error = "Loading failed: " + Util.toText(e.message) + where
+    end try
+end sub

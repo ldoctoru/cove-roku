@@ -1,0 +1,67 @@
+import "pkg:/source/Util.bs"
+
+' (v1.6 Q-1) What's New: after an update, a panel once over Home with this release's highlights (written at release
+' time from the notes); Settings → About → What's New opens it again. One shared registry key (the whole TV, not
+' per profile): "whatsNewSeen" = the notes version last shown ("1.6"). Pure helpers (tests/brs/v16-home.test.brs).
+namespace WhatsNew
+
+    function seenKey() as string
+        return "whatsNewSeen"
+    end function
+
+    ' The bundled notes: { version: "major.minor", title, lines[] }
+    function notes() as object
+        return {
+            version: "1.6",
+            title: "New in Cove 1.6",
+            lines: [
+                "Home follows your Emby 4.10 Home sections, including Spotlight and Dynamic media rows.",
+                "See All: every Home row ends with a card that opens its whole list.",
+                "Play Collection plays the films of a collection back to back.",
+                "Skip Intro and Skip Credits also work from chapter names when the server has no markers.",
+                "Each profile keeps its own Home, menus, library views, languages and subtitle style."
+            ]
+        }
+    end function
+
+    ' "1.6" of "1.6.2000" (the app version from roAppInfo) or "1.6.0"; "" when it isn't a version
+    function versionOf(v as string) as string
+        parts = v.split(".")
+        if parts.count() < 2 or parts[0] = "" then return ""
+        return parts[0].toInt().toStr() + "." + parts[1].toInt().toStr()
+    end function
+
+    ' a < b for "major.minor" versions ("1.10" is newer than "1.9")
+    function isOlder(a as string, b as string) as boolean
+        pa = a.split(".")
+        pb = b.split(".")
+        if pa.count() < 2 or pb.count() < 2 then return false
+        if pa[0].toInt() <> pb[0].toInt() then return pa[0].toInt() < pb[0].toInt()
+        return pa[1].toInt() < pb[1].toInt()
+    end function
+
+    ' What to do at launch: "show" (an update to the version of the notes), "store" (a fresh install, or an app
+    ' newer than its notes: remember without showing) or "none" (already shown). seen: the saved key ("" =
+    ' never); appVersion: roAppInfo's "1.6.2000"; hadServers: a server was saved before this launch (an update
+    ' from a version without the key, not a fresh install). A dev build still numbered 1.5 shows the 1.6 notes.
+    function decide(seen as string, appVersion as string, hadServers as boolean) as string
+        nv = notes().version
+        if seen = nv then return "none"
+        if seen <> "" and not isOlder(seen, nv) then return "none"
+        if seen = "" and not hadServers then return "store"
+        app = versionOf(appVersion)
+        if app <> "" and isOlder(nv, app) then return "store"
+        return "show"
+    end function
+
+    sub markSeen()
+        Util.writeText(seenKey(), notes().version)
+    end sub
+
+    ' What the Audio Guide reads when the panel opens
+    function spoken() as string
+        n = notes()
+        return n.title + ". " + Util.join(n.lines, " ") + " Continue, button"
+    end function
+
+end namespace

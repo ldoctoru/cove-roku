@@ -1,0 +1,168 @@
+' (v1.6 ST-9) Per-profile preferences. Some settings are PERSONAL: each profile (a signed-in user of a
+' server) keeps its own value. Util.readText / readJson / writeText / deletePref apply it for every caller, so
+' Prefs, NavPrefs, HomeLayout, Subs and the screens keep using the plain key names.
+'   - A personal key of the active profile is stored as "<key>@<p>", p = the first 8 characters of the
+'     profile's user id (a server-made GUID, so different on every server and every user; keys that hold a
+'     server already, "lib:<tag>:<id>", "navtop:<tag>", "homeRows:<serverId>", stay on that server too).
+'   - A read finds the profile's own key first, else the old shared key (what every profile had before
+'     v1.6), else the default: every profile starts with today's settings and no copy is made (a copy of
+'     every key per profile would take registry room the sign-ins need; only what a profile changes costs).
+'   - A write goes to the profile's own key; a "back to default" (deletePref) writes "" there while a shared
+'     value exists, so the shared one doesn't come back.
+'   - No active profile (no server yet): the shared keys, as before.
+' The active profile's p is kept in "pscope" (sync(), called by Servers when the active server or user
+' changes and once at launch), so a read doesn't parse the servers record.
+namespace PrefScope
+
+    ' CONTRACT (v1.6): the one list of personal settings. Every other setting (servers and sign-ins, profiles
+    ' and PINs, start quality, audio channels, DTS, rewind on resume and the other Playback settings, Remote,
+    ' the background, hints) is shared by the whole TV. A new personal registry key (or key prefix) is added
+    ' HERE, and nowhere else.
+    '   exact: Home rows switches of v1.0-v1.4 and Home options, banner, menu style and lists (pre-server
+    '          form), library page filters, subtitle language and style, per-series audio/subtitle languages
+    '   prefixes: Home rows and order per server, menu lists per server, library settings and names per
+    '          server, library order per server
+    function personalKeys() as object
+        return {
+            exact: ["navStyle", "topBarLabels", "navtop", "navside", "showRecent", "showFavorites", "showNowPlaying", "showUpNextRow", "homeFavorites", "banner", "hideWatchedLatest", "nextUpRewatch", "nextUpDays", "libFilters", "subAlways", "subLang", "subTextSize", "subColor", "subShadow", "subBg", "subBottom", "seriesLangs"],
+            prefixes: ["homeRows:", "navtop:", "navside:", "lib:", "libOrder:"]
+        }
+    end function
+
+    ' The list as a lookup (built once per thread / component)
+    function lookup() as object
+        if m.coveScopeKeys = invalid
+            pk = PrefScope.personalKeys()
+            exact = {}
+            for each k in pk.exact
+                exact[k] = true
+            end for
+            m.coveScopeKeys = { exact: exact, prefixes: pk.prefixes }
+        end if
+        return m.coveScopeKeys
+    end function
+
+    ' A plain key name that is personal ("subLang", "lib:ab12cd34:5"); a key that already names a profile
+    ' ("...@p") is not
+    function isPersonal(key as string) as boolean
+        if key = "" or key.instr("@") >= 0 then return false
+        lk = PrefScope.lookup()
+        if lk.exact.doesExist(key) then return true
+        for each pre in lk.prefixes
+            if key.startsWith(pre) and key.len() > pre.len() then return true
+        end for
+        return false
+    end function
+
+    ' The active profile's p ("" = none)
+    function current() as string
+        sec = createObject("roRegistrySection", "Cove")
+        if not sec.exists("pscope") then return ""
+        return sec.read("pscope")
+    end function
+
+    ' p for a user id
+    function tagOfUser(userId as string) as string
+        return userId.left(8)
+    end function
+
+    ' The profile key for key and p ("subLang", "ab12cd34" → "subLang@ab12cd34")
+    function keyOf(key as string, p as string) as string
+        return key + "@" + p
+    end function
+
+    ' The key a read or write of key uses first now: the profile's own key, or "" (shared / not personal)
+    function personalOf(key as string) as string
+        if not PrefScope.isPersonal(key) then return ""
+        p = PrefScope.current()
+        if p = "" then return ""
+        return PrefScope.keyOf(key, p)
+    end function
+
+    ' Whether a stored key belongs to profile p
+    function belongsTo(storedKey as string, p as string) as boolean
+        if p = "" then return false
+        suffix = "@" + p
+        return storedKey.len() > suffix.len() and storedKey.right(suffix.len()) = suffix
+    end function
+
+    ' The p of the active server's active user, from the stored records ("" = none)
+    function activeOf(activeId as string, serversJson as string) as string
+        if activeId = "" or serversJson = "" then return ""
+        list = parseJson(serversJson)
+        if type(list) <> "roArray" then return ""
+        for each s in list
+            if GetInterface(s, "ifAssociativeArray") <> invalid
+                sid = s.id
+                if sid <> invalid and GetInterface(sid, "ifString") <> invalid
+                    if sid = activeId
+                        cur = s.cur
+                        if cur = invalid or GetInterface(cur, "ifString") = invalid then return ""
+                        return PrefScope.tagOfUser(cur)
+                    end if
+                end if
+            end if
+        end for
+        return ""
+    end function
+
+    ' Keeps "pscope" equal to the active profile (written only when it changes). Returns p.
+    function sync() as string
+        sec = createObject("roRegistrySection", "Cove")
+        activeId = ""
+        if sec.exists("active") then activeId = sec.read("active")
+        js = ""
+        if sec.exists("servers") then js = sec.read("servers")
+        p = PrefScope.activeOf(activeId, js)
+        old = ""
+        if sec.exists("pscope") then old = sec.read("pscope")
+        if p = old then return p
+        if p = ""
+            sec.delete("pscope")
+        else
+            sec.write("pscope", p)
+        end if
+        if not sec.flush() then print "Cove: registry flush failed after switching profile settings"
+        print "Cove: settings now for profile "; p.len(); " (personal keys "; PrefScope.countOf(p); ")"
+        return p
+    end function
+
+    ' How many keys profile p has
+    function countOf(p as string) as integer
+        if p = "" then return 0
+        n = 0
+        sec = createObject("roRegistrySection", "Cove")
+        for each k in sec.getKeyList()
+            if PrefScope.belongsTo(k, p) then n = n + 1
+        end for
+        return n
+    end function
+
+    ' Deletes every key of a profile (signed out / removed, its server removed). Returns how many.
+    function forgetProfile(userId as string) as integer
+        p = PrefScope.tagOfUser(userId)
+        if p = "" then return 0
+        sec = createObject("roRegistrySection", "Cove")
+        gone = 0
+        for each k in sec.getKeyList()
+            if PrefScope.belongsTo(k, p)
+                sec.delete(k)
+                gone = gone + 1
+            end if
+        end for
+        if gone > 0
+            if not sec.flush() then print "Cove: registry flush failed after forgetting a profile's settings"
+            print "Cove: forgot "; gone; " settings of a profile"
+        end if
+        return gone
+    end function
+
+    ' Reset All Settings: a key goes unless it is kept or belongs to another profile (each keeps its own)
+    function resetGoes(storedKey as string, keep as object, p as string) as boolean
+        if keep.doesExist(storedKey) then return false
+        at = storedKey.instr("@")
+        if at < 0 then return true
+        return PrefScope.belongsTo(storedKey, p)
+    end function
+
+end namespace

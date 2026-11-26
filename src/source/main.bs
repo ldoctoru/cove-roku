@@ -36,7 +36,10 @@ sub main(args as dynamic)
         Prefs.migrateSeriesLangs()
         ' (v1.5.2 ST-1) library settings per server: the old shared keys go to the active (else the first) server
         Prefs.migrateScoped(scopeServerId())
-        print "Cove: registry space available "; createObject("roRegistry").GetSpaceAvailable(); " bytes"
+        ' (v1.6 ST-9) the personal settings of the active profile (after the moves above, which work on the
+        ' shared keys)
+        PrefScope.sync()
+        print "Cove: registry space available "; createObject("roRegistry").GetSpaceAvailable(); " bytes, profile settings "; PrefScope.countOf(PrefScope.current()); " keys"
     catch e
         print "Cove: registry check failed: "; e.message
     end try

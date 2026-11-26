@@ -148,7 +148,7 @@
             <!-- the countdown: a bar along the still's bottom edge that empties -->
             <Rectangle width="240" height="5" translation="[24,154]" color="0xFFFFFF40" />
             <Rectangle id="upNextFill" width="240" height="5" translation="[24,154]" color="0xFFFFFFFF" />
-            <Label text="UP NEXT" width="350" height="32" translation="[288,20]" color="0xFFFFFFCC">
+            <Label id="upNextHead" text="UP NEXT" width="350" height="32" translation="[288,20]" color="0xFFFFFFCC">
                 <Font role="font" uri="font:BoldSystemFontFile" size="24" />
             </Label>
             <Label id="upNextTitle" width="350" height="36" translation="[288,54]" color="0xFFFFFFFF">

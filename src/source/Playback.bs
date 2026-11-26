@@ -603,4 +603,72 @@ namespace Playback
         return lastSeen < duration - 60
     end function
 
+    ' ---------------------------------------------------------------- v1.6 PLAYER (M-1 Play Collection)
+
+    ' (v1.6 M-1) The kinds a collection plays back to back (a series or a nested collection opens instead)
+    function isCollectionPlayable(entry as dynamic) as boolean
+        if not Util.isAA(entry) or Util.toText(entry.Id) = "" then return false
+        k = Util.toText(entry.Type)
+        return k = "Movie" or k = "Video" or k = "MusicVideo" or k = "Episode"
+    end function
+
+    ' (v1.6 M-1) A collection's sort: the server's own display order when it says SortName, else release
+    ' order (PremiereDate, ProductionYear, then SortName), oldest first
+    function collectionSortBy(displayOrder as dynamic) as string
+        o = LCase(Util.toText(displayOrder))
+        if o = "sortname" or o = "name" then return "SortName"
+        return "PremiereDate,ProductionYear,SortName"
+    end function
+
+    ' (v1.6 M-1) The films that follow targetId in a collection's (rating-filtered, ordered) list, trimmed for
+    ' the player's queue field; the playable films only. { queue, index, count }: index = the target's
+    ' place among the playable films (0-based), count = how many there are; index -1 when not found.
+    function collectionQueue(list as dynamic, targetId as string) as object
+        keep = ["Id", "Name", "Type", "ProductionYear", "PremiereDate", "RunTimeTicks", "UserData", "ImageTags", "BackdropImageTags", "ParentBackdropItemId", "ParentBackdropImageTags", "SeriesName", "SeriesId", "ParentIndexNumber", "IndexNumber"]
+        out = { queue: [], index: -1, count: 0 }
+        if type(list) <> "roArray" then return out
+        for each entry in list
+            if isCollectionPlayable(entry)
+                if out.index >= 0
+                    o = {}
+                    for each f in keep
+                        if entry[f] <> invalid then o[f] = entry[f]
+                    end for
+                    o.collectionIndex = out.count
+                    out.queue.push(o)
+                else if Util.toText(entry.Id) = targetId
+                    out.index = out.count
+                end if
+                out.count = out.count + 1
+            end if
+        end for
+        return out
+    end function
+
+    ' (v1.6 M-1) Where the Up Next card shows in a collection's film: at the credits marker when it lies in the
+    ' second half, else 5 minutes before the end, never before half the film; -1 = never (films under 10 min)
+    function collectionUpNextStart(creditsAt as float, duration as float) as float
+        if duration <= 0 then return -1.0
+        half = duration / 2
+        if creditsAt >= half and creditsAt < duration - 1 then return creditsAt
+        if duration < 600 then return -1.0
+        at = duration - 300
+        if at < half then at = half
+        return at
+    end function
+
+    ' (v1.6 M-1) "Up Next · Film 2 of 3" (next = the next film's 0-based place, count = films in the collection)
+    function collectionHeading(next_ as integer, count as integer) as string
+        if next_ < 0 or count <= 0 then return "Up Next"
+        return "Up Next · Film " + (next_ + 1).toStr() + " of " + count.toStr()
+    end function
+
+    ' (v1.6 M-1) A film's name with its year: "The Two Towers (2002)"
+    function filmTitle(entry as dynamic) as string
+        n = Util.toText(Util.field(entry, "Name"))
+        y = Util.toNumber(Util.field(entry, "ProductionYear"))
+        if y <> invalid and y > 0 then n = n + " (" + Int(y).toStr() + ")"
+        return n
+    end function
+
 end namespace

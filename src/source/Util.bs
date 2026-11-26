@@ -1,3 +1,5 @@
+import "pkg:/source/PrefScope.bs"
+
 ' Small helpers shared by the UI and the background tasks.
 namespace Util
 
@@ -301,10 +303,11 @@ namespace Util
         return CreateObject("roRegex", "^[A-Za-z0-9-]{1,64}$", "").isMatch(v)
     end function
 
+    ' (v1.6 ST-9) a personal setting (PrefScope) reads the active profile's own value first, else the shared one
     function readJson(key as string) as dynamic
-        sec = createObject("roRegistrySection", "Cove")
-        if not sec.exists(key) then return invalid
-        return parseJson(sec.read(key))
+        v = Util.readText(key)
+        if v = "" then return invalid
+        return parseJson(v)
     end function
 
     ' (a full registry makes write / flush fail silently, which can lose a sign-in: say so in the log)
@@ -312,8 +315,11 @@ namespace Util
     ' them; when it wouldn't, the bounded lists (series subtitle languages, library page filters) are trimmed
     ' first. The sign-ins ("servers", "active") and the PIN lockout ("pinWait") are always written, after
     ' trimming if needed.
+    ' (v1.6 ST-9) a personal setting (PrefScope) is written to the active profile's own key
     sub writeText(key as string, value as string)
         sec = createObject("roRegistrySection", "Cove")
+        pk = PrefScope.personalOf(key)
+        if pk <> "" then key = pk
         keepsLogin = key = "servers" or key = "active" or key = "pinWait"
         if not hasRoomFor(sec, key, value, keepsLogin)
             print "Cove: registry nearly full, setting not saved: "; key; " ("; value.len(); " chars)"
@@ -338,7 +344,12 @@ namespace Util
 
     ' The oldest half of the bounded lists goes (each list is most recent last)
     sub trimLists(sec as object)
-        for each k in ["seriesLangs", "libFilters"]
+        ' (v1.6 ST-9: every profile's copy of them too)
+        lists = []
+        for each k in sec.getKeyList()
+            if k = "seriesLangs" or k = "libFilters" or k.startsWith("seriesLangs@") or k.startsWith("libFilters@") then lists.push(k)
+        end for
+        for each k in lists
             if sec.exists(k)
                 v = parseJson(sec.read(k))
                 if type(v) = "roArray" and v.count() > 1
@@ -354,10 +365,34 @@ namespace Util
         print "Cove: registry nearly full, trimmed the series languages and library filters"
     end sub
 
+    ' (v1.6 ST-9) a personal setting (PrefScope): the active profile's own value when it has one (also "", a
+    ' setting put back to its default), else the shared value of v1.5 and before
     function readText(key as string) as string
         sec = createObject("roRegistrySection", "Cove")
+        pk = PrefScope.personalOf(key)
+        if pk <> "" and sec.exists(pk) then return sec.read(pk)
         if not sec.exists(key) then return ""
         return sec.read(key)
     end function
+
+    ' ---------------------------------------------------------------- v1.6 CORE
+
+    ' (v1.6 ST-9) A setting back to its default: the key goes; for a personal setting the profile's own key goes,
+    ' or becomes "" while a shared value exists (else the shared value would come back for this profile)
+    sub deletePref(key as string)
+        sec = createObject("roRegistrySection", "Cove")
+        pk = PrefScope.personalOf(key)
+        if pk = ""
+            if not sec.exists(key) then return
+            sec.delete(key)
+        else if sec.exists(key)
+            if sec.exists(pk) and sec.read(pk) = "" then return
+            sec.write(pk, "")
+        else
+            if not sec.exists(pk) then return
+            sec.delete(pk)
+        end if
+        if not sec.flush() then print "Cove: registry flush failed after resetting "; key
+    end sub
 
 end namespace
