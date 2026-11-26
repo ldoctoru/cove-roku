@@ -23,10 +23,13 @@ namespace PrefScope
     '   prefixes: Home rows and order per server, menu lists per server, library settings and names per
     '          server, library order per server
     function personalKeys() as object
-        return {
+        pk = {
             exact: ["navStyle", "topBarLabels", "navtop", "navside", "showRecent", "showFavorites", "showNowPlaying", "showUpNextRow", "homeFavorites", "banner", "hideWatchedLatest", "nextUpRewatch", "nextUpDays", "libFilters", "subAlways", "subLang", "subTextSize", "subColor", "subShadow", "subBg", "subBottom", "seriesLangs"],
             prefixes: ["homeRows:", "navtop:", "navside:", "lib:", "libOrder:"]
         }
+        ' --- v1.7 LIVE: Settings → Home → New Episodes ---
+        pk.exact.push("newEpisodes")
+        return pk
     end function
 
     ' The list as a lookup (built once per thread / component)

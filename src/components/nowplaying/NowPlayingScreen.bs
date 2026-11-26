@@ -20,6 +20,9 @@ sub init()
     m.spokenKey = ""
     m.grid.observeField("itemFocused", "onCardFocused")
     Speak.mute([m.grid])
+    ' (v1.7 LIVE M-5) the server's own pushes over the live connection (LiveTask): the polling waits while they come
+    m.liveAt = 0
+    if m.global.hasField("liveSessions") then m.global.observeField("liveSessions", "onLiveSessions")
 end sub
 
 sub onCardFocused()
@@ -37,6 +40,12 @@ end sub
 
 sub refresh()
     if m.top.server = invalid then return
+    wantLive(m.top.isInFocusChain() and not m.top.suspended)
+    ' (v1.7 LIVE) the live connection pushed the list in the last 20 s: no request this round
+    if m.liveAt > 0 and nowSecs() - m.liveAt < 20
+        m.timer.control = "start"
+        return
+    end if
     t = createObject("roSGNode", "ApiTask")
     t.request = { method: "GET", url: Util.toText(m.top.server.url) + "/Sessions?ActiveWithinSeconds=960", headers: Api.headers(m.top.server, true), body: "", tag: { kind: "sessions" }, timeout: 15000 }
     t.observeField("response", "onSessions")
@@ -54,9 +63,14 @@ sub onSessions(ev as object)
         end if
         return
     end if
+    showSessions(r.json)
+end sub
+
+' The cards for a session list (GET /Sessions, or the live connection's Sessions message)
+sub showSessions(sessions as object)
     srv = m.top.server
     list = []
-    for each s in r.json
+    for each s in sessions
         ' (v0.9.1: a profile with a rating limit doesn't see titles above it, or unrated episodes of unknown series)
         if Util.isAA(s) and Util.isAA(s.NowPlayingItem) and Ratings.allowed(srv, s.NowPlayingItem) then list.push(s)
     end for
@@ -125,7 +139,10 @@ sub onSelected()
 end sub
 
 sub onFocusChanged()
-    if not m.top.isInFocusChain() then m.timer.control = "stop"
+    if not m.top.isInFocusChain()
+        m.timer.control = "stop"
+        wantLive(false)
+    end if
     if m.top.hasFocus()
         refresh()
         if m.grid.content <> invalid and m.grid.content.getChildCount() > 0
@@ -139,7 +156,31 @@ end sub
 sub onSuspended()
     if m.top.suspended
         m.timer.control = "stop"
+        wantLive(false)
     else if m.top.isInFocusChain()
         refresh()
     end if
 end sub
+
+' ---------------------------------------------------------------- v1.7 LIVE
+
+' (M-5) While this page is on top the live connection asks the server to push the session list (SessionsStart);
+' LiveTask follows m.global.liveWantSessions
+sub wantLive(isOn as boolean)
+    if m.global.hasField("liveWantSessions") and m.global.liveWantSessions <> isOn then m.global.liveWantSessions = isOn
+end sub
+
+sub onLiveSessions()
+    d = m.global.liveSessions
+    srv = m.top.server
+    if not Util.isAA(d) or srv = invalid or type(d.list) <> "roArray" then return
+    if Util.toText(d.serverId) <> Util.toText(srv.id) or Util.toText(d.userId) <> Util.toText(srv.userId) then return
+    if not m.top.isInFocusChain() or m.top.suspended then return
+    if m.liveAt = 0 then print "Cove: now playing live (pushed by the server)"
+    m.liveAt = nowSecs()
+    showSessions(d.list)
+end sub
+
+function nowSecs() as integer
+    return createObject("roDateTime").asSeconds()
+end function

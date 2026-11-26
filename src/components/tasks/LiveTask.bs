@@ -1,0 +1,217 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Api.bs"
+import "pkg:/source/Servers.bs"
+import "pkg:/source/Live.bs"
+
+sub init()
+    m.top.functionName = "work"
+end sub
+
+sub work()
+    try
+        socketLoop()
+    catch e
+        where = ""
+        if type(e.backtrace) = "roArray" and e.backtrace.count() > 0
+            frame = e.backtrace[e.backtrace.count() - 1]
+            if Util.isAA(frame) then where = " (" + Util.toText(frame.filename) + ":" + Util.toText(frame.line_number) + ")"
+        end if
+        print "Cove: live failed: "; Util.redact(Util.toText(e.message) + where)
+        m.top.liveState = "failed"
+    end try
+end sub
+
+' Connects, reads, reconnects, until MainScene sends "close" (or 3 attempts in a row never opened)
+sub socketLoop()
+    srv = m.top.server
+    if not Util.isAA(srv) or Util.toText(srv.token) = "" then return
+    m.srv = srv
+    m.port = createObject("roMessagePort")
+    m.top.observeField("command", m.port)
+    m.wantSessions = false
+    if m.global <> invalid and m.global.hasField("liveWantSessions")
+        m.global.observeField("liveWantSessions", m.port)
+        m.wantSessions = m.global.liveWantSessions = true
+    end if
+    url = Live.socketUrl(Util.toText(srv.url), Servers.isJellyfin(srv), Util.toText(srv.token), Util.deviceId())
+    if url = ""
+        print "Cove: live unsupported for this server address (polling as before)"
+        m.top.liveState = "unsupported"
+        return
+    end if
+    m.counts = {}
+    m.countsAt = createObject("roTimespan")
+    m.closing = false
+    attempt = 0
+    failures = 0
+    while true
+        ws = CreateObject(socketKind())
+        if ws = invalid
+            print "Cove: live unsupported (no roWebSocket on this Roku OS): polling as before"
+            m.top.liveState = "unsupported"
+            return
+        end if
+        opened = openAndRead(ws, url, attempt)
+        if m.closing = true
+            m.top.liveState = "closed"
+            return
+        end if
+        if opened
+            failures = 0
+            attempt = 0
+        else
+            failures = failures + 1
+        end if
+        if Live.gaveUp(failures)
+            print "Cove: live gave up after "; failures; " failed attempts: polling as before"
+            m.top.liveState = "failed"
+            return
+        end if
+        secs = Live.backoffSecs(attempt)
+        attempt = attempt + 1
+        print "Cove: live reconnect in "; secs; " s"
+        m.top.liveState = "waiting"
+        if not waitOrClose(secs * 1000)
+            m.top.liveState = "closed"
+            return
+        end if
+    end while
+end sub
+
+' The OS 16 component (a name bsc doesn't know yet)
+function socketKind() as string
+    return "roWebSocket"
+end function
+
+' Waits ms while still taking MainScene's "close": false when closed meanwhile
+function waitOrClose(ms as integer) as boolean
+    spent = createObject("roTimespan")
+    while spent.totalMilliseconds() < ms
+        msg = wait(500, m.port)
+        if type(msg) = "roSGNodeEvent"
+            if msg.getField() = "command" and Util.toText(msg.getData()) = "close"
+                print "Cove: live closed by the app"
+                return false
+            end if
+            if msg.getField() = "liveWantSessions" then m.wantSessions = msg.getData() = true
+        end if
+    end while
+    return true
+end function
+
+' One connection: opens it and reads until it closes. true when it opened.
+function openAndRead(ws as object, url as string, attempt as integer) as boolean
+    ws.setMessagePort(m.port)
+    ws.setUrl(url)
+    ws.setCertificatesFile("common:/certs/ca-bundle.crt")
+    h = Live.socketHeaders(m.srv)
+    for each k in h
+        ws.addHeader(k, h[k])
+    end for
+    sid = ws.getSocketId()
+    spent = createObject("roTimespan")
+    print "Cove: live connecting "; Util.redact(url); " (attempt "; attempt + 1; ")"
+    m.top.liveState = "connecting"
+    ws.open()
+    opened = false
+    keepEvery = 30000
+    keepAt = createObject("roTimespan")
+    sessionsOn = false
+    while true
+        msg = wait(1000, m.port)
+        mt = type(msg)
+        if mt = "roWebSocketEvent"
+            if msg.getSocketId() = sid
+                et = msg.getType()
+                if et = 1
+                    opened = true
+                    print "Cove: live open "; spent.totalMilliseconds(); " ms"
+                    m.top.liveState = "open"
+                    keepAt.mark()
+                    if m.wantSessions
+                        ws.send(Live.sessionsFrame(true))
+                        sessionsOn = true
+                    end if
+                else if et = 5
+                    info = msg.getInfo()
+                    every = onText(ws, Util.field(info, "Text"))
+                    if every > 0
+                        keepEvery = every
+                        keepAt.mark()
+                    end if
+                else if et = 2 or et = 3
+                    info = msg.getInfo()
+                    reason = Util.toText(Util.field(info, "ErrorMsg"))
+                    if reason = "" then reason = Util.toText(Util.field(info, "Reason"))
+                    kind = "closed"
+                    if et = 3 then kind = "error"
+                    print "Cove: live "; kind; " code "; Util.toText(Util.field(info, "Code")); " "; Util.redact(reason); " after "; spent.totalMilliseconds(); " ms"
+                    flushCounts()
+                    return opened
+                end if
+            end if
+        else if mt = "roSGNodeEvent"
+            f = msg.getField()
+            if f = "command" and Util.toText(msg.getData()) = "close"
+                m.closing = true
+                if opened and sessionsOn then ws.send(Live.sessionsFrame(false))
+                ws.close(1000, "")
+                flushCounts()
+                print "Cove: live closed by the app"
+                return opened
+            else if f = "liveWantSessions"
+                m.wantSessions = msg.getData() = true
+                if opened and m.wantSessions <> sessionsOn
+                    ws.send(Live.sessionsFrame(m.wantSessions))
+                    sessionsOn = m.wantSessions
+                    print "Cove: live sessions "; sessionsOn
+                end if
+            end if
+        end if
+        if opened and keepAt.totalMilliseconds() >= keepEvery
+            ws.send(Live.keepAliveFrame())
+            keepAt.mark()
+        end if
+        ' (the handshake never answered: give it up after 15 s, as the Mac does)
+        if not opened and spent.totalMilliseconds() > 15000
+            print "Cove: live open timed out after 15000 ms"
+            ws.close(1000, "")
+            return false
+        end if
+        if m.countsAt.totalMilliseconds() >= 60000 then flushCounts()
+    end while
+    return opened
+end function
+
+' One text message. Returns the new keep-alive interval (ms) after a ForceKeepAlive, else 0.
+function onText(ws as object, text as dynamic) as integer
+    f = Live.parseFrame(text)
+    if f = invalid then return 0
+    t = f.type
+    m.counts[t] = Util.toNumber(m.counts[t]) + 1
+    srv = m.srv
+    if t = "ForceKeepAlive"
+        ws.send(Live.keepAliveFrame())
+        return Live.keepAliveMs(f.data)
+    else if t = "UserDataChanged"
+        ids = Live.userDataIds(f.data, Util.toText(srv.userId))
+        if ids.count() > 0 then m.top.event = { kind: "userData", ids: ids, serverId: Util.toText(srv.id), userId: Util.toText(srv.userId) }
+    else if t = "LibraryChanged"
+        ids = Live.addedIds(f.data)
+        if ids.count() > 0 then m.top.event = { kind: "library", ids: ids, serverId: Util.toText(srv.id), userId: Util.toText(srv.userId) }
+    else if t = "Sessions"
+        if type(f.data) = "roArray" and m.global <> invalid and m.global.hasField("liveSessions")
+            m.global.liveSessions = { serverId: Util.toText(srv.id), userId: Util.toText(srv.userId), list: f.data, at: createObject("roDateTime").asSeconds() }
+        end if
+    else if Live.isRemoteCommand(t)
+        print "Cove: live ignored "; t; " (no remote control)"
+    end if
+    return 0
+end function
+
+' "Cove: live messages Sessions 12, UserDataChanged 1" (at most once a minute)
+sub flushCounts()
+    if m.counts.count() > 0 then print "Cove: live messages "; Live.countsText(m.counts); " in "; m.countsAt.totalMilliseconds(); " ms"
+    m.counts = {}
+    m.countsAt.mark()
+end sub
