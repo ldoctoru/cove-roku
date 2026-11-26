@@ -3335,3 +3335,18 @@ sub fadeAbout(target as float)
     m.top.findNode("aboutFade").keyValue = [m.about.opacity, target]
     a.control = "start"
 end sub
+
+' ---------------------------------------------------------------- v1.7 LIVE
+
+' (M-5) The server said this profile's watched state or progress changed (another device): the header (Resume,
+' the check) and Next Up again, without moving the focus (the buttons keep the focused one by id); the episode
+' rows refresh when the page is shown again
+sub onLiveRefresh()
+    if m.item = invalid or not m.top.isInFocusChain() then return
+    get(itemPath(), { kind: "item" })
+    if Util.toText(m.item.Type) = "Series"
+        m.nextUpPending = true
+        loadNextUp()
+        reloadSeasonCounts()
+    end if
+end sub

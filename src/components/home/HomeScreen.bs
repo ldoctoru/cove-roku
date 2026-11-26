@@ -85,6 +85,8 @@ sub init()
     m.bannerTick = m.top.findNode("bannerTick")
     m.bannerTick.observeField("fire", "onBannerTick")
     buildNav()
+    ' (v1.7 LIVE M-3) the New entry follows the unread count (MainScene's notices)
+    if m.global.hasField("noticesCount") then m.global.observeField("noticesCount", "buildNav")
     m.top.findNode("hero").visible = false
     m.picker = invalid
     m.menuItem = invalid
@@ -294,6 +296,10 @@ end sub
 ' while Recently Added and the libraries still come after the pages.
 sub buildNav()
     items = [{ id: "home", label: "Home", icon: "home", pinned: true }]
+    ' (v1.7 LIVE M-3) New episodes of the profile's shows: "New" with the unread count, while there are any
+    newCount = 0
+    if m.global.hasField("noticesCount") then newCount = Util.toNumber(m.global.noticesCount)
+    if newCount > 0 then items.push({ id: "new", label: "New", icon: "new", badge: newCount, pinned: true })
     libs = invalid
     if m.task <> invalid then libs = m.task.libraries
     ' (SC-6) a reload's task has no libraries until its rows arrive: keep the last list meanwhile
@@ -906,7 +912,7 @@ end sub
 sub openNavPage(id as string)
     if id = "search"
         m.top.action = { id: "search" }
-    else if id = "settings" or id = "favorites" or id = "recent" or id = "nowplaying" or id = "profile"
+    else if id = "settings" or id = "favorites" or id = "recent" or id = "nowplaying" or id = "profile" or id = "new"
         m.top.action = { id: id }
     else if id.startsWith("lib:")
         l = m.libraries[id.mid(4).toInt()]

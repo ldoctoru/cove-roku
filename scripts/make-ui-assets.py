@@ -662,6 +662,7 @@ def main(argv=None):
         draw_player_v14()
         draw_settings_v15()
         draw_details_v15()
+        draw_live_v17()
         out = os.path.normpath(args.out)
         if args.check:
             added, changed, removed = compare(tmp, out)
@@ -816,6 +817,21 @@ def draw_details_v15():
     icon("dt_folder", 28, folder_icon)
     icon("dt_tv", 28, tv_icon)
     icon("dt_quality", 28, quality)
+
+
+# ---- v1.7 LIVE: the New entry (sidebar / top bar, 36) and the new-episode toast (28): a bell
+def bell_icon(d, n):
+    w = int(n * 0.08)
+    d.chord([n * 0.24, n * 0.16, n * 0.76, n * 0.68], 180, 360, fill=WHITE)
+    d.rectangle([n * 0.24, n * 0.42, n * 0.76, n * 0.66], fill=WHITE)
+    d.polygon([(n * 0.24, n * 0.64), (n * 0.76, n * 0.64), (n * 0.86, n * 0.76), (n * 0.14, n * 0.76)], fill=WHITE)
+    d.ellipse([n * 0.42, n * 0.78, n * 0.58, n * 0.92], fill=WHITE)
+    d.line([(n * 0.5, n * 0.08), (n * 0.5, n * 0.18)], fill=WHITE, width=w)
+
+
+def draw_live_v17():
+    icon("new", 36, bell_icon)
+    icon("new", 28, bell_icon)
 
 
 if __name__ == "__main__":

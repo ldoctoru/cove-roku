@@ -29,6 +29,8 @@ namespace PrefScope
         }
         ' v1.7 NAV: Settings → Home → Because You Watched → Rows (the on / off rides on homeRows:<server>)
         pk.exact.push("becauseRows")
+        ' --- v1.7 LIVE: Settings → Home → New Episodes ---
+        pk.exact.push("newEpisodes")
         return pk
     end function
 

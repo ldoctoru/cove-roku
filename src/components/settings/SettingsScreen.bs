@@ -12,6 +12,7 @@ import "pkg:/source/HomeLayout.bs"
 import "pkg:/source/Toasts.bs"
 import "pkg:/source/NavPrefs.bs"
 import "pkg:/source/SetRows.bs"
+import "pkg:/source/Live.bs"
 
 ' (v1.5) Settings in the Cove for Mac format (SettingsPages.bs builds each tab's rows), drawn here, flat.
 ' Layout (1920 x 1080): 9 tabs of 150 x 108 across the top (y 36), a line at y 162, then the tab's rows in a

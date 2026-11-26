@@ -1,0 +1,359 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Api.bs"
+
+' (v1.7 LIVE) The live connection to the server (M-5) and the new-episode notices (M-3): pure helpers, so the
+' socket task (components/tasks/LiveTask), the notices task (NoticesTask), MainScene and the tests share them.
+'   - M-5: one WebSocket to the active server (Jellyfin /socket with the Authorization header, Emby
+'     /embywebsocket?api_key=...), KeepAlive answers, reconnect backoff 2 -> 60 s, and the messages Cove uses:
+'     UserDataChanged (watched / progress changed elsewhere), LibraryChanged (new items), Sessions (Now Playing).
+'     Remote control (Play, Playstate, GeneralCommand) is ignored and only logged (owner's decision).
+'   - M-3: a high-water mark (the newest DateCreated seen) per server + profile in ONE bounded registry key
+'     ("newMedia"), the unread ids for the New list, and which new items to announce (My Shows / Everything).
+' Every name here is specific (liveOn, noticeMode...): a namespace call can resolve to a component's own sub of
+' the same name (see the skill's pitfalls), so they are always called as Live.<name>.
+namespace Live
+
+    ' ---------------------------------------------------------------- settings
+
+    ' Settings → Connect → Live Connection to the Server (shared by the whole TV; default on)
+    function liveOn() as boolean
+        return Util.readText("liveConn") <> "off"
+    end function
+
+    ' Settings → Home → New Episodes (personal, PrefScope): "shows" (My Shows, default), "all" (Everything) or "off"
+    function noticeMode() as string
+        v = Util.readText("newEpisodes")
+        if v = "all" or v = "off" then return v
+        return "shows"
+    end function
+
+    function noticeModeOptions() as object
+        return [{ id: "shows", label: "My Shows" }, { id: "all", label: "Everything" }, { id: "off", label: "Off" }]
+    end function
+
+    ' ---------------------------------------------------------------- M-5 socket
+
+    ' The socket address for a server: ws(s)://host[:port][/path]/socket?deviceId=... (Jellyfin, the token goes in
+    ' the Authorization header) or .../embywebsocket?api_key=...&deviceId=... (Emby). "" when the server address
+    ' isn't http(s), or the token would leave the server's own origin (Util.tokenSafeTarget).
+    function socketUrl(serverUrl as string, jellyfin as boolean, token as string, deviceId as string) as string
+        base = serverUrl.trim()
+        while base.right(1) = "/"
+            base = base.left(base.len() - 1)
+        end while
+        sch = LCase(Util.schemeOf(base))
+        if sch <> "http" and sch <> "https" then return ""
+        if Util.hostOf(base) = "" then return ""
+        if jellyfin
+            httpForm = base + "/socket?deviceId=" + deviceId.encodeUriComponent()
+        else
+            if token = "" then return ""
+            httpForm = base + "/embywebsocket?api_key=" + token.encodeUriComponent() + "&deviceId=" + deviceId.encodeUriComponent()
+        end if
+        if not Util.tokenSafeTarget(serverUrl, httpForm) then return ""
+        if sch = "https" then return "wss" + httpForm.mid(5)
+        return "ws" + httpForm.mid(4)
+    end function
+
+    ' The handshake headers: the same MediaBrowser authorization as every request (Jellyfin 10.11 / 12 rejects
+    ' the socket without it)
+    function socketHeaders(server as object) as object
+        return Api.headers(server, true)
+    end function
+
+    ' A message from the server: { type, data } or invalid (not JSON, no MessageType)
+    function parseFrame(text as dynamic) as dynamic
+        s = Util.toText(text)
+        if s = "" or s.left(1) <> "{" then return invalid
+        j = parseJson(s)
+        if not Util.isAA(j) then return invalid
+        t = Util.toText(j.MessageType)
+        if t = "" then return invalid
+        return { type: t, data: j.Data }
+    end function
+
+    ' Seconds before reconnect attempt n (0-based): 2, 4, 8, 16, 32, then 60
+    function backoffSecs(attempt as integer) as integer
+        if attempt < 0 then attempt = 0
+        secs = 2
+        for i = 1 to attempt
+            secs = secs * 2
+            if secs >= 60 then return 60
+        end for
+        return secs
+    end function
+
+    ' Connection attempts in a row that never opened before Cove gives up for the session (polling as before)
+    function gaveUp(failures as integer) as boolean
+        return failures >= 3
+    end function
+
+    ' ForceKeepAlive's Data is the server's timeout in seconds: Cove answers every half of it (at least 5 s,
+    ' 30 s when it isn't a number)
+    function keepAliveMs(data as dynamic) as integer
+        secs = Util.toNumber(data)
+        if secs <= 0 then return 30000
+        ms = Int(secs * 1000 / 2)
+        if ms < 5000 then ms = 5000
+        return ms
+    end function
+
+    function keepAliveFrame() as string
+        return "{" + chr(34) + "MessageType" + chr(34) + ":" + chr(34) + "KeepAlive" + chr(34) + "}"
+    end function
+
+    ' Now Playing open: the server pushes the session list (first at once, then at most every 1.5 s), as the web apps
+    function sessionsFrame(opening as boolean) as string
+        q = chr(34)
+        if opening then return "{" + q + "MessageType" + q + ":" + q + "SessionsStart" + q + "," + q + "Data" + q + ":" + q + "0,1500" + q + "}"
+        return "{" + q + "MessageType" + q + ":" + q + "SessionsStop" + q + "}"
+    end function
+
+    ' UserDataChanged → the item ids whose watched state / progress / favourite changed for this user ([] for
+    ' another user or a bad message)
+    function userDataIds(data as dynamic, userId as string) as object
+        out = []
+        if not Util.isAA(data) then return out
+        uid = Util.toText(data.UserId)
+        if uid <> "" and userId <> "" and LCase(uid) <> LCase(userId) then return out
+        list = data.UserDataList
+        if type(list) <> "roArray" then return out
+        seen = {}
+        for each u in list
+            id = Util.toText(Util.field(u, "ItemId"))
+            if id <> "" and not seen.doesExist(id) and out.count() < 100
+                seen[id] = true
+                out.push(id)
+            end if
+        end for
+        return out
+    end function
+
+    ' LibraryChanged → the ids of the items added (ItemsAdded)
+    function addedIds(data as dynamic) as object
+        out = []
+        list = Util.field(data, "ItemsAdded")
+        if type(list) <> "roArray" then return out
+        for each id in list
+            s = Util.toText(id)
+            if s <> "" and out.count() < 100 then out.push(s)
+        end for
+        return out
+    end function
+
+    ' Remote control messages: ignored (no phone remote in Cove for Roku), only logged
+    function isRemoteCommand(msgType as string) as boolean
+        return msgType = "Play" or msgType = "Playstate" or msgType = "GeneralCommand"
+    end function
+
+    ' The message counts for the log, by name: "Sessions 12, UserDataChanged 1"
+    function countsText(counts as object) as string
+        keys = []
+        for each k in counts
+            keys.push(k)
+        end for
+        keys.sort("i")
+        parts = []
+        for each k in keys
+            parts.push(k + " " + Util.toText(counts[k]))
+        end for
+        return Util.join(parts, ", ")
+    end function
+
+    ' ---------------------------------------------------------------- M-3 new episodes
+
+    ' The profile's entry in "newMedia": the server id and the user id (first 8 characters each)
+    function noticeKey(serverId as string, userId as string) as string
+        return serverId.left(8) + ":" + userId.left(8)
+    end function
+
+    ' A server DateCreated cut to the second ("2026-11-26T10:01:02.0000000Z" → "2026-11-26T10:01:02"), so text
+    ' order is time order whatever fraction the server writes
+    function dateKeyOf(iso as dynamic) as string
+        s = Util.toText(iso)
+        if s.len() < 19 then return ""
+        return s.left(19)
+    end function
+
+    ' The entry for key in the stored list, or invalid
+    function entryOf(store as dynamic, key as string) as dynamic
+        if type(store) <> "roArray" then return invalid
+        for each e in store
+            if Util.isAA(e) and Util.toText(e.k) = key then return e
+        end for
+        return invalid
+    end function
+
+    ' The list with entry put last (most recent), other entries kept, at most maxEntries (the oldest go)
+    function withEntry(store as dynamic, entry as object, maxEntries as integer) as object
+        out = []
+        if type(store) = "roArray"
+            for each e in store
+                if Util.isAA(e) and Util.toText(e.k) <> "" and Util.toText(e.k) <> Util.toText(entry.k) then out.push(e)
+            end for
+        end if
+        out.push(entry)
+        while out.count() > maxEntries
+            out.shift()
+        end while
+        return out
+    end function
+
+    ' A title the server made up while it waits for metadata ("TBA", "Episode 4"): not announced
+    function isPlaceholderName(name as dynamic) as boolean
+        t = LCase(Util.toText(name).trim())
+        if t = "" then return true
+        if t = "tba" or t = "tbd" or t = "tbc" or t = "to be announced" or t = "unknown" then return true
+        return CreateObject("roRegex", "^episode\s*#?\s*\d+$", "").isMatch(t)
+    end function
+
+    ' The item was started or watched by this profile (UserData): nothing new to tell
+    function isStarted(it as dynamic) as boolean
+        ud = Util.field(it, "UserData")
+        if not Util.isAA(ud) then return false
+        return Util.flag(ud, "Played") or Util.toNumber(ud.PlaybackPositionTicks) > 0
+    end function
+
+    ' A series the profile follows from its own UserData: a favourite, or some of it watched
+    function followsSeries(ud as dynamic) as boolean
+        if not Util.isAA(ud) then return false
+        if Util.flag(ud, "IsFavorite") or Util.flag(ud, "Played") then return true
+        if Util.toNumber(ud.PlayedPercentage) > 0 then return true
+        return false
+    end function
+
+    ' The newest items (newest first) against the profile's entry: { fresh (items added since the last look, not
+    ' started, real titles, episodes and films), entry (the new high-water mark), baseline (true = first look, or
+    ' the last one was more than 3 days ago: nothing is announced) }.
+    ' entry = { k, n (newest DateCreated, to the second), s (ids added at exactly n), u (unread ids), c (seconds) }
+    function freshItems(entry as dynamic, latest as object, key as string, atSecs as integer) as object
+        newest = ""
+        for each it in latest
+            d = Live.dateKeyOf(Util.field(it, "DateCreated"))
+            if d > newest then newest = d
+        end for
+        unread = []
+        if Util.isAA(entry) and type(entry.u) = "roArray" then unread = entry.u
+        base = not Util.isAA(entry) or Util.toText(entry.n) = "" or atSecs - Util.toNumber(entry.c) > 3 * 86400
+        fresh = []
+        mark = ""
+        seenAt = {}
+        if not base
+            mark = Util.toText(entry.n)
+            if type(entry.s) = "roArray"
+                for each id in entry.s
+                    seenAt[Util.toText(id)] = true
+                end for
+            end if
+            taken = {}
+            for each it in latest
+                id = Util.toText(Util.field(it, "Id"))
+                d = Live.dateKeyOf(Util.field(it, "DateCreated"))
+                t = Util.toText(Util.field(it, "Type"))
+                isNew = d > mark or (d = mark and not seenAt.doesExist(id))
+                if id <> "" and d <> "" and isNew and not taken.doesExist(id) and (t = "Episode" or t = "Movie") and not Live.isStarted(it) and not Live.isPlaceholderName(Util.field(it, "Name"))
+                    taken[id] = true
+                    fresh.push(it)
+                end if
+            end for
+        end if
+        ' the new mark: the newest date seen (never older than the last one) and the ids at exactly that date
+        peak = newest
+        if mark > peak then peak = mark
+        atTop = []
+        if peak = mark
+            for each id in seenAt
+                atTop.push(id)
+            end for
+        end if
+        for each it in latest
+            id = Util.toText(Util.field(it, "Id"))
+            if id <> "" and Live.dateKeyOf(Util.field(it, "DateCreated")) = peak and atTop.count() < 6
+                dup = false
+                for each x in atTop
+                    if x = id then dup = true
+                end for
+                if not dup then atTop.push(id)
+            end if
+        end for
+        return { fresh: fresh, baseline: base, entry: { k: key, n: peak, s: atTop, u: unread, c: atSecs } }
+    end function
+
+    ' Which fresh items are announced: Everything = new episodes and films; My Shows = new episodes of the series
+    ' in followed (an AA of series ids); Off = none
+    function wantedItems(fresh as object, mode as string, followed as object) as object
+        out = []
+        if mode = "off" then return out
+        for each it in fresh
+            t = Util.toText(Util.field(it, "Type"))
+            if mode = "all" and (t = "Episode" or t = "Movie")
+                out.push(it)
+            else if t = "Episode" and followed.doesExist(Util.toText(Util.field(it, "SeriesId")))
+                out.push(it)
+            end if
+        end for
+        return out
+    end function
+
+    ' The series ids of the episodes in a list (each once, at most 40)
+    function seriesIdsOf(list as object) as object
+        out = []
+        seen = {}
+        for each it in list
+            sid = Util.toText(Util.field(it, "SeriesId"))
+            if sid <> "" and Util.toText(Util.field(it, "Type")) = "Episode" and not seen.doesExist(sid) and out.count() < 40
+                seen[sid] = true
+                out.push(sid)
+            end if
+        end for
+        return out
+    end function
+
+    ' The unread ids: the new ones first, then the older ones, each once, at most maxIds
+    function mergeUnread(unread as dynamic, newIds as object, maxIds as integer) as object
+        out = []
+        seen = {}
+        for each group in [newIds, unread]
+            if type(group) = "roArray"
+                for each id in group
+                    s = Util.toText(id)
+                    if s <> "" and not seen.doesExist(s) and out.count() < maxIds
+                        seen[s] = true
+                        out.push(s)
+                    end if
+                end for
+            end if
+        end for
+        return out
+    end function
+
+    ' The short form of an announced item for MainScene: { id, title ("The Bear"), ep ("S3:E4"), type }
+    function noticeOf(it as object) as object
+        t = Util.toText(it.Type)
+        title = Util.toText(it.Name)
+        ep = ""
+        if t = "Episode"
+            if Util.toText(it.SeriesName) <> "" then title = Util.toText(it.SeriesName)
+            if it.ParentIndexNumber <> invalid and it.IndexNumber <> invalid then ep = "S" + Util.toText(it.ParentIndexNumber) + ":E" + Util.toText(it.IndexNumber)
+        end if
+        return { id: Util.toText(it.Id), title: title, ep: ep, type: t }
+    end function
+
+    ' The toast for what was just found: "New: The Bear · S3:E4", "New: The Bear · S3:E4 and 2 more"; Toasts can't
+    ' take OK, so the last part says where the list is
+    function noticeToast(list as object) as string
+        if list.count() = 0 then return ""
+        f = list[0]
+        text = "New: " + Util.toText(f.title)
+        if Util.toText(f.ep) <> "" then text = text + " · " + Util.toText(f.ep)
+        if list.count() > 1 then text = text + " and " + (list.count() - 1).toStr() + " more"
+        return text + "  ·  See New in the menu"
+    end function
+
+    ' The New list's row title for a day: "Added Today", "Added Yesterday", "Added Mon 24 Nov" (US: "Mon Nov 24")
+    function dayTitle(label as string) as string
+        if label = "" then return "Added Earlier"
+        return "Added " + label
+    end function
+
+end namespace

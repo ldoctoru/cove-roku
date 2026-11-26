@@ -247,6 +247,11 @@ sub homeRows(out as object)
     out.push(rDim(rChoice("becauseRows", "Rows", rowsN, HomeLayout.becauseRows().toStr()), srvOn or not HomeLayout.isOn(sid, "because")))
     out.push(rNote("Rows of titles like the ones you watched last, from the server's recommendations. They show after Recently Added and appear a moment after the other rows. Not shown with the server's Home layout."))
     ' --- end v1.7 NAV ---
+    ' --- v1.7 LIVE ---
+    out.push(rHead("New Episodes"))
+    out.push(rChoice("newEpisodes", "New Episodes", Live.noticeModeOptions(), Live.noticeMode()))
+    out.push(rNote("A notice when the server adds an episode of a show you follow (a favorite, or one you've started), and a New entry in the menu that lists them. Everything also includes every new episode and film. Checked at start, when Cove comes back and every 10 minutes on Home."))
+    ' --- end v1.7 LIVE ---
 end sub
 
 ' Every library with its Home row switch (v1.5: every kind of library has one): [{ id, label, on }]
@@ -572,6 +577,11 @@ sub serverRows(out as object)
     out.push(rButton("addServer", "Add Server..."))
     out.push(rNote("OK on a server: connect to it, rename it or remove it. Add Server opens the sign-in screen."))
     if isRestricted() then out.push(rNote(restrictedNote()))
+    ' --- v1.7 LIVE ---
+    out.push(rHead("Live Connection"))
+    out.push(rSwitch("liveConn", "Live Connection to the Server", Live.liveOn()))
+    out.push(rNote("Keeps a connection open to the server, so watched marks, progress and Now Playing update at once when something changes on another device. Needs Roku OS 16 or later; otherwise Cove checks every few seconds as before."))
+    ' --- end v1.7 LIVE ---
 end sub
 
 '' (v0.9.0) Profiles: the current server's saved profiles, Who's watching? at start, add / switch, and the parent

@@ -12,6 +12,7 @@ import "pkg:/source/NavPrefs.bs"
 import "pkg:/source/NavUtil.bs"
 import "pkg:/source/Clock.bs"
 import "pkg:/source/WhatsNew.bs"
+import "pkg:/source/Live.bs"
 
 sub init()
     Clock.startupMark("MainScene init")
@@ -89,6 +90,8 @@ sub init()
     if m.top.hasField("allowBackgroundTask") then m.top.allowBackgroundTask = true
     ' (v1.6 Q-1) What's New once after an update (decided now, before a fresh install saves its first server)
     initWhatsNew()
+    ' (v1.7 LIVE) the live connection and the new-episode notices
+    liveInit()
     Clock.startupMark("MainScene init done")
     start()
 end sub
@@ -223,7 +226,11 @@ sub pop()
             m.themeDirty = true
         end if
     end if
-    if Util.toText(s.screenId) = "settings" then m.navPrint = ""
+    if Util.toText(s.screenId) = "settings"
+        m.navPrint = ""
+        ' (v1.7 LIVE) Live Connection / New Episodes may have changed
+        liveAfterSettings()
+    end if
     if m.themeDirty = true and m.server <> invalid and Util.toText(s.screenId) = "settings"
         m.themeDirty = false
         showHome(m.server)
@@ -273,6 +280,8 @@ sub reset(s as object)
     ' (showHome sets it again; any other start-over screen is before or outside Home)
     m.homeReady = false
     push(s)
+    ' (v1.7 LIVE) another server / profile, or none: the live connection follows (a moment later)
+    liveQueueSync()
 end sub
 
 ' Takes the top screen away without showing the one under it (it is replaced right after)
@@ -453,6 +462,8 @@ sub showHome(server as object)
     ' (C2-1: a limited profile locks the server list; any other profile on Home unlocks it)
     m.lock = invalid
     noteLock(server)
+    ' (v1.7 LIVE M-3) this profile's New count, before its Home builds the menu
+    m.global.noticesCount = noticesCountNow(server)
     h = createObject("roSGNode", "HomeScreen")
     Clock.startupMark("HomeScreen created")
     h.observeField("action", "onHomeAction")
@@ -464,6 +475,7 @@ sub showHome(server as object)
     Clock.startupMark("HomeScreen pushed")
     m.homeReady = true
     m.homeLoadedAt = nowSecs()
+    liveQueueSync()
     ' (AppLaunchComplete waits for Home's "ready": its rows or its error on screen)
     ' (a profile switch: say whose Home this is now)
     if Util.toText(m.toastOnHome) <> ""
@@ -609,6 +621,8 @@ sub onHomeAction(ev as object)
         Clock.startupMark("Home ready (AppLaunchComplete)")
         launchComplete()
         queueWhatsNew()
+        ' (v1.7 LIVE M-3) new episodes since the last look (a moment later, after Home's own requests)
+        noticesSoon("launch", 4)
     else if a.id = "switch"
         ' (v0.9.1: another server could lift the rating limit: a parent PIN first while a limited profile watches)
         guardedAct(m.server, { do: "servers" })
@@ -661,6 +675,9 @@ sub onHomeAction(ev as object)
         ms.observeField("action", "onHomeAction")
         push(ms)
         ms.library = { id: Util.toText(a.libraryId), title: Util.toText(a.libraryTitle), kind: Util.toText(a.kind) }
+    else if a.id = "new"
+        ' (v1.7 LIVE M-3) the New entry: the unread new episodes, by the day they were added
+        openNotices()
     else if a.id = "nowplaying"
         s = createObject("roSGNode", "NowPlayingScreen")
         s.server = m.server
@@ -1934,6 +1951,8 @@ sub customSuspend(args as dynamic)
         for each s in m.stack
             if s.hasField("suspended") then s.suspended = true
         end for
+        ' (v1.7 LIVE) the socket closes in the background; it opens again on resume
+        liveSuspend()
     catch e
         print "Cove: suspend failed: "; Util.redact(Util.toText(e.message))
     end try
@@ -1975,6 +1994,8 @@ sub customResume(args as dynamic)
                 m.top.deepLink = { contentId: lp.contentId, mediaType: lp.mediaType }
             end if
         end if
+        ' (v1.7 LIVE) the socket again, and a look for new episodes
+        liveResume()
     catch e
         print "Cove: resume failed: "; Util.redact(Util.toText(e.message))
     end try
@@ -2213,4 +2234,247 @@ sub onSideNavChosen(ev as object)
         h.navOpen = id
     end if
     syncSideNav()
+end sub
+
+' ---------------------------------------------------------------- v1.7 LIVE
+
+' (M-5 / M-3) Scene-level fields and timers: the session list pushed by the server (Now Playing), whether Now
+' Playing wants it, and the New count (Home's menu entry)
+sub liveInit()
+    m.global.addFields({ liveSessions: {}, liveWantSessions: false, noticesCount: 0 })
+    m.liveTask = invalid
+    m.liveKey = ""
+    m.liveSuspended = false
+    m.liveUnsupported = false
+    m.liveOffLogged = false
+    m.liveIds = {}
+    m.noticesTask = invalid
+    m.noticesReason = ""
+    m.noticesToasted = {}
+    m.liveSyncTimer = liveTimer(1.0, false, "liveSync")
+    m.liveDataTimer = liveTimer(3.0, false, "liveApplyUserData")
+    m.noticesSoonTimer = liveTimer(4.0, false, "onNoticesSoon")
+    ' (every 10 minutes while Home is on top)
+    m.noticesTimer = liveTimer(600.0, true, "onNoticesTimer")
+    m.noticesTimer.control = "start"
+end sub
+
+function liveTimer(secs as float, repeats as boolean, handler as string) as object
+    t = createObject("roSGNode", "Timer")
+    t.duration = secs
+    t.repeat = repeats
+    t.observeField("fire", handler)
+    return t
+end function
+
+' (several changes in a row - reset, Home, Settings closing - end in one decision)
+sub liveQueueSync()
+    m.liveSyncTimer.control = "stop"
+    m.liveSyncTimer.control = "start"
+end sub
+
+' One socket for the server and profile on Home, while the app is in front and the setting is on
+sub liveSync()
+    srv = m.server
+    want = not m.liveSuspended and m.homeReady and srv <> invalid and Util.toText(Util.field(srv, "token")) <> ""
+    if want and not Live.liveOn()
+        if not m.liveOffLogged then print "Cove: live off (Settings > Connect)"
+        m.liveOffLogged = true
+        want = false
+    end if
+    key = ""
+    if want then key = Util.toText(srv.id) + "|" + Util.toText(srv.userId) + "|" + Util.toText(srv.token)
+    ' (the same server and profile: the socket stays, also when it gave up - it tries again after a resume)
+    if want and m.liveTask <> invalid and key = m.liveKey then return
+    liveStop()
+    if not want or m.liveUnsupported then return
+    m.liveOffLogged = false
+    t = createObject("roSGNode", "LiveTask")
+    t.server = srv
+    t.observeField("event", "onLiveEvent")
+    t.observeField("liveState", "onLiveState")
+    ' (kept in the scene's tasks: a closing socket finishes after the reference is dropped)
+    holder = m.top.findNode("tasks")
+    if holder <> invalid
+        for i = holder.getChildCount() - 1 to 0 step -1
+            old = holder.getChild(i)
+            if old <> invalid and (old.state = "done" or old.state = "stop") then holder.removeChild(old)
+        end for
+        holder.appendChild(t)
+    end if
+    m.liveTask = t
+    m.liveKey = key
+    t.control = "RUN"
+end sub
+
+sub liveStop()
+    t = m.liveTask
+    if t = invalid then return
+    t.unobserveField("event")
+    t.unobserveField("liveState")
+    t.command = "close"
+    m.liveTask = invalid
+    m.liveKey = ""
+    m.global.liveSessions = {}
+end sub
+
+sub onLiveState(ev as object)
+    st = Util.toText(ev.getData())
+    ' (no roWebSocket on this Roku OS: not asked again this session; polling as before)
+    if st = "unsupported" then m.liveUnsupported = true
+end sub
+
+' A change pushed by the server, for the server and profile on Home only
+sub onLiveEvent(ev as object)
+    d = ev.getData()
+    srv = m.server
+    if not Util.isAA(d) or srv = invalid then return
+    if Util.toText(d.serverId) <> Util.toText(srv.id) or Util.toText(d.userId) <> Util.toText(srv.userId) then return
+    if d.kind = "userData"
+        ' (a few changes in a row - a whole season marked, progress reports - make one refresh, 3 s later)
+        for each id in d.ids
+            if m.liveIds.count() < 200 then m.liveIds[Util.toText(id)] = true
+        end for
+        m.liveDataTimer.control = "stop"
+        m.liveDataTimer.control = "start"
+    else if d.kind = "library"
+        ' (M-3) new items: a look for new episodes once the server has their details (30 s later)
+        print "Cove: live library changed, "; d.ids.count(); " added"
+        noticesSoon("library", 30)
+    end if
+end sub
+
+' (M-5) Watched state / progress changed on another device: the pages under the top one reload when shown
+' again (as after playback); the one on top refreshes in place without moving the focus: Home its rows, a
+' details page its header and Next Up, a library / Favorites / See All page its cards
+sub liveApplyUserData()
+    n = m.liveIds.count()
+    m.liveIds = {}
+    t = top()
+    if n = 0 or t = invalid or m.server = invalid or m.liveSuspended then return
+    sid = Util.toText(t.screenId)
+    ' (the player reports its own progress; the pages under it reload when it closes)
+    if sid = "player" then return
+    markStale(t)
+    what = "flagged"
+    if sid = "home"
+        ' (Home reloaded a moment ago, e.g. after its own ✓: no second reload)
+        if nowSecs() - m.homeLoadedAt >= 5
+            m.homeStale = false
+            m.homeLoadedAt = nowSecs()
+            t.reload = true
+            what = "home reloaded"
+        end if
+    else if sid = "details" and t.hasField("liveRefresh")
+        t.liveRefresh = true
+        what = "details refreshed"
+    else if (sid = "library" or sid = "favorites" or sid = "seeall" or sid = "notices") and m.top.dialog = invalid and m.whatsNewPanel = invalid
+        ' (stale + the focus given to the page again: it reloads keeping the focused card, as on Back)
+        t.stale = true
+        t.setFocus(true)
+        what = sid + " reloaded"
+    end if
+    print "Cove: live user data "; n; " items: "; what
+end sub
+
+sub liveAfterSettings()
+    liveQueueSync()
+    if Live.noticeMode() = "off"
+        m.global.noticesCount = 0
+    else
+        noticesSoon("settings", 2)
+    end if
+end sub
+
+sub liveSuspend()
+    m.liveSuspended = true
+    m.liveSyncTimer.control = "stop"
+    m.liveDataTimer.control = "stop"
+    m.noticesSoonTimer.control = "stop"
+    m.liveIds = {}
+    if m.liveTask <> invalid then print "Cove: live closing (suspended)"
+    liveStop()
+end sub
+
+sub liveResume()
+    m.liveSuspended = false
+    liveQueueSync()
+    ' (after the resume's sign-in check)
+    noticesSoon("resume", 4)
+end sub
+
+' ---------------------------------------------------------------- v1.7 LIVE: new episodes (M-3)
+
+' The unread count stored for the profile (the New entry's number before the first look)
+function noticesCountNow(srv as dynamic) as integer
+    if not Util.isAA(srv) then return 0
+    if Live.noticeMode() = "off" then return 0
+    e = Live.entryOf(Util.readJson("newMedia"), Live.noticeKey(Util.toText(srv.id), Util.toText(srv.userId)))
+    if Util.isAA(e) and type(e.u) = "roArray" then return e.u.count()
+    return 0
+end function
+
+sub noticesSoon(reason as string, secs as float)
+    m.noticesReason = reason
+    m.noticesSoonTimer.control = "stop"
+    m.noticesSoonTimer.duration = secs
+    m.noticesSoonTimer.control = "start"
+end sub
+
+sub onNoticesSoon()
+    noticesCheck(m.noticesReason)
+end sub
+
+sub onNoticesTimer()
+    if topIs("home") then noticesCheck("timer")
+end sub
+
+sub noticesCheck(reason as string)
+    srv = m.server
+    if m.liveSuspended or not m.homeReady or srv = invalid or Util.toText(Util.field(srv, "token")) = "" then return
+    mode = Live.noticeMode()
+    if mode = "off"
+        m.global.noticesCount = 0
+        return
+    end if
+    if m.noticesTask <> invalid then return
+    t = createObject("roSGNode", "NoticesTask")
+    t.server = srv
+    t.op = "check"
+    t.mode = mode
+    t.reason = reason
+    t.observeField("result", "onNoticesResult")
+    m.noticesTask = t
+    t.control = "RUN"
+end sub
+
+sub onNoticesResult(ev as object)
+    r = ev.getData()
+    m.noticesTask = invalid
+    srv = m.server
+    if not Util.isAA(r) or srv = invalid then return
+    ' (an answer for the server or profile that was on Home before a switch)
+    if Util.toText(r.serverId) <> Util.toText(srv.id) or Util.toText(r.userId) <> Util.toText(srv.userId) then return
+    if Util.toText(r.error) <> "" then return
+    m.global.noticesCount = Util.toNumber(r.unread)
+    ' (each title is announced once a session, never while a video plays, and never twice after a resume)
+    list = []
+    if type(r.fresh) = "roArray"
+        for each f in r.fresh
+            id = Util.toText(Util.field(f, "id"))
+            if id <> "" and not m.noticesToasted.doesExist(id)
+                m.noticesToasted[id] = true
+                list.push(f)
+            end if
+        end for
+    end if
+    if list.count() = 0 or m.liveSuspended or topIs("player") then return
+    m.top.toast = { text: Live.noticeToast(list), icon: "new" }
+end sub
+
+sub openNotices()
+    ns = createObject("roSGNode", "NoticesScreen")
+    ns.observeField("action", "onHomeAction")
+    push(ns)
+    ns.server = m.server
 end sub

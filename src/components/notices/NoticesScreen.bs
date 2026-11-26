@@ -1,0 +1,184 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/QuickPlay.bs"
+import "pkg:/source/Speak.bs"
+import "pkg:/source/Toasts.bs"
+
+sub init()
+    m.rows = m.top.findNode("rows")
+    m.status = m.top.findNode("status")
+    m.readAll = m.top.findNode("readAll")
+    m.barKeys = m.top.findNode("barKeys")
+    m.rows.observeField("rowItemSelected", "onSelected")
+    m.rows.observeField("rowItemFocused", "onCardFocused")
+    m.top.observeField("focusedChild", "onFocusChanged")
+    ' (the list may get focus before anything loaded: never leave it without content)
+    m.rows.content = createObject("roSGNode", "ContentNode")
+    m.inBar = false
+    m.task = invalid
+    m.gen = 0
+    ' Audio Guide: Cove says the cards with the row's name
+    Speak.mute([m.rows, m.barKeys])
+end sub
+
+sub onCardFocused()
+    Speak.rowCard(m.rows)
+end sub
+
+' The unread ones (NoticesTask "list"), grouped by the day they were added
+sub loadList()
+    if m.top.server = invalid then return
+    runTask("list")
+end sub
+
+sub runTask(op as string)
+    if m.task <> invalid then m.task.unobserveField("result")
+    m.gen = m.gen + 1
+    t = createObject("roSGNode", "NoticesTask")
+    t.server = m.top.server
+    t.op = op
+    t.reason = "screen"
+    t.addFields({ gen: m.gen })
+    t.observeField("result", "onResult")
+    m.task = t
+    t.control = "RUN"
+end sub
+
+sub onResult(ev as object)
+    t = ev.getRoSGNode()
+    r = ev.getData()
+    if m.top.server = invalid or t.gen <> m.gen then return
+    ' (a late answer for another server or profile)
+    if Util.toText(r.serverId) <> Util.toText(m.top.server.id) or Util.toText(r.userId) <> Util.toText(m.top.server.userId) then return
+    m.task = invalid
+    if m.global.hasField("noticesCount") then m.global.noticesCount = Util.toNumber(r.unread)
+    if r.op = "read"
+        Toasts.notify("Marked all as read", "check")
+        showRows(createObject("roSGNode", "ContentNode"))
+        return
+    end if
+    if Util.toText(r.error) <> "" and r.rows = invalid
+        m.status.text = "Couldn't load what's new. " + Util.toText(r.error)
+        m.status.visible = true
+        return
+    end if
+    rows = r.rows
+    if rows = invalid then rows = createObject("roSGNode", "ContentNode")
+    showRows(rows)
+end sub
+
+sub showRows(root as object)
+    n = 0
+    for i = 0 to root.getChildCount() - 1
+        n = n + root.getChild(i).getChildCount()
+    end for
+    info = ""
+    if n = 1 then info = "1 New Item"
+    if n > 1 then info = n.toStr() + " New Items"
+    m.top.findNode("info").text = info
+    if n = 0
+        if m.rows.isInFocusChain() or m.barKeys.hasFocus() then m.top.setFocus(true)
+        m.inBar = false
+        m.rows.visible = false
+        m.rows.content = createObject("roSGNode", "ContentNode")
+        m.readAll.visible = false
+        m.status.text = "You're all caught up"
+        m.status.visible = true
+        m.top.findNode("hint").visible = true
+        Speak.say("New. You're all caught up")
+        return
+    end if
+    m.status.visible = false
+    m.top.findNode("hint").visible = false
+    m.readAll.visible = true
+    keep = m.rows.rowItemFocused
+    m.rows.content = root
+    m.rows.visible = true
+    if keep <> invalid and keep.count() >= 2 and keep[0] < root.getChildCount()
+        col = keep[1]
+        cnt = root.getChild(keep[0]).getChildCount()
+        if col > cnt - 1 then col = cnt - 1
+        if col >= 0 then m.rows.jumpToRowItem = [keep[0], col]
+    end if
+    if m.top.isInFocusChain() and not m.inBar then m.rows.setFocus(true)
+end sub
+
+function focusedCard() as dynamic
+    f = m.rows.rowItemFocused
+    if f = invalid or f.count() < 2 or m.rows.content = invalid then return invalid
+    row = m.rows.content.getChild(f[0])
+    if row = invalid then return invalid
+    return row.getChild(f[1])
+end function
+
+sub onSelected()
+    s = m.rows.rowItemSelected
+    if s = invalid or s.count() < 2 or m.rows.content = invalid then return
+    row = m.rows.content.getChild(s[0])
+    if row = invalid then return
+    it = row.getChild(s[1])
+    if it = invalid then return
+    m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: "", title: it.title, preview: QuickPlay.previewOfCard(it, false) }
+end sub
+
+sub onFocusChanged()
+    ' back from a details page or the player (or a live change, MainScene): started / watched ones leave the list
+    inChain = m.top.isInFocusChain()
+    if not inChain and m.shown = true then m.covered = true
+    m.shown = inChain
+    if inChain and (m.top.stale or m.covered = true)
+        m.top.stale = false
+        m.covered = false
+        loadList()
+    end if
+    if not m.top.hasFocus() then return
+    if m.inBar and m.readAll.visible
+        enterBar()
+    else if m.rows.content <> invalid and m.rows.content.getChildCount() > 0
+        m.inBar = false
+        m.readAll.focused = false
+        m.rows.setFocus(true)
+        Speak.rowCard(m.rows)
+    end if
+end sub
+
+sub enterBar()
+    m.inBar = true
+    m.readAll.focused = true
+    m.barKeys.setFocus(true)
+    Speak.say("Mark All as Read, button")
+end sub
+
+sub leaveBar()
+    m.inBar = false
+    m.readAll.focused = false
+    if m.rows.content <> invalid and m.rows.content.getChildCount() > 0
+        m.rows.setFocus(true)
+        Speak.rowCard(m.rows)
+    end if
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if m.inBar
+        if key = "OK"
+            runTask("read")
+            return true
+        else if key = "down"
+            leaveBar()
+            return true
+        end if
+        return key = "left" or key = "right" or key = "up"
+    end if
+    ' (Up from the first row: the button above)
+    if key = "up" and m.rows.isInFocusChain() and m.readAll.visible
+        enterBar()
+        return true
+    end if
+    ' Play on a card: play it without opening its page
+    if key = "play" and m.rows.isInFocusChain()
+        a = QuickPlay.cardAction(focusedCard())
+        if a <> invalid then m.top.action = a
+        return a <> invalid
+    end if
+    return false
+end function
