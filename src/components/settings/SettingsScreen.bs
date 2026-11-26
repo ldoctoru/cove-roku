@@ -12,6 +12,7 @@ import "pkg:/source/HomeLayout.bs"
 import "pkg:/source/Toasts.bs"
 import "pkg:/source/NavPrefs.bs"
 import "pkg:/source/SetRows.bs"
+import "pkg:/source/ThemeMusic.bs"
 import "pkg:/source/Log.bs"
 
 ' (v1.5) Settings in the Cove for Mac format (SettingsPages.bs builds each tab's rows), drawn here, flat.

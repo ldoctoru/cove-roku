@@ -167,6 +167,12 @@ sub generalRows(out as object)
     out.push(rHead("Posters"))
     out.push(rSwitch("dimWatched", "Dim Watched Posters", Util.readText("dimWatched") <> "off"))
     out.push(rNote("Watched movies, shows and episodes are shown a little darker, so unwatched ones stand out. The check mark shows it either way."))
+    ' --- v1.7 DIAG ---
+    ' (M-7) the server's theme song on details pages; off unless chosen
+    out.push(rHead("Sound"))
+    out.push(rChoice("themeMusic", "Theme Music", ThemeMusic.choices(), ThemeMusic.choice()))
+    out.push(rNote(ThemeMusic.helpNote()))
+    ' --- end v1.7 DIAG ---
 end sub
 
 ' ---------------------------------------------------------------- Home
