@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Log.bs"
 
 ' Saved servers, kept in the Roku's registry for this app (one JSON key, "servers"). Each server keeps its
 ' signed-in users (profiles), compactly:
@@ -90,7 +91,7 @@ namespace Servers
         end for
         if old = 0 then return
         saveAll(all())
-        print "Cove: moved "; old; " saved sign-ins into profiles"
+        Log.line("Cove: moved " + Util.toText(old) + " saved sign-ins into profiles")
     end sub
 
     function userOf(s as object, userId as string) as dynamic
@@ -384,8 +385,8 @@ namespace Servers
                 if keptShapes.count() <> shapes.count() then sec.write("authShape", formatJson(keptShapes))
             end if
         end if
-        if not sec.flush() then print "Cove: registry flush failed after forgetting a server"
-        print "Cove: forgot the settings of a removed server ("; gone; " keys)"
+        if not sec.flush() then Log.line("Cove: registry flush failed after forgetting a server")
+        Log.line("Cove: forgot the settings of a removed server (" + Util.toText(gone) + " keys)")
     end sub
 
     ' The entries ({ id: "<tag>:<id>" }) that don't belong to the server tag

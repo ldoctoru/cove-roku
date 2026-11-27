@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.7 LIVE M-5) The live connection to the active server: one roWebSocket (Roku OS 16+), opened by MainScene
+     when Home is up with Settings → Connect → Live Connection on, closed on suspend, sign-out and server / profile
+     switches (command = "close"). It answers the server's ForceKeepAlive, reconnects after 2, 4, 8 ... 60 s, and
+     gives up after 3 attempts in a row that never opened (Cove then polls as before). What it reports:
+       event = { kind: "userData" | "library", ids, serverId, userId }
+       m.global.liveSessions = { serverId, list, at } (Now Playing's push, while m.global.liveWantSessions)
+       liveState = "connecting" | "open" | "waiting" | "closed" | "failed" | "unsupported"
+     Remote control (Play, Playstate, GeneralCommand) is ignored and logged. -->
+<component name="LiveTask" extends="Task">
+    <script type="text/brightscript" uri="LiveTask.bs" />
+    <interface>
+        <field id="server" type="assocarray" />
+        <field id="command" type="string" alwaysNotify="true" />
+        <field id="event" type="assocarray" alwaysNotify="true" />
+        <field id="liveState" type="string" />
+    </interface>
+</component>

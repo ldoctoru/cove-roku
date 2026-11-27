@@ -1,0 +1,136 @@
+import "pkg:/source/Util.bs"
+
+' (v1.7 DIAG M-9) Pure helpers for Settings → About → Diagnostics (components/settings/DiagnosticsScreen):
+' the facts as text and the scrolling of its rows. Rows are { kind: "head" | "info" | "log" | "note", k, v }.
+namespace Diag
+
+    ' roDeviceInfo.GetConnectionType() → "Wired (Ethernet)" / "Wi-Fi" / "Not connected"
+    function connectionName(connType as string) as string
+        t = LCase(connType)
+        if t = "wiredconnection" then return "Wired (Ethernet)"
+        if t = "wificonnection" then return "Wi-Fi"
+        if t = "" then return "Not connected"
+        return connType
+    end function
+
+    ' Where Cove thinks the server is, from its address (the same rule as Playback → Start Quality: a private or
+    ' local address is the home network)
+    function serverPlace(serverUrl as string) as string
+        if serverUrl = "" then return "No server"
+        if Util.isPrivateHost(Util.hostOf(serverUrl)) then return "Home network (LAN): Home quality applies"
+        return "Internet (WAN): Internet quality applies"
+    end function
+
+    ' The server's address without any user name, password, path or query: "https://emby.example.com:8920"
+    function addressOf(serverUrl as string) as string
+        return Util.originOf(serverUrl)
+    end function
+
+    ' "Emby 4.9.1.80" / "Jellyfin" (no version known)
+    function serverLine(kind as string, version as string) as string
+        if version = "" then return kind
+        return kind + " " + version
+    end function
+
+    ' The player's last play method (m.global.lastPlay: { title, method, lines: [{ k, v }] }) as info rows
+    function playRows(lp as dynamic) as object
+        out = []
+        if not Util.isAA(lp) or Util.toText(lp.method) = ""
+            out.push({ kind: "info", k: "Last Play", v: "Nothing played since Cove started" })
+            return out
+        end if
+        what = Util.toText(lp.title)
+        if Util.toText(lp.subtitle) <> "" then what = what + "  ·  " + Util.toText(lp.subtitle)
+        out.push({ kind: "info", k: "Last Play", v: what })
+        out.push({ kind: "info", k: "Play Method", v: Diag.methodName(Util.toText(lp.method)) })
+        if type(lp.lines) = "roArray"
+            for each ln in lp.lines
+                k = Util.toText(Util.field(ln, "k"))
+                if k <> "" and k <> "Play method" then out.push({ kind: "info", k: k, v: Diag.flatValue(Util.field(ln, "v")) })
+            end for
+        end if
+        return out
+    end function
+
+    ' "DirectPlay" → "Direct Play", "DirectStream" → "Direct Stream"
+    function methodName(method as string) as string
+        if method = "DirectPlay" then return "Direct Play"
+        if method = "DirectStream" then return "Direct Stream"
+        if method = "Transcode" then return "Transcode"
+        return method
+    end function
+
+    ' A value that may be a list of lines (audio tracks) as one line: "AAC 5.1 · AC3 stereo"
+    function flatValue(v as dynamic) as string
+        if type(v) = "roArray"
+            parts = []
+            for each p in v
+                parts.push(Util.toText(p))
+            end for
+            return Util.join(parts, "  ·  ")
+        end if
+        return Util.toText(v)
+    end function
+
+    ' The registry's free space: "9812 bytes free of about 16 KB"
+    function spaceLine(bytes as integer) as string
+        t = bytes.toStr() + " bytes free of about 16 KB"
+        if bytes < 2048 then t = t + " (low: a new sign-in may not be saved)"
+        return t
+    end function
+
+    ' Log lines as rows, each cut into pieces of at most width characters (the rest of a long line goes on the
+    ' next rows, indented), so nothing is lost off the right edge
+    function logRows(lines as object, width as integer) as object
+        out = []
+        if width < 20 then width = 20
+        for each ln in lines
+            t = Util.toText(ln)
+            first = true
+            while true
+                w = width
+                if not first then w = width - 4
+                if t.len() <= w
+                    piece = t
+                    t = ""
+                else
+                    ' (at the last space inside the width when there is one in its second half)
+                    cut = w
+                    for i = w - 1 to w \ 2 step -1
+                        if t.mid(i, 1) = " "
+                            cut = i
+                            exit for
+                        end if
+                    end for
+                    piece = t.left(cut)
+                    t = t.mid(cut).trim()
+                end if
+                if not first then piece = "    " + piece
+                out.push({ kind: "log", k: "", v: piece })
+                first = false
+                if t = "" then exit while
+            end while
+        end for
+        return out
+    end function
+
+    ' The first row shown after moving by delta rows (Up / Down: 1, Rewind / Fast Forward: a page), kept so the
+    ' last page is full
+    function clampTop(top as integer, delta as integer, total as integer, page as integer) as integer
+        last = total - page
+        if last < 0 then last = 0
+        t = top + delta
+        if t > last then t = last
+        if t < 0 then t = 0
+        return t
+    end function
+
+    ' "Rows 31-60 of 214"
+    function positionText(top as integer, page as integer, total as integer) as string
+        if total = 0 then return ""
+        bottom = top + page
+        if bottom > total then bottom = total
+        return "Rows " + (top + 1).toStr() + "-" + bottom.toStr() + " of " + total.toStr()
+    end function
+
+end namespace

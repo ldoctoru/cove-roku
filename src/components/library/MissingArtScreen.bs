@@ -2,6 +2,7 @@ import "pkg:/source/Util.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Toasts.bs"
 import "pkg:/source/MissingArt.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.rowsGroup = m.top.findNode("rows")
@@ -193,7 +194,7 @@ sub forgetAdmin()
         cache.delete(key)
         m.global.adminCache = cache
     end if
-    print "Cove: missing art admin answer dropped"
+    Log.line("Cove: missing art admin answer dropped")
 end sub
 
 ' ---------------------------------------------------------------- drawing

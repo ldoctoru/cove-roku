@@ -9,6 +9,7 @@ import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/Servers.bs"
 import "pkg:/source/Clock.bs"
 import "pkg:/source/HomeBanner.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -24,9 +25,12 @@ sub work()
             loadBanner(m.top.libraries)
         else
             m.delivered = false
+            m.because = invalid
             load()
             ' (v1.3.2) the banner's own titles after the rows are on screen (never slowing them down)
             if m.delivered and not m.top.authFailed then loadBanner(m.top.libraries)
+            ' (v1.7 NAV M-6) Because You Watched, put in place among the rows on screen
+            if m.delivered and not m.top.authFailed and m.because <> invalid then loadBecause()
         end if
     catch e
         where = ""
@@ -34,7 +38,7 @@ sub work()
             f = e.backtrace[e.backtrace.count() - 1]
             where = " at " + Util.toText(f.filename).replace("pkg:/", "") + ":" + Util.toText(f.line_number)
         end if
-        print "Cove: home failed: "; Util.redact(Util.toText(e.message)); where
+        Log.line("Cove: home failed: " + Util.redact(Util.toText(e.message)) + Util.toText(where))
         m.top.error = "Loading failed: " + Util.toText(e.message) + where
     end try
 end sub
@@ -42,7 +46,7 @@ end sub
 sub load()
     srv = m.top.server
     if m.top.timing then Clock.startupMark("home task running")
-    print "Cove: home loading from "; Util.originOf(Util.toText(srv.url))
+    Log.line("Cove: home loading from " + Util.toText(Util.originOf(Util.toText(srv.url))))
     m.srv = srv
     m.h = Api.headers(srv, true)
     uid = Util.toText(srv.userId)
@@ -65,7 +69,7 @@ sub load()
     libs = Prefs.orderLibraries(libs, sid)
     ' (v1.5) a library hidden from the sidebar had no Home row before: it keeps none (once per library)
     migrated = NavPrefs.migrateHome(libs)
-    if migrated > 0 then print "Cove: home migration: "; migrated.toStr(); " libraries hidden from the sidebar keep no Home row"
+    if migrated > 0 then Log.line("Cove: home migration: " + Util.toText(migrated.toStr()) + " libraries hidden from the sidebar keep no Home row")
     ' (v1.5) My Media (Emby's row of library tiles): each library's own switch, not the menu's list any more
     shown = []
     byId = {}
@@ -99,13 +103,13 @@ sub load()
         end if
         if fromSrv = invalid then fromSrv = HomeLayout.fromServer(displayPrefs(uid), libs)
         if fromSrv = invalid
-            print "Cove: home: the server's Home layout couldn't be read, using Cove's"
+            Log.line("Cove: home: the server's Home layout couldn't be read, using Cove's")
             serverMode = false
         else
             ids = fromSrv
         end if
     end if
-    print "Cove: home rows order "; Util.join(ids, ",").len(); " chars, server layout "; serverMode
+    Log.line("Cove: home rows order " + Util.toText(Util.join(ids, ",").len()) + " chars, server layout " + Util.toText(serverMode))
     ' (v1.1) Settings → Home → Row options
     unw = HomeLayout.unwatchedQuery(Prefs.hideWatchedLatest())
     cutoff = ""
@@ -151,8 +155,16 @@ sub load()
                 queueRow(sec.title, getList("/Users/" + uid + "/Sections/" + sec.sectionId + "/Items?Limit=20&" + f, ""), sec.landscape)
                 m.pendingRows.peek().preset = { kind: "section", sectionId: sec.sectionId }
                 m.pendingRows.peek().sectionKind = sec.kind
+            else if id = "because"
+                ' (v1.7 NAV M-6) fetched after the rows are delivered (loadBecause); placed after the rows
+                ' queued before it
+                before = {}
+                for each p in m.pendingRows
+                    before[p.title] = true
+                end for
+                m.because = { before: before }
             else if id = "libraries"
-                print "Cove: home my media "; shown.count(); " libraries"
+                Log.line("Cove: home my media " + Util.toText(shown.count()) + " libraries")
                 queueRow("My Media", shown, false)
                 m.pendingRows.peek().myMedia = true
             else if byId.doesExist(id)
@@ -179,8 +191,8 @@ sub load()
         buildRows(first, true)
         shownFirst = first.getChildCount() > 0
         if shownFirst
-            print "Cove: home rows " + first.getChildCount().toStr() + " (library rows " + m.libRowsShown.toStr() + ", Upcoming still loading)"
-            if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch (without Upcoming)"
+            Log.line(Util.toText("Cove: home rows " + first.getChildCount().toStr() + " (library rows " + m.libRowsShown.toStr() + ", Upcoming still loading)"))
+            if m.top.timing then Log.line("Cove: home all rows " + Util.toText(Clock.msSinceLaunch()) + " ms after launch (without Upcoming)")
             m.top.partial = true
             m.top.content = first
         end if
@@ -191,8 +203,8 @@ sub load()
         ' and drawn again (~0.45 s on the Streambar)
         if shownFirst
             insertLateRows(first)
-            print "Cove: home rows " + first.getChildCount().toStr() + " (library rows " + m.libRowsShown.toStr() + ")"
-            if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch"
+            Log.line(Util.toText("Cove: home rows " + first.getChildCount().toStr() + " (library rows " + m.libRowsShown.toStr() + ")"))
+            if m.top.timing then Log.line("Cove: home all rows " + Util.toText(Clock.msSinceLaunch()) + " ms after launch")
             m.top.rowsAdded = m.top.rowsAdded + 1
             m.pendingRows = []
             m.delivered = true
@@ -210,8 +222,8 @@ sub load()
         end if
         return
     end if
-    print "Cove: home rows " + root.getChildCount().toStr() + " (library rows " + m.libRowsShown.toStr() + ")"
-    if m.top.timing then print "Cove: home all rows "; Clock.msSinceLaunch(); " ms after launch"
+    Log.line(Util.toText("Cove: home rows " + root.getChildCount().toStr() + " (library rows " + m.libRowsShown.toStr() + ")"))
+    if m.top.timing then Log.line("Cove: home all rows " + Util.toText(Clock.msSinceLaunch()) + " ms after launch")
     m.top.partial = false
     m.top.content = root
     m.delivered = true
@@ -251,7 +263,7 @@ sub loadBanner(libs as dynamic)
         answers = Api.executeMany(reqs, 8000, 2)
         for k = 0 to answers.count() - 1
             r = answers[k]
-            print "Cove: "; Util.redact(Api.timingLine("GET", paths[k], r.code, r.ms))
+            Log.line("Cove: " + Util.redact(Api.timingLine("GET", paths[k], r.code, r.ms)))
             if r.code = 200 and r.json <> invalid
                 if fetched = invalid then fetched = []
                 list = Util.field(r.json, "Items")
@@ -273,7 +285,7 @@ sub loadBanner(libs as dynamic)
     reason = HomeBanner.fallbackReason(source, fetched)
     ms = stopwatch.totalMilliseconds()
     if reason <> ""
-        print "Cove: home banner "; source; " fallback to Home rows ("; reason; ") "; ms; " ms"
+        Log.line("Cove: home banner " + Util.toText(source) + " fallback to Home rows (" + Util.toText(reason) + ") " + Util.toText(ms) + " ms")
         m.top.heroItems = createObject("roSGNode", "ContentNode")
         return
     end if
@@ -282,7 +294,7 @@ sub loadBanner(libs as dynamic)
     for each it in picked
         out.appendChild(Items.node(m.srv, it, true))
     end for
-    print "Cove: home banner "; source; " "; out.getChildCount(); " titles "; ms; " ms"
+    Log.line("Cove: home banner " + Util.toText(source) + " " + Util.toText(out.getChildCount()) + " titles " + Util.toText(ms) + " ms")
     m.top.heroItems = out
 end sub
 
@@ -334,11 +346,11 @@ sub fetchQueued(late as boolean)
         ' so Home shows its error panel now instead of after 8 s per row
         silent = []
         for k = 0 to answers.count() - 1
-            print "Cove: "; Util.redact(Api.timingLine("GET", m.pendingRows[which[k]].spec.path, answers[k].code, answers[k].ms))
+            Log.line("Cove: " + Util.redact(Api.timingLine("GET", m.pendingRows[which[k]].spec.path, answers[k].code, answers[k].ms)))
             if answers[k].timedOut = true then silent.push(k)
         end for
         if rounds = 1 and Api.retriesSilent(silent.count(), answers.count())
-            print "Cove: home "; silent.count(); " lists didn't answer, asking again together"
+            Log.line("Cove: home " + Util.toText(silent.count()) + " lists didn't answer, asking again together")
             again = []
             for each k in silent
                 again.push(reqs[k])
@@ -346,12 +358,12 @@ sub fetchQueued(late as boolean)
             retried = Api.executeMany(again, 8000, 2)
             for j = 0 to silent.count() - 1
                 r = retried[j]
-                print "Cove: "; Util.redact(Api.timingLine("GET", m.pendingRows[which[silent[j]]].spec.path, r.code, r.ms))
+                Log.line("Cove: " + Util.redact(Api.timingLine("GET", m.pendingRows[which[silent[j]]].spec.path, r.code, r.ms)))
                 r.timedOut = false
                 answers[silent[j]] = r
             end for
         else if silent.count() > 0
-            print "Cove: home "; silent.count(); " of "; answers.count(); " lists didn't answer, not asking again"
+            Log.line("Cove: home " + Util.toText(silent.count()) + " of " + Util.toText(answers.count()) + " lists didn't answer, not asking again")
         end if
         for k = 0 to answers.count() - 1
             p = m.pendingRows[which[k]]
@@ -368,7 +380,7 @@ sub fetchQueued(late as boolean)
                 p.list = readList(r, sp)
                 if not m.firstLogged and p.list.count() > 0
                     m.firstLogged = true
-                    print "Cove: home first rows "; Clock.msSinceLaunch(); " ms after launch"
+                    Log.line("Cove: home first rows " + Util.toText(Clock.msSinceLaunch()) + " ms after launch")
                 end if
             end if
         end for
@@ -397,7 +409,7 @@ sub buildRows(root as object, skipLate = false as boolean)
             before = root.getChildCount()
             addRow(root, p.title, p.list, p.landscape, p.preset)
             if Util.flag(p, "libRow") and root.getChildCount() > before then m.libRowsShown = m.libRowsShown + 1
-            if Util.toText(p.sectionKind) <> "" then print "Cove: home section "; p.sectionKind; " "; p.list.count(); " titles "; Util.toNumber(p.ms); " ms"
+            if Util.toText(p.sectionKind) <> "" then Log.line("Cove: home section " + Util.toText(p.sectionKind) + " " + Util.toText(p.list.count()) + " titles " + Util.toText(Util.toNumber(p.ms)) + " ms")
         end if
     end for
     if not skipLate then m.pendingRows = []
@@ -424,9 +436,9 @@ end function
 
 ' The web app's Home sections (GET /DisplayPreferences/usersettings?client=emby), or invalid
 function displayPrefs(uid as string) as dynamic
-    print "Cove: GET /DisplayPreferences/usersettings"
+    Log.line("Cove: GET /DisplayPreferences/usersettings")
     r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + "/DisplayPreferences/usersettings?userId=" + uid + "&client=emby", headers: m.h, timeout: 15000 })
-    print "Cove:   -> "; r.code
+    Log.line("Cove:   -> " + Util.toText(r.code))
     if r.code <> 200 or not Util.isAA(r.json) then return invalid
     return r.json
 end function
@@ -435,7 +447,7 @@ end function
 function timedGet(path as string, timeoutMs = 20000 as integer) as object
     stopwatch = createObject("roTimespan")
     r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + path, headers: m.h, timeout: timeoutMs })
-    print "Cove: "; Util.redact(Api.timingLine("GET", path, r.code, stopwatch.totalMilliseconds()))
+    Log.line("Cove: " + Util.redact(Api.timingLine("GET", path, r.code, stopwatch.totalMilliseconds())))
     return r
 end function
 
@@ -472,7 +484,7 @@ function readList(r as object, sp as object) as object
     end if
     if r.code <> 200 or r.json = invalid
         m.failures = m.failures + 1
-        print "Cove: home list failed "; sp.path.split("?")[0]; " -> "; r.code; " "; Util.redact(Util.toText(r.error))
+        Log.line("Cove: home list failed " + Util.toText(sp.path.split("?")[0]) + " -> " + Util.toText(r.code) + " " + Util.redact(Util.toText(r.error)))
         return []
     end if
     list = Util.field(r.json, "Items")
@@ -576,20 +588,20 @@ end sub
 function homeSections(uid as string, libs as object) as dynamic
     r = timedGet("/Users/" + uid + "/HomeSections", 10000)
     if r.code <> 200
-        print "Cove: home sections -> "; r.code; ", using the legacy Home layout"
+        Log.line("Cove: home sections -> " + Util.toText(r.code) + ", using the legacy Home layout")
         return invalid
     end if
     json = r.json
     if json = invalid then json = r.value
     out = HomeLayout.fromSections(json, libs)
     if out = invalid
-        print "Cove: home sections: none usable, using the legacy Home layout"
+        Log.line("Cove: home sections: none usable, using the legacy Home layout")
         return invalid
     end if
     for each k in out.skipped
-        print "Cove: home section "; k; " skipped"
+        Log.line("Cove: home section " + Util.toText(k) + " skipped")
     end for
-    print "Cove: home sections "; out.ids.count(); " rows, spotlight "; out.spotlight <> ""
+    Log.line("Cove: home sections " + Util.toText(out.ids.count()) + " rows, spotlight " + Util.toText(out.spotlight <> ""))
     return out
 end function
 
@@ -599,7 +611,7 @@ sub loadSpotlight()
     stopwatch = createObject("roTimespan")
     path = "/Users/" + Util.toText(m.srv.userId) + "/Sections/" + m.spotlightId + "/Items?Limit=24&Fields=Overview,ProductionYear,OfficialRating,CommunityRating,Genres&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb,Logo&EnableUserData=true"
     r = Api.execute({ method: "GET", url: Util.toText(m.srv.url) + Ratings.withLimit(m.srv, path), headers: m.h, timeout: 8000 })
-    print "Cove: "; Util.redact(Api.timingLine("GET", path, r.code, stopwatch.totalMilliseconds()))
+    Log.line("Cove: " + Util.redact(Api.timingLine("GET", path, r.code, stopwatch.totalMilliseconds())))
     out = createObject("roSGNode", "ContentNode")
     if r.code = 200
         list = Ratings.keepChecked(m.srv, HomeLayout.sectionList(r.json))
@@ -607,7 +619,7 @@ sub loadSpotlight()
             out.appendChild(Items.node(m.srv, it, true))
         end for
     end if
-    print "Cove: home banner spotlight "; out.getChildCount(); " titles "; stopwatch.totalMilliseconds(); " ms"
+    Log.line("Cove: home banner spotlight " + Util.toText(out.getChildCount()) + " titles " + Util.toText(stopwatch.totalMilliseconds()) + " ms")
     m.top.heroItems = out
 end sub
 
@@ -623,4 +635,72 @@ sub addSeeAll(row as object, preset as dynamic)
     c.title = "See All"
     c.shortDescriptionLine1 = "See All"
     row.appendChild(c)
+end sub
+
+' ---------------------------------------------------------------- v1.7 NAV
+
+' (M-6) Because You Watched: 1-3 rows (Settings → Home) from GET /Movies/Recommendations (its Similar To
+' Recently Played categories), filled up from /Items/{id}/Similar of the last titles watched to the end (an
+' episode stands for its series), so shows get rows too. The profile's rating limit applies; rows without a
+' title left are not shown; no See All card (v1.6 See All has no query for these lists). The rows go into the
+' content already on screen (late-row insert), after the rows queued before "because".
+sub loadBecause()
+    stopwatch = createObject("roTimespan")
+    want = HomeLayout.becauseRows()
+    uid = Util.toText(m.srv.userId)
+    f = Items.fields()
+    pq = HomeLayout.playedQuery()
+    m.pendingRows = []
+    queueRow("rec", getList(HomeLayout.recommendationsPath(uid, f), ""), true)
+    queueRow("played", getList("/Users/" + uid + "/Items?" + pq, "/Items?userId=" + uid + "&" + pq), true)
+    fetchQueued(true)
+    if m.top.authFailed then return
+    rows = HomeLayout.becauseFromRecommendations(m.pendingRows[0].list, want)
+    fromRec = rows.count()
+    played = m.pendingRows[1].list
+    used = {}
+    for each r in rows
+        used[LCase(r.name)] = true
+    end for
+    ' (fewer Because categories than rows asked for: Similar of the last titles watched)
+    if rows.count() < want
+        bases = HomeLayout.becauseBaselines(played, used, want - rows.count())
+        m.pendingRows = []
+        for each b in bases
+            queueRow(b.name, getList(HomeLayout.similarPath(b.id, uid, f), ""), true)
+        end for
+        if bases.count() > 0 then fetchQueued(true)
+        if m.top.authFailed then return
+        for each p in m.pendingRows
+            rows.push({ name: p.title, baseId: "", items: p.list })
+        end for
+    end if
+    m.pendingRows = []
+    if Ratings.limitOf(m.srv) > 0
+        everything = []
+        for each r in rows
+            everything.append(r.items)
+        end for
+        Ratings.prefetchSeries(m.srv, everything)
+    end if
+    one = createObject("roSGNode", "ContentNode")
+    for each r in rows
+        if one.getChildCount() < want then addRow(one, HomeLayout.becauseTitle(r.name), r.items, true, invalid)
+    end for
+    n = one.getChildCount()
+    Log.line("Cove: home because " + Util.toText(n) + " rows (" + Util.toText(fromRec) + " from recommendations, " + Util.toText(rows.count() - fromRec) + " from similar) " + Util.toText(stopwatch.totalMilliseconds()) + " ms")
+    shown = m.top.content
+    if n = 0 or shown = invalid then return
+    titles = []
+    for i = 0 to shown.getChildCount() - 1
+        titles.push(shown.getChild(i).title)
+    end for
+    at = HomeLayout.lateRowIndex(titles, m.because.before)
+    for i = 0 to n - 1
+        row = one.getChild(0)
+        one.removeChild(row)
+        shown.insertChild(row, at + i)
+    end for
+    m.top.lateRows = { at: at, n: n }
+    m.top.rowsAdded = m.top.rowsAdded + 1
 end sub

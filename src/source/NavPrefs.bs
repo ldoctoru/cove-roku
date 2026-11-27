@@ -372,6 +372,8 @@ namespace NavPrefs
         for each k in libKeys
             parts.push(k + "=" + Util.readText(k))
         end for
+        ' (v1.7 NAV M-6) Because You Watched's row count: Home is rebuilt when it changes
+        parts.push("becauseRows=" + Util.readText("becauseRows"))
         return Util.join(parts, "|")
     end function
 end namespace

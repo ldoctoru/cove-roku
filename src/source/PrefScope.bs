@@ -1,3 +1,4 @@
+import "pkg:/source/Log.bs"
 ' (v1.6 ST-9) Per-profile preferences. Some settings are PERSONAL: each profile (a signed-in user of a
 ' server) keeps its own value. Util.readText / readJson / writeText / deletePref apply it for every caller, so
 ' Prefs, NavPrefs, HomeLayout, Subs and the screens keep using the plain key names.
@@ -23,10 +24,15 @@ namespace PrefScope
     '   prefixes: Home rows and order per server, menu lists per server, library settings and names per
     '          server, library order per server
     function personalKeys() as object
-        return {
+        pk = {
             exact: ["navStyle", "topBarLabels", "navtop", "navside", "showRecent", "showFavorites", "showNowPlaying", "showUpNextRow", "homeFavorites", "banner", "hideWatchedLatest", "nextUpRewatch", "nextUpDays", "libFilters", "subAlways", "subLang", "subTextSize", "subColor", "subShadow", "subBg", "subBottom", "seriesLangs"],
             prefixes: ["homeRows:", "navtop:", "navside:", "lib:", "libOrder:"]
         }
+        ' v1.7 NAV: Settings → Home → Because You Watched → Rows (the on / off rides on homeRows:<server>)
+        pk.exact.push("becauseRows")
+        ' --- v1.7 LIVE: Settings → Home → New Episodes ---
+        pk.exact.push("newEpisodes")
+        return pk
     end function
 
     ' The list as a lookup (built once per thread / component)
@@ -122,8 +128,8 @@ namespace PrefScope
         else
             sec.write("pscope", p)
         end if
-        if not sec.flush() then print "Cove: registry flush failed after switching profile settings"
-        print "Cove: settings now for profile "; p.len(); " (personal keys "; PrefScope.countOf(p); ")"
+        if not sec.flush() then Log.line("Cove: registry flush failed after switching profile settings")
+        Log.line("Cove: settings now for profile " + Util.toText(p.len()) + " (personal keys " + Util.toText(PrefScope.countOf(p)) + ")")
         return p
     end function
 
@@ -151,8 +157,8 @@ namespace PrefScope
             end if
         end for
         if gone > 0
-            if not sec.flush() then print "Cove: registry flush failed after forgetting a profile's settings"
-            print "Cove: forgot "; gone; " settings of a profile"
+            if not sec.flush() then Log.line("Cove: registry flush failed after forgetting a profile's settings")
+            Log.line("Cove: forgot " + Util.toText(gone) + " settings of a profile")
         end if
         return gone
     end function

@@ -207,4 +207,59 @@ namespace NavUtil
         return state <> "buttons" and state <> "media" and state <> "overview" and state <> ""
     end function
 
+    ' ---------------------------------------------------------------- v1.7 NAV (M-4 sidebar on top-level pages)
+
+    ' THE list of top-level pages that get the scene-level sidebar (Menu Style = Sidebar): library pages and
+    ' Recently Added, Favorites, a Home row's See All, Now Playing, Search, and LIVE's New list ("notices").
+    ' A new top-level page adds its screenId here, and nowhere else.
+    function overlayScreenIds() as object
+        return ["library", "favorites", "seeall", "nowplaying", "search", "notices"]
+    end function
+
+    function isOverlayPage(kind as string) as boolean
+        for each k in overlayScreenIds()
+            if k = kind then return true
+        end for
+        return false
+    end function
+
+    ' The stack's screen kinds, bottom first: the sidebar shows when Home is at the bottom and every page above
+    ' it is top-level (a genre page opened from a details page is not: choosing an entry would drop that page)
+    function sideOverlayOn(kinds as object) as boolean
+        if type(kinds) <> "roArray" or kinds.count() < 2 then return false
+        if Util.toText(kinds[0]) <> "home" then return false
+        for i = 1 to kinds.count() - 1
+            if not isOverlayPage(Util.toText(kinds[i])) then return false
+        end for
+        return true
+    end function
+
+    ' The entry of the page on top, for the sidebar's "current page" mark: favorites / search / nowplaying as
+    ' themselves, Recently Added = "recent", a library page the entry with its libId; "" otherwise (See All,
+    ' a genre page). entries: the sidebar's entries ([{ id, libId }]); library: the LibraryScreen's library field.
+    function overlayCurrent(entries as dynamic, kind as string, library as dynamic) as string
+        if kind = "favorites" or kind = "search" or kind = "nowplaying" then return kind
+        if kind <> "library" or not Util.isAA(library) then return ""
+        feed = Util.toText(library.feed)
+        if feed = "recent" then return "recent"
+        if feed <> "" then return ""
+        lid = Util.toText(library.id)
+        if lid = "" or type(entries) <> "roArray" then return ""
+        for each it in entries
+            if Util.isAA(it) and Util.toText(it.libId) = lid then return Util.toText(it.id)
+        end for
+        return ""
+    end function
+
+    ' What a key that reached the scene does with the sidebar: "open" (Left while it shows collapsed),
+    ' "close" (Right / Back while it is open), "keep" (any other key while it is open: swallowed), "" (not ours)
+    function overlayKeyAction(key as string, shown as boolean, isOpen as boolean) as string
+        if isOpen
+            if key = "right" or key = "back" then return "close"
+            return "keep"
+        end if
+        if shown and key = "left" then return "open"
+        return ""
+    end function
+
 end namespace

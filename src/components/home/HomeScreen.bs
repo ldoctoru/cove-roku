@@ -10,6 +10,7 @@ import "pkg:/source/Toasts.bs"
 import "pkg:/source/Hints.bs"
 import "pkg:/source/NavUtil.bs"
 import "pkg:/source/Clock.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     Clock.startupMark("HomeScreen init")
@@ -85,6 +86,8 @@ sub init()
     m.bannerTick = m.top.findNode("bannerTick")
     m.bannerTick.observeField("fire", "onBannerTick")
     buildNav()
+    ' (v1.7 LIVE M-3) the New entry follows the unread count (MainScene's notices)
+    if m.global.hasField("noticesCount") then m.global.observeField("noticesCount", "buildNav")
     m.top.findNode("hero").visible = false
     m.picker = invalid
     m.menuItem = invalid
@@ -237,7 +240,7 @@ sub onContent(ev as object)
         ' (SC5-2) a cold-launch deep link may already have pushed the player or a page over Home: lay Home out
         ' but leave the remote there; onFocusChanged focuses the hero or rows when Home is back on top
         onTop = m.top.isInFocusChain()
-        if not onTop then print "Cove: home rows arrived under another screen (focus left there)"
+        if not onTop then Log.line("Cove: home rows arrived under another screen (focus left there)")
         if m.heroes.count() > 0
             enterHero(false, onTop)
         else
@@ -284,7 +287,7 @@ end sub
 
 sub onAuthCheck(ev as object)
     r = ev.getData()
-    print "Cove: sign-in check -> "; r.code
+    Log.line("Cove: sign-in check -> " + Util.toText(r.code))
     if r.code = 401 then m.top.action = { id: "expired" }
 end sub
 
@@ -294,6 +297,10 @@ end sub
 ' while Recently Added and the libraries still come after the pages.
 sub buildNav()
     items = [{ id: "home", label: "Home", icon: "home", pinned: true }]
+    ' (v1.7 LIVE M-3) New episodes of the profile's shows: "New" with the unread count, while there are any
+    newCount = 0
+    if m.global.hasField("noticesCount") then newCount = Util.toNumber(m.global.noticesCount)
+    if newCount > 0 then items.push({ id: "new", label: "New", icon: "new", badge: newCount, pinned: true })
     libs = invalid
     if m.task <> invalid then libs = m.task.libraries
     ' (SC-6) a reload's task has no libraries until its rows arrive: keep the last list meanwhile
@@ -322,7 +329,7 @@ sub buildNav()
                 ic = "folder"
                 if e.collectionType = "movies" then ic = "film"
                 if e.collectionType = "tvshows" then ic = "tv"
-                shownList.push({ id: "lib:" + libAt[e.id].toStr(), label: e.label, icon: ic, media: true })
+                shownList.push({ id: "lib:" + libAt[e.id].toStr(), label: e.label, icon: ic, media: true, libId: Util.toText(m.libraries[libAt[e.id]].id) })
             end if
         end if
     end for
@@ -352,9 +359,11 @@ sub buildNav()
     sig = place + ":" + shownList.count().toStr()
     if sig <> m.navLogged
         m.navLogged = sig
-        print "Cove: nav " + place + " " + shownList.count().toStr() + " entries"
+        Log.line(Util.toText("Cove: nav " + place + " " + shownList.count().toStr() + " entries"))
     end if
     m.nav.items = items
+    ' (v1.7 NAV M-4) the same entries for the sidebar on the other top-level pages (MainScene)
+    if m.side then m.top.navItems = items else m.top.navItems = []
 end sub
 
 ' How many are playing on the server right now (the Now Playing badge)
@@ -501,7 +510,7 @@ sub onBannerTick()
         if m.bannerNodes.count() > 0 then return
         m.bannerRound = m.bannerRound + 1
         applyHeroes(rowHeroes(m.rows.content, m.bannerRound))
-        print "Cove: home banner rows "; m.heroes.count(); " titles 0 ms (refresh "; m.bannerRound; ")"
+        Log.line("Cove: home banner rows " + Util.toText(m.heroes.count()) + " titles 0 ms (refresh " + Util.toText(m.bannerRound) + ")")
         return
     end if
     if m.bannerTask <> invalid
@@ -904,7 +913,7 @@ end sub
 sub openNavPage(id as string)
     if id = "search"
         m.top.action = { id: "search" }
-    else if id = "settings" or id = "favorites" or id = "recent" or id = "nowplaying" or id = "profile"
+    else if id = "settings" or id = "favorites" or id = "recent" or id = "nowplaying" or id = "profile" or id = "new"
         m.top.action = { id: id }
     else if id.startsWith("lib:")
         l = m.libraries[id.mid(4).toInt()]
@@ -1347,12 +1356,12 @@ end sub
 
 sub unresumeStep(tag as object)
     st = tag.steps[tag.at]
-    print "Cove: remove from Continue Watching: "; st.method; " "; st.path.split("?")[0]
+    Log.line("Cove: remove from Continue Watching: " + Util.toText(st.method) + " " + Util.toText(st.path.split("?")[0]))
     send(st.method, st.path, tag, st.body)
 end sub
 
 sub onUnresume(r as object)
-    print "Cove:   -> "; r.code
+    Log.line("Cove:   -> " + Util.toText(r.code))
     tag = r.tag
     if r.code >= 200 and r.code < 300
         ' the row reloads in place (the focus stays on the same place in it)
@@ -1366,7 +1375,7 @@ sub onUnresume(r as object)
         return
     end if
     ' (the card stays: the row shows the server's state)
-    print "Cove: remove from Continue Watching failed "; r.code
+    Log.line("Cove: remove from Continue Watching failed " + Util.toText(r.code))
     Toasts.notify(Toasts.failedText("remove it from Continue Watching"), "info")
 end sub
 
@@ -1467,7 +1476,14 @@ sub onRowsAdded(ev as object)
     if m.task = invalid or not ev.getRoSGNode().isSameNode(m.task) then return
     content = m.rows.content
     if content = invalid then return
+    ' (v1.7 NAV M-6) rows put in above the focused row (Because You Watched, seconds later): the same card keeps
+    ' the focus
+    late = ev.getRoSGNode().lateRows
+    f = m.rows.rowItemFocused
     sizeRows(content)
+    if m.state = "rows" and Util.isAA(late) and f <> invalid and f.count() >= 2 and Util.toNumber(late.n) > 0 and f[0] >= Util.toNumber(late.at)
+        m.rows.jumpToRowItem = [f[0] + Util.toNumber(late.n), f[1]]
+    end if
     m.partialShown = false
     Clock.startupMark("home late row added")
 end sub
@@ -1494,4 +1510,14 @@ sub focusSeeAll()
         if f[0] <> m.spokenRow then m.spokenRow = f[0]
         Speak.say(text)
     end if
+end sub
+
+' ---------------------------------------------------------------- v1.7 NAV
+
+' (M-4) An entry chosen in the sidebar of another top-level page: MainScene has closed the pages above Home,
+' so the entry opens over Home as from Home's own sidebar (Back returns to Home)
+sub onNavOpen()
+    id = Util.toText(m.top.navOpen)
+    if id = "" or id = "home" then return
+    openNavPage(id)
 end sub

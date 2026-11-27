@@ -10,6 +10,8 @@
         <field id="current" type="string" value="home" onChange="paint" />
         <field id="chosen" type="assocarray" alwaysNotify="true" />
         <field id="expanded" type="boolean" value="false" />
+        <!-- (v1.7 NAV M-4) the scene-level copy on other top-level pages: a slimmer rail while closed -->
+        <field id="compact" type="boolean" value="false" onChange="paint" />
     </interface>
     <children>
         <Rectangle id="bg" width="112" height="1080" color="0x000000D9" />

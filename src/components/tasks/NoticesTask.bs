@@ -1,0 +1,205 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Api.bs"
+import "pkg:/source/Items.bs"
+import "pkg:/source/Ratings.bs"
+import "pkg:/source/Dates.bs"
+import "pkg:/source/Live.bs"
+import "pkg:/source/Log.bs"
+
+sub init()
+    m.top.functionName = "work"
+end sub
+
+sub work()
+    srv = m.top.server
+    op = Util.toText(m.top.op)
+    base = { op: op, serverId: Util.toText(Util.field(srv, "id")), userId: Util.toText(Util.field(srv, "userId")), unread: 0, fresh: [], baseline: false, reason: Util.toText(m.top.reason) }
+    try
+        if not Util.isAA(srv) or Util.toText(srv.token) = ""
+            m.top.result = base
+            return
+        end if
+        if op = "read"
+            markAllRead(base)
+        else if op = "list"
+            unreadRows(srv, base)
+        else
+            checkNew(srv, base)
+        end if
+    catch e
+        Log.line("Cove: notices " + Util.toText(op) + " failed: " + Util.redact(Util.toText(e.message)))
+        base.error = Util.toText(e.message)
+        m.top.result = base
+    end try
+end sub
+
+function storeKey() as string
+    return "newMedia"
+end function
+
+function readStore() as object
+    v = Util.readJson(storeKey())
+    if type(v) <> "roArray" then return []
+    return v
+end function
+
+' (at most 3 profiles, 15 unread ids and 6 ids at the mark each: ~2 KB at worst with Jellyfin's 32-character ids)
+sub writeStore(store as object, entry as object)
+    Util.writeText(storeKey(), formatJson(Live.withEntry(store, entry, 3)))
+end sub
+
+function nowSecs() as integer
+    return createObject("roDateTime").asSeconds()
+end function
+
+' The newest episodes and films against the mark; what is new and followed goes to the unread list
+sub checkNew(srv as object, out as object)
+    spent = createObject("roTimespan")
+    uid = Util.toText(srv.userId)
+    q = "IncludeItemTypes=Episode,Movie&Recursive=true&IsMissing=false&SortBy=DateCreated&SortOrder=Descending&Limit=40&Fields=DateCreated,SeriesId,OfficialRating&EnableImages=false&EnableUserData=true" + Items.noCount()
+    r = Api.execute({ method: "GET", url: Util.toText(srv.url) + "/Users/" + uid + "/Items?" + q, headers: Api.headers(srv, true), timeout: 20000 })
+    if r.code = 404 then r = Api.execute({ method: "GET", url: Util.toText(srv.url) + "/Items?userId=" + uid + "&" + q, headers: Api.headers(srv, true), timeout: 20000 })
+    list = Util.field(r.json, "Items")
+    if type(list) <> "roArray"
+        Log.line("Cove: notices check " + Util.toText(out.reason) + " -> " + Util.toText(r.code) + " (" + Util.toText(spent.totalMilliseconds()) + " ms)")
+        out.error = Api.describeFailure(r)
+        m.top.result = out
+        return
+    end if
+    found = []
+    for each it in list
+        if Util.isAA(it) then found.push(it)
+    end for
+    key = Live.noticeKey(out.serverId, out.userId)
+    store = readStore()
+    d = Live.freshItems(Live.entryOf(store, key), found, key, nowSecs())
+    fresh = d.fresh
+    ' (the profile's rating limit, unrated episodes by their series' rating)
+    if fresh.count() > 0 then fresh = Ratings.keepChecked(srv, fresh)
+    mode = Util.toText(m.top.mode)
+    followed = {}
+    if mode = "shows" and fresh.count() > 0 then followed = followedSeries(srv, Live.seriesIdsOf(fresh))
+    wanted = Live.wantedItems(fresh, mode, followed)
+    newIds = []
+    notes = []
+    for each it in wanted
+        newIds.push(Util.toText(it.Id))
+        notes.push(Live.noticeOf(it))
+    end for
+    d.entry.u = Live.mergeUnread(d.entry.u, newIds, 15)
+    writeStore(store, d.entry)
+    out.unread = d.entry.u.count()
+    out.fresh = notes
+    out.baseline = d.baseline
+    Log.line("Cove: notices check " + Util.toText(out.reason) + " " + Util.toText(r.code) + " " + Util.toText(found.count()) + " items, " + Util.toText(fresh.count()) + " new, " + Util.toText(notes.count()) + " announced, " + Util.toText(out.unread) + " unread, baseline " + Util.toText(d.baseline) + " (" + Util.toText(spent.totalMilliseconds()) + " ms)")
+    m.top.result = out
+end sub
+
+' My Shows: the series that are favourites or have something watched / started (the series' own UserData first;
+' for the ones it doesn't settle, at most 5, one played or in-progress episode of it)
+function followedSeries(srv as object, ids as object) as object
+    out = {}
+    if ids.count() = 0 then return out
+    uid = Util.toText(srv.userId)
+    h = Api.headers(srv, true)
+    base = Util.toText(srv.url) + "/Users/" + uid + "/Items"
+    r = Api.execute({ method: "GET", url: base + "?Ids=" + Util.join(ids, ",") + "&Fields=UserData&EnableImages=false&EnableUserData=true", headers: h, timeout: 15000 })
+    unsure = []
+    found = Util.field(r.json, "Items")
+    if type(found) = "roArray"
+        for each s in found
+            if Util.isAA(s)
+                if Live.followsSeries(s.UserData)
+                    out[Util.toText(s.Id)] = true
+                else
+                    unsure.push(Util.toText(s.Id))
+                end if
+            end if
+        end for
+    else
+        unsure = ids
+    end if
+    asked = 0
+    for each sid in unsure
+        if asked >= 5 or sid = "" then exit for
+        asked = asked + 1
+        for each filt in ["IsPlayed", "IsResumable"]
+            if not out.doesExist(sid)
+                c = Api.execute({ method: "GET", url: base + "?ParentId=" + sid + "&IncludeItemTypes=Episode&Recursive=true&Filters=" + filt + "&Limit=1&EnableImages=false&EnableUserData=false&EnableTotalRecordCount=true", headers: h, timeout: 15000 })
+                if Util.toNumber(Util.field(c.json, "TotalRecordCount")) > 0 then out[sid] = true
+            end if
+        end for
+    end for
+    Log.line("Cove: notices followed " + Util.toText(out.count()) + " of " + Util.toText(ids.count()) + " series (asked " + Util.toText(asked) + ")")
+    return out
+end function
+
+' The unread ones as rows by the day they were added (newest first); started / watched / gone ones leave the list
+sub unreadRows(srv as object, out as object)
+    spent = createObject("roTimespan")
+    key = Live.noticeKey(out.serverId, out.userId)
+    store = readStore()
+    entry = Live.entryOf(store, key)
+    ids = []
+    if Util.isAA(entry) and type(entry.u) = "roArray" then ids = entry.u
+    root = createObject("roSGNode", "ContentNode")
+    out.rows = root
+    if ids.count() = 0
+        m.top.result = out
+        return
+    end if
+    uid = Util.toText(srv.userId)
+    q = "Ids=" + Util.join(ids, ",") + "&Fields=DateCreated,SeriesId,Overview,ProductionYear,PrimaryImageAspectRatio,OfficialRating&ImageTypeLimit=1&EnableImageTypes=Primary,Thumb,Backdrop&EnableUserData=true"
+    r = Api.execute({ method: "GET", url: Util.toText(srv.url) + Ratings.withLimit(srv, "/Users/" + uid + "/Items?" + q), headers: Api.headers(srv, true), timeout: 20000 })
+    list = Util.field(r.json, "Items")
+    Log.line("Cove: notices list " + Util.toText(r.code) + " " + Util.toText(ids.count()) + " unread (" + Util.toText(spent.totalMilliseconds()) + " ms)")
+    if type(list) <> "roArray"
+        out.error = Api.describeFailure(r)
+        out.unread = ids.count()
+        m.top.result = out
+        return
+    end if
+    found = []
+    for each it in list
+        if Util.isAA(it) and not Live.isStarted(it) then found.push(it)
+    end for
+    found = Ratings.keepChecked(srv, found)
+    found.sortBy("DateCreated", "r")
+    kept = []
+    tz = Dates.localOffsetSecs()
+    today = Dates.localToday()
+    monthFirst = Dates.usesMonthFirst()
+    row = invalid
+    lastLabel = "?"
+    for each it in found
+        kept.push(Util.toText(it.Id))
+        label = Dates.airLabel(it.DateCreated, today, monthFirst, tz)
+        if row = invalid or label <> lastLabel
+            row = root.createChild("ContentNode")
+            row.title = Live.dayTitle(label)
+            row.addFields({ landscape: true })
+            lastLabel = label
+        end if
+        row.appendChild(Items.node(srv, it, true))
+    end for
+    ' (the ones gone, watched or above the limit leave the unread list)
+    if kept.count() <> ids.count()
+        entry.u = kept
+        writeStore(store, entry)
+    end if
+    out.unread = kept.count()
+    m.top.result = out
+end sub
+
+sub markAllRead(out as object)
+    key = Live.noticeKey(out.serverId, out.userId)
+    store = readStore()
+    entry = Live.entryOf(store, key)
+    if Util.isAA(entry)
+        entry.u = []
+        writeStore(store, entry)
+    end if
+    Log.line("Cove: notices marked all as read")
+    out.unread = 0
+    m.top.result = out
+end sub

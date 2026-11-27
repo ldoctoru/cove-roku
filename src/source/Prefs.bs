@@ -1,5 +1,6 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/HomeBanner.bs"
+import "pkg:/source/Log.bs"
 
 ' Settings kept on the Roku (registry), with the same defaults as Cove for macOS (Sources/Settings.swift):
 ' accent / background (read by Theme.bs), "Always load my subtitle language" + the language, skip intros and
@@ -370,8 +371,8 @@ namespace Prefs
             end if
         end for
         if moved > 0
-            if not sec.flush() then print "Cove: registry flush failed after moving library settings"
-            print "Cove: moved "; moved; " library settings to the active server"
+            if not sec.flush() then Log.line("Cove: registry flush failed after moving library settings")
+            Log.line("Cove: moved " + Util.toText(moved) + " library settings to the active server")
         end if
         return moved
     end function
@@ -575,7 +576,7 @@ namespace Prefs
             kept.shift()
         end while
         Util.writeText("seriesLangs", formatJson(kept))
-        print "Cove: moved "; old.count(); " series subtitle languages into one registry key"
+        Log.line("Cove: moved " + Util.toText(old.count()) + " series subtitle languages into one registry key")
     end sub
 
     ' ---------------------------------------------------------------- reset

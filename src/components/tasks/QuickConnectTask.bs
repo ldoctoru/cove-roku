@@ -1,4 +1,5 @@
 import "pkg:/source/Api.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -9,7 +10,7 @@ sub work()
     try
         poll()
     catch e
-        print "Cove: Quick Connect failed: "; Util.redact(Util.toText(e.message))
+        Log.line("Cove: Quick Connect failed: " + Util.redact(Util.toText(e.message)))
         m.top.error = "Quick Connect failed: the server's answer couldn't be read."
     end try
 end sub

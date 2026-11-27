@@ -1,13 +1,25 @@
+import "pkg:/source/Log.bs"
 ' Cove for Roku: entry point. Creates the SceneGraph screen and keeps the app alive until the scene closes.
 ' Deep links (Roku Search, voice, home-screen tiles) arrive as launch arguments or, while the app runs, as
 ' roInputEvents: { contentId, mediaType }; the scene opens or plays that item (MainScene.openDeepLink).
 sub main(args as dynamic)
+    ' (v1.7 DIAG M-9) the ring of the last "Cove:" lines (Log.line), kept on this thread
+    m.coveRing = []
     screen = createObject("roSGScreen")
     ' (v1.1.2) the launch moment, for the "ms after launch" timing lines (Clock.msSinceLaunch)
     launchAt = Clock.stampNow()
     screen.getGlobalNode().addFields({ launchAt: launchAt, startupDone: false })
     port = createObject("roMessagePort")
     screen.setMessagePort(port)
+    ' (v1.7 DIAG M-9) the other threads' Log.line lines arrive in logIn; Diagnostics asks for the ring with
+    ' logAsk and reads coveLog; the player leaves its last play method in lastPlay
+    glob = screen.getGlobalNode()
+    glob.addField("logIn", "string", true)
+    glob.addField("logAsk", "boolean", true)
+    glob.addField("coveLog", "array", true)
+    glob.addFields({ lastPlay: {} })
+    glob.observeField("logIn", port)
+    glob.observeField("logAsk", port)
     ' (registered before the screen shows, so no input event is missed)
     input = createObject("roInput")
     input.setMessagePort(port)
@@ -24,7 +36,7 @@ sub main(args as dynamic)
         mem.setMessagePort(port)
         memOk = mem.EnableMemoryWarningEvent(true)
         limit = mem.GetChannelMemoryLimit()
-        if limit <> invalid then print "Cove: memory limit "; formatJson(limit); ", available "; mem.GetChannelAvailableMemory(); " KB"
+        if limit <> invalid then Log.line("Cove: memory limit " + formatJson(limit) + ", available " + Util.toText(mem.GetChannelAvailableMemory()) + " KB")
     end if
     if not memOk
         di = createObject("roDeviceInfo")
@@ -39,18 +51,18 @@ sub main(args as dynamic)
         ' (v1.6 ST-9) the personal settings of the active profile (after the moves above, which work on the
         ' shared keys)
         PrefScope.sync()
-        print "Cove: registry space available "; createObject("roRegistry").GetSpaceAvailable(); " bytes, profile settings "; PrefScope.countOf(PrefScope.current()); " keys"
+        Log.line("Cove: registry space available " + Util.toText(createObject("roRegistry").GetSpaceAvailable()) + " bytes, profile settings " + Util.toText(PrefScope.countOf(PrefScope.current())) + " keys")
     catch e
-        print "Cove: registry check failed: "; e.message
+        Log.line("Cove: registry check failed: " + Util.toText(e.message))
     end try
     ' (v1.2) startup steps on the main thread (m.global isn't set here, so the launch stamp is passed)
-    print "Cove: startup "; Clock.msBetween(launchAt, Clock.stampNow()); " ms  main: memory and registry checked"
+    Log.line("Cove: startup " + Util.toText(Clock.msBetween(launchAt, Clock.stampNow())) + " ms  main: memory and registry checked")
     scene = screen.createScene("MainScene")
-    print "Cove: startup "; Clock.msBetween(launchAt, Clock.stampNow()); " ms  main: scene created"
+    Log.line("Cove: startup " + Util.toText(Clock.msBetween(launchAt, Clock.stampNow())) + " ms  main: scene created")
     screen.show()
-    print "Cove: startup "; Clock.msBetween(launchAt, Clock.stampNow()); " ms  main: screen shown"
+    Log.line("Cove: startup " + Util.toText(Clock.msBetween(launchAt, Clock.stampNow())) + " ms  main: screen shown")
     if args <> invalid and args.contentId <> invalid and args.mediaType <> invalid
-        print "Cove: launched with contentId="; args.contentId; " mediaType="; args.mediaType
+        Log.line("Cove: launched with contentId=" + Util.toText(args.contentId) + " mediaType=" + Util.toText(args.mediaType))
         scene.deepLink = { contentId: args.contentId, mediaType: args.mediaType }
     end if
 
@@ -59,13 +71,20 @@ sub main(args as dynamic)
         msgType = type(msg)
         if msgType = "roSGScreenEvent"
             if msg.isScreenClosed() then return
+        else if msgType = "roSGNodeEvent"
+            ' (v1.7 DIAG M-9) a line from another thread, or Diagnostics asking for the ring
+            if msg.getField() = "logIn"
+                Log.keepLine(m.coveRing, Log.stamped(Util.toText(msg.getData()), createObject("roDateTime")), Log.capacity())
+            else if msg.getField() = "logAsk"
+                glob.coveLog = m.coveRing
+            end if
         else if msgType = "roAppMemoryNotificationEvent"
             pct = msg.getInfo().lookup("MemoryUsagePercent")
             if mem <> invalid then pct = mem.GetMemoryLimitPercent()
-            print "Cove: memory warning, "; pct; "% of the limit used, "; mem.GetChannelAvailableMemory(); " KB left"
+            Log.line("Cove: memory warning, " + Util.toText(pct) + "% of the limit used, " + Util.toText(mem.GetChannelAvailableMemory()) + " KB left")
         else if msgType = "roDeviceInfoEvent"
             info = msg.getInfo()
-            if info.generalMemoryLevel <> invalid then print "Cove: device memory level "; info.generalMemoryLevel
+            if info.generalMemoryLevel <> invalid then Log.line("Cove: device memory level " + Util.toText(info.generalMemoryLevel))
         else if msgType = "roInputEvent"
             if msg.isInput()
                 info = msg.getInfo()
@@ -74,14 +93,14 @@ sub main(args as dynamic)
                     try
                         ret = scene.callFunc("handleTransport", info)
                     catch e
-                        print "Cove: transport failed: "; e.message
+                        Log.line("Cove: transport failed: " + Util.toText(e.message))
                     end try
                     if ret = invalid or GetInterface(ret, "ifAssociativeArray") = invalid then ret = { status: "unhandled" }
                     if ret.nowPlaying <> invalid and appMgr <> invalid then appMgr.SetNowPlayingContentMetaData(ret.nowPlaying)
-                    print "Cove: transport "; Util.toText(info.command); " -> "; Util.toText(ret.status)
+                    Log.line("Cove: transport " + Util.toText(info.command) + " -> " + Util.toText(ret.status))
                     input.eventResponse({ id: info.id, status: Util.toText(ret.status) })
                 else if info.doesExist("contentid") and info.doesExist("mediatype")
-                    print "Cove: input contentid="; info.contentid; " mediatype="; info.mediatype
+                    Log.line("Cove: input contentid=" + Util.toText(info.contentid) + " mediatype=" + Util.toText(info.mediatype))
                     scene.deepLink = { contentId: info.contentid, mediaType: info.mediatype }
                 end if
             end if
