@@ -356,4 +356,14 @@ namespace Live
         return "Added " + label
     end function
 
+    ' --- v1.7 (Liviu): opening a title from New marks it read ---
+    ' The unread id list without one id (a missing or odd list gives [])
+    function withoutId(ids as dynamic, id as string) as object
+        out = []
+        if type(ids) <> "roArray" then return out
+        for each x in ids
+            if Util.toText(x) <> id then out.push(x)
+        end for
+        return out
+    end function
 end namespace

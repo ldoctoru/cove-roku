@@ -21,6 +21,8 @@ sub work()
         end if
         if op = "read"
             markAllRead(base)
+        else if op = "readOne"
+            markOneRead(base, Util.toText(m.top.itemId))
         else if op = "list"
             unreadRows(srv, base)
         else
@@ -188,6 +190,22 @@ sub unreadRows(srv as object, out as object)
         writeStore(store, entry)
     end if
     out.unread = kept.count()
+    m.top.result = out
+end sub
+
+' (v1.7, Liviu) a title opened from New leaves the unread list
+sub markOneRead(out as object, itemId as string)
+    key = Live.noticeKey(out.serverId, out.userId)
+    store = readStore()
+    entry = Live.entryOf(store, key)
+    if Util.isAA(entry)
+        before = 0
+        if type(entry.u) = "roArray" then before = entry.u.count()
+        entry.u = Live.withoutId(entry.u, itemId)
+        if entry.u.count() <> before then writeStore(store, entry)
+        out.unread = entry.u.count()
+    end if
+    Log.line("Cove: notices read " + itemId + ", " + Util.toText(out.unread) + " unread")
     m.top.result = out
 end sub
 

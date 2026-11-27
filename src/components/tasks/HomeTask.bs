@@ -685,7 +685,7 @@ sub loadBecause()
     end if
     one = createObject("roSGNode", "ContentNode")
     for each r in rows
-        if one.getChildCount() < want then addRow(one, HomeLayout.becauseTitle(r.name), r.items, true, invalid)
+        if one.getChildCount() < want then addRow(one, HomeLayout.becauseTitle(r.name), r.items, false, invalid)
     end for
     n = one.getChildCount()
     Log.line("Cove: home because " + Util.toText(n) + " rows (" + Util.toText(fromRec) + " from recommendations, " + Util.toText(rows.count() - fromRec) + " from similar) " + Util.toText(stopwatch.totalMilliseconds()) + " ms")

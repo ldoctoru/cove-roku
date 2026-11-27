@@ -3,8 +3,8 @@ import "pkg:/source/Servers.bs"
 import "pkg:/source/Api.bs"
 
 ' (v1.7 DIAG M-7) Theme songs on details pages: Settings → General → Sound → Theme Music (Off / Series /
-' Series and Movies, default Off; one shared key "themeMusic" for this Roku, like the other sound / playback
-' settings). DetailsScreen plays the server's first theme song with one Audio node; these are the pure parts.
+' Series and Movies, default Off; key "themeMusic", personal per profile since v1.7 at Liviu's
+' request: PrefScope). DetailsScreen plays the server's first theme song with one Audio node; these are the pure parts.
 namespace ThemeMusic
 
     function choices() as object
@@ -22,7 +22,7 @@ namespace ThemeMusic
     end function
 
     function helpNote() as string
-        return "Plays the theme song stored on the server while a show's (or movie's) page is open, at the Roku's volume. It stops when you press Play or leave the page, and never plays while the Audio Guide is on."
+        return "Plays the theme song stored on the server while a show's (or movie's) page is open, at the Roku's volume. It stops when you press Play or leave the page, and never plays while the Audio Guide is on. Each profile has its own choice."
     end function
 
     ' Does a details page of this kind play its theme song? (Series and Season pages with Series; also
