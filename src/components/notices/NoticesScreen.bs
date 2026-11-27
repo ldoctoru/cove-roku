@@ -117,7 +117,30 @@ sub onSelected()
     if row = invalid then return
     it = row.getChild(s[1])
     if it = invalid then return
+    markRead(Util.toText(it.itemId))
     m.top.action = { id: "open", itemId: it.itemId, itemType: it.itemType, collectionType: "", title: it.title, preview: QuickPlay.previewOfCard(it, false) }
+end sub
+
+' (v1.7, Liviu) the opened title is read: its own task, so the list's task isn't replaced; the list drops it when
+' the page is shown again, and the New count follows the answer
+sub markRead(itemId as string)
+    if itemId = "" or m.top.server = invalid then return
+    t = createObject("roSGNode", "NoticesTask")
+    t.server = m.top.server
+    t.op = "readOne"
+    t.itemId = itemId
+    t.reason = "opened"
+    t.observeField("result", "onReadOne")
+    m.readTask = t
+    t.control = "RUN"
+end sub
+
+sub onReadOne(ev as object)
+    r = ev.getData()
+    m.readTask = invalid
+    if m.top.server = invalid or not Util.isAA(r) then return
+    if Util.toText(r.serverId) <> Util.toText(m.top.server.id) or Util.toText(r.userId) <> Util.toText(m.top.server.userId) then return
+    if m.global.hasField("noticesCount") then m.global.noticesCount = Util.toNumber(r.unread)
 end sub
 
 sub onFocusChanged()

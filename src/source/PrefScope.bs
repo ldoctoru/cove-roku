@@ -32,6 +32,8 @@ namespace PrefScope
         pk.exact.push("becauseRows")
         ' --- v1.7 LIVE: Settings → Home → New Episodes ---
         pk.exact.push("newEpisodes")
+        ' (v1.7, Liviu) Settings → General → Theme Music is per profile too
+        pk.exact.push("themeMusic")
         return pk
     end function
 
