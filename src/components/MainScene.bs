@@ -2119,6 +2119,9 @@ end sub
 sub initSideNav()
     m.sideNav = m.top.findNode("sideNav")
     m.sideNavLog = ""
+    ' (set here, not in the XML: an XML value paints while the scene's children are made, before init() has put
+    ' the theme on m.global, and SideBar.paint crashed on m.global.theme)
+    m.sideNav.compact = true
     m.sideNav.observeField("chosen", "onSideNavChosen")
     ' (any focus move: a page pushed or closed, a picker opened on the page, the sidebar opened)
     m.top.observeField("focusedChild", "syncSideNav")

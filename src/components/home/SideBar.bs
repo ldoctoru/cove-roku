@@ -61,6 +61,8 @@ end sub
 
 ' Every entry is 64 px high; section titles 56 px. Closed: icons only on a 112 px rail. Open: 400 px with names.
 sub paint()
+    ' (no theme yet: the scene is still being made; paint runs again when items / compact are set)
+    if not Util.isAA(m.global.theme) then return
     m.entries.removeChildrenIndex(m.entries.getChildCount(), 0)
     open = m.top.expanded
     w = 112

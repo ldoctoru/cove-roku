@@ -20,7 +20,7 @@
         <Group id="screens" />
         <!-- (v1.7 NAV M-4) the sidebar on the other top-level pages (library pages, Favorites, Search ...): a slim
              rail over the page, Left from the first column opens it over the content (MainScene.syncSideNav) -->
-        <SideBar id="sideNav" compact="true" visible="false" />
+        <SideBar id="sideNav" visible="false" />
         <!-- Requests that must finish after their screen is gone (playback stop reports) -->
         <Group id="tasks" />
         <!-- action confirmations, above every screen -->
