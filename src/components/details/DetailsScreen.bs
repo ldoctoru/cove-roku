@@ -982,7 +982,7 @@ sub buildButtons()
         if n.len() > 28 then n = n.left(26) + "..."
         label = label + " " + n
         ' (v1.6 M-1) from its first film: Play Collection (the films then follow one another either way)
-        if not started and Playback.collectionQueue(m.boxList, Util.toText(target.Id)).index = 0 then label = "Play Collection"
+        if not started and QuickPlay.collectionQueue(m.boxList, Util.toText(target.Id)).index = 0 then label = "Play Collection"
     end if
     btns = []
     for each id in DetailsHead.headerButtonIds(t, started, target <> invalid, m.trailers.count())
@@ -1229,7 +1229,7 @@ end sub
 ' (v1.6 M-1) Play Collection: the target film, then the collection's next films back to back (the player's
 ' queue; the list is the page's, already rating-filtered and in the collection's order)
 sub requestCollectionPlay(target as object, start as float)
-    cq = Playback.collectionQueue(m.boxList, Util.toText(target.Id))
+    cq = QuickPlay.collectionQueue(m.boxList, Util.toText(target.Id))
     if cq.index < 0
         requestPlay(target, start)
         return
@@ -1246,7 +1246,7 @@ end sub
 ' A collection's titles in release order, oldest first (a film series reads in the order it came out)
 sub loadBoxItems()
     srv = m.top.server
-    get("/Users/" + Util.toText(srv.userId) + "/Items?ParentId=" + Util.toText(m.item.Id) + "&SortBy=" + Playback.collectionSortBy(m.item.DisplayOrder) + "&SortOrder=Ascending&" + Items.fields(), { kind: "boxItems" })
+    get("/Users/" + Util.toText(srv.userId) + "/Items?ParentId=" + Util.toText(m.item.Id) + "&SortBy=" + QuickPlay.collectionSortBy(m.item.DisplayOrder) + "&SortOrder=Ascending&" + Items.fields(), { kind: "boxItems" })
 end sub
 
 ' The collections a movie or show is in. Jellyfin has its own call (newer servers; older ones answer with an
