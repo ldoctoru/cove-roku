@@ -5,6 +5,9 @@ import "pkg:/source/NavUtil.bs"
 sub init()
     m.entries = m.top.findNode("entries")
     m.index = 0
+    ' (an array field with no value reads invalid on the device: the scene-level copy is painted before MainScene
+    ' hands it Home's entries, and its.count() crashed)
+    if type(m.top.items) <> "roArray" then m.top.items = []
     m.top.observeField("focusedChild", "onFocus")
     Speak.mute([m.top])
 end sub
