@@ -973,7 +973,9 @@ sub quickRated(it as object)
         end if
         request("GET", m.server, "/Shows/" + sid + "/Episodes?SeasonId=" + id + "&UserId=" + uid + "&Fields=OfficialRating&EnableUserData=true", true, "", { kind: "qpList", phase: "episodes", reqId: rid })
     else if k = "box"
-        request("GET", m.server, Ratings.withLimit(m.server, "/Users/" + uid + "/Items?ParentId=" + id + "&SortBy=PremiereDate,ProductionYear,SortName&SortOrder=Ascending&Fields=OfficialRating&EnableUserData=true"), true, "", { kind: "qpList", phase: "box", reqId: rid })
+        ' (v1.7, Liviu) the Play key on a collection plays the whole collection, as its page's Play Collection:
+        ' the collection's order, from its first unwatched film, watched ones after it play too
+        request("GET", m.server, Ratings.withLimit(m.server, "/Users/" + uid + "/Items?ParentId=" + id + "&SortBy=" + QuickPlay.collectionSortBy(it.DisplayOrder) + "&SortOrder=Ascending&Fields=OfficialRating,ProductionYear,PremiereDate,RunTimeTicks,SeriesName,SeriesId&EnableUserData=true"), true, "", { kind: "qpList", phase: "box", reqId: rid, boxId: id, boxName: Util.toText(it.Name) })
     else
         quickFailed("Nothing to play here")
     end if
@@ -1000,6 +1002,14 @@ sub onQuickList(r as object)
         end if
     else if phase = "box"
         pick = QuickPlay.pickTitle(list)
+        if pick <> invalid
+            cq = QuickPlay.collectionQueue(list, Util.toText(pick.Id))
+            if cq.index >= 0
+                quickStart(pick, { queue: cq.queue, collection: { id: Util.toText(r.tag.boxId), name: Util.toText(r.tag.boxName), index: cq.index, count: cq.count } })
+                Log.line("Cove: play key collection film " + Util.toText(cq.index + 1) + " of " + Util.toText(cq.count) + ", " + Util.toText(cq.queue.count()) + " queued")
+                return
+            end if
+        end if
     else
         pick = QuickPlay.pickEpisode(list, QuickPlay.nowStamp())
     end if
@@ -1010,10 +1020,12 @@ sub onQuickList(r as object)
     quickStart(pick)
 end sub
 
-sub quickStart(it as object)
+sub quickStart(it as object, extra = invalid as dynamic)
     p = m.quickPending
     m.quickPending = invalid
     item = QuickPlay.playerItem(it)
+    ' (v1.7) a collection's queue and place (Play Collection from the Play key)
+    if Util.isAA(extra) then item.append(extra)
     ' (v1.3.1) the Play key on a Home card: that card's page opens when playback ends (Cove for macOS playFromHome)
     if p <> invalid and p.screen <> invalid and Util.toText(p.screen.screenId) = "home" then item.returnTo = p.card
     Log.line("Cove: play key starts " + Util.toText(item.id) + " at " + Util.toText(item.start))
