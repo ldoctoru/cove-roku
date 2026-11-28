@@ -2,13 +2,13 @@
 
 Cove is a free, open-source **Emby and Jellyfin** client for Roku TVs and players: your own media server's
 films, shows and libraries on a clean, full-screen TV interface. It is the TV companion to
-[Cove for macOS](https://github.com/J0n4e/cove) and follows its layout, with a flat, modern look made for the remote. Each profile keeps its own Home, menus and languages.
+[Cove for macOS](https://github.com/J0n4e/cove) and follows its layout, with a flat, modern look made for the remote. Each profile keeps its own Home, menus and languages, and a live connection keeps watched marks and Now Playing current.
 Written in BrightScript / SceneGraph with the [BrighterScript](https://github.com/rokucommunity/brighterscript) tooling.
 Licence: GPL-3.0.
 
 Cove has no accounts, analytics, ads or tracking. It talks only to the servers you add (see [Privacy and security](#privacy-and-security)).
 
-**Latest release: [v1.6.0](https://github.com/ldoctoru/cove-roku/releases/latest)**
+**Latest release: [v1.7.0](https://github.com/ldoctoru/cove-roku/releases/latest)**
 
 ## Features
 
@@ -23,20 +23,22 @@ Cove has no accounts, analytics, ads or tracking. It talks only to the servers y
 - https is tried first; a plain-http server outside your home network shows "This connection isn't encrypted" before you sign in. A sign-in stays tied to the address it was made on.
 
 **Profiles and kids**
-- **Several profiles per server** with **Who's watching?** at launch, each with its own Continue Watching and favorites, and **its own settings**: Home rows and banner, top bar and sidebar, library filters and names, audio and subtitle language, and subtitle style. Servers, quality, DTS and Remote settings stay shared on the TV.
+- **Several profiles per server** with **Who's watching?** at launch, each with its own Continue Watching and favorites, and **its own settings**: Home rows and banner, top bar and sidebar, library filters and names, audio and subtitle language, and subtitle style. Theme music is chosen per profile too. Servers, quality, DTS and Remote settings stay shared on the TV.
 - A **PIN per profile** (only a salted hash is stored) and a **maximum rating per profile** (G, PG, PG-13, R): titles above it are hidden everywhere. PIN checks run in the background, so a wrong PIN never freezes the screen. A limited profile can't change its own limit or PINs, can't see admin tools, needs the parent PIN to hide or rename libraries, and unrated episodes follow their series' rating.
 
 **Home**
-- **Sidebar or top bar**, each with its own list: switch every page and library on or off and change the order.
-- A **banner** that shows Newest, Random Picks, Favorites or titles from your rows, refreshed when Home loads or every 15 / 30 / 60 minutes.
+- **Sidebar or top bar**, each with its own list: switch every page and library on or off and change the order. With the sidebar, it also opens on library, Favorites, Search, See All, Now Playing and New pages: press Left from the first column.
+- A **banner** that shows Newest, Random Picks, Favorites (from the libraries on Home, or the whole server when none has a Home row) or titles from your rows, refreshed when Home loads or every 15 / 30 / 60 minutes.
 - Rows: Continue Watching, Next Up, Upcoming Episodes, Recently Added, Recently Released, Favorites, a row per library, and **My Media**: your libraries as wide tiles with their own artwork, like Emby. Turn rows on or off, reorder them, or use the server's Home layout, including **Emby 4.10's Home sections** (Spotlight and Dynamic Media).
+- **Because You Watched** rows (off by default, 1 to 3 rows) from the server's recommendations.
 - A **See All** card at the end of every row opens the whole list as a grid.
+- **New episodes:** a notice when a show you follow (a favorite, or one you've started) gets a new episode, and a **New** entry in the menu that lists them, with Mark All as Read. Settings → Home: My Shows, Everything or Off.
 - A library's Home row, My Media tile, top bar entry and sidebar entry are all set separately.
 
 **Libraries and pages**
 - Libraries with sort, order, genre, A-Z and show filters (remembered per library), Collections, Shuffle, page jumps with Rewind / Fast Forward, Favorites in sections, Now Playing, Search in rows, and actor pages.
 - **Movie, series and episode pages** in the style of Emby: big background picture, title logo, info line (★ score, critics' score, year or air date, runtime, rating, genres, Ends at), and **Audio** and **Subtitles** choices right on the page.
-- Buttons: **Play / Resume**, From Beginning, Trailer, Watched, Favorite and **⋯ More** (Add to Collection, Add to Playlist, Playback Info, Quality / Version, Go to Collection / Series / Season, Refresh Metadata for admins). On a collection, **Play Collection** plays its films back to back, in order. Play is always focused when a page opens or you come back to it.
+- Buttons: **Play / Resume**, From Beginning, Trailer, Watched, Favorite and **⋯ More** (Add to Collection, Add to Playlist, Playback Info, Quality / Version, Go to Collection / Series / Season, Refresh Metadata for admins). On a collection, **Play Collection** plays its films back to back, in order; the ▶ key on a collection card does the same. Play is always focused when a page opens or you come back to it.
 - Progress with the time remaining, tagline, description and Director; seasons and episodes, Cast & Crew, More Like This, Extras, collections, media info and chapters, and Hide spoilers.
 - **For server admins:** **Items without Poster / Backdrop** on library pages, with Refresh per title or **Refresh All Missing**.
 
@@ -46,12 +48,15 @@ Cove has no accounts, analytics, ads or tracking. It talks only to the servers y
 - Subtitles drawn by Cove in your style (or the Roku's caption style), with subtitle delay and always load my language. External subtitle files come first and load in pieces, so they start quickly; subtitles added on the server appear without reopening.
 - **Up Next** card during the credits, skip intro / recap / credits per segment (Ask, Skip automatically or Don't show), also found from **chapter names** (Intro, Recap, Credits...) when the server has no markers, Are you still watching? (episodes only), sleep timer, Cinema Mode, and search and download subtitles from the player.
 - Switching the audio track during Direct Play changes it in place where the Roku can, instead of restarting. Start quality for home network and internet, maximum audio channels, preferred audio, DTS passthrough, and rewind on resume. A failed play offers **Try Again** and **Play Without Subtitles**.
+- **Theme music** (off by default): the server's theme song plays while a show's (or movie's) page is open.
 
 **Settings**
 - Same format as Cove for Mac: tabs across the top (General, Home, Libraries, Subtitles, Playback, Connect, Profiles, Remote, About) and sections with the label on the left and the value on the right.
 - **What's New** after an update, and again from Settings → About.
+- **Diagnostics** (Settings → About): version, Roku model, server, the last play method and Cove's latest log lines, for a photo instead of a debug console.
 
 **Roku integration**
+- A **live connection** to the server (Roku OS 16 and later; otherwise Cove checks every few seconds as before): a title watched on another device gets its check at once, and Now Playing updates live.
 - Instant Resume, Roku Search deep links, and voice and transport controls ("pause", "skip forward 30 seconds", Instant Replay).
 - The **Audio Guide** reads Cove's own buttons, cards, settings and player controls.
 
