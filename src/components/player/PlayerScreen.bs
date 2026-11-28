@@ -36,6 +36,14 @@ sub init()
     m.loaderArc = m.top.findNode("loaderArc")
     m.loaderPct = m.top.findNode("loaderPct")
     m.video.observeField("bufferingStatus", "onBufferingStatus")
+    ' (v1.7.1 SP6-1) "Cove: player start <ms> after-first-frame mode ..." once a second, 5 times
+    m.startDiagTimer = m.top.findNode("startDiagTimer")
+    m.startDiagTimer.observeField("fire", "onStartDiagTick")
+    m.startTicks = 0
+    m.startMode = ""
+    m.startBuf = -1
+    m.startPrebuf = false
+    m.startPsiSeen = false
     m.action = m.top.findNode("action")
     m.actionLabel = m.top.findNode("actionLabel")
     m.upNext = m.top.findNode("upNext")
@@ -157,6 +165,13 @@ end sub
 
 sub resetState()
     refreshPrefs()
+    ' (v1.7.1 SP6-1) the start lines of the previous title end here
+    m.startDiagTimer.control = "stop"
+    m.startTicks = 0
+    m.startMode = ""
+    m.startBuf = -1
+    m.startPrebuf = false
+    m.startPsiSeen = false
     m.loadNote = ""
     m.audioSwitchId = ""    ' (v1.6 P5-12) an in-place audio switch waiting for its check
     m.loadBase = 0
@@ -358,6 +373,97 @@ sub playerMark(stepName as string)
     Log.line("Cove: player " + Util.toText(m.startClock.totalMilliseconds()) + " " + Util.toText(stepName))
 end sub
 
+' ---------------------------------------------------------------- v1.7.1 SPEED (SP6-1 start lines)
+' "Cove: player start <ms> <text>": same clock as playerMark (ms since begin), from the stream being set until
+' 5 s after the first frame. Only logging: the Roku's own start fields are read through hasField, so an older
+' Roku OS just skips them.
+sub startMark(text as string)
+    if m.startClock = invalid then return
+    Log.line("Cove: player start " + Util.toText(m.startClock.totalMilliseconds()) + " " + text)
+end sub
+
+function startVideoMode() as string
+    try
+        return Util.toText(createObject("roDeviceInfo").GetVideoMode())
+    catch e
+        return "?"
+    end try
+end function
+
+' The video mode, when it differs from the last one printed (prefix: "" or "after-first-frame ")
+sub startModeMark(prefix as string, always as boolean)
+    mode = startVideoMode()
+    if always or mode <> m.startMode then startMark(prefix + "mode " + mode)
+    m.startMode = mode
+end sub
+
+' Right before video.content: the file's facts, the network and the video mode / HDR10 support
+sub startContentMarks(s as object)
+    if m.startClock = invalid then return
+    try
+        src = Playback.sourceOf(m.info, Util.toText(s.mediaSourceId))
+        startMark("content set " + Playback.startFacts(src, Util.toText(s.streamFormat), Util.toText(s.method), m.opts.audio, m.startAt))
+        di = createObject("roDeviceInfo")
+        startMark("net " + Playback.startNet(di.GetConnectionInfo()))
+        m.startMode = Util.toText(di.GetVideoMode())
+        dp = di.GetDisplayProperties()
+        startMark("mode " + m.startMode + " display hdr10 " + Util.toText(Util.flag(dp, "hdr10")) + " dolbyVision " + Util.toText(Util.flag(dp, "dolbyVision")))
+    catch e
+        startMark("content facts failed: " + Util.redact(Util.toText(e.message)))
+    end try
+end sub
+
+function startVideoField(name as string) as dynamic
+    if not m.video.hasField(name) then return invalid
+    return m.video.getField(name)
+end function
+
+' The first frame: Roku's own start breakdown and the stream it measured
+sub startFirstFrameMarks()
+    if m.startClock = invalid then return
+    psi = startVideoField("playStartInfo")
+    m.startPsiSeen = Util.isAA(psi) and psi.count() > 0
+    startMark("roku start " + Playback.startPlayInfo(psi, startVideoField("timeToStartStreaming")))
+    startMark("stream " + Playback.startStreamInfo(startVideoField("streamInfo"), startVideoField("videoFormat"), startVideoField("audioFormat")))
+    m.startTicks = 0
+    m.startDiagTimer.control = "start"
+end sub
+
+' Once a second for 5 s after the first frame: the video mode (an HDMI switch that lands after "playing"),
+' then the start clock stops
+sub onStartDiagTick()
+    if m.startClock = invalid
+        m.startDiagTimer.control = "stop"
+        return
+    end if
+    m.startTicks = m.startTicks + 1
+    startModeMark("after-first-frame ", true)
+    ' (playStartInfo empty at the first frame: once more, now)
+    if m.startTicks = 1 and not m.startPsiSeen
+        psi = startVideoField("playStartInfo")
+        if Util.isAA(psi) and psi.count() > 0 then startMark("roku start (late) " + Playback.startPlayInfo(psi, startVideoField("timeToStartStreaming")))
+    end if
+    if m.startTicks >= 5
+        m.startDiagTimer.control = "stop"
+        m.startClock = invalid
+    end if
+end sub
+
+' Buffer % in 10 % steps, and once when the prebuffer is done
+sub startBufferMarks(bs as object)
+    if m.startClock = invalid then return
+    st = Playback.startBufStep(bs.percentage)
+    if st > m.startBuf
+        m.startBuf = st
+        startMark("buffer " + st.toStr() + "% underrun " + Util.toText(Util.flag(bs, "isUnderrun")))
+    end if
+    if not m.startPrebuf and Util.flag(bs, "prebufferDone")
+        m.startPrebuf = true
+        startMark("buffer prebuffer done at " + Util.toText(Int(Util.toNumber(bs.percentage))) + "%")
+    end if
+end sub
+' ---------------------------------------------------------------- end v1.7.1 SPEED
+
 sub requestInfo()
     it = m.top.item
     get("/Users/" + Util.toText(m.top.server.userId) + "/Items/" + it.id + "?Fields=MediaSources,MediaStreams,Chapters,Trickplay", { kind: "info", itemId: it.id })
@@ -549,6 +655,14 @@ sub start(startSeconds as float, forceTranscode as boolean)
     showLoading(5, m.loadNote)
     ' (a change while "Starting...": the earlier request is superseded, only its conversion still needs ending)
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
+    ' (v1.7.1 SP6-3) Settings → Playback → Start Large MKV Files as a Stream: an MKV above 30 Mbit/s goes
+    ' through the server's remux (HLS, video and audio copied), as for another audio track
+    src = Playback.sourceOf(m.info, Util.toText(m.opts.sourceId))
+    m.opts.remux = not forceTranscode and Playback.wantsMkvStream(src, Playback.mkvStreamOn())
+    if m.opts.remux
+        Log.line("Cove: play remux (mkv " + Playback.startMbit(Playback.sourceBitrate(src)) + " Mbit/s > 30 Mbit/s, setting on)")
+        startMark("forced remux (setting)")
+    end if
     m.playTask = createObject("roSGNode", "PlayTask")
     m.playTask.server = m.top.server
     m.playTask.itemId = m.top.item.id
@@ -626,6 +740,8 @@ sub onStream(ev as object)
     c.title = Util.toText(m.top.item.title)
     c.secondaryTitle = Util.toText(m.top.item.subtitle)
     if m.startAt > 1 then c.PlayStart = m.startAt
+    ' (v1.7.1 SP6-1) the file, the network and the video mode, right before the Roku gets the stream
+    startContentMarks(s)
     ' A text subtitle: Cove downloads the server's SRT and draws it (SubtitleLayer); Roku's captions stay off
     m.video.content = c
     playerMark("stream URL set")
@@ -885,6 +1001,11 @@ end sub
 sub onState()
     st = m.video.state
     Log.line("Cove: video " + Util.toText(st))
+    ' (v1.7.1 SP6-1) the same with ms, and the video mode when it changed
+    if m.startClock <> invalid
+        startMark("state " + Util.toText(st))
+        startModeMark("", false)
+    end if
     if st = "buffering" and m.started then showLoading(0, "")
     if st = "playing" or st = "paused" then updateCenter()
     if st = "paused"
@@ -907,7 +1028,8 @@ sub onState()
         if not m.started
             m.started = true
             playerMark("first frame")
-            m.startClock = invalid
+            ' (v1.7.1 SP6-1) the clock runs on for 5 s (onStartDiagTick clears it)
+            startFirstFrameMarks()
             ' (SP-15) the thumbnails 8 s into playback, or at the first seek if that comes sooner
             if m.thumbStream <> invalid then m.thumbTimer.control = "start"
             report("/Sessions/Playing", false)
@@ -2792,6 +2914,7 @@ sub close(atSec = -1.0 as float)
     if m.closing then return
     m.closing = true
     m.subTimer.control = "stop"
+    m.startDiagTimer.control = "stop"     ' (v1.7.1 SP6-1)
     m.progressTimer.control = "stop"
     m.countdown.control = "stop"
     m.watchdog.control = "stop"
@@ -3498,9 +3621,11 @@ end sub
 
 ' Video node buffering: 0-100 % of what it needs before it plays; mapped onto what is left of the ring
 sub onBufferingStatus()
-    if not m.loader.visible then return
     bs = m.video.bufferingStatus
-    if bs = invalid or bs.percentage = invalid then return
+    if not Util.isAA(bs) or bs.percentage = invalid then return
+    ' (v1.7.1 SP6-1)
+    startBufferMarks(bs)
+    if not m.loader.visible then return
     base = m.loadBase
     setLoadPct(base + Int((100 - base) * bs.percentage / 100))
 end sub

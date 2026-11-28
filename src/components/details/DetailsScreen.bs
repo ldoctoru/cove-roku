@@ -3364,7 +3364,10 @@ sub onLiveRefresh()
         m.nextUpPending = true
         loadNextUp()
         reloadSeasonCounts()
+        ' (v1.7.1 LV-6) the shown season's cards too (ticks, progress bars); the rows keep the focus
+        if m.seasonIndex >= 0 then loadEpisodes(m.seasonIndex)
     end if
+    if Util.toText(m.item.Type) = "BoxSet" then loadBoxItems()
 end sub
 
 ' ---------------------------------------------------------------- v1.7 DIAG (M-7 theme songs)
@@ -3475,9 +3478,12 @@ end sub
 
 sub stopThemeSong(why as string)
     if m.tmTimer <> invalid then m.tmTimer.control = "stop"
-    if not themePlaying() then return
+    if m.tmAudio = invalid then return
+    ' (v1.7.1 NV6-5) stopped whatever its state: a Play / Back pressed as the song starts finds it still
+    ' "none" / "stopped" (the state changes a moment later), and it then played under the player or the page
+    wasOn = themePlaying()
     m.tmAudio.control = "stop"
-    Log.line("Cove: theme " + m.tmFor + " stop (" + why + ")")
+    if wasOn then Log.line("Cove: theme " + m.tmFor + " stop (" + why + ")")
 end sub
 
 sub onThemeLeave(ev as object)

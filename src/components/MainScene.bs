@@ -251,10 +251,18 @@ end sub
 
 ' (SC-3) A removed screen can still answer (its tasks keep it alive): it may not start playback or open pages.
 ' Its "action" stays observed for "changed" (onHomeAction drops the rest from screens not on top).
+' (v1.7.1 NV6-11) Who a Home belongs to: the server and the profile
+function homeOwnerKey(srv as dynamic) as string
+    if not Util.isAA(srv) then return ""
+    return Util.toText(srv.id) + "/" + Util.toText(srv.userId)
+end function
+
 sub detachScreen(s as dynamic)
     if s = invalid then return
     ' (v1.5.1) the missing-art scan / refresh stops with its page
     if s.screenId = "missingArt" then s.closed = true
+    ' (v1.7.1 CR-1 / NV6-3) a page that observes m.global (Home's New count) lets go of it, so it can be freed
+    if s.hasField("released") and s.released <> true then s.released = true
     ' (SC5-2) any pop of a player (Back bubbling up, a dropped top, a reset) ends it like Back: video stopped,
     ' stop report, transcode ended (close() runs once, so a player that already finished is unchanged)
     if s.screenId = "player" and s.stopNow <> true
@@ -457,12 +465,19 @@ function profileNames(s as object) as string
 end function
 
 sub showHome(server as object)
+    ' (v1.7.1 NV6-11) another profile or server: Diagnostics doesn't show the previous one's last title
+    if m.global.hasField("lastPlay") and homeOwnerKey(m.server) <> homeOwnerKey(server) then m.global.lastPlay = {}
     Servers.setActive(Util.toText(server.id))
     Clock.startupMark("active server saved")
     m.server = server
     ' (C2-1: a limited profile locks the server list; any other profile on Home unlocks it)
     m.lock = invalid
     noteLock(server)
+    ' (v1.7.1 CR-1) the Home being replaced lets go of the New count first (it would rebuild its old menu and
+    ' hand it to the scene sidebar for a moment)
+    for each old in m.stack
+        if Util.toText(old.screenId) = "home" and old.hasField("released") then old.released = true
+    end for
     ' (v1.7 LIVE M-3) this profile's New count, before its Home builds the menu
     m.global.noticesCount = noticesCountNow(server)
     h = createObject("roSGNode", "HomeScreen")
@@ -470,8 +485,17 @@ sub showHome(server as object)
     h.observeField("action", "onHomeAction")
     ' (v1.7 NAV M-4) this Home's sidebar entries feed the sidebar of the other top-level pages
     m.sideNav.items = []
+    m.sideNavSig = ""
     h.observeField("navItems", "onHomeNavItems")
     reset(h)
+    ' (v1.7.1 CR-10 / NV6-16) Home built its menu in init(), before the observer above: take that first list
+    ' now, so the other pages have the sidebar even while Home's rows are slow or Home shows an error
+    seed = h.navItems
+    if type(seed) = "roArray" and seed.count() > 0
+        m.sideNav.items = seed
+        m.sideNavSig = formatJson(seed)
+        syncSideNav()
+    end if
     h.server = server
     Clock.startupMark("HomeScreen pushed")
     m.homeReady = true
@@ -850,8 +874,10 @@ end sub
 ' a library with its progress bars and watched checks) reload when they are shown again
 ' (SC-1) Every page that shows progress or watched / favourite state, at any depth: details pages lower in
 ' the stack, person and search results too. except: the page that made the change (it is up to date).
-sub markStale(except = invalid as dynamic)
+sub markStale(except = invalid as dynamic, own = true as boolean)
     m.homeStale = true
+    ' (v1.7.1 LV-7) Cove's own change (played, ✓, ♡): its echo over the live connection is ignored for 15 s
+    if own then liveOwnChange()
     for each s in m.stack
         k = s.screenId
         if k = "library" or k = "favorites" or k = "details" or k = "person" or k = "search" or k = "seeall"
@@ -2054,7 +2080,7 @@ sub onResumeCheck(r as object)
         m.homeLoadedAt = nowSecs()
         top().reload = true
     else
-        markStale()
+        markStale(invalid, false)
     end if
 end sub
 
@@ -2131,6 +2157,7 @@ end sub
 sub initSideNav()
     m.sideNav = m.top.findNode("sideNav")
     m.sideNavLog = ""
+    m.sideNavSig = ""
     ' (set here, not in the XML: an XML value paints while the scene's children are made, before init() has put
     ' the theme on m.global, and SideBar.paint crashed on m.global.theme)
     m.sideNav.compact = true
@@ -2144,6 +2171,10 @@ sub onHomeNavItems(ev as object)
     if m.stack.count() = 0 or not m.stack[0].isSameNode(ev.getRoSGNode()) then return
     items = ev.getData()
     if type(items) <> "roArray" then items = []
+    ' (v1.7.1 NV6-15) the same entries again (the Now Playing badge or New count unchanged): no repaint
+    sig = formatJson(items)
+    if sig = Util.toText(m.sideNavSig) then return
+    m.sideNavSig = sig
     m.sideNav.items = items
     syncSideNav()
 end sub
@@ -2267,8 +2298,20 @@ sub liveInit()
     m.noticesTask = invalid
     m.noticesReason = ""
     m.noticesToasted = {}
+    ' (v1.7.1 LV-3 / CR-7) every NoticesTask (checks, the New list, read marks) runs one at a time from here, so
+    ' only one thread at a time reads and writes the newMedia key
+    m.noticesQueue = []
+    ' (v1.7.1 LV-7 / LV-8 / CR-4) when the first user-data change of a burst came, when Home last reloaded for one,
+    ' and which page was last refreshed for one (and when)
+    m.liveFirstAt = 0
+    m.liveHomeAt = -1
+    m.livePageNode = invalid
+    m.livePageAt = -1
+    if m.ownChangeAt = invalid then m.ownChangeAt = -1
     m.liveSyncTimer = liveTimer(1.0, false, "liveSync")
     m.liveDataTimer = liveTimer(3.0, false, "liveApplyUserData")
+    ' (v1.7.1 LV-1) a socket task that stopped on an error is started again a minute later
+    m.liveRetryTimer = liveTimer(60.0, false, "liveQueueSync")
     m.noticesSoonTimer = liveTimer(4.0, false, "onNoticesSoon")
     ' (every 10 minutes while Home is on top)
     m.noticesTimer = liveTimer(600.0, true, "onNoticesTimer")
@@ -2299,8 +2342,8 @@ sub liveSync()
         want = false
     end if
     key = ""
-    if want then key = Util.toText(srv.id) + "|" + Util.toText(srv.userId) + "|" + Util.toText(srv.token)
-    ' (the same server and profile: the socket stays, also when it gave up - it tries again after a resume)
+    if want then key = Util.toText(srv.id) + "|" + Util.toText(srv.userId) + "|" + Util.toText(srv.token) + "|" + Util.toText(srv.url)
+    ' (the same server and profile: the socket stays; since v1.7.1 it keeps retrying by itself after an outage)
     if want and m.liveTask <> invalid and key = m.liveKey then return
     liveStop()
     if not want or m.liveUnsupported then return
@@ -2336,9 +2379,28 @@ end sub
 
 sub onLiveState(ev as object)
     st = Util.toText(ev.getData())
-    ' (no roWebSocket on this Roku OS: not asked again this session; polling as before)
+    ' (no roWebSocket on this Roku OS: not asked again this session; polling as before. v1.7.1 LV-13: a server
+    ' address with no socket says "noaddress" and only that server goes without)
     if st = "unsupported" then m.liveUnsupported = true
+    ' (v1.7.1 LV-1) the task stopped on an error: forget it, and try again in a minute
+    if st = "failed" and m.liveTask <> invalid and m.liveTask.isSameNode(ev.getRoSGNode())
+        liveStop()
+        Log.line("Cove: live task stopped: retrying in 60 s")
+        m.liveRetryTimer.control = "stop"
+        m.liveRetryTimer.control = "start"
+    end if
 end sub
+
+' (v1.7.1 LV-7) Cove itself changed watched / favourite / progress (markStale): the server's echo of it is not
+' a change from another device
+sub liveOwnChange()
+    m.ownChangeAt = nowSecs()
+end sub
+
+function secsSince(at as integer) as integer
+    if at < 0 then return -1
+    return nowSecs() - at
+end function
 
 ' A change pushed by the server, for the server and profile on Home only
 sub onLiveEvent(ev as object)
@@ -2348,11 +2410,20 @@ sub onLiveEvent(ev as object)
     if Util.toText(d.serverId) <> Util.toText(srv.id) or Util.toText(d.userId) <> Util.toText(srv.userId) then return
     if d.kind = "userData"
         ' (a few changes in a row - a whole season marked, progress reports - make one refresh, 3 s later)
+        if m.liveIds.count() = 0 then m.liveFirstAt = nowSecs()
         for each id in d.ids
             if m.liveIds.count() < 200 then m.liveIds[Util.toText(id)] = true
         end for
+        ' (v1.7.1 LV-8: the wait restarts with each change, but the refresh comes at the latest 10 s after the first;
+        ' a refresh already put off for a while just takes the new ids)
+        if m.liveLater = true then return
         m.liveDataTimer.control = "stop"
-        m.liveDataTimer.control = "start"
+        m.liveDataTimer.duration = 3.0
+        if Live.debounceFire(nowSecs() - m.liveFirstAt)
+            liveApplyUserData()
+        else
+            m.liveDataTimer.control = "start"
+        end if
     else if d.kind = "library"
         ' (M-3) new items: a look for new episodes once the server has their details (30 s later)
         Log.line("Cove: live library changed, " + Util.toText(d.ids.count()) + " added")
@@ -2365,27 +2436,62 @@ end sub
 ' details page its header and Next Up, a library / Favorites / See All page its cards
 sub liveApplyUserData()
     n = m.liveIds.count()
-    m.liveIds = {}
+    m.liveLater = false
     t = top()
-    if n = 0 or t = invalid or m.server = invalid or m.liveSuspended then return
+    if n = 0 or t = invalid or m.server = invalid or m.liveSuspended
+        m.liveIds = {}
+        return
+    end if
     sid = Util.toText(t.screenId)
-    ' (the player reports its own progress; the pages under it reload when it closes)
-    if sid = "player" then return
-    markStale(t)
-    what = "flagged"
+    ' (v1.7.1 CR-3 / LV-5) the scene sidebar, a dialog, What's New or the page's own menu / picker is open: the
+    ' page only gets "stale" and reloads when the focus comes back to it, instead of taking the focus now
+    blocked = m.top.dialog <> invalid or m.whatsNewPanel <> invalid or not t.isInFocusChain() or sideNavBlocked(t)
+    if m.sideNav <> invalid and m.sideNav.isInFocusChain() then blocked = true
+    loaded = -1
     if sid = "home"
-        ' (Home reloaded a moment ago, e.g. after its own ✓: no second reload)
-        if nowSecs() - m.homeLoadedAt >= 5
-            m.homeStale = false
-            m.homeLoadedAt = nowSecs()
-            t.reload = true
-            what = "home reloaded"
-        end if
-    else if sid = "details" and t.hasField("liveRefresh")
+        loaded = secsSince(m.homeLoadedAt)
+    else if m.livePageNode <> invalid and m.livePageNode.isSameNode(t)
+        loaded = secsSince(m.livePageAt)
+    end if
+    plan = Live.userDataPlan(sid, secsSince(m.ownChangeAt), loaded, secsSince(m.liveHomeAt), blocked)
+    act = Util.toText(plan.act)
+    if act = "later"
+        ' (keeps the ids; one refresh when the wait is over)
+        m.liveLater = true
+        m.liveDataTimer.control = "stop"
+        m.liveDataTimer.duration = plan.wait
+        m.liveDataTimer.control = "start"
+        Log.line("Cove: live user data " + Util.toText(n) + " items: " + sid + " in " + Util.toText(plan.wait) + " s")
+        return
+    end if
+    m.liveIds = {}
+    m.liveDataTimer.duration = 3.0
+    if act = "none" and sid = "player" then return
+    ' (the pages under the top one reload when shown again; markStale is no change of Cove's own here)
+    markStale(t, false)
+    what = "flagged"
+    if act = "none"
+        what = "ignored (Cove's own change)"
+    else if act = "recent"
+        what = sid + " just loaded"
+    else if act = "home"
+        m.homeStale = false
+        m.homeLoadedAt = nowSecs()
+        m.liveHomeAt = nowSecs()
+        t.reload = true
+        what = "home reloaded"
+    else if act = "details" and t.hasField("liveRefresh")
+        m.livePageNode = t
+        m.livePageAt = nowSecs()
         t.liveRefresh = true
         what = "details refreshed"
-    else if (sid = "library" or sid = "favorites" or sid = "seeall" or sid = "notices") and m.top.dialog = invalid and m.whatsNewPanel = invalid
+    else if act = "defer"
+        t.stale = true
+        what = sid + " reloads when the focus returns"
+    else if act = "page"
         ' (stale + the focus given to the page again: it reloads keeping the focused card, as on Back)
+        m.livePageNode = t
+        m.livePageAt = nowSecs()
         t.stale = true
         t.setFocus(true)
         what = sid + " reloaded"
@@ -2406,6 +2512,7 @@ sub liveSuspend()
     m.liveSuspended = true
     m.liveSyncTimer.control = "stop"
     m.liveDataTimer.control = "stop"
+    m.liveLater = false
     m.noticesSoonTimer.control = "stop"
     m.liveIds = {}
     if m.liveTask <> invalid then Log.line("Cove: live closing (suspended)")
@@ -2453,33 +2560,101 @@ sub noticesCheck(reason as string)
         m.global.noticesCount = 0
         return
     end if
+    ' (v1.7.1 LV-14: a check still running for the profile before a switch no longer blocks this one; one check
+    ' waiting is enough)
+    for each q in m.noticesQueue
+        if q.op = "check" then return
+    end for
+    noticesRun({ op: "check", reason: reason, mode: mode, from: invalid, gen: 0, itemId: "" })
+end sub
+
+' (v1.7.1 LV-3 / CR-7) One NoticesTask at a time, for MainScene's checks and the New page's list and read marks
+' (NoticesScreen.ask): each one reads and writes newMedia only after the one before it has finished. Read marks
+' go before a waiting check, so the check sees them.
+sub noticesRun(job as object)
+    if job.op = "check"
+        m.noticesQueue.push(job)
+    else
+        at = m.noticesQueue.count()
+        for i = 0 to m.noticesQueue.count() - 1
+            if m.noticesQueue[i].op = "check"
+                at = i
+                exit for
+            end if
+        end for
+        rest = []
+        for i = 0 to m.noticesQueue.count() - 1
+            if i = at then rest.push(job)
+            rest.push(m.noticesQueue[i])
+        end for
+        if at = m.noticesQueue.count() then rest.push(job)
+        m.noticesQueue = rest
+    end if
+    noticesPump()
+end sub
+
+sub noticesPump()
     if m.noticesTask <> invalid then return
-    t = createObject("roSGNode", "NoticesTask")
-    t.server = srv
-    t.op = "check"
-    t.mode = mode
-    t.reason = reason
-    t.observeField("result", "onNoticesResult")
-    m.noticesTask = t
-    t.control = "RUN"
+    while m.noticesQueue.count() > 0
+        job = m.noticesQueue.shift()
+        srv = m.server
+        fromOk = job.from = invalid or inStack(job.from)
+        if srv <> invalid and Util.toText(Util.field(srv, "token")) <> "" and fromOk
+            t = createObject("roSGNode", "NoticesTask")
+            t.server = srv
+            t.op = job.op
+            t.reason = Util.toText(job.reason)
+            if job.op = "check" then t.mode = job.mode
+            if job.op = "readOne" then t.itemId = Util.toText(job.itemId)
+            t.addFields({ gen: job.gen })
+            t.observeField("result", "onNoticesResult")
+            m.noticesTask = t
+            m.noticesJob = job
+            t.control = "RUN"
+            return
+        end if
+    end while
 end sub
 
 sub onNoticesResult(ev as object)
+    t = ev.getRoSGNode()
     r = ev.getData()
+    if m.noticesTask = invalid or not m.noticesTask.isSameNode(t) then return
+    t.unobserveField("result")
+    job = m.noticesJob
     m.noticesTask = invalid
+    m.noticesJob = invalid
+    noticesDeliver(job, r)
+    noticesPump()
+end sub
+
+sub noticesDeliver(job as dynamic, r as dynamic)
     srv = m.server
-    if not Util.isAA(r) or srv = invalid then return
-    ' (an answer for the server or profile that was on Home before a switch)
-    if Util.toText(r.serverId) <> Util.toText(srv.id) or Util.toText(r.userId) <> Util.toText(srv.userId) then return
+    if not Util.isAA(r) or srv = invalid or not Util.isAA(job) then return
+    ' (the New page that asked gets its answer; it checks the profile itself)
+    if job.from <> invalid
+        if inStack(job.from)
+            if Util.isAA(r) then r.gen = job.gen
+            job.from.answer = r
+        end if
+        return
+    end if
+    ' (an answer for the server or profile that was on Home before a switch: v1.7.1 LV-14 looks again for this one)
+    if Util.toText(r.serverId) <> Util.toText(srv.id) or Util.toText(r.userId) <> Util.toText(srv.userId)
+        noticesSoon(Util.toText(r.reason), 1)
+        return
+    end if
     if Util.toText(r.error) <> "" then return
     m.global.noticesCount = Util.toNumber(r.unread)
-    ' (each title is announced once a session, never while a video plays, and never twice after a resume)
+    ' (each title is announced once a session per profile, never while a video plays, and never twice after a
+    ' resume; v1.7.1 LV-15: another profile following the same show still gets its toast)
+    pk = Live.noticeKey(Util.toText(srv.id), Util.toText(srv.userId))
     list = []
     if type(r.fresh) = "roArray"
         for each f in r.fresh
             id = Util.toText(Util.field(f, "id"))
-            if id <> "" and not m.noticesToasted.doesExist(id)
-                m.noticesToasted[id] = true
+            if id <> "" and not m.noticesToasted.doesExist(pk + "|" + id)
+                if m.noticesToasted.count() < 500 then m.noticesToasted[pk + "|" + id] = true
                 list.push(f)
             end if
         end for
@@ -2488,9 +2663,18 @@ sub onNoticesResult(ev as object)
     m.top.toast = { text: Live.noticeToast(list), icon: "new" }
 end sub
 
+' The New page's request ("list", "read", "readOne"): queued with the checks
+sub onNoticesAsk(ev as object)
+    d = ev.getData()
+    ns = ev.getRoSGNode()
+    if not Util.isAA(d) or not inStack(ns) then return
+    noticesRun({ op: Util.toText(d.op), reason: "screen", mode: "", from: ns, gen: Util.toNumber(d.gen), itemId: Util.toText(d.itemId) })
+end sub
+
 sub openNotices()
     ns = createObject("roSGNode", "NoticesScreen")
     ns.observeField("action", "onHomeAction")
+    ns.observeField("ask", "onNoticesAsk")
     push(ns)
     ns.server = m.server
 end sub

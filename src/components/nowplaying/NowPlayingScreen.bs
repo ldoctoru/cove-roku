@@ -6,6 +6,7 @@ import "pkg:/source/Speak.bs"
 import "pkg:/source/Ratings.bs"
 import "pkg:/source/NavUtil.bs"
 import "pkg:/source/Log.bs"
+import "pkg:/source/Live.bs"
 
 sub init()
     m.top.findNode("bg").color = m.global.theme.bg
@@ -21,9 +22,22 @@ sub init()
     m.spokenKey = ""
     m.grid.observeField("itemFocused", "onCardFocused")
     Speak.mute([m.grid])
-    ' (v1.7 LIVE M-5) the server's own pushes over the live connection (LiveTask): the polling waits while they come
+    ' (v1.7 LIVE M-5) the server's own pushes over the live connection (LiveTask): the polling waits while they come.
+    ' (v1.7.1 LV-12) observed only while the page is shown (scoped, so other observers stay): a page that left the
+    ' stack is no longer woken by every push and can be freed
     m.liveAt = 0
-    if m.global.hasField("liveSessions") then m.global.observeField("liveSessions", "onLiveSessions")
+    m.liveObserved = false
+    m.cardKeys = ""
+end sub
+
+sub observeLive(isOn as boolean)
+    if isOn = m.liveObserved or not m.global.hasField("liveSessions") then return
+    m.liveObserved = isOn
+    if isOn
+        m.global.observeFieldScoped("liveSessions", "onLiveSessions")
+    else
+        m.global.unobserveFieldScoped("liveSessions")
+    end if
 end sub
 
 sub onCardFocused()
@@ -76,11 +90,23 @@ sub showSessions(sessions as object)
         if Util.isAA(s) and Util.isAA(s.NowPlayingItem) and Ratings.allowed(srv, s.NowPlayingItem) then list.push(s)
     end for
     list.sortBy("UserName")
+    ' (v1.7.1 CR-5) the same sessions in the same order: the cards stay and only their position / pause / method
+    ' change, so a push every 1.5 s doesn't move the focus or redraw the posters
+    keys = Live.sessionKeysOf(list)
+    old = m.grid.content
+    same = keys <> "" and keys = m.cardKeys and old <> invalid and old.getChildCount() = list.count()
+    m.cardKeys = keys
     root = createObject("roSGNode", "ContentNode")
+    i = 0
     for each s in list
         it = s.NowPlayingItem
-        c = root.createChild("ContentNode")
-        c.addFields({ itemId: "", itemType: "", line2: "", who: "", where: "", pos: "", frac: 0.0, paused: false, method: "" })
+        if same
+            c = old.getChild(i)
+        else
+            c = root.createChild("ContentNode")
+            c.addFields({ itemId: "", itemType: "", line2: "", who: "", where: "", pos: "", frac: 0.0, paused: false, method: "" })
+        end if
+        i = i + 1
         c.itemId = Util.toText(it.Id)
         c.itemType = Util.toText(it.Type)
         name = Util.toText(it.Name)
@@ -120,6 +146,7 @@ sub showSessions(sessions as object)
             c.frac = posSec / dur
         end if
     end for
+    if same then return
     ' keep the focus where it was
     keep = m.grid.itemFocused
     m.grid.content = root
@@ -140,6 +167,7 @@ sub onSelected()
 end sub
 
 sub onFocusChanged()
+    observeLive(m.top.isInFocusChain())
     if not m.top.isInFocusChain()
         m.timer.control = "stop"
         wantLive(false)

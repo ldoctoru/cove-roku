@@ -46,6 +46,8 @@ sub showNext()
     m.busy = true
     m.current = msg.text
     m.label.text = msg.text
+    ' (v1.7.1 CR-6) a set width is what boundingRect() returns: measure the text itself, not the last toast
+    m.label.width = 0
     tw = m.label.boundingRect().width
     if tw > 1400 then tw = 1400
     hasIcon = msg.icon <> ""

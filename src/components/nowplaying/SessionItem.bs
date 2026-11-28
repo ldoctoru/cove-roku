@@ -1,6 +1,18 @@
 sub onContent()
     c = m.top.itemContent
     if c = invalid then return
+    ' (v1.7.1 CR-5) Now Playing updates the cards in place while the sessions stay the same: redraw on those fields
+    if m.shown = invalid or not m.shown.isSameNode(c)
+        if m.shown <> invalid
+            for each f in ["pos", "paused", "method"]
+                m.shown.unobserveFieldScoped(f)
+            end for
+        end if
+        m.shown = c
+        for each f in ["pos", "paused", "method"]
+            c.observeFieldScoped(f, "onContent")
+        end for
+    end if
     m.top.findNode("poster").uri = c.hdPosterUrl
     m.top.findNode("title").text = c.title
     m.top.findNode("line2").text = c.line2

@@ -20,9 +20,11 @@ sub work()
         Log.line("Cove: live failed: " + Util.redact(Util.toText(e.message) + where))
         m.top.liveState = "failed"
     end try
+    Log.flush()
 end sub
 
-' Connects, reads, reconnects, until MainScene sends "close" (or 3 attempts in a row never opened)
+' Connects, reads, reconnects, until MainScene sends "close". (v1.7.1 LV-1) It never stops for good: after 3
+' failed attempts in a row it says so once (the pages poll as before) and keeps trying every 60 s, then 5 min.
 sub socketLoop()
     srv = m.top.server
     if not Util.isAA(srv) or Util.toText(srv.token) = "" then return
@@ -34,15 +36,26 @@ sub socketLoop()
         m.global.observeField("liveWantSessions", m.port)
         m.wantSessions = m.global.liveWantSessions = true
     end if
+    ' (v1.7.1 LV-2) the network coming back cuts the wait short; going away is logged
+    m.linkUp = true
+    m.linkBack = false
+    m.devInfo = createObject("roDeviceInfo")
+    if m.devInfo <> invalid
+        m.devInfo.setMessagePort(m.port)
+        m.devInfo.enableLinkStatusEvent(true)
+    end if
     url = Live.socketUrl(Util.toText(srv.url), Servers.isJellyfin(srv), Util.toText(srv.token), Util.deviceId())
     if url = ""
         Log.line("Cove: live unsupported for this server address (polling as before)")
-        m.top.liveState = "unsupported"
+        ' (v1.7.1 LV-13: this server only; another server still gets a socket)
+        m.top.liveState = "noaddress"
         return
     end if
     m.counts = {}
     m.countsAt = createObject("roTimespan")
     m.closing = false
+    ' (v1.7.1 LV-8: the last watched / favourite / progress step per item, so progress-only pushes are dropped)
+    m.udSeen = {}
     attempt = 0
     failures = 0
     while true
@@ -52,23 +65,19 @@ sub socketLoop()
             m.top.liveState = "unsupported"
             return
         end if
-        opened = openAndRead(ws, url, attempt)
+        openMs = openAndRead(ws, url, attempt)
         if m.closing = true
             m.top.liveState = "closed"
             return
         end if
-        if opened
-            failures = 0
-            attempt = 0
-        else
-            failures = failures + 1
+        nx = Live.afterClose(openMs, attempt, failures)
+        failures = nx.failures
+        attempt = nx.attempt
+        ' (said once per outage)
+        if Live.gaveUp(failures) and not Live.gaveUp(failures - 1)
+            Log.line("Cove: live offline after " + Util.toText(failures) + " failed attempts: polling as before, still retrying")
         end if
-        if Live.gaveUp(failures)
-            Log.line("Cove: live gave up after " + Util.toText(failures) + " failed attempts: polling as before")
-            m.top.liveState = "failed"
-            return
-        end if
-        secs = Live.backoffSecs(attempt)
+        secs = Live.retrySecs(attempt)
         attempt = attempt + 1
         Log.line("Cove: live reconnect in " + Util.toText(secs) + " s")
         m.top.liveState = "waiting"
@@ -84,24 +93,44 @@ function socketKind() as string
     return "roWebSocket"
 end function
 
-' Waits ms while still taking MainScene's "close": false when closed meanwhile
+' (v1.7.1 LV-2) The network link changed: true when it just came back
+function onLinkEvent(msg as object) as boolean
+    info = msg.getInfo()
+    if not Util.isAA(info) or not info.doesExist("linkStatus") then return false
+    up = Util.flag(info, "linkStatus")
+    if up = m.linkUp then return false
+    m.linkUp = up
+    if up
+        Log.line("Cove: live network back")
+        return true
+    end if
+    Log.line("Cove: live network lost")
+    return false
+end function
+
+' Waits ms while still taking MainScene's "close": false when closed meanwhile. The network coming back ends the
+' wait early (a short pause, so the router has an address again).
 function waitOrClose(ms as integer) as boolean
     spent = createObject("roTimespan")
     while spent.totalMilliseconds() < ms
+        Log.flush()
         msg = wait(500, m.port)
-        if type(msg) = "roSGNodeEvent"
+        mt = type(msg)
+        if mt = "roSGNodeEvent"
             if msg.getField() = "command" and Util.toText(msg.getData()) = "close"
                 Log.line("Cove: live closed by the app")
                 return false
             end if
             if msg.getField() = "liveWantSessions" then m.wantSessions = msg.getData() = true
+        else if mt = "roDeviceInfoEvent"
+            if onLinkEvent(msg) and ms - spent.totalMilliseconds() > 3000 then ms = spent.totalMilliseconds() + 3000
         end if
     end while
     return true
 end function
 
-' One connection: opens it and reads until it closes. true when it opened.
-function openAndRead(ws as object, url as string, attempt as integer) as boolean
+' One connection: opens it and reads until it closes. Returns how long it stayed open (ms), -1 when it never opened.
+function openAndRead(ws as object, url as string, attempt as integer) as integer
     ws.setMessagePort(m.port)
     ws.setUrl(url)
     ws.setCertificatesFile("common:/certs/ca-bundle.crt")
@@ -115,10 +144,15 @@ function openAndRead(ws as object, url as string, attempt as integer) as boolean
     m.top.liveState = "connecting"
     ws.open()
     opened = false
+    openAt = createObject("roTimespan")
     keepEvery = 30000
     keepAt = createObject("roTimespan")
+    ' (v1.7.1 LV-2) the last thing the server sent, and whether it answers Pings / KeepAlives on this connection
+    rxAt = createObject("roTimespan")
+    m.answers = false
     sessionsOn = false
     while true
+        Log.flush()
         msg = wait(1000, m.port)
         mt = type(msg)
         if mt = "roWebSocketEvent"
@@ -126,6 +160,8 @@ function openAndRead(ws as object, url as string, attempt as integer) as boolean
                 et = msg.getType()
                 if et = 1
                     opened = true
+                    openAt.mark()
+                    rxAt.mark()
                     Log.line("Cove: live open " + Util.toText(spent.totalMilliseconds()) + " ms")
                     m.top.liveState = "open"
                     keepAt.mark()
@@ -134,12 +170,19 @@ function openAndRead(ws as object, url as string, attempt as integer) as boolean
                         sessionsOn = true
                     end if
                 else if et = 5
+                    rxAt.mark()
                     info = msg.getInfo()
                     every = onText(ws, Util.field(info, "Text"))
                     if every > 0
                         keepEvery = every
                         keepAt.mark()
                     end if
+                else if et = 6 or et = 7
+                    rxAt.mark()
+                else if et = 8
+                    rxAt.mark()
+                    if not m.answers then Log.line("Cove: live server answers pings")
+                    m.answers = true
                 else if et = 2 or et = 3
                     info = msg.getInfo()
                     reason = Util.toText(Util.field(info, "ErrorMsg"))
@@ -148,7 +191,7 @@ function openAndRead(ws as object, url as string, attempt as integer) as boolean
                     if et = 3 then kind = "error"
                     Log.line("Cove: live " + Util.toText(kind) + " code " + Util.toText(Util.field(info, "Code")) + " " + Util.redact(reason) + " after " + Util.toText(spent.totalMilliseconds()) + " ms")
                     flushCounts()
-                    return opened
+                    return openedMs(opened, openAt)
                 end if
             end if
         else if mt = "roSGNodeEvent"
@@ -159,7 +202,7 @@ function openAndRead(ws as object, url as string, attempt as integer) as boolean
                 ws.close(1000, "")
                 flushCounts()
                 Log.line("Cove: live closed by the app")
-                return opened
+                return openedMs(opened, openAt)
             else if f = "liveWantSessions"
                 m.wantSessions = msg.getData() = true
                 if opened and m.wantSessions <> sessionsOn
@@ -168,21 +211,53 @@ function openAndRead(ws as object, url as string, attempt as integer) as boolean
                     Log.line("Cove: live sessions " + Util.toText(sessionsOn))
                 end if
             end if
+        else if mt = "roDeviceInfoEvent"
+            ' (v1.7.1 LV-2) the network came back: this socket may be half-open, so a fresh one
+            if onLinkEvent(msg) and opened
+                Log.line("Cove: live reconnecting after the network change")
+                ws.close(1000, "")
+                flushCounts()
+                return openedMs(opened, openAt)
+            end if
         end if
         if opened and keepAt.totalMilliseconds() >= keepEvery
             ws.send(Live.keepAliveFrame())
+            sendPing(ws)
             keepAt.mark()
+        end if
+        ' (v1.7.1 LV-2) nothing back for too long: the connection is gone without a close (router, roaming)
+        if opened and Live.isSilent(rxAt.totalMilliseconds(), keepEvery, m.answers)
+            Log.line("Cove: live silent for " + Util.toText(Int(rxAt.totalMilliseconds() / 1000)) + " s: reconnecting")
+            ws.close(1000, "")
+            flushCounts()
+            return openedMs(opened, openAt)
         end if
         ' (the handshake never answered: give it up after 15 s, as the Mac does)
         if not opened and spent.totalMilliseconds() > 15000
             Log.line("Cove: live open timed out after 15000 ms")
             ws.close(1000, "")
-            return false
+            return -1
         end if
         if m.countsAt.totalMilliseconds() >= 60000 then flushCounts()
     end while
-    return opened
+    return openedMs(opened, openAt)
 end function
+
+function openedMs(opened as boolean, openAt as object) as integer
+    if not opened then return -1
+    return openAt.totalMilliseconds()
+end function
+
+' A WebSocket Ping next to the KeepAlive message: a Pong proves the connection is alive (also on Emby)
+sub sendPing(ws as object)
+    if m.noPing = true then return
+    try
+        ws.sendPing("cove")
+    catch e
+        m.noPing = true
+        Log.line("Cove: live ping not available: " + Util.redact(Util.toText(e.message)))
+    end try
+end sub
 
 ' One text message. Returns the new keep-alive interval (ms) after a ForceKeepAlive, else 0.
 function onText(ws as object, text as dynamic) as integer
@@ -194,9 +269,18 @@ function onText(ws as object, text as dynamic) as integer
     if t = "ForceKeepAlive"
         ws.send(Live.keepAliveFrame())
         return Live.keepAliveMs(f.data)
+    else if t = "KeepAlive"
+        ' (Jellyfin echoes Cove's KeepAlive: the connection answers)
+        m.answers = true
     else if t = "UserDataChanged"
-        ids = Live.userDataIds(f.data, Util.toText(srv.userId))
-        if ids.count() > 0 then m.top.event = { kind: "userData", ids: ids, serverId: Util.toText(srv.id), userId: Util.toText(srv.userId) }
+        ' (v1.7.1 LV-8) only a change of watched / favourite / progress step goes to the pages, not every
+        ' progress report of a video playing on another device with the same profile
+        ids = Live.userDataChanges(f.data, Util.toText(srv.userId), m.udSeen)
+        if ids.count() > 0
+            m.top.event = { kind: "userData", ids: ids, serverId: Util.toText(srv.id), userId: Util.toText(srv.userId) }
+        else
+            m.counts["UserDataChanged (progress only)"] = Util.toNumber(m.counts["UserDataChanged (progress only)"]) + 1
+        end if
     else if t = "LibraryChanged"
         ids = Live.addedIds(f.data)
         if ids.count() > 0 then m.top.event = { kind: "library", ids: ids, serverId: Util.toText(srv.id), userId: Util.toText(srv.userId) }
