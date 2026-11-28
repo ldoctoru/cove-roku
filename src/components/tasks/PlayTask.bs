@@ -26,6 +26,9 @@ sub work()
             Log.line("Cove: quality cap below the file's bitrate, converting")
             force = true
         end if
+        ' (v1.7.1) the widest video this Roku decodes, for a copied HEVC stream's MaxWidth
+        opts.devMaxW = 1920
+        if Util.flag(caps, "fourK") then opts.devMaxW = 3840
         s = Playback.streamFrom(srv, m.top.itemId, r.json, force, opts)
         if s = invalid
             m.top.error = "The server offered no way to play this video on this Roku."
@@ -37,4 +40,6 @@ sub work()
         Log.line("Cove: PlayTask failed: " + Util.redact(Util.toText(e.message)))
         m.top.error = "Couldn't start playback: " + Util.redact(Util.toText(e.message))
     end try
+    ' (v1.7.1 NV6-2) the batched log lines left
+    Log.flush()
 end sub

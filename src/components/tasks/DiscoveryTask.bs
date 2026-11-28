@@ -15,6 +15,8 @@ sub work()
     end try
     Log.line("Cove: discovery -> " + Util.toText(found.count()) + " server(s)")
     m.top.servers = found
+    ' (v1.7.1 NV6-2) the batched log lines left
+    Log.flush()
 end sub
 
 function broadcastAndListen(seconds as integer) as object

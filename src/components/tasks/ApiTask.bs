@@ -45,6 +45,8 @@ sub work()
         Log.line("Cove: ApiTask failed: " + Util.redact(msg + where))
         m.top.response = { code: -1, json: invalid, value: invalid, error: "The request failed: " + msg, tag: reqTag }
     end try
+    ' (v1.7.1 NV6-2) the batched log lines left
+    Log.flush()
 end sub
 
 ' (v1.3.1 E-10) req.readFrom → { code 200, text } from tmp:/, or code -2 when the file is gone

@@ -46,7 +46,8 @@ sub init()
     Speak.mute([m.keys])
     m.top.observeField("focusedChild", "onDiagFocus")
     m.top.observeField("server", "onDiagServer")
-    if m.global.hasField("coveLog") then m.global.observeField("coveLog", "onDiagLog")
+    ' (v1.7.1 NV6-12) scoped, so leaving the page removes only this page's observer
+    if m.global.hasField("coveLog") then m.global.observeFieldScoped("coveLog", "onDiagLog")
     buildFacts()
     askLog()
     Log.line("Cove: diagnostics opened")
@@ -79,7 +80,18 @@ sub askLog()
 end sub
 
 sub onDiagLog(ev as object)
-    m.logLines = Log.lastOf(ev.getData(), 60)
+    ' (v1.7.1 NV6-12) the page was removed without Back (Settings replaced): let go of m.global
+    if m.top.getParent() = invalid
+        m.global.unobserveFieldScoped("coveLog")
+        return
+    end if
+    ring = ev.getData()
+    if type(ring) <> "roArray" or ring.count() = 0 then return
+    m.logLines = Log.lastOf(ring, 60)
+    ' (the 200-line copy doesn't stay on m.global for the rest of the session)
+    m.global.unobserveFieldScoped("coveLog")
+    m.global.coveLog = []
+    m.global.observeFieldScoped("coveLog", "onDiagLog")
     rebuildRows()
 end sub
 
@@ -294,7 +306,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
         buildFacts()
         askLog()
     else if key = "back"
-        if m.global.hasField("coveLog") then m.global.unobserveField("coveLog")
+        if m.global.hasField("coveLog") then m.global.unobserveFieldScoped("coveLog")
         Log.line("Cove: diagnostics closed")
         m.top.closed = true
     end if

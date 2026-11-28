@@ -27,6 +27,8 @@ sub work()
         Log.line("Cove: MissingArtTask failed: " + Util.redact(msg + where))
         m.top.result = { error: "Something went wrong: " + msg, rows: [], scanned: 0, total: -1, fixed: 0, count: 0, isAdmin: false }
     end try
+    ' (v1.7.1 NV6-2) the batched log lines left
+    Log.flush()
 end sub
 
 ' (v1.5.2 ST-5) with Home's fallback to the newer Jellyfin route on a 404
