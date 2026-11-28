@@ -20,6 +20,10 @@
         <!-- (v1.7 NAV M-6) where the last late rows went (Because You Watched): { at, n }, so Home keeps
              the focused row -->
         <field id="lateRows" type="assocarray" />
+        <!-- (v1.7.1 NV6-1 / NV6-13) a reload: how old the Because rows Home carries over are (s, -1 = none) and the
+             last title watched when they were fetched; lateRows then also says { removed, because, playedId } -->
+        <field id="becauseAge" type="integer" value="-1" />
+        <field id="becausePlayedId" type="string" />
         <!-- (v1.3.2) Settings → Home → Banner shows: "newest" / "random" / "favorites" fetch the banner's own titles
              after the rows ("rows" or "": none); heroItems = their cards (no children = keep the rows' titles) -->
         <field id="bannerSource" type="string" />

@@ -517,4 +517,12 @@ namespace HomeLayout
         return at
     end function
 
+    ' ---------------------------------------------------------------- v1.7.1 CORE
+
+    ' (NV6-13) The Because rows on screen are kept (no new recommendations / Similar requests) while they are
+    ' younger than 10 minutes and the last title watched is still the same
+    function becauseStillFresh(ageSecs as integer, playedNow as string, playedThen as string) as boolean
+        return ageSecs >= 0 and ageSecs < 600 and playedNow = playedThen
+    end function
+
 end namespace

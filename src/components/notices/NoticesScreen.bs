@@ -182,7 +182,8 @@ function onKeyEvent(key as string, press as boolean) as boolean
             leaveBar()
             return true
         end if
-        return key = "left" or key = "right" or key = "up"
+        ' (v1.7.1 NV6-8, CORE) Left goes up to the scene, which opens the sidebar as on the other pages
+        return key = "right" or key = "up"
     end if
     ' (Up from the first row: the button above)
     if key = "up" and m.rows.isInFocusChain() and m.readAll.visible

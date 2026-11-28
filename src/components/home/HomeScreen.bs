@@ -87,7 +87,8 @@ sub init()
     m.bannerTick.observeField("fire", "onBannerTick")
     buildNav()
     ' (v1.7 LIVE M-3) the New entry follows the unread count (MainScene's notices)
-    if m.global.hasField("noticesCount") then m.global.observeField("noticesCount", "buildNav")
+    ' (v1.7.1 CR-1) scoped: onReleased removes only this Home's observer when the Home is replaced
+    if m.global.hasField("noticesCount") then m.global.observeFieldScoped("noticesCount", "buildNav")
     m.top.findNode("hero").visible = false
     m.picker = invalid
     m.menuItem = invalid
@@ -133,6 +134,13 @@ sub load()
     src = m.bannerPref.source
     if m.reloading = true and src = "random" and m.bannerNodes.count() > 0 then src = ""
     m.task.bannerSource = src
+    ' (v1.7.1 NV6-1 / NV6-13) a reload carries the Because rows over: the task refreshes them only when they
+    ' are older than 10 minutes or something else was watched since
+    m.task.becauseAge = -1
+    if m.reloading = true and m.becauseAt <> invalid and becauseRowsOf(m.rows.content).count() > 0
+        m.task.becauseAge = bannerNowSecs() - m.becauseAt
+        m.task.becausePlayedId = Util.toText(m.becausePlayed)
+    end if
     m.task.observeField("heroItems", "onHeroItems")
     m.bannerLast = bannerNowSecs()
     m.bannerRound = 0
@@ -217,12 +225,25 @@ sub onContent(ev as object)
     m.partialShown = ev.getRoSGNode().partial = true
     m.reloading = false
     keep = m.rows.rowItemFocused
+    ' (v1.7.1 NV6-1) the focus comes back on the same row by its title (the rows above may differ: Because You
+    ' Watched comes seconds later), and the Because rows on screen are carried over until the task refreshes
+    ' them in place (no flicker, no jump)
+    keepTitle = ""
+    old = m.rows.content
+    if wasReload and old <> invalid and keep <> invalid and keep.count() >= 2 and keep[0] < old.getChildCount()
+        keepTitle = Util.toText(old.getChild(keep[0]).title)
+    end if
+    if wasReload then carryBecauseRows(old, content)
     m.rows.content = content
-    if wasReload and keep <> invalid and keep.count() >= 2 and keep[0] < content.getChildCount()
-        r = content.getChild(keep[0])
-        col = keep[1]
-        if col >= r.getChildCount() then col = r.getChildCount() - 1
-        if col >= 0 then m.rows.jumpToRowItem = [keep[0], col]
+    if wasReload and keep <> invalid and keep.count() >= 2
+        titles = rowTitlesOf(content)
+        at = NavUtil.rowIndexByTitle(titles, keepTitle, keep[0])
+        if at >= 0
+            r = content.getChild(at)
+            col = keep[1]
+            if col >= r.getChildCount() then col = r.getChildCount() - 1
+            if col >= 0 then m.rows.jumpToRowItem = [at, col]
+        end if
     end if
     m.rows.visible = true
     m.status.visible = false
@@ -1481,8 +1502,20 @@ sub onRowsAdded(ev as object)
     late = ev.getRoSGNode().lateRows
     f = m.rows.rowItemFocused
     sizeRows(content)
-    if m.state = "rows" and Util.isAA(late) and f <> invalid and f.count() >= 2 and Util.toNumber(late.n) > 0 and f[0] >= Util.toNumber(late.at)
-        m.rows.jumpToRowItem = [f[0] + Util.toNumber(late.n), f[1]]
+    ' (v1.7.1 NV6-1) { at, n, removed }: rows replaced in place keep the focus; rows put in or taken out above
+    ' it move it with them
+    if Util.isAA(late) and late.because = true
+        m.becauseAt = bannerNowSecs()
+        m.becausePlayed = Util.toText(late.playedId)
+    end if
+    if m.state = "rows" and Util.isAA(late) and f <> invalid and f.count() >= 2 and content.getChildCount() > 0
+        nr = NavUtil.lateFocusRow(f[0], Util.toNumber(late.at), Util.toNumber(late.n), Util.toNumber(late.removed))
+        if nr >= content.getChildCount() then nr = content.getChildCount() - 1
+        col = f[1]
+        cnt = content.getChild(nr).getChildCount()
+        if col >= cnt then col = cnt - 1
+        if col < 0 then col = 0
+        if nr <> f[0] or col <> f[1] then m.rows.jumpToRowItem = [nr, col]
     end if
     m.partialShown = false
     Clock.startupMark("home late row added")
@@ -1520,4 +1553,81 @@ sub onNavOpen()
     id = Util.toText(m.top.navOpen)
     if id = "" or id = "home" then return
     openNavPage(id)
+end sub
+
+' ---------------------------------------------------------------- v1.7.1 CORE
+
+function rowTitlesOf(content as dynamic) as object
+    out = []
+    if content = invalid then return out
+    for i = 0 to content.getChildCount() - 1
+        out.push(Util.toText(content.getChild(i).title))
+    end for
+    return out
+end function
+
+' The indexes of the Because You Watched rows (HomeTask marks them "because")
+function becauseRowsOf(content as dynamic) as object
+    out = []
+    if content = invalid then return out
+    for i = 0 to content.getChildCount() - 1
+        c = content.getChild(i)
+        if c.hasField("because") and c.because = true then out.push(i)
+    end for
+    return out
+end function
+
+' (NV6-1) A reload's new rows come without Because You Watched (the task adds it seconds later): the rows on
+' screen go into the new content where they were (after the same rows), unless the task was quicker
+sub carryBecauseRows(old as dynamic, content as object)
+    at = becauseRowsOf(old)
+    if at.count() = 0 or becauseRowsOf(content).count() > 0 then return
+    flags = []
+    for i = 0 to old.getChildCount() - 1
+        flags.push(false)
+    end for
+    for each i in at
+        flags[i] = true
+    end for
+    before = NavUtil.titlesBefore(rowTitlesOf(old), flags)
+    rows = []
+    for each i in at
+        rows.push(old.getChild(i))
+    end for
+    for k = at.count() - 1 to 0 step -1
+        old.removeChildIndex(at[k])
+    end for
+    dest = NavUtil.rowIndexAfter(rowTitlesOf(content), before)
+    for i = 0 to rows.count() - 1
+        content.insertChild(rows[i], dest + i)
+    end for
+    sizeRows(content)
+    Log.line("Cove: home reload kept " + Util.toText(rows.count()) + " Because rows at " + Util.toText(dest))
+end sub
+
+' (CR-1 / NV6-3) This Home left the stack (profile / server switch, Home rebuilt after Settings): m.global's
+' observer would keep it alive with its rows and sidebar, and every New-count change would rebuild its menu off
+' screen. Release it: the observer, the timers and the running tasks.
+sub onReleased()
+    if m.top.released <> true then return
+    if m.global.hasField("noticesCount") then m.global.unobserveFieldScoped("noticesCount")
+    m.timersPaused = true
+    for each tm in [m.heroTimer, m.sessionsTimer, m.backdropTimer, m.watchdog, m.bannerTick]
+        if tm <> invalid then tm.control = "stop"
+    end for
+    for each tk in [m.task, m.bannerTask, m.sessionsTask]
+        if tk <> invalid
+            tk.unobserveField("content")
+            tk.unobserveField("rowsAdded")
+            tk.unobserveField("error")
+            tk.unobserveField("authFailed")
+            tk.unobserveField("heroItems")
+            tk.unobserveField("response")
+            tk.control = "stop"
+        end if
+    end for
+    m.task = invalid
+    m.bannerTask = invalid
+    m.sessionsTask = invalid
+    Log.line("Cove: home released")
 end sub

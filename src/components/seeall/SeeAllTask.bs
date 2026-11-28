@@ -93,4 +93,6 @@ sub work()
         Log.line("Cove: see all failed: " + Util.redact(Util.toText(e.message)) + Util.toText(where))
         m.top.error = "Loading failed: " + Util.toText(e.message) + where
     end try
+    ' (v1.7.1 NV6-2) the batched log lines left
+    Log.flush()
 end sub

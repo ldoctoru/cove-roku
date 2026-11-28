@@ -42,6 +42,17 @@ namespace NavUtil
         return -1
     end function
 
+    ' (v1.7.1 NV6-10) The focus index after a menu's entries were replaced: the same entry (by id) where it is
+    ' now, else the old index (the caller clamps it)
+    function keptEntryIndex(oldList as dynamic, newList as dynamic, index as integer) as integer
+        if type(oldList) <> "roArray" or index < 0 or index >= oldList.count() then return index
+        e = oldList[index]
+        if not Util.isAA(e) then return index
+        j = NavUtil.indexOfId(newList, Util.toText(e.id))
+        if j >= 0 then return j
+        return index
+    end function
+
     ' A kept focus index for a list of n entries: the last one when the list got shorter, -1 when empty
     function clampIndex(i as integer, n as integer) as integer
         if n <= 0 then return -1
@@ -239,6 +250,8 @@ namespace NavUtil
     ' a genre page). entries: the sidebar's entries ([{ id, libId }]); library: the LibraryScreen's library field.
     function overlayCurrent(entries as dynamic, kind as string, library as dynamic) as string
         if kind = "favorites" or kind = "search" or kind = "nowplaying" then return kind
+        ' (v1.7.1 CR-9 / NV6-8) the New page is the sidebar's "new" entry
+        if kind = "notices" then return "new"
         if kind <> "library" or not Util.isAA(library) then return ""
         feed = Util.toText(library.feed)
         if feed = "recent" then return "recent"
@@ -260,6 +273,55 @@ namespace NavUtil
         end if
         if shown and key = "left" then return "open"
         return ""
+    end function
+
+    ' ---------------------------------------------------------------- v1.7.1 CORE
+
+    ' (NV6-1) The focused row after late rows changed in place: `removed` rows at `at` were replaced by `n` rows
+    ' (Because You Watched carried over and refreshed, or Upcoming put in with removed = 0). A row above stays,
+    ' a row below moves by n - removed, a replaced row keeps its place in the block (the row after it when the
+    ' block is gone).
+    function lateFocusRow(focusRow as integer, at as integer, n as integer, removed as integer) as integer
+        if focusRow < at then return focusRow
+        if focusRow >= at + removed then return focusRow - removed + n
+        if n <= 0 then return at
+        k = focusRow - at
+        if k > n - 1 then k = n - 1
+        return at + k
+    end function
+
+    ' (NV6-1) The row with this title in the new rows, else the old index (clamped to the rows), -1 when none
+    function rowIndexByTitle(titles as object, title as string, fallback as integer) as integer
+        if type(titles) <> "roArray" or titles.count() = 0 then return -1
+        if title <> ""
+            for i = 0 to titles.count() - 1
+                if Util.toText(titles[i]) = title then return i
+            end for
+        end if
+        if fallback < 0 then return 0
+        if fallback >= titles.count() then return titles.count() - 1
+        return fallback
+    end function
+
+    ' (NV6-1) The titles above the first flagged row (the Because rows carried over): where they go back in
+    ' the new rows (lateRowIndex)
+    function titlesBefore(titles as object, flags as object) as object
+        out = {}
+        for i = 0 to titles.count() - 1
+            if i < flags.count() and flags[i] = true then return out
+            out[Util.toText(titles[i])] = true
+        end for
+        return out
+    end function
+
+    ' (NV6-1) Where rows go back among the shown rows: after the last shown row whose title is in `before`
+    ' (the same rule as HomeLayout.lateRowIndex, here for HomeScreen, which doesn't load HomeLayout)
+    function rowIndexAfter(shownTitles as object, before as object) as integer
+        at = 0
+        for i = 0 to shownTitles.count() - 1
+            if before.doesExist(Util.toText(shownTitles[i])) then at = i + 1
+        end for
+        return at
     end function
 
 end namespace

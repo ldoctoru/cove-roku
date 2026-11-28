@@ -9,11 +9,19 @@ sub init()
     ' hands it Home's entries, and its.count() crashed)
     if type(m.top.items) <> "roArray" then m.top.items = []
     m.top.observeField("focusedChild", "onFocus")
+    ' (v1.7.1 NV6-15) the scene-level copy is hidden on Home: it paints only when it is shown
+    m.paintLater = false
+    m.fonts = {}
+    m.top.observeField("visible", "onVisible")
     Speak.mute([m.top])
 end sub
 
 sub build()
-    if m.index >= m.top.items.count() or isHeader(m.index) then m.index = firstEntry()
+    its = m.top.items
+    ' (v1.7.1 NV6-10) New appearing / going above the highlighted entry: the same entry stays highlighted
+    m.index = NavUtil.keptEntryIndex(m.prevItems, its, m.index)
+    m.prevItems = its
+    if m.index >= its.count() or isHeader(m.index) then m.index = firstEntry()
     paint()
 end sub
 
@@ -71,6 +79,12 @@ end sub
 sub paint()
     ' (no theme yet: the scene is still being made; paint runs again when items / compact are set)
     if not Util.isAA(m.global.theme) then return
+    ' (v1.7.1 NV6-15) the hidden scene rail: repainted when it shows (onVisible)
+    if m.top.compact and not m.top.visible
+        m.paintLater = true
+        return
+    end if
+    m.paintLater = false
     m.entries.removeChildrenIndex(m.entries.getChildCount(), 0)
     open = m.top.expanded
     w = 112
@@ -218,12 +232,21 @@ function lastChosenLabel() as string
     return Util.toText(m.global.navLastEntry.label)
 end function
 
+' (v1.7.1 NV6-15) one Font node per face and size, reused by every paint
 function font(uri as string, size as integer) as object
+    k = uri + "@" + size.toStr()
+    if m.fonts = invalid then m.fonts = {}
+    if m.fonts.doesExist(k) then return m.fonts[k]
     f = createObject("roSGNode", "Font")
     f.uri = uri
     f.size = size
+    m.fonts[k] = f
     return f
 end function
+
+sub onVisible()
+    if m.top.visible and m.paintLater then paint()
+end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false

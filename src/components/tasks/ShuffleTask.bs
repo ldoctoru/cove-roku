@@ -25,6 +25,8 @@ sub work()
         Log.line("Cove: ShuffleTask failed: " + Util.redact(Util.toText(e.message)))
         m.top.error = "Shuffle failed: " + Util.toText(e.message)
     end try
+    ' (v1.7.1 NV6-2) the batched log lines left
+    Log.flush()
 end sub
 
 function pick(q as object, ct as string, genre as string, flag as string) as object

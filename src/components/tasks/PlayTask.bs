@@ -37,4 +37,6 @@ sub work()
         Log.line("Cove: PlayTask failed: " + Util.redact(Util.toText(e.message)))
         m.top.error = "Couldn't start playback: " + Util.redact(Util.toText(e.message))
     end try
+    ' (v1.7.1 NV6-2) the batched log lines left
+    Log.flush()
 end sub

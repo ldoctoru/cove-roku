@@ -74,7 +74,10 @@ sub main(args as dynamic)
         else if msgType = "roSGNodeEvent"
             ' (v1.7 DIAG M-9) a line from another thread, or Diagnostics asking for the ring
             if msg.getField() = "logIn"
-                Log.keepLine(m.coveRing, Log.stamped(Util.toText(msg.getData()), createObject("roDateTime")), Log.capacity())
+                ' (v1.7.1 NV6-2 / NV6-14) one line or a Task's batch, already stamped where it was logged
+                for each entry in Log.splitBatch(Util.toText(msg.getData()))
+                    Log.keepLine(m.coveRing, entry, Log.capacity())
+                end for
             else if msg.getField() = "logAsk"
                 glob.coveLog = m.coveRing
             end if
