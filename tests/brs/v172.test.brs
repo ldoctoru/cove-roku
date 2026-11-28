@@ -85,3 +85,48 @@ sub test_episodeWidePicture()
     it = v172_ep(0.67)
     t_ok(Items_landscape(srv, it, 480).instr("/Items/e1/Images/Primary") > 0, "nothing wide: the portrait Primary last")
 end sub
+
+function v172_caps() as object
+    return { hevc: true, hevc4k: true, hevc10: true, hdr10: true, hlg: true, dolbyVision: true, eac3: true, ac3: true, dts: false, fourK: true }
+end function
+
+function v172_subMethod(body as string, fmt as string) as string
+    dp = ParseJson(body).DeviceProfile
+    for each p in dp.SubtitleProfiles
+        if p.Format = fmt then return p.Method
+    end for
+    return ""
+end function
+
+sub test_embyBurnIn()
+    emby = { id: "e1", type: "emby", url: "http://emby.lan:8096", token: "TOKE", userId: "u2" }
+    jelly = { id: "j1", type: "jellyfin", url: "http://jf.lan:8096", token: "TOKJ", userId: "u1" }
+    burn = { audio: -1, sub: 3, burn: true, maxBitrate: 0, defaultAudio: -1, sourceId: "" }
+    plain = { audio: -1, sub: 3, burn: false, maxBitrate: 0, defaultAudio: -1, sourceId: "" }
+    t_eq(Playback_burnsSub(burn), true, "burn + a track: burn-in")
+    t_eq(Playback_burnsSub(plain), false, "text shown by the Roku: no burn-in")
+    t_eq(Playback_burnsSub({ burn: true, sub: -1 }), false, "no track: no burn-in")
+    ' PlaybackInfo body: Emby gets an Encode-only subtitle profile, Jellyfin and normal starts keep External text
+    t_eq(v172_subMethod(Playback_infoBody(v172_caps(), burn, false), "srt"), "Encode", "Emby burn: srt Encode only")
+    t_eq(v172_subMethod(Playback_infoBody(v172_caps(), burn, false), "ass"), "Encode", "Emby burn: ass Encode only")
+    t_eq(v172_subMethod(Playback_infoBody(v172_caps(), burn, true), "srt"), "External", "Jellyfin burn: unchanged")
+    t_eq(v172_subMethod(Playback_infoBody(v172_caps(), plain, false), "srt"), "External", "no burn: unchanged")
+    t_eq(v172_subMethod(Playback_infoBody(v172_caps(), plain, false), "pgs"), "Encode", "image subs stay Encode")
+    ' PlaybackInfo query: no video copy for an Emby burn-in
+    q = Playback_infoQuery(emby, false, burn)
+    t_ok(q.instr("AllowVideoStreamCopy=false") > 0, "Emby burn: AllowVideoStreamCopy=false")
+    t_ok(q.instr("EnableDirectStream=false") > 0, "Emby burn: no direct stream")
+    t_ok(q.instr("SubtitleStreamIndex=3") > 0, "Emby burn: the track")
+    t_ok(Playback_infoQuery(jelly, false, burn).instr("AllowVideoStreamCopy") < 0, "Jellyfin burn: query unchanged")
+    t_ok(Playback_infoQuery(emby, false, plain).instr("AllowVideoStreamCopy") < 0, "no burn: query unchanged")
+    t_eq(Playback_infoQuery(emby, true, burn).split("AllowVideoStreamCopy").count(), 2, "forced + burn: the parameter once")
+    ' the stream URL
+    info = { PlaySessionId: "ps1", MediaSources: [{ Id: "src1", Container: "mkv", SupportsDirectPlay: false, TranscodingUrl: "/videos/it1/master.m3u8?MediaSourceId=src1&AllowVideoStreamCopy=true", MediaStreams: [{ Type: "Video", Codec: "h264" }] }] }
+    s = Playback_streamFrom(emby, "it1", info, false, burn)
+    t_ok(s.url.instr("AllowVideoStreamCopy=false") > 0, "Emby burn URL: video copy off")
+    t_ok(s.url.instr("AllowVideoStreamCopy=true") < 0, "Emby burn URL: the server's copy=true replaced")
+    t_ok(s.url.instr("SubtitleMethod=Encode") > 0, "Emby burn URL: SubtitleMethod=Encode kept")
+    s = Playback_streamFrom(jelly, "it1", info, false, burn)
+    t_ok(s.url.instr("AllowVideoStreamCopy=false") < 0, "Jellyfin burn URL: unchanged")
+    t_ok(s.url.instr("SubtitleMethod=Encode") > 0, "Jellyfin burn URL: SubtitleMethod=Encode")
+end sub

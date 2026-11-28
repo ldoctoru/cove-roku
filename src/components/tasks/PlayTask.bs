@@ -13,6 +13,11 @@ sub work()
         caps = DeviceCaps.get()
         opts = m.top.options
         if opts = invalid or opts.audio = invalid then opts = Playback.options(srv)
+        if Playback.burnsSub(opts)
+            how = "Emby: Encode-only subtitle profile, no video copy"
+            if Servers.isJellyfin(srv) then how = "Jellyfin: SubtitleMethod=Encode"
+            Log.line("Cove: subtitle burn-in requested for track " + Util.toText(opts.sub) + " (" + how + ", forced " + Util.toText(m.top.forceTranscode) + ")")
+        end if
         url = Util.toText(srv.url) + "/Items/" + m.top.itemId + "/PlaybackInfo?" + Playback.infoQuery(srv, m.top.forceTranscode, opts)
         r = Api.execute({ method: "POST", url: url, headers: Api.headers(srv, true), body: Playback.infoBody(caps, opts, Servers.isJellyfin(srv)), timeout: 30000 })
         Log.line("Cove: PlaybackInfo -> " + Util.toText(r.code))

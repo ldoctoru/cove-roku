@@ -119,7 +119,25 @@ namespace Playback
 
     ' JSON for POST /Items/{id}/PlaybackInfo
     function infoBody(caps as object, opts as object, jellyfin = false as boolean) as string
-        return formatJson({ "DeviceProfile": profile(caps, bitrateOf(opts), jellyfin) })
+        dp = profile(caps, bitrateOf(opts), jellyfin)
+        ' (v1.7.2 F-4) Emby burns a subtitle in only when the device profile leaves Encode as the only way: the
+        ' SubtitleMethod=Encode URL parameter alone is ignored (it copied the video, no subtitle). Jellyfin: as before.
+        if not jellyfin and burnsSub(opts) then dp["SubtitleProfiles"] = burnInProfiles()
+        return formatJson({ "DeviceProfile": dp })
+    end function
+
+    ' A subtitle is to be burned into the picture (an image one, or a text one the Roku couldn't load)
+    function burnsSub(opts as object) as boolean
+        return Util.flag(opts, "burn") and Util.toNumber(opts.sub) >= 0
+    end function
+
+    ' (v1.7.2 F-4) Every subtitle format offered as Encode only (burned in), for an Emby burn-in request
+    function burnInProfiles() as object
+        out = []
+        for each f in ["srt", "subrip", "ass", "ssa", "vtt", "webvtt", "mov_text", "pgs", "pgssub", "dvdsub", "dvbsub", "vobsub"]
+            out.push({ "Format": f, "Method": "Encode" })
+        end for
+        return out
     end function
 
     ' Query for PlaybackInfo. forceTranscode: after a playback error, the server converts the video.
@@ -137,6 +155,8 @@ namespace Playback
         noDirect = noDirectOf(forceTranscode, opts)
         if noDirect then q = q + "&EnableDirectPlay=false"
         if forceTranscode then q = q + "&EnableDirectStream=false&AllowVideoStreamCopy=false"
+        ' (v1.7.2 F-4) Emby burn-in: the video must really be encoded (a copied video can't carry the subtitle)
+        if not forceTranscode and burnsSub(opts) and not Servers.isJellyfin(server) then q = q + "&EnableDirectStream=false&AllowVideoStreamCopy=false"
         ' (v1.7.1, Liviu's device log) Start MKV Files as a Stream: EnableDirectPlay=false alone made Emby answer
         ' with a direct stream of the same MKV and no TranscodingUrl (error panel); without direct stream it
         ' gives its HLS stream, the video and audio still copied (stream copy stays allowed)
@@ -203,6 +223,8 @@ namespace Playback
         ' (Set explicitly: some servers otherwise burn in the user's default subtitle.)
         if opts.burn and opts.sub >= 0
             t = Util.setQuery(Util.setQuery(t, "SubtitleStreamIndex", opts.sub.toStr()), "SubtitleMethod", "Encode")
+            ' (v1.7.2 F-4) Emby: no video copy in the stream URL either (as Cove for Mac)
+            if not Servers.isJellyfin(server) then t = Util.setQuery(Util.setQuery(t, "AllowVideoStreamCopy", "false"), "EnableAutoStreamCopy", "false")
         else
             t = Util.removeQuery(Util.removeQuery(t, "SubtitleStreamIndex"), "SubtitleMethod")
         end if
