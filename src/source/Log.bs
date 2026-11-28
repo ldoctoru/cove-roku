@@ -4,26 +4,73 @@ import "pkg:/source/Util.bs"
 ' Settings → About → Diagnostics (a phone photo of it replaces telnet). Log.line(text) redacts the text
 ' (Util.redact: api_key=, Token="...", X-Emby-Token, AccessToken), prints it, and hands it on:
 ' - on the main thread (main.bs keeps m.coveRing): straight into that ring, with the time of day;
-' - on the render thread and in Tasks: one write to m.global.logIn (one rendezvous per line, no read), which
-'   main.bs observes on its port and adds to the ring. Diagnostics asks for a copy with m.global.logAsk and
+' - on the render thread: one write to m.global.logIn per line; in Tasks: batched writes (v1.7.1, see line());
+'   main.bs observes logIn on its port and adds the lines to the ring. Diagnostics asks for a copy with m.global.logAsk and
 '   gets it in m.global.coveLog.
 ' Without m.global (unit tests) the line is only printed.
 ' (Locals here are named so they can't clash with a component's subs: no "line", "text", "keep".)
 namespace Log
 
+    ' (v1.7.1 NV6-14) stamped here, on the thread that logs, so the ring keeps the real order and times.
+    ' (v1.7.1 NV6-2 / CR-11) In a Task the lines are batched: one logIn write (lines joined by chr(10)) per 20
+    ' lines or 0.5 s instead of one render-thread rendezvous per line; a line after a quiet spell goes at once,
+    ' and Log.flush() at the end of a Task's work() sends the rest. The render thread writes each line directly.
     sub line(msg as string)
         clean = Util.redact(msg)
         print clean
+        entry = Log.stamped(clean, createObject("roDateTime"))
         if type(m.coveRing) = "roArray"
-            Log.keepLine(m.coveRing, Log.stamped(clean, createObject("roDateTime")), Log.capacity())
+            Log.keepLine(m.coveRing, entry, Log.capacity())
             return
         end if
         if m.coveLogOk = invalid
             m.coveLogOk = false
+            m.coveInTask = false
             if m.global <> invalid and type(m.global) = "roSGNode" then m.coveLogOk = m.global.hasField("logIn")
+            ' (a Task's work() runs with m.top = the Task node; its init() on the render thread logs nothing)
+            if m.coveLogOk = true and type(m.top) = "roSGNode" then m.coveInTask = m.top.isSubtype("Task")
         end if
-        if m.coveLogOk = true then m.global.logIn = clean
+        if m.coveLogOk <> true then return
+        if m.coveInTask <> true
+            m.global.logIn = entry
+            return
+        end if
+        if type(m.coveBuf) <> "roArray"
+            m.coveBuf = []
+            m.coveBufAge = createObject("roTimespan")
+            m.coveQuiet = createObject("roTimespan")
+            m.coveQuiet.mark()
+            m.coveFirst = true
+        end if
+        quietMs = m.coveQuiet.totalMilliseconds()
+        m.coveQuiet.mark()
+        if m.coveBuf.count() = 0 then m.coveBufAge.mark()
+        m.coveBuf.push(entry)
+        if Log.shouldFlush(m.coveBuf.count(), m.coveBufAge.totalMilliseconds(), quietMs, m.coveFirst = true) then Log.flush()
+        m.coveFirst = false
     end sub
+
+    ' Sends a Task's batched lines to the main thread's ring (no-op elsewhere or when none wait)
+    sub flush()
+        if type(m.coveBuf) <> "roArray" or m.coveBuf.count() = 0 then return
+        if m.coveLogOk = true then m.global.logIn = m.coveBuf.join(chr(10))
+        m.coveBuf = []
+    end sub
+
+    ' (NV6-2) A batch goes when it holds 20 lines, is 0.5 s old, or its line came after 0.5 s without one (or is
+    ' the task's first line)
+    function shouldFlush(n as integer, ageMs as integer, quietMs as integer, isFirst as boolean) as boolean
+        return n >= 20 or ageMs >= 500 or (n = 1 and (quietMs >= 500 or isFirst))
+    end function
+
+    ' The lines of one logIn write (a batch joined by chr(10)), empty ones left out
+    function splitBatch(batch as string) as object
+        out = []
+        for each part in batch.split(chr(10))
+            if part <> "" then out.push(part)
+        end for
+        return out
+    end function
 
     ' (the size of the ring)
     function capacity() as integer

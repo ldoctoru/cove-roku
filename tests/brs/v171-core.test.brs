@@ -62,3 +62,27 @@ sub test_overlayCurrent_marks_new()
     t_eq(NavUtil_overlayCurrent([], "notices", invalid), "new", "the New page")
     t_eq(NavUtil_overlayCurrent([], "search", invalid), "search", "unchanged for Search")
 end sub
+
+sub test_log_shouldFlush()
+    t_ok(Log_shouldFlush(1, 0, 0, true), "a task's first line goes at once")
+    t_ok(Log_shouldFlush(1, 0, 800, false), "a line after a quiet spell goes at once")
+    t_ok(not Log_shouldFlush(2, 100, 10, false), "a burst waits")
+    t_ok(Log_shouldFlush(20, 100, 10, false), "20 lines")
+    t_ok(Log_shouldFlush(3, 500, 10, false), "0.5 s old")
+    t_ok(not Log_shouldFlush(1, 0, 100, false), "a burst's first line after a flush waits")
+end sub
+
+sub test_log_splitBatch()
+    parts = Log_splitBatch("12:00:00.001 Cove: a" + chr(10) + "12:00:00.002 Cove: b")
+    t_eq(parts.count(), 2, "two lines")
+    t_eq(parts[1], "12:00:00.002 Cove: b", "in order")
+    t_eq(Log_splitBatch("one").count(), 1, "a single line")
+    t_eq(Log_splitBatch("").count(), 0, "empty")
+    t_eq(Log_splitBatch("a" + chr(10) + chr(10) + "b").count(), 2, "empty lines left out")
+end sub
+
+sub test_log_flush_without_global()
+    ' (unit tests: no m.global, no buffer: nothing to send, no crash)
+    Log_flush()
+    t_ok(true, "no crash")
+end sub

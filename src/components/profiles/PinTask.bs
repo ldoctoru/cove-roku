@@ -34,4 +34,6 @@ sub work()
     ' (the PIN doesn't stay in the task's fields)
     m.top.request = {}
     m.top.result = out
+    ' (v1.7.1 NV6-2) the batched log lines left
+    Log.flush()
 end sub

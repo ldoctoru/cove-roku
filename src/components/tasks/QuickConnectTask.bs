@@ -13,6 +13,8 @@ sub work()
         Log.line("Cove: Quick Connect failed: " + Util.redact(Util.toText(e.message)))
         m.top.error = "Quick Connect failed: the server's answer couldn't be read."
     end try
+    ' (v1.7.1 NV6-2) the batched log lines left
+    Log.flush()
 end sub
 
 sub poll()
