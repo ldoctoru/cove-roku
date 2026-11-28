@@ -12,14 +12,14 @@ namespace WhatsNew
     ' The bundled notes: { version: "major.minor", title, lines[] }
     function notes() as object
         return {
-            version: "1.6",
-            title: "New in Cove 1.6",
+            version: "1.7",
+            title: "New in Cove 1.7",
             lines: [
-                "Home follows your Emby 4.10 Home sections, including Spotlight and Dynamic media rows.",
-                "See All: every Home row ends with a card that opens its whole list.",
-                "Play Collection plays the films of a collection back to back.",
-                "Skip Intro and Skip Credits also work from chapter names when the server has no markers.",
-                "Each profile keeps its own Home, menus, library views, languages and subtitle style."
+                "Live connection: watched marks and Now Playing update at once when something changes on another device.",
+                "New: a notice when a show you follow gets a new episode, and a New list in the menu.",
+                "The sidebar now also opens on library, Favorites, Search and other pages: press Left.",
+                "Because You Watched rows on Home (Settings, Home), and theme music on show pages (Settings, General).",
+                "Settings, About, Diagnostics shows your Roku, server and Cove's latest log lines."
             ]
         }
     end function
