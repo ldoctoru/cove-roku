@@ -250,10 +250,15 @@ sub loadBanner(libs as dynamic)
         end for
     end if
     fetched = invalid
-    if type(libs) = "roArray" and libs.count() > 0 and parents.count() = 0
-        ' (no library on Home: nothing to pick from)
+    ' (v1.7, Liviu) no library with a Home row (the row is its own switch since v1.5): the whole server, in
+    ' one query per kind (parents [] = every library; films and shows only), instead of an empty banner
+    if parents.count() = 0 and HomeBanner.anyFilmsOrShows(libs)
+        Log.line("Cove: home banner " + source + " from all libraries (no library row on Home)")
+    else if type(libs) = "roArray" and libs.count() > 0 and parents.count() = 0
+        ' (no film or show library at all: nothing to pick from)
         fetched = []
-    else
+    end if
+    if fetched = invalid
         paths = HomeBanner.queries(source, Util.toText(m.srv.userId), parents, kinds)
         reqs = []
         for each path in paths
