@@ -190,7 +190,6 @@ namespace Playback
         else if LCase(t).instr("api_key=") < 0 and LCase(t).instr("apikey=") < 0
             t = t + "&" + key
         end if
-        Log.line("Cove: stream " + Util.redact(t.mid(base.len())))
         ' An H.264 conversion must stay within 1080p (the Roku's H.264 limit); a copied HEVC video is left alone
         ' (replaced, not appended: a repeated parameter reaches the server as "3840,1920" and it answers 500)
         if r.sourceVideoCodec <> "hevc" or forceTranscode or (opts.burn and opts.sub >= 0)
@@ -215,6 +214,8 @@ namespace Playback
             t = Util.setQuery(t, "VideoBitrate", capped.toStr())
             Log.line("Cove: stream: forced conversion, video at most " + Util.toText(capped \ 1000000) + " Mbit/s")
         end if
+        ' (v1.7.1) the URL as sent, after Cove's own changes (MaxWidth, subtitle, audio, bitrate)
+        Log.line("Cove: stream " + Util.redact(t.mid(base.len())))
         r.url = t
         ' (Jellyfin also gets the sign-in header, for a playlist whose own URL has no key; nothing for another host)
         r.headers = []
