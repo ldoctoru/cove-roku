@@ -193,22 +193,26 @@ namespace Items
         return s
     end function
 
-    ' "42m left" from the resume position
+    ' "42m left" from the resume position. (v1.7.2 F-1) Counted as the details page counts "42m remaining"
+    ' (DetailsHead.remainingLabel): whole minutes rounded up, "1h left" on the hour, "" when not started (≤ 30 s)
     function timeLeft(it as object) as string
-        ud = it.UserData
-        if ud = invalid or GetInterface(ud, "ifAssociativeArray") = invalid or it.RunTimeTicks = invalid then return ""
-        if ud.PlaybackPositionTicks = invalid then return ""
-        remain = Int((it.RunTimeTicks - ud.PlaybackPositionTicks) / 600000000)
-        if remain <= 0 then return ""
-        if remain >= 60 then return (remain \ 60).toStr() + "h " + (remain mod 60).toStr() + "m left"
-        return remain.toStr() + "m left"
+        if not Util.isAA(it.UserData) or it.RunTimeTicks = invalid or it.UserData.PlaybackPositionTicks = invalid then return ""
+        at = resumeAt(it)
+        if at <= 30 then return ""
+        remainSecs = Util.toNumber(it.RunTimeTicks) / 10000000 - at
+        if remainSecs <= 0 then return ""
+        mins = Int((remainSecs + 59) / 60)
+        if mins < 60 then return mins.toStr() + "m left"
+        rest = mins mod 60
+        if rest = 0 then return (mins \ 60).toStr() + "h left"
+        return (mins \ 60).toStr() + "h " + rest.toStr() + "m left"
     end function
 
     ' Seconds into the item where playback stopped (0 = not started)
     function resumeAt(it as object) as float
         ud = it.UserData
         if ud = invalid or GetInterface(ud, "ifAssociativeArray") = invalid or ud.PlaybackPositionTicks = invalid then return 0
-        return ud.PlaybackPositionTicks / 10000000
+        return Util.toNumber(ud.PlaybackPositionTicks) / 10000000
     end function
 
     ' "9:43 PM" / "21:43" (the Roku's clock format, Clock.bs): when the item ends if started now (from the
@@ -323,15 +327,32 @@ namespace Items
         return Util.join(parts, "  ·  ")
     end function
 
-    ' 0..1 watched, for the progress bar (0 = none)
+    ' 0..1 watched, for every progress bar and resume ring (0 = none). (v1.7.2 F-1) From the saved position ÷ the
+    ' length, as the details page's line and the Resume button; the server's PlayedPercentage (which can be
+    ' missing or stale) only when the length is unknown.
     function progress(it as object) as float
         ud = it.UserData
-        if ud = invalid or GetInterface(ud, "ifAssociativeArray") = invalid then return 0
-        p = ud.PlayedPercentage
-        if p = invalid then return 0
+        if not Util.isAA(ud) then return 0
         f = 0.0
-        f = f + p / 100
+        ' (in seconds first: ticks are LongIntegers, and a long ÷ long can come out whole)
+        total = Util.toNumber(it.RunTimeTicks) / 10000000
+        if total > 0
+            f = f + resumeAt(it) / total
+        else
+            if ud.PlayedPercentage = invalid then return 0
+            f = f + Util.toNumber(ud.PlayedPercentage) / 100
+        end if
+        if f < 0 then f = 0
+        if f > 1 then f = 1
         return f
+    end function
+
+    ' (v1.7.2 F-2) The resume ring / bar shows when the Resume button would: a saved position past 30 s and part
+    ' of the title left, whether or not it is marked watched (re-watching a watched episode)
+    function showsResume(it as object) as boolean
+        if resumeAt(it) <= 30 then return false
+        f = progress(it)
+        return f > 0 and f < 1
     end function
 
     ' What a library holds, for /Items?IncludeItemTypes= (movies, shows, videos; "" = everything in it)
@@ -390,7 +411,7 @@ namespace Items
     ' One ContentNode for a row tile. landscape: 16:9 tile (Continue Watching, Next Up, libraries)
     function node(server as object, it as object, isLandscape as boolean) as object
         c = createObject("roSGNode", "ContentNode")
-        c.addFields({ itemId: "", itemType: "", collectionType: "", meta: "", heroMeta: "", chip: "", overview: "", backdrop: "", logo: "", progress: 0.0, landscape: false, favorite: false, played: false, unplayed: 0, timeLeft: "", resumeAt: 0.0, episode: "" })
+        c.addFields({ itemId: "", itemType: "", collectionType: "", meta: "", heroMeta: "", chip: "", overview: "", backdrop: "", logo: "", progress: 0.0, landscape: false, favorite: false, played: false, unplayed: 0, timeLeft: "", resumeAt: 0.0, resumable: false, episode: "" })
         t = Util.toText(it.Type)
         title = Util.toText(it.Name)
         line2 = ""
@@ -420,6 +441,7 @@ namespace Items
         c.heroMeta = heroMeta(it)
         c.chip = episodeChip(it)
         c.progress = progress(it)
+        c.resumable = showsResume(it)
         c.favorite = Util.flag(it.UserData, "IsFavorite")
         c.played = Util.flag(it.UserData, "Played")
         if it.UserData <> invalid and it.UserData.UnplayedItemCount <> invalid then c.unplayed = it.UserData.UnplayedItemCount

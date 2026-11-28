@@ -677,7 +677,7 @@ end sub
 sub addSeeAll(row as object, preset as dynamic)
     if not Util.isAA(preset) or row.getChildCount() = 0 then return
     c = createObject("roSGNode", "ContentNode")
-    c.addFields({ itemId: "", itemType: "SeeAll", collectionType: "", meta: "", heroMeta: "", chip: "", overview: "", backdrop: "", logo: "", progress: 0.0, landscape: row.landscape, favorite: false, played: false, unplayed: 0, timeLeft: "", resumeAt: 0.0, episode: "" })
+    c.addFields({ itemId: "", itemType: "SeeAll", collectionType: "", meta: "", heroMeta: "", chip: "", overview: "", backdrop: "", logo: "", progress: 0.0, landscape: row.landscape, favorite: false, played: false, unplayed: 0, timeLeft: "", resumeAt: 0.0, resumable: false, episode: "" })
     preset.title = Util.toText(row.title)
     preset.landscape = row.landscape
     c.addFields({ kind: "seeall", seeAll: preset })
