@@ -140,3 +140,15 @@ sub test_startBufStep()
     t_eq(Playback_startBufStep(130), 100, "capped")
     t_eq(Playback_startBufStep(invalid), 0, "missing")
 end sub
+
+sub test_mkvRemuxQuery()
+    srv = { userId: "u" }
+    opts = { audio: -1, sub: -1, burn: false, remux: true, defaultAudio: 1 }
+    q = Playback_infoQuery(srv, false, opts)
+    t_ok(q.instr("EnableDirectPlay=false") >= 0, "remux: no direct play")
+    t_ok(q.instr("EnableDirectStream=false") >= 0, "remux: no direct stream, so the server gives its HLS stream")
+    t_ok(q.instr("AllowVideoStreamCopy=true") >= 0, "remux: the video is copied")
+    opts.remux = false
+    q = Playback_infoQuery(srv, false, opts)
+    t_ok(q.instr("EnableDirectStream") < 0, "no remux: unchanged")
+end sub

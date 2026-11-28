@@ -137,6 +137,10 @@ namespace Playback
         noDirect = noDirectOf(forceTranscode, opts)
         if noDirect then q = q + "&EnableDirectPlay=false"
         if forceTranscode then q = q + "&EnableDirectStream=false&AllowVideoStreamCopy=false"
+        ' (v1.7.1, Liviu's device log) Start MKV Files as a Stream: EnableDirectPlay=false alone made Emby answer
+        ' with a direct stream of the same MKV and no TranscodingUrl (error panel); without direct stream it
+        ' gives its HLS stream, the video and audio still copied (stream copy stays allowed)
+        if not forceTranscode and Util.flag(opts, "remux") then q = q + "&EnableDirectStream=false&AllowVideoStreamCopy=true&AllowAudioStreamCopy=true"
         return q
     end function
 
@@ -173,7 +177,10 @@ namespace Playback
             return r
         end if
         t = Util.toText(src.TranscodingUrl)
-        if t = "" then return invalid
+        if t = ""
+            Log.line("Cove: stream: the server gave no conversion URL (direct play " + Util.toText(Util.flag(src, "SupportsDirectPlay")) + ", direct stream " + Util.toText(Util.flag(src, "SupportsDirectStream")) + ", transcoding " + Util.toText(Util.flag(src, "SupportsTranscoding")) + ")")
+            return invalid
+        end if
         ' (the token only goes along to the server itself: a relative path, or an absolute URL on the server's
         ' own host and not from https down to http; any other host named here gets no token)
         safe = Util.tokenSafeTarget(base, t)
