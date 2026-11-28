@@ -251,6 +251,12 @@ end sub
 
 ' (SC-3) A removed screen can still answer (its tasks keep it alive): it may not start playback or open pages.
 ' Its "action" stays observed for "changed" (onHomeAction drops the rest from screens not on top).
+' (v1.7.1 NV6-11) Who a Home belongs to: the server and the profile
+function homeOwnerKey(srv as dynamic) as string
+    if not Util.isAA(srv) then return ""
+    return Util.toText(srv.id) + "/" + Util.toText(srv.userId)
+end function
+
 sub detachScreen(s as dynamic)
     if s = invalid then return
     ' (v1.5.1) the missing-art scan / refresh stops with its page
@@ -459,6 +465,8 @@ function profileNames(s as object) as string
 end function
 
 sub showHome(server as object)
+    ' (v1.7.1 NV6-11) another profile or server: Diagnostics doesn't show the previous one's last title
+    if m.global.hasField("lastPlay") and homeOwnerKey(m.server) <> homeOwnerKey(server) then m.global.lastPlay = {}
     Servers.setActive(Util.toText(server.id))
     Clock.startupMark("active server saved")
     m.server = server
