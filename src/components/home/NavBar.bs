@@ -1,6 +1,7 @@
 import "pkg:/source/Util.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/NavUtil.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.pill = m.top.findNode("pill")
@@ -74,7 +75,7 @@ sub build()
         m.view.push(it)
         x = x + addEntry(it, mode, x) + 6
     end for
-    if hidden.count() > 0 then print "Cove: nav top " + hidden.count().toStr() + " entries behind More"
+    if hidden.count() > 0 then Log.line(Util.toText("Cove: nav top " + hidden.count().toStr() + " entries behind More"))
     m.top.overflow = hidden
     total = x + 2
     m.pill.width = total

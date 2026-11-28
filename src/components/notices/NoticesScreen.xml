@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.7 LIVE M-3) New: the new episodes (and films, with New Episodes = Everything) of the profile's shows that
+     haven't been opened yet, in rows by the day they were added (Added Today, Added Yesterday, Added Mon 24 Nov),
+     newest first, as Cove for Mac's notification list. OK on a card opens it (an episode: its details page), Play
+     plays it. "Mark All as Read" above the rows empties the list. Opened from the New entry of the sidebar / top bar
+     (shown while there is something new). action = { id: "open" | "play" | "quickplay" ... } like Home. -->
+<component name="NoticesScreen" extends="Group">
+    <script type="text/brightscript" uri="NoticesScreen.bs" />
+    <interface>
+        <field id="screenId" type="string" value="notices" />
+        <field id="server" type="assocarray" onChange="loadList" />
+        <field id="action" type="assocarray" alwaysNotify="true" />
+        <field id="stale" type="boolean" value="false" />
+    </interface>
+    <children>
+        <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="64" translation="[96,48]" />
+        <Label id="title" width="1200" height="60" translation="[180,40]" color="0xFFFFFFFF" text="New">
+            <Font role="font" uri="font:BoldSystemFontFile" size="44" />
+        </Label>
+        <Label id="info" width="1200" height="40" translation="[180,96]" color="0xFFFFFFCC">
+            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+        </Label>
+        <!-- Mark All as Read (the focus is on barKeys while it is chosen; keys in onKeyEvent) -->
+        <GlassButton id="readAll" translation="[1500,44]" style="glass" text="Mark All as Read" height="60" textSize="26" visible="false" />
+        <Group id="barKeys" focusable="true" />
+        <RowList id="rows" translation="[78,170]" itemComponentName="PosterItem" numRows="3"
+                 itemSize="[1842,300]" rowHeights="[300]" rowItemSize="[[396,246]]" rowItemSpacing="[[0,0]]"
+                 itemSpacing="[0,10]" showRowLabel="[true]" rowLabelOffset="[[18,8]]" rowLabelColor="0xFFFFFFFF"
+                 focusXOffset="[0]" rowFocusAnimationStyle="floatingFocus" vertFocusAnimationStyle="fixedFocus"
+                 drawFocusFeedback="false" visible="false">
+            <Font role="rowLabelFont" uri="font:BoldSystemFontFile" size="34" />
+        </RowList>
+        <Label id="status" width="1728" height="44" translation="[96,420]" color="0xFFFFFFCC" text="Loading...">
+            <Font role="font" uri="font:MediumSystemFontFile" size="32" />
+        </Label>
+        <Label id="hint" width="1728" height="40" translation="[96,472]" color="0xFFFFFFCC" visible="false"
+               text="New episodes of your shows show here when the server adds them (Settings > Home > New Episodes).">
+            <Font role="font" uri="font:MediumSystemFontFile" size="26" />
+        </Label>
+    </children>
+</component>

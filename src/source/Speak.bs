@@ -1,4 +1,5 @@
 import "pkg:/source/Util.bs"
+import "pkg:/source/Log.bs"
 
 ' Speech for the Roku Audio Guide (the screen reader: Settings > Accessibility > Audio Guide, or * pressed four
 ' times quickly). Roku speaks its own lists, keyboards and dialogs; Cove's own focus model (hero buttons, pills,
@@ -24,7 +25,7 @@ namespace Speak
             v = di.IsAudioGuideEnabled()
             return (type(v) = "roBoolean" or type(v) = "Boolean") and v
         catch e
-            print "Cove: audio guide check failed "; e.message
+            Log.line("Cove: audio guide check failed " + Util.toText(e.message))
             return false
         end try
     end function
@@ -35,7 +36,7 @@ namespace Speak
         if text = "" or not isOn() then return
         if m.speakGuide = invalid then m.speakGuide = createObject("roAudioGuide")
         if m.speakGuide = invalid then return
-        print "Cove: speak: "; text
+        Log.line("Cove: speak: " + Util.toText(text))
         m.speakGuide.Say(text, flush, false)
     end sub
 

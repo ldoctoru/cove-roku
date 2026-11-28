@@ -5,6 +5,9 @@ import "pkg:/source/NavUtil.bs"
 sub init()
     m.entries = m.top.findNode("entries")
     m.index = 0
+    ' (an array field with no value reads invalid on the device: the scene-level copy is painted before MainScene
+    ' hands it Home's entries, and its.count() crashed)
+    if type(m.top.items) <> "roArray" then m.top.items = []
     m.top.observeField("focusedChild", "onFocus")
     Speak.mute([m.top])
 end sub
@@ -61,15 +64,31 @@ end sub
 
 ' Every entry is 64 px high; section titles 56 px. Closed: icons only on a 112 px rail. Open: 400 px with names.
 sub paint()
+    ' (no theme yet: the scene is still being made; paint runs again when items / compact are set)
+    if not Util.isAA(m.global.theme) then return
     m.entries.removeChildrenIndex(m.entries.getChildCount(), 0)
     open = m.top.expanded
     w = 112
     if open then w = 400
+    ' (v1.7 NAV M-4) the scene-level sidebar on other top-level pages: a 76 px rail while closed (the pages'
+    ' content starts at x 96), the usual 400 px panel over the page while open
+    slim = m.top.compact and not open
+    if slim then w = 76
+    iconX = 38
+    pillX = 16
+    railPill = 80
+    if slim
+        iconX = 20
+        pillX = 6
+        railPill = 64
+    end if
     m.top.findNode("bg").width = w
     m.top.findNode("bg").color = "0x000000D9"
     if open then m.top.findNode("bg").color = "0x0D0D0DF7"
     m.top.findNode("edge").translation = [w - 1, 0]
     m.top.findNode("appName").visible = open
+    ' (the page shows its own logo next to the slim rail)
+    m.top.findNode("logo").visible = not slim
     dark = m.global.theme.onFocus
     y = 0
     focusY = 0
@@ -86,10 +105,10 @@ sub paint()
                 l.height = 36
             else
                 r = m.entries.createChild("Rectangle")
-                r.width = 48
+                r.width = railPill - 32
                 r.height = 2
                 r.color = "0xFFFFFF26"
-                r.translation = [32, y + 27]
+                r.translation = [pillX + 16, y + 27]
             end if
             y = y + 56
         else
@@ -97,11 +116,11 @@ sub paint()
             isCurrent = it.id = m.top.current
             g = m.entries.createChild("Group")
             g.translation = [0, y]
-            pillW = 80
+            pillW = railPill
             if open then pillW = 360
             if isFocus or isCurrent
                 bg = g.createChild("Poster")
-                bg.translation = [16, 4]
+                bg.translation = [pillX, 4]
                 bg.width = pillW
                 bg.height = 56
                 ' (v1.5 flat) the focus is a solid white row with dark text and icon, which must win from the
@@ -113,7 +132,7 @@ sub paint()
             ic.uri = "pkg:/images/ui/icon_" + Util.toText(it.icon) + "_36.png"
             ic.width = 36
             ic.height = 36
-            ic.translation = [38, 14]
+            ic.translation = [iconX, 14]
             ' (v1.5 flat) neutral icons: 85 % white, white on the current page, dark on the focused row
             col = "0xFFFFFFD9"
             if isCurrent then col = "0xFFFFFFFF"
@@ -153,7 +172,7 @@ sub paint()
                 else
                     dot.width = 32
                     dot.height = 32
-                    dot.translation = [62, 4]
+                    dot.translation = [iconX + 24, 4]
                 end if
                 bl.width = dot.width
                 bl.height = dot.height

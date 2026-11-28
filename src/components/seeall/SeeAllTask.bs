@@ -6,6 +6,7 @@ import "pkg:/source/Servers.bs"
 import "pkg:/source/Dates.bs"
 import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/SeeAll.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.top.functionName = "work"
@@ -37,7 +38,7 @@ sub work()
             path = SeeAll.pagePath(rq.fallback, startAt, limit)
             r = Api.execute({ method: "GET", url: Util.toText(srv.url) + Ratings.withLimit(srv, path), headers: h, timeout: 20000 })
         end if
-        print "Cove: see all "; Util.toText(preset.kind); " "; Util.redact(Api.timingLine("GET", path, r.code, spent.TotalMilliseconds()))
+        Log.line("Cove: see all " + Util.toText(preset.kind) + " " + Util.redact(Api.timingLine("GET", path, r.code, spent.TotalMilliseconds())))
         if r.code <> 200 or r.json = invalid
             m.top.error = "Couldn't load the list. " + Api.describeFailure(r)
             return
@@ -89,7 +90,7 @@ sub work()
             fr = e.backtrace[e.backtrace.count() - 1]
             where = " at " + Util.toText(fr.filename).replace("pkg:/", "") + ":" + Util.toText(fr.line_number)
         end if
-        print "Cove: see all failed: "; Util.redact(Util.toText(e.message)); where
+        Log.line("Cove: see all failed: " + Util.redact(Util.toText(e.message)) + Util.toText(where))
         m.top.error = "Loading failed: " + Util.toText(e.message) + where
     end try
 end sub

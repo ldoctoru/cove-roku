@@ -81,7 +81,9 @@ namespace HomeLayout
     ' ([{ id, title, collectionType }]); (v1.5) every library can have a row, whatever its kind, and My Media
     ' comes right after Continue Watching / Next Up, as on Emby (a saved Row Order keeps its place)
     function defaultIds(libs as object) as object
-        ids = ["resume", "nextup", "libraries", "upcoming", "favorites", "recent", "released"]
+        ' (v1.7 NAV M-6) "because" (Because You Watched, off by default) right after Recently Added: a saved
+        ' order without it gets it after Recently Added (orderedIds), a saved default order stays the default
+        ids = ["resume", "nextup", "libraries", "upcoming", "favorites", "recent", "because", "released"]
         for each l in libs
             id = Util.toText(l.id)
             if id <> "" then ids.push(libRowId(id))
@@ -176,8 +178,9 @@ namespace HomeLayout
         if id.left(1) = "L" then return NavPrefs.libraryOnHome(id.mid(1))
         st = readState(serverId)
         if st.flags.doesExist(id) then return st.flags[id] = true
-        ' (Recently Added and Recently Released are off until switched on, so Home looks as before)
-        return id <> "recent" and id <> "released"
+        ' (Recently Added and Recently Released are off until switched on, so Home looks as before; v1.7
+        ' Because You Watched too)
+        return id <> "recent" and id <> "released" and id <> "because"
     end function
 
     sub setOn(serverId as string, libs as object, id as string, on as boolean)
@@ -213,7 +216,7 @@ namespace HomeLayout
     sub resetOrder(serverId as string)
         st = readState(serverId)
         kept = []
-        for each id in ["resume", "libraries", "upcoming", "recent", "released"]
+        for each id in ["resume", "libraries", "upcoming", "recent", "released", "because"]
             if st.flags.doesExist(id) then kept.push(id)
         end for
         st.order = kept
@@ -412,6 +415,106 @@ namespace HomeLayout
     function sectionWide(s as object) as boolean
         it = LCase(Util.toText(Util.field(s, "ImageType")))
         return it = "thumb" or it = "backdrop"
+    end function
+
+    ' ---------------------------------------------------------------- v1.7 NAV (M-6 Because You Watched)
+
+    ' Settings → Home → Because You Watched → Rows: 1 / 2 / 3 (default 1); key "becauseRows" (personal)
+    function becauseRows() as integer
+        n = Util.readText("becauseRows").toInt()
+        if n < 1 or n > 3 then return 1
+        return n
+    end function
+
+    function becauseTitle(name as string) as string
+        return "Because You Watched " + name
+    end function
+
+    ' GET /Movies/Recommendations (both servers): the categories, the items of each at most 12
+    function recommendationsPath(uid as string, f as string) as string
+        return "/Movies/Recommendations?UserId=" + uid + "&CategoryLimit=3&ItemLimit=12&" + f
+    end function
+
+    ' The last titles watched to the end (films and episodes), for the /Similar fallback
+    function playedQuery() as string
+        return "Recursive=true&IncludeItemTypes=Movie,Episode&SortBy=DatePlayed&SortOrder=Descending&Filters=IsPlayed&Fields=SeriesId,SeriesName&EnableImages=false&Limit=20"
+    end function
+
+    function similarPath(itemId as string, uid as string, f as string) as string
+        return "/Items/" + itemId + "/Similar?UserId=" + uid + "&Limit=12&" + f
+    end function
+
+    ' The recommendation kinds that read "Because You Watched <title>" (the server's "SimilarToRecentlyPlayed";
+    ' "BecauseYouWatched" where a server names it so); liked items / actors / directors are left out
+    function isBecauseKind(kind as string) as boolean
+        k = LCase(kind)
+        return k = "similartorecentlyplayed" or k = "becauseyouwatched"
+    end function
+
+    ' /Movies/Recommendations → at most maxRows rows [{ name, baseId, items }] in the server's order: the
+    ' Because kinds only, with a baseline title and at least one item, one row per baseline title
+    function becauseFromRecommendations(json as dynamic, maxRows as integer) as object
+        out = []
+        list = json
+        if Util.isAA(json) then list = Util.field(json, "Items")
+        if type(list) <> "roArray" then return out
+        seen = {}
+        for each c in list
+            if out.count() >= maxRows then exit for
+            if Util.isAA(c) and isBecauseKind(Util.toText(Util.field(c, "RecommendationType")))
+                name = Util.toText(Util.field(c, "BaselineItemName")).trim()
+                its = Util.field(c, "Items")
+                if name <> "" and not seen.doesExist(LCase(name)) and type(its) = "roArray" and its.count() > 0
+                    kept = []
+                    for each it in its
+                        if Util.isAA(it) then kept.push(it)
+                    end for
+                    if kept.count() > 0
+                        seen[LCase(name)] = true
+                        out.push({ name: name, baseId: Util.toText(Util.field(c, "CategoryId")), items: kept })
+                    end if
+                end if
+            end if
+        end for
+        return out
+    end function
+
+    ' The /Similar fallback's titles: the last watched films and series (an episode stands for its series),
+    ' newest first, without the names already used (usedNames: { lcase name: true }), at most n [{ id, name }]
+    function becauseBaselines(played as dynamic, usedNames as object, n as integer) as object
+        out = []
+        if type(played) <> "roArray" or n <= 0 then return out
+        seen = {}
+        for each k in usedNames
+            seen[k] = true
+        end for
+        for each it in played
+            if out.count() >= n then exit for
+            if Util.isAA(it)
+                id = Util.toText(Util.field(it, "Id"))
+                name = Util.toText(Util.field(it, "Name"))
+                if Util.toText(Util.field(it, "Type")) = "Episode"
+                    id = Util.toText(Util.field(it, "SeriesId"))
+                    name = Util.toText(Util.field(it, "SeriesName"))
+                end if
+                name = name.trim()
+                if id <> "" and name <> "" and not seen.doesExist(LCase(name))
+                    seen[LCase(name)] = true
+                    out.push({ id: id, name: name })
+                end if
+            end if
+        end for
+        return out
+    end function
+
+    ' Where the late rows go among the rows on screen: after every shown row whose title is one of the rows
+    ' queued before them (shownTitles: the titles on screen in order; before: { title: true })
+    function lateRowIndex(shownTitles as object, before as object) as integer
+        at = 0
+        for i = 0 to shownTitles.count() - 1
+            if before.doesExist(Util.toText(shownTitles[i])) then at = i + 1
+        end for
+        return at
     end function
 
 end namespace

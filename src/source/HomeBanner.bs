@@ -185,4 +185,16 @@ namespace HomeBanner
         return minutes > 0 and atSecs - lastSecs >= minutes * 60
     end function
 
+    ' (v1.7) Whether the server has a film or show library (collection types as Prefs.holdsFilmsOrShows): the
+    ' banner then searches the whole server when no library has a Home row
+    function anyFilmsOrShows(libs as dynamic) as boolean
+        if type(libs) <> "roArray" then return false
+        for each l in libs
+            if Util.isAA(l)
+                ct = Util.toText(l.collectionType)
+                if ct = "movies" or ct = "tvshows" or ct = "homevideos" or ct = "musicvideos" or ct = "mixed" or ct = "" then return true
+            end if
+        end for
+        return false
+    end function
 end namespace

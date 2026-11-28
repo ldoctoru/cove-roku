@@ -111,7 +111,7 @@ function t_box() as object
 end function
 
 sub test_collectionQueue_fromTarget()
-    q = Playback_collectionQueue(t_box(), "b")
+    q = QuickPlay_collectionQueue(t_box(), "b")
     t_eq(q.index, 1, "second playable film (the series is skipped)")
     t_eq(q.count, 3, "three films")
     t_eq(q.queue.count(), 1, "one film after it")
@@ -121,7 +121,7 @@ sub test_collectionQueue_fromTarget()
 end sub
 
 sub test_collectionQueue_first()
-    q = Playback_collectionQueue(t_box(), "a")
+    q = QuickPlay_collectionQueue(t_box(), "a")
     t_eq(q.index, 0, "first film")
     t_eq(q.queue.count(), 2, "two follow")
     t_eq(q.queue[0].Id, "b", "in the list's order")
@@ -129,16 +129,16 @@ sub test_collectionQueue_first()
 end sub
 
 sub test_collectionQueue_missing()
-    t_eq(Playback_collectionQueue(t_box(), "zz").index, -1, "unknown target")
-    t_eq(Playback_collectionQueue(t_box(), "zz").queue.count(), 0, "nothing queued")
-    t_eq(Playback_collectionQueue(invalid, "a").count, 0, "no list")
-    t_eq(Playback_collectionQueue(t_box(), "s").index, -1, "a series isn't a playable target")
+    t_eq(QuickPlay_collectionQueue(t_box(), "zz").index, -1, "unknown target")
+    t_eq(QuickPlay_collectionQueue(t_box(), "zz").queue.count(), 0, "nothing queued")
+    t_eq(QuickPlay_collectionQueue(invalid, "a").count, 0, "no list")
+    t_eq(QuickPlay_collectionQueue(t_box(), "s").index, -1, "a series isn't a playable target")
 end sub
 
 sub test_collectionSortBy()
-    t_eq(Playback_collectionSortBy("SortName"), "SortName", "the server's name order")
-    t_eq(Playback_collectionSortBy("PremiereDate"), "PremiereDate,ProductionYear,SortName", "release order")
-    t_eq(Playback_collectionSortBy(invalid), "PremiereDate,ProductionYear,SortName", "default release order")
+    t_eq(QuickPlay_collectionSortBy("SortName"), "SortName", "the server's name order")
+    t_eq(QuickPlay_collectionSortBy("PremiereDate"), "PremiereDate,ProductionYear,SortName", "release order")
+    t_eq(QuickPlay_collectionSortBy(invalid), "PremiereDate,ProductionYear,SortName", "default release order")
 end sub
 
 sub test_collectionUpNextStart()
@@ -186,8 +186,8 @@ sub test_rokuAudioTrack_none()
 end sub
 
 sub test_collectionPlayable()
-    t_ok(Playback_isCollectionPlayable({ Id: "1", Type: "Movie" }), "movie")
-    t_ok(not Playback_isCollectionPlayable({ Id: "1", Type: "BoxSet" }), "nested collection")
-    t_ok(not Playback_isCollectionPlayable({ Type: "Movie" }), "no id")
-    t_ok(not Playback_isCollectionPlayable(invalid), "invalid")
+    t_ok(QuickPlay_isCollectionPlayable({ Id: "1", Type: "Movie" }), "movie")
+    t_ok(not QuickPlay_isCollectionPlayable({ Id: "1", Type: "BoxSet" }), "nested collection")
+    t_ok(not QuickPlay_isCollectionPlayable({ Type: "Movie" }), "no id")
+    t_ok(not QuickPlay_isCollectionPlayable(invalid), "invalid")
 end sub

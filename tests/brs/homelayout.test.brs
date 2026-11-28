@@ -4,7 +4,7 @@ function t_libs() as object
 end function
 
 sub test_defaultIds()
-    t_eq(HomeLayout_defaultIds(t_libs()), ["resume", "nextup", "libraries", "upcoming", "favorites", "recent", "released", "Lm1", "Lmusic", "Lt1"], "every library has a row, My Media after Next Up")
+    t_eq(HomeLayout_defaultIds(t_libs()), ["resume", "nextup", "libraries", "upcoming", "favorites", "recent", "because", "released", "Lm1", "Lmusic", "Lt1"], "every library has a row, My Media after Next Up (v1.7: Because You Watched after Recently Added)")
 end sub
 
 sub test_state_roundTrip()
@@ -27,7 +27,7 @@ end sub
 sub test_orderedIds_saved()
     ' a saved order with a removed library (Lgone) and without the new library t1
     Util_writeText("homeRows:s3", "libraries,Lgone,Lm1,resume")
-    t_eq(HomeLayout_orderedIds("s3", t_libs()), ["libraries", "Lm1", "Lmusic", "Lt1", "resume", "nextup", "upcoming", "favorites", "recent", "released"], "dropped and inserted")
+    t_eq(HomeLayout_orderedIds("s3", t_libs()), ["libraries", "Lm1", "Lmusic", "Lt1", "resume", "nextup", "upcoming", "favorites", "recent", "because", "released"], "dropped and inserted")
 end sub
 
 sub test_move()
@@ -66,7 +66,7 @@ sub test_newRows_v110()
     libs = t_libs()
     ' an order saved before v1.1 gets Upcoming after Next Up and Recently Released after Recently Added
     Util_writeText("homeRows:s6", "recent,nextup,-resume,Lm1,libraries")
-    t_eq(HomeLayout_orderedIds("s6", libs), ["recent", "released", "nextup", "upcoming", "favorites", "resume", "Lm1", "Lmusic", "Lt1", "libraries"], "new rows placed, My Media kept at the end")
+    t_eq(HomeLayout_orderedIds("s6", libs), ["recent", "because", "released", "nextup", "upcoming", "favorites", "resume", "Lm1", "Lmusic", "Lt1", "libraries"], "new rows placed, My Media kept at the end")
     t_ok(HomeLayout_isOn("s6", "upcoming"), "upcoming on by default (hidden when empty)")
     t_ok(not HomeLayout_isOn("s6", "released"), "recently released off by default")
     HomeLayout_setOn("s6", libs, "released", true)

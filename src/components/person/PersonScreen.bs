@@ -4,6 +4,7 @@ import "pkg:/source/Api.bs"
 import "pkg:/source/Items.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Toasts.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     t = m.global.theme
@@ -128,7 +129,7 @@ sub onTitles(ev as object)
     if t.gen <> m.gen then return
     m.lists[t.rowKey] = ev.getData().nodes
     m.waiting = m.waiting - 1
-    print "Cove: person "; t.rowKey; " "; ev.getData().nodes.getChildCount()
+    Log.line("Cove: person " + Util.toText(t.rowKey) + " " + Util.toText(ev.getData().nodes.getChildCount()))
     if m.waiting <= 0 then buildRows()
 end sub
 
@@ -313,13 +314,13 @@ sub onFavourite(r as object)
         return
     end if
     m.favBusy = false
-    print "Cove: person favourite "; r.tag.method; " -> "; r.code
+    Log.line("Cove: person favourite " + Util.toText(r.tag.method) + " -> " + Util.toText(r.code))
     if r.code >= 200 and r.code < 300
         m.isFav = r.tag.method = "POST"
         m.top.action = { id: "changed" }
         Toasts.notify(Toasts.favoriteText(Util.toText(m.top.person.name), m.isFav), "heart")
     else
-        print "Cove: person favourite failed: "; Api.describeFailure(r)
+        Log.line("Cove: person favourite failed: " + Util.toText(Api.describeFailure(r)))
         Toasts.notify(Toasts.failedText("update Favorites"), "info")
     end if
     drawFav()

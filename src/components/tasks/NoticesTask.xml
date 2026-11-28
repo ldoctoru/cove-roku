@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- (v1.7 LIVE M-3) New episodes of the profile's shows. op:
+       "check": the newest episodes and films (one request), against the profile's high-water mark in the registry
+                ("newMedia", one bounded key); result = { op, serverId, userId, unread, fresh: [{ id, title, ep,
+                type }], baseline, reason } (fresh = what to announce now; nothing on a profile's first look)
+       "list":  the unread ones as rows grouped by the day they were added (landscape cards); result = { op,
+                serverId, userId, rows (ContentNode), unread }. Watched / gone ones leave the unread list.
+       "read":  Mark All as Read; result = { op, serverId, userId, unread: 0 }
+     Set server, mode (Live.noticeMode()), reason and op, then control = "RUN". -->
+<component name="NoticesTask" extends="Task">
+    <script type="text/brightscript" uri="NoticesTask.bs" />
+    <interface>
+        <field id="server" type="assocarray" />
+        <field id="op" type="string" value="check" />
+        <field id="mode" type="string" value="shows" />
+        <field id="reason" type="string" />
+        <field id="itemId" type="string" />
+        <field id="result" type="assocarray" />
+    </interface>
+</component>

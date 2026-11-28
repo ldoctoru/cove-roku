@@ -3,6 +3,7 @@ import "pkg:/source/Util.bs"
 import "pkg:/source/DeviceCaps.bs"
 import "pkg:/source/Api.bs"
 import "pkg:/source/Servers.bs"
+import "pkg:/source/Log.bs"
 
 ' What to ask the server for and how to play what it returns. The device profile is built from what this Roku
 ' reports (DeviceCaps), so the server only converts what the Roku can't play. Streambar 9102: HEVC Main 10 /
@@ -178,11 +179,11 @@ namespace Playback
         safe = Util.tokenSafeTarget(base, t)
         if not LCase(t).startsWith("http") then t = base + t
         if not safe
-            print "Cove: the conversion is on another host: no sign-in sent there"
+            Log.line("Cove: the conversion is on another host: no sign-in sent there")
         else if LCase(t).instr("api_key=") < 0 and LCase(t).instr("apikey=") < 0
             t = t + "&" + key
         end if
-        print "Cove: stream "; Util.redact(t.mid(base.len()))
+        Log.line("Cove: stream " + Util.redact(t.mid(base.len())))
         ' An H.264 conversion must stay within 1080p (the Roku's H.264 limit); a copied HEVC video is left alone
         ' (replaced, not appended: a repeated parameter reaches the server as "3840,1920" and it answers 500)
         if r.sourceVideoCodec <> "hevc" or forceTranscode or (opts.burn and opts.sub >= 0) then t = Util.setQuery(t, "MaxWidth", "1920")
@@ -199,7 +200,7 @@ namespace Playback
         if forceTranscode or (opts.burn and opts.sub >= 0)
             capped = conversionBitrate(Util.toNumber(urlParam(t, "VideoBitrate")), opts)
             t = Util.setQuery(t, "VideoBitrate", capped.toStr())
-            print "Cove: stream: forced conversion, video at most "; capped \ 1000000; " Mbit/s"
+            Log.line("Cove: stream: forced conversion, video at most " + Util.toText(capped \ 1000000) + " Mbit/s")
         end if
         r.url = t
         ' (Jellyfin also gets the sign-in header, for a playlist whose own URL has no key; nothing for another host)
@@ -417,7 +418,7 @@ namespace Playback
             head = createObject("roByteArray")
             head.readFile(path)
         end if
-        print "Cove: BIF read "; head.count(); " bytes, starts "; head.toHexString().left(32)
+        Log.line("Cove: BIF read " + Util.toText(head.count()) + " bytes, starts " + Util.toText(head.toHexString().left(32)))
         if head.count() < 72 then return invalid
         if head[0] <> &h89 or head[1] <> &h42 or head[2] <> &h49 or head[3] <> &h46 then return invalid
         count = le32(head, 12)
@@ -605,45 +606,8 @@ namespace Playback
 
     ' ---------------------------------------------------------------- v1.6 PLAYER (M-1 Play Collection)
 
-    ' (v1.6 M-1) The kinds a collection plays back to back (a series or a nested collection opens instead)
-    function isCollectionPlayable(entry as dynamic) as boolean
-        if not Util.isAA(entry) or Util.toText(entry.Id) = "" then return false
-        k = Util.toText(entry.Type)
-        return k = "Movie" or k = "Video" or k = "MusicVideo" or k = "Episode"
-    end function
-
-    ' (v1.6 M-1) A collection's sort: the server's own display order when it says SortName, else release
-    ' order (PremiereDate, ProductionYear, then SortName), oldest first
-    function collectionSortBy(displayOrder as dynamic) as string
-        o = LCase(Util.toText(displayOrder))
-        if o = "sortname" or o = "name" then return "SortName"
-        return "PremiereDate,ProductionYear,SortName"
-    end function
-
-    ' (v1.6 M-1) The films that follow targetId in a collection's (rating-filtered, ordered) list, trimmed for
-    ' the player's queue field; the playable films only. { queue, index, count }: index = the target's
-    ' place among the playable films (0-based), count = how many there are; index -1 when not found.
-    function collectionQueue(list as dynamic, targetId as string) as object
-        keep = ["Id", "Name", "Type", "ProductionYear", "PremiereDate", "RunTimeTicks", "UserData", "ImageTags", "BackdropImageTags", "ParentBackdropItemId", "ParentBackdropImageTags", "SeriesName", "SeriesId", "ParentIndexNumber", "IndexNumber"]
-        out = { queue: [], index: -1, count: 0 }
-        if type(list) <> "roArray" then return out
-        for each entry in list
-            if isCollectionPlayable(entry)
-                if out.index >= 0
-                    o = {}
-                    for each f in keep
-                        if entry[f] <> invalid then o[f] = entry[f]
-                    end for
-                    o.collectionIndex = out.count
-                    out.queue.push(o)
-                else if Util.toText(entry.Id) = targetId
-                    out.index = out.count
-                end if
-                out.count = out.count + 1
-            end if
-        end for
-        return out
-    end function
+    ' (isCollectionPlayable, collectionSortBy and collectionQueue moved to QuickPlay in v1.7: the Play key on a
+    ' collection card, in MainScene, uses them too)
 
     ' (v1.6 M-1) Where the Up Next card shows in a collection's film: at the credits marker when it lies in the
     ' second half, else 5 minutes before the end, never before half the film; -1 = never (films under 10 min)

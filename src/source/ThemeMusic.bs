@@ -1,0 +1,74 @@
+import "pkg:/source/Util.bs"
+import "pkg:/source/Servers.bs"
+import "pkg:/source/Api.bs"
+
+' (v1.7 DIAG M-7) Theme songs on details pages: Settings → General → Sound → Theme Music (Off / Series /
+' Series and Movies, default Off; key "themeMusic", personal per profile since v1.7 at Liviu's
+' request: PrefScope). DetailsScreen plays the server's first theme song with one Audio node; these are the pure parts.
+namespace ThemeMusic
+
+    function choices() as object
+        return [{ id: "off", label: "Off" }, { id: "series", label: "Series" }, { id: "all", label: "Series and Movies" }]
+    end function
+
+    ' The saved choice ("off" for anything unknown or unset)
+    function choice() as string
+        return ThemeMusic.normalChoice(Util.readText("themeMusic"))
+    end function
+
+    function normalChoice(v as string) as string
+        if v = "series" or v = "all" then return v
+        return "off"
+    end function
+
+    function helpNote() as string
+        return "Plays the theme song stored on the server while a show's (or movie's) page is open, at the Roku's volume. It stops when you press Play or leave the page, and never plays while the Audio Guide is on. Each profile has its own choice."
+    end function
+
+    ' Does a details page of this kind play its theme song? (Series and Season pages with Series; also
+    ' Movie pages with Series and Movies; never while the Audio Guide speaks)
+    function playsFor(choiceId as string, itemType as string, guideOn as boolean) as boolean
+        c = ThemeMusic.normalChoice(choiceId)
+        if c = "off" or guideOn then return false
+        if itemType = "Series" or itemType = "Season" then return true
+        if itemType = "Movie" then return c = "all"
+        return false
+    end function
+
+    ' The theme songs of a title (a season's / episode's from its series too)
+    function songsPath(server as object, itemId as string) as string
+        uid = Util.toText(server.userId)
+        if Servers.isJellyfin(server) then return "/Items/" + itemId + "/ThemeSongs?userId=" + uid + "&inheritFromParent=true"
+        return "/Items/" + itemId + "/ThemeSongs?UserId=" + uid + "&InheritFromParent=true"
+    end function
+
+    ' The first song's id in a ThemeSongs answer ({ Items: [{ Id }] }), "" when there is none
+    function firstSongId(json as dynamic) as string
+        if not Util.isAA(json) or type(json.Items) <> "roArray" then return ""
+        for each it in json.Items
+            id = Util.toText(Util.field(it, "Id"))
+            if id <> "" and Util.isSafeId(id, false) then return id
+        end for
+        return ""
+    end function
+
+    ' The song as MP3 (copied when it is one, else converted by the server), for an Audio node: { url, headers }.
+    ' Jellyfin gets the sign-in header (Jellyfin 12 refuses the token in the URL); Emby the api_key in the URL,
+    ' only for the server's own address.
+    function stream(server as object, songId as string) as object
+        base = Util.toText(server.url)
+        url = base + "/Audio/" + songId + "/universal?UserId=" + Util.toText(server.userId) + "&DeviceId=" + Util.deviceId() + "&MaxStreamingBitrate=320000&Container=mp3&TranscodingContainer=mp3&TranscodingProtocol=http&AudioCodec=mp3"
+        heads = []
+        token = Util.toText(server.token)
+        if token <> "" and Util.tokenSafeTarget(base, url)
+            if Servers.isJellyfin(server)
+                h = Api.headers(server, true)
+                heads.push("Authorization:" + Util.toText(h["Authorization"]))
+            else
+                url = url + "&api_key=" + token
+            end if
+        end if
+        return { url: url, headers: heads }
+    end function
+
+end namespace
