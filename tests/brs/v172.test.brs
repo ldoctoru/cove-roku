@@ -130,3 +130,32 @@ sub test_embyBurnIn()
     t_ok(s.url.instr("AllowVideoStreamCopy=false") < 0, "Jellyfin burn URL: unchanged")
     t_ok(s.url.instr("SubtitleMethod=Encode") > 0, "Jellyfin burn URL: SubtitleMethod=Encode")
 end sub
+
+function v172_newEp(id as string, series as string, sNum as integer, eNum as integer) as object
+    return { Id: id, Type: "Episode", Name: "Pilot", SeriesName: series, SeriesId: "ser-" + id, ParentIndexNumber: sNum, IndexNumber: eNum, DateCreated: "2026-11-28T10:00:00.0000000Z", UserData: { Played: false, PlaybackPositionTicks: 0 } }
+end function
+
+sub test_noticeTitleKey()
+    t_eq(Live_titleKeyOf(v172_newEp("a", "The Bear", 3, 4)), "~e|the bear|3|4", "episode: series + S + E")
+    t_eq(Live_titleKeyOf(v172_newEp("b", " the BEAR ", 3, 4)), "~e|the bear|3|4", "case and spaces ignored")
+    ep = v172_newEp("c", "The Bear", 3, 4)
+    ep.delete("IndexNumber")
+    t_eq(Live_titleKeyOf(ep), "", "no episode number: id only")
+    t_eq(Live_titleKeyOf({ Type: "Movie", Name: "Heat", ProductionYear: 1995 }), "~m|heat|1995", "film: name + year")
+    t_eq(Live_titleKeyOf({ Type: "Movie", Name: "" }), "", "no name: id only")
+    t_eq(Live_titleKeyOf({ Type: "Series", Name: "The Bear" }), "", "other kinds: id only")
+end sub
+
+sub test_noticeDedupeAcrossIds()
+    old = { k: "k", n: "2026-11-27T10:00:00", s: [], u: [], c: 5000 }
+    filmA = { Id: "f1", Type: "Movie", Name: "Heat", ProductionYear: 1995, DateCreated: "2026-11-28T10:00:00Z", UserData: {} }
+    filmB = { Id: "f2", Type: "Movie", Name: "Heat", ProductionYear: 1995, DateCreated: "2026-11-28T10:00:01Z", UserData: {} }
+    remake = { Id: "f3", Type: "Movie", Name: "Heat", ProductionYear: 2026, DateCreated: "2026-11-28T10:00:02Z", UserData: {} }
+    latest = [v172_newEp("e1", "The Bear", 3, 4), v172_newEp("e2", "The Bear", 3, 4), v172_newEp("e3", "The Bear", 3, 5), filmA, filmB, remake]
+    d = Live_freshItems(old, latest, "k", 6000)
+    ids = []
+    for each it in d.fresh
+        ids.push(it.Id)
+    end for
+    t_eq(ids.join(","), "e1,e3,f1,f3", "same episode / film under a second id announced once; another episode and the remake kept")
+end sub

@@ -66,7 +66,7 @@ end function
 sub checkNew(srv as object, out as object)
     spent = createObject("roTimespan")
     uid = Util.toText(srv.userId)
-    q = "IncludeItemTypes=Episode,Movie&Recursive=true&IsMissing=false&SortBy=DateCreated&SortOrder=Descending&Limit=40&Fields=DateCreated,SeriesId,OfficialRating&EnableImages=false&EnableUserData=true" + Items.noCount()
+    q = "IncludeItemTypes=Episode,Movie&Recursive=true&IsMissing=false&SortBy=DateCreated&SortOrder=Descending&Limit=40&Fields=DateCreated,SeriesId,ProductionYear,OfficialRating&EnableImages=false&EnableUserData=true" + Items.noCount()
     r = Api.execute({ method: "GET", url: Util.toText(srv.url) + "/Users/" + uid + "/Items?" + q, headers: Api.headers(srv, true), timeout: 20000 })
     if r.code = 404 then r = Api.execute({ method: "GET", url: Util.toText(srv.url) + "/Items?userId=" + uid + "&" + q, headers: Api.headers(srv, true), timeout: 20000 })
     list = Util.field(r.json, "Items")
