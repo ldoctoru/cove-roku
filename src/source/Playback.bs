@@ -248,9 +248,9 @@ namespace Playback
 
     ' ---------------------------------------------------------------- v1.7.1 SPEED (SP6-1, SP6-3)
 
-    ' (SP6-3) Settings → Playback → Start MKV Files as a Stream (default Off; one key for this Roku)
+    ' (SP6-3) Settings → Playback → Start MKV Files as a Stream (default On since v1.7.1, measured on Liviu's Streambar: 7.8 s -> 1.8 s, HDR kept; one key for this Roku)
     function mkvStreamOn() as boolean
-        return Prefs.flagOn("mkvStream", false)
+        return Prefs.flagOn("mkvStream", true)
     end function
 
     ' (SP6-3) the bitrate above which an MKV is started as a stream. v1.7.1 (Liviu's device log): 0 = every

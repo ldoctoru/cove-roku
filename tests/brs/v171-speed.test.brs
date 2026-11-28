@@ -72,7 +72,7 @@ end sub
 sub test_mkvStreamSetting()
     sec = CreateObject("roRegistrySection", "Cove")
     sec.delete("mkvStream")
-    t_eq(Playback_mkvStreamOn(), false, "default Off")
+    t_eq(Playback_mkvStreamOn(), true, "default On (v1.7.1)")
     Prefs_setFlag("mkvStream", true)
     t_eq(Playback_mkvStreamOn(), true, "On after the switch")
     Prefs_setFlag("mkvStream", false)
