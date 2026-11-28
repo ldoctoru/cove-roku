@@ -383,8 +383,12 @@ namespace Live
                 d = Live.dateKeyOf(Util.field(it, "DateCreated"))
                 t = Util.toText(Util.field(it, "Type"))
                 isNew = d > mark or (d = mark and not seenAt.doesExist(id.left(8)))
+                ' (v1.7.2) the same title under a second id (two libraries over one folder) is announced once
+                tk = Live.titleKeyOf(it)
+                if tk <> "" and taken.doesExist(tk) then isNew = false
                 if id <> "" and d <> "" and isNew and not taken.doesExist(id) and (t = "Episode" or t = "Movie") and not Live.isStarted(it) and not Live.isPlaceholderName(Util.field(it, "Name"))
                     taken[id] = true
+                    if tk <> "" then taken[tk] = true
                     fresh.push(it)
                 end if
             end for
@@ -410,6 +414,24 @@ namespace Live
             end if
         end for
         return { fresh: fresh, baseline: base, entry: { k: key, n: peak, s: atTop, u: unread, c: atSecs } }
+    end function
+
+    ' (v1.7.2) What makes two server items the same title for the notices: an episode's series name + season +
+    ' episode numbers, a film's name + year ("" when the numbers or the name are missing: only the id counts).
+    ' The series name, not SeriesId: a second library over the same folder has its own series item too.
+    function titleKeyOf(it as dynamic) as string
+        t = Util.toText(Util.field(it, "Type"))
+        if t = "Episode"
+            series = LCase(Util.toText(Util.field(it, "SeriesName")).trim())
+            if series = "" then series = Util.toText(Util.field(it, "SeriesId"))
+            if series = "" or Util.field(it, "ParentIndexNumber") = invalid or Util.field(it, "IndexNumber") = invalid then return ""
+            return "~e|" + series + "|" + Util.toText(Util.field(it, "ParentIndexNumber")) + "|" + Util.toText(Util.field(it, "IndexNumber"))
+        else if t = "Movie"
+            name = LCase(Util.toText(Util.field(it, "Name")).trim())
+            if name = "" then return ""
+            return "~m|" + name + "|" + Util.toText(Util.field(it, "ProductionYear"))
+        end if
+        return ""
     end function
 
     ' Which fresh items are announced: Everything = new episodes and films; My Shows = new episodes of the series

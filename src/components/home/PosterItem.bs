@@ -204,7 +204,10 @@ sub onContent()
     m.selected = c.hasField("selected") and c.selected
     p = 0.0
     if c.hasField("progress") then p = c.progress
+    ' (v1.7.2 F-2) bar / ring follow the Resume button's rule (Items.showsResume: > 30 s in, watched or not);
+    ' nodes built without it keep the old fraction rule
     hasProgress = p > 0.01 and p < 0.99
+    if c.hasField("resumable") then hasProgress = c.resumable and p > 0
     ' poster cards: title and year below, a white bar inside the image
     m.title.visible = not m.landscape
     m.year.visible = not m.landscape
@@ -302,7 +305,7 @@ sub onContent()
         ' (v1.4 D5) the resume ring at the bottom right replaces the progress bar
         track.visible = false
         fill.visible = false
-        inProgress = hasProgress and not played
+        inProgress = hasProgress
         showResumeRing(inProgress, p)
         foot.translation = [20, m.h - 42]
         foot.text = runtime
