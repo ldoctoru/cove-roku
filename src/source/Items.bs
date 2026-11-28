@@ -96,6 +96,11 @@ namespace Items
         id = Util.toText(it.Id)
         t = Util.toText(it.Type)
         if t = "Episode" and hidesSpoilers(it) then return seriesArt(server, it, w)
+        if t = "Episode" and isPortrait(it.PrimaryImageAspectRatio)
+            ' (v1.7.2 F-3) the library set a poster as the episode's picture: a wide one instead, the portrait last
+            wide = episodeWide(server, it, w)
+            if wide <> "" then return wide
+        end if
         if t = "Episode" and tagOf(it.ImageTags, "Primary") <> "" then return imageUrl(server, id, "Primary", tagOf(it.ImageTags, "Primary"), w)
         if tagOf(it.ImageTags, "Thumb") <> "" then return imageUrl(server, id, "Thumb", tagOf(it.ImageTags, "Thumb"), w)
         if Util.toText(it.ParentThumbImageTag) <> "" then return imageUrl(server, Util.toText(it.ParentThumbItemId), "Thumb", Util.toText(it.ParentThumbImageTag), w)
@@ -103,6 +108,32 @@ namespace Items
         if b <> "" then return b
         if t = "CollectionFolder" or t = "UserView" then return imageUrl(server, id, "Primary", tagOf(it.ImageTags, "Primary"), w)
         return poster(server, it, w)
+    end function
+
+    ' (v1.7.2 F-3) PrimaryImageAspectRatio (width ÷ height) below 1 = a portrait poster; missing or 0 counts as wide
+    function isPortrait(aspect as dynamic) as boolean
+        if aspect = invalid then return false
+        a = Util.toNumber(aspect)
+        return a > 0 and a < 1
+    end function
+
+    ' (v1.7.2 F-3) A wide picture for an episode whose Primary is a poster, in the Mac's order: the episode's Thumb,
+    ' its own backdrop, the season's Thumb (ParentThumb when it isn't the series), the series' Thumb, any
+    ' ParentThumb, the series' backdrop. "" = none (the caller keeps the portrait Primary, cropped to 16:9).
+    function episodeWide(server as object, it as object, w as integer) as string
+        id = Util.toText(it.Id)
+        sid = Util.toText(it.SeriesId)
+        if tagOf(it.ImageTags, "Thumb") <> "" then return imageUrl(server, id, "Thumb", tagOf(it.ImageTags, "Thumb"), w)
+        b = first(it.BackdropImageTags)
+        if b <> "" then return imageUrl(server, id, "Backdrop", b, w)
+        ptId = Util.toText(it.ParentThumbItemId)
+        ptTag = Util.toText(it.ParentThumbImageTag)
+        if ptId <> "" and ptTag <> "" and ptId <> sid then return imageUrl(server, ptId, "Thumb", ptTag, w)
+        if sid <> "" and Util.toText(it.SeriesThumbImageTag) <> "" then return imageUrl(server, sid, "Thumb", Util.toText(it.SeriesThumbImageTag), w)
+        if ptId <> "" and ptTag <> "" then return imageUrl(server, ptId, "Thumb", ptTag, w)
+        b = first(it.ParentBackdropImageTags)
+        if b <> "" then return imageUrl(server, Util.toText(it.ParentBackdropItemId), "Backdrop", b, w)
+        return ""
     end function
 
     function backdrop(server as object, it as object, w as integer) as string

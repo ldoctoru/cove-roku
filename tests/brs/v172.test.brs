@@ -41,3 +41,47 @@ sub test_timeLeftMatchesDetails()
     t_eq(Items_timeLeft(v172_item(20, 42, invalid, false)), "", "not started (≤ 30 s): nothing")
     t_eq(Items_timeLeft(v172_item(600, 0, 25, false)), "", "no runtime: nothing")
 end sub
+
+function v172_ep(aspect as dynamic) as object
+    it = { Id: "e1", Type: "Episode", SeriesId: "s1", ImageTags: { Primary: "p" }, UserData: { Played: true } }
+    if aspect <> invalid then it.PrimaryImageAspectRatio = aspect
+    return it
+end function
+
+sub test_episodeWidePicture()
+    srv = { url: "http://srv" }
+    t_eq(Items_isPortrait(0.67), true, "0.67 is a poster")
+    t_eq(Items_isPortrait(1.78), false, "16:9 is wide")
+    t_eq(Items_isPortrait(invalid), false, "missing counts as wide")
+    t_eq(Items_isPortrait(0), false, "0 counts as wide")
+    it = v172_ep(1.78)
+    it.ImageTags.Thumb = "t"
+    t_ok(Items_landscape(srv, it, 480).instr("/Items/e1/Images/Primary") > 0, "wide Primary: the episode's still as before")
+    it = v172_ep(invalid)
+    t_ok(Items_landscape(srv, it, 480).instr("/Items/e1/Images/Primary") > 0, "no aspect: the still as before")
+    it = v172_ep(0.67)
+    it.ImageTags.Thumb = "t"
+    it.BackdropImageTags = ["b"]
+    t_ok(Items_landscape(srv, it, 480).instr("/Items/e1/Images/Thumb") > 0, "portrait: the episode's Thumb first")
+    it = v172_ep(0.67)
+    it.BackdropImageTags = ["b"]
+    it.ParentThumbItemId = "season1"
+    it.ParentThumbImageTag = "st"
+    t_ok(Items_landscape(srv, it, 480).instr("/Items/e1/Images/Backdrop") > 0, "then its own backdrop")
+    it = v172_ep(0.67)
+    it.ParentThumbItemId = "season1"
+    it.ParentThumbImageTag = "st"
+    it.SeriesThumbImageTag = "sht"
+    t_ok(Items_landscape(srv, it, 480).instr("/Items/season1/Images/Thumb") > 0, "then the season's Thumb")
+    it = v172_ep(0.67)
+    it.ParentThumbItemId = "s1"
+    it.ParentThumbImageTag = "st"
+    it.SeriesThumbImageTag = "sht"
+    t_ok(Items_landscape(srv, it, 480).instr("/Items/s1/Images/Thumb?maxWidth=480&quality=85&tag=sht") > 0, "ParentThumb is the series: the series' Thumb")
+    it = v172_ep(0.67)
+    it.ParentBackdropItemId = "s1"
+    it.ParentBackdropImageTags = ["pb"]
+    t_ok(Items_landscape(srv, it, 480).instr("/Items/s1/Images/Backdrop") > 0, "then the series' backdrop")
+    it = v172_ep(0.67)
+    t_ok(Items_landscape(srv, it, 480).instr("/Items/e1/Images/Primary") > 0, "nothing wide: the portrait Primary last")
+end sub
