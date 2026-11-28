@@ -137,6 +137,10 @@ namespace Playback
         noDirect = noDirectOf(forceTranscode, opts)
         if noDirect then q = q + "&EnableDirectPlay=false"
         if forceTranscode then q = q + "&EnableDirectStream=false&AllowVideoStreamCopy=false"
+        ' (v1.7.1, Liviu's device log) Start MKV Files as a Stream: EnableDirectPlay=false alone made Emby answer
+        ' with a direct stream of the same MKV and no TranscodingUrl (error panel); without direct stream it
+        ' gives its HLS stream, the video and audio still copied (stream copy stays allowed)
+        if not forceTranscode and Util.flag(opts, "remux") then q = q + "&EnableDirectStream=false&AllowVideoStreamCopy=true&AllowAudioStreamCopy=true"
         return q
     end function
 
@@ -173,7 +177,10 @@ namespace Playback
             return r
         end if
         t = Util.toText(src.TranscodingUrl)
-        if t = "" then return invalid
+        if t = ""
+            Log.line("Cove: stream: the server gave no conversion URL (direct play " + Util.toText(Util.flag(src, "SupportsDirectPlay")) + ", direct stream " + Util.toText(Util.flag(src, "SupportsDirectStream")) + ", transcoding " + Util.toText(Util.flag(src, "SupportsTranscoding")) + ")")
+            return invalid
+        end if
         ' (the token only goes along to the server itself: a relative path, or an absolute URL on the server's
         ' own host and not from https down to http; any other host named here gets no token)
         safe = Util.tokenSafeTarget(base, t)
@@ -183,10 +190,15 @@ namespace Playback
         else if LCase(t).instr("api_key=") < 0 and LCase(t).instr("apikey=") < 0
             t = t + "&" + key
         end if
-        Log.line("Cove: stream " + Util.redact(t.mid(base.len())))
         ' An H.264 conversion must stay within 1080p (the Roku's H.264 limit); a copied HEVC video is left alone
         ' (replaced, not appended: a repeated parameter reaches the server as "3840,1920" and it answers 500)
-        if r.sourceVideoCodec <> "hevc" or forceTranscode or (opts.burn and opts.sub >= 0) then t = Util.setQuery(t, "MaxWidth", "1920")
+        if r.sourceVideoCodec <> "hevc" or forceTranscode or (opts.burn and opts.sub >= 0)
+            t = Util.setQuery(t, "MaxWidth", "1920")
+        else
+            ' (v1.7.1, Liviu's 4K test) a copied HEVC stream: Emby writes the H.264 profile's MaxWidth=1920 into the
+            ' URL, so a 4K HEVC was converted (shrunk, re-encoded) instead of copied; the Roku's own limit instead
+            t = Util.setQuery(t, "MaxWidth", copyMaxWidth(opts))
+        end if
         ' The chosen subtitle: burned in when it's an image, otherwise none in the video (the Roku shows text ones).
         ' (Set explicitly: some servers otherwise burn in the user's default subtitle.)
         if opts.burn and opts.sub >= 0
@@ -202,6 +214,8 @@ namespace Playback
             t = Util.setQuery(t, "VideoBitrate", capped.toStr())
             Log.line("Cove: stream: forced conversion, video at most " + Util.toText(capped \ 1000000) + " Mbit/s")
         end if
+        ' (v1.7.1) the URL as sent, after Cove's own changes (MaxWidth, subtitle, audio, bitrate)
+        Log.line("Cove: stream " + Util.redact(t.mid(base.len())))
         r.url = t
         ' (Jellyfin also gets the sign-in header, for a playlist whose own URL has no key; nothing for another host)
         r.headers = []
@@ -234,14 +248,15 @@ namespace Playback
 
     ' ---------------------------------------------------------------- v1.7.1 SPEED (SP6-1, SP6-3)
 
-    ' (SP6-3) Settings → Playback → Start Large MKV Files as a Stream (default Off; one key for this Roku)
+    ' (SP6-3) Settings → Playback → Start MKV Files as a Stream (default On since v1.7.1, measured on Liviu's Streambar: 7.8 s -> 1.8 s, HDR kept; one key for this Roku)
     function mkvStreamOn() as boolean
-        return Prefs.flagOn("mkvStream", false)
+        return Prefs.flagOn("mkvStream", true)
     end function
 
-    ' (SP6-3) the bitrate above which a large MKV is started as a stream: 30 Mbit/s (4K remuxes are 50-80)
+    ' (SP6-3) the bitrate above which an MKV is started as a stream. v1.7.1 (Liviu's device log): 0 = every
+    ' MKV, because a 7 Mbit/s 1080p MKV sat 6.5 s at 10 % buffer while the Roku read the file's layout
     function mkvStreamMinBitrate() as integer
-        return 30000000
+        return 0
     end function
 
     ' The MediaSources entry with this Id in an item / PlaybackInfo JSON, else the first one, else invalid
@@ -267,11 +282,12 @@ namespace Playback
     end function
 
     ' (SP6-3) start this source as a stream (the server repackages it into HLS, video and audio copied)?
-    ' Only with the setting on, for an MKV file above mkvStreamMinBitrate (an unknown bitrate: no)
+    ' Only with the setting on, for an MKV file above mkvStreamMinBitrate (0 = any MKV, its bitrate unknown too)
     function wantsMkvStream(src as dynamic, settingOn as boolean) as boolean
         if not settingOn or not Util.isAA(src) then return false
         c = LCase(Util.toText(src.Container))
         if c.instr("mkv") < 0 and c.instr("matroska") < 0 then return false
+        if mkvStreamMinBitrate() <= 0 then return true
         return sourceBitrate(src) > mkvStreamMinBitrate()
     end function
 
@@ -811,4 +827,11 @@ namespace Playback
         return n
     end function
 
+    ' (v1.7.1) MaxWidth for a copied HEVC stream: the Roku's decoder limit (PlayTask's devMaxW), 1920 when unknown
+    function copyMaxWidth(opts as dynamic) as string
+        w = 0
+        if Util.isAA(opts) then w = Util.toNumber(opts.devMaxW)
+        if w >= 3840 then return "3840"
+        return "1920"
+    end function
 end namespace

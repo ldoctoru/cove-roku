@@ -1,4 +1,4 @@
-' v1.7.1 SPEED: film start diagnostics (SP6-1) and Start Large MKV Files as a Stream (SP6-3), source/Playback.bs
+' v1.7.1 SPEED: film start diagnostics (SP6-1) and Start MKV Files as a Stream (SP6-3), source/Playback.bs
 
 function sp_src(container as string, bitrate as dynamic) as object
     return {
@@ -61,18 +61,18 @@ end sub
 sub test_wantsMkvStream()
     t_eq(Playback_wantsMkvStream(sp_src("mkv", 62000000), true), true, "a 62 Mbit/s MKV with the setting on")
     t_eq(Playback_wantsMkvStream(sp_src("mkv", 62000000), false), false, "the setting off (default): direct play as before")
-    t_eq(Playback_wantsMkvStream(sp_src("mkv", 10000000), true), false, "a 10 Mbit/s MKV stays direct")
-    t_eq(Playback_wantsMkvStream(sp_src("mkv", 30000000), true), false, "exactly 30 Mbit/s stays direct")
+    t_eq(Playback_wantsMkvStream(sp_src("mkv", 7000000), true), true, "a 7 Mbit/s MKV too (every MKV since v1.7.1)")
+    t_eq(Playback_wantsMkvStream(sp_src("mkv", 7000000), false), false, "a 7 Mbit/s MKV, setting off: direct")
     t_eq(Playback_wantsMkvStream(sp_src("matroska,webm", 62000000), true), true, "matroska counts as MKV")
     t_eq(Playback_wantsMkvStream(sp_src("mp4", 62000000), true), false, "an MP4 stays direct")
-    t_eq(Playback_wantsMkvStream(sp_src("mkv", invalid), true), false, "an unknown bitrate stays direct")
+    t_eq(Playback_wantsMkvStream(sp_src("mkv", invalid), true), true, "an MKV of unknown bitrate too")
     t_eq(Playback_wantsMkvStream(invalid, true), false, "no source")
 end sub
 
 sub test_mkvStreamSetting()
     sec = CreateObject("roRegistrySection", "Cove")
     sec.delete("mkvStream")
-    t_eq(Playback_mkvStreamOn(), false, "default Off")
+    t_eq(Playback_mkvStreamOn(), true, "default On (v1.7.1)")
     Prefs_setFlag("mkvStream", true)
     t_eq(Playback_mkvStreamOn(), true, "On after the switch")
     Prefs_setFlag("mkvStream", false)
@@ -90,7 +90,10 @@ sub test_remuxQueryAndStream()
     info = { PlaySessionId: "ps1", MediaSources: [sp_src("mkv", 62000000)] }
     s = Playback_streamFrom(sp_emby(), "it1", info, false, o)
     t_eq(s.streamFormat, "hls", "remux: the server's HLS stream")
-    t_ok(s.url.instr("MaxWidth") < 0, "remux of HEVC: no 1080p cap")
+    t_ok(s.url.instr("MaxWidth=1920") > 0, "remux of HEVC on a Roku of unknown width: 1920")
+    o.devMaxW = 3840
+    s = Playback_streamFrom(sp_emby(), "it1", info, false, o)
+    t_ok(s.url.instr("MaxWidth=3840") > 0, "remux of HEVC on a 4K Roku: 3840, so a 4K video is copied")
     s = Playback_streamFrom(sp_emby(), "it1", info, false, sp_opts())
     t_eq(s.method, "DirectPlay", "no remux: the file itself")
     t_eq(s.streamFormat, "mkv", "no remux: mkv")
@@ -139,4 +142,23 @@ sub test_startBufStep()
     t_eq(Playback_startBufStep(100), 100, "100 %")
     t_eq(Playback_startBufStep(130), 100, "capped")
     t_eq(Playback_startBufStep(invalid), 0, "missing")
+end sub
+
+sub test_mkvRemuxQuery()
+    srv = { userId: "u" }
+    opts = { audio: -1, sub: -1, burn: false, remux: true, defaultAudio: 1 }
+    q = Playback_infoQuery(srv, false, opts)
+    t_ok(q.instr("EnableDirectPlay=false") >= 0, "remux: no direct play")
+    t_ok(q.instr("EnableDirectStream=false") >= 0, "remux: no direct stream, so the server gives its HLS stream")
+    t_ok(q.instr("AllowVideoStreamCopy=true") >= 0, "remux: the video is copied")
+    opts.remux = false
+    q = Playback_infoQuery(srv, false, opts)
+    t_ok(q.instr("EnableDirectStream") < 0, "no remux: unchanged")
+end sub
+
+sub test_copyMaxWidth()
+    t_eq(Playback_copyMaxWidth({ devMaxW: 3840 }), "3840", "a 4K Roku: 3840")
+    t_eq(Playback_copyMaxWidth({ devMaxW: 1920 }), "1920", "a 1080p Roku: 1920")
+    t_eq(Playback_copyMaxWidth({}), "1920", "unknown: 1920")
+    t_eq(Playback_copyMaxWidth(invalid), "1920", "no options: 1920")
 end sub

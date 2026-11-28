@@ -8,7 +8,7 @@ Licence: GPL-3.0.
 
 Cove has no accounts, analytics, ads or tracking. It talks only to the servers you add (see [Privacy and security](#privacy-and-security)).
 
-**Latest release: [v1.7.0](https://github.com/ldoctoru/cove-roku/releases/latest)**
+**Latest release: [v1.7.1](https://github.com/ldoctoru/cove-roku/releases/latest)**
 
 ## Features
 
@@ -43,7 +43,7 @@ Cove has no accounts, analytics, ads or tracking. It talks only to the servers y
 - **For server admins:** **Items without Poster / Backdrop** on library pages, with Refresh per title or **Refresh All Missing**.
 
 **Playback**
-- Direct Play whenever the Roku can, otherwise the server converts; the server is told the real play method. The device profile comes from what the Roku reports (4K, HDR10, HLG, Dolby Vision, HEVC, audio formats).
+- Direct Play whenever the Roku can, otherwise the server converts; the server is told the real play method. **MKV files start as a stream** (the server repackages them, video and audio copied, HDR kept), so they start in 1–3 seconds instead of 7–8 on Roku OS 16; Settings → Playback → MKV Files turns it off. The device profile comes from what the Roku reports (4K, HDR10, HLG, Dolby Vision, HEVC, audio formats).
 - Player controls in one block at the bottom: timeline with thumbnails, hold-to-seek and Fast Forward / Rewind runs, previous / next episode, jump buttons, episodes, audio, subtitles, quality, chapters, playback speed, "Ends at" and playback info.
 - Subtitles drawn by Cove in your style (or the Roku's caption style), with subtitle delay and always load my language. External subtitle files come first and load in pieces, so they start quickly; subtitles added on the server appear without reopening.
 - **Up Next** card during the credits, skip intro / recap / credits per segment (Ask, Skip automatically or Don't show), also found from **chapter names** (Intro, Recap, Credits...) when the server has no markers, Are you still watching? (episodes only), sleep timer, Cinema Mode, and search and download subtitles from the player.
