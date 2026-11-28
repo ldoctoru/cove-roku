@@ -90,7 +90,10 @@ sub test_remuxQueryAndStream()
     info = { PlaySessionId: "ps1", MediaSources: [sp_src("mkv", 62000000)] }
     s = Playback_streamFrom(sp_emby(), "it1", info, false, o)
     t_eq(s.streamFormat, "hls", "remux: the server's HLS stream")
-    t_ok(s.url.instr("MaxWidth") < 0, "remux of HEVC: no 1080p cap")
+    t_ok(s.url.instr("MaxWidth=1920") > 0, "remux of HEVC on a Roku of unknown width: 1920")
+    o.devMaxW = 3840
+    s = Playback_streamFrom(sp_emby(), "it1", info, false, o)
+    t_ok(s.url.instr("MaxWidth=3840") > 0, "remux of HEVC on a 4K Roku: 3840, so a 4K video is copied")
     s = Playback_streamFrom(sp_emby(), "it1", info, false, sp_opts())
     t_eq(s.method, "DirectPlay", "no remux: the file itself")
     t_eq(s.streamFormat, "mkv", "no remux: mkv")
@@ -151,4 +154,11 @@ sub test_mkvRemuxQuery()
     opts.remux = false
     q = Playback_infoQuery(srv, false, opts)
     t_ok(q.instr("EnableDirectStream") < 0, "no remux: unchanged")
+end sub
+
+sub test_copyMaxWidth()
+    t_eq(Playback_copyMaxWidth({ devMaxW: 3840 }), "3840", "a 4K Roku: 3840")
+    t_eq(Playback_copyMaxWidth({ devMaxW: 1920 }), "1920", "a 1080p Roku: 1920")
+    t_eq(Playback_copyMaxWidth({}), "1920", "unknown: 1920")
+    t_eq(Playback_copyMaxWidth(invalid), "1920", "no options: 1920")
 end sub

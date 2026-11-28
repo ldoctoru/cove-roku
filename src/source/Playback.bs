@@ -193,7 +193,13 @@ namespace Playback
         Log.line("Cove: stream " + Util.redact(t.mid(base.len())))
         ' An H.264 conversion must stay within 1080p (the Roku's H.264 limit); a copied HEVC video is left alone
         ' (replaced, not appended: a repeated parameter reaches the server as "3840,1920" and it answers 500)
-        if r.sourceVideoCodec <> "hevc" or forceTranscode or (opts.burn and opts.sub >= 0) then t = Util.setQuery(t, "MaxWidth", "1920")
+        if r.sourceVideoCodec <> "hevc" or forceTranscode or (opts.burn and opts.sub >= 0)
+            t = Util.setQuery(t, "MaxWidth", "1920")
+        else
+            ' (v1.7.1, Liviu's 4K test) a copied HEVC stream: Emby writes the H.264 profile's MaxWidth=1920 into the
+            ' URL, so a 4K HEVC was converted (shrunk, re-encoded) instead of copied; the Roku's own limit instead
+            t = Util.setQuery(t, "MaxWidth", copyMaxWidth(opts))
+        end if
         ' The chosen subtitle: burned in when it's an image, otherwise none in the video (the Roku shows text ones).
         ' (Set explicitly: some servers otherwise burn in the user's default subtitle.)
         if opts.burn and opts.sub >= 0
@@ -820,4 +826,11 @@ namespace Playback
         return n
     end function
 
+    ' (v1.7.1) MaxWidth for a copied HEVC stream: the Roku's decoder limit (PlayTask's devMaxW), 1920 when unknown
+    function copyMaxWidth(opts as dynamic) as string
+        w = 0
+        if Util.isAA(opts) then w = Util.toNumber(opts.devMaxW)
+        if w >= 3840 then return "3840"
+        return "1920"
+    end function
 end namespace
