@@ -234,14 +234,15 @@ namespace Playback
 
     ' ---------------------------------------------------------------- v1.7.1 SPEED (SP6-1, SP6-3)
 
-    ' (SP6-3) Settings → Playback → Start Large MKV Files as a Stream (default Off; one key for this Roku)
+    ' (SP6-3) Settings → Playback → Start MKV Files as a Stream (default Off; one key for this Roku)
     function mkvStreamOn() as boolean
         return Prefs.flagOn("mkvStream", false)
     end function
 
-    ' (SP6-3) the bitrate above which a large MKV is started as a stream: 30 Mbit/s (4K remuxes are 50-80)
+    ' (SP6-3) the bitrate above which an MKV is started as a stream. v1.7.1 (Liviu's device log): 0 = every
+    ' MKV, because a 7 Mbit/s 1080p MKV sat 6.5 s at 10 % buffer while the Roku read the file's layout
     function mkvStreamMinBitrate() as integer
-        return 30000000
+        return 0
     end function
 
     ' The MediaSources entry with this Id in an item / PlaybackInfo JSON, else the first one, else invalid
@@ -267,11 +268,12 @@ namespace Playback
     end function
 
     ' (SP6-3) start this source as a stream (the server repackages it into HLS, video and audio copied)?
-    ' Only with the setting on, for an MKV file above mkvStreamMinBitrate (an unknown bitrate: no)
+    ' Only with the setting on, for an MKV file above mkvStreamMinBitrate (0 = any MKV, its bitrate unknown too)
     function wantsMkvStream(src as dynamic, settingOn as boolean) as boolean
         if not settingOn or not Util.isAA(src) then return false
         c = LCase(Util.toText(src.Container))
         if c.instr("mkv") < 0 and c.instr("matroska") < 0 then return false
+        if mkvStreamMinBitrate() <= 0 then return true
         return sourceBitrate(src) > mkvStreamMinBitrate()
     end function
 

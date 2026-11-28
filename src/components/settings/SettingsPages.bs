@@ -555,9 +555,9 @@ sub playbackRows(out as object)
     out.push(rSwitch("cinemaMode", "Play Intros Before a Movie", Prefs.cinemaMode()))
     out.push(rNote("Plays the trailers and pre-rolls your server sets up (Cinema Mode / intros) before a movie you start from the beginning. Each intro is a separate start, and with an HDR movie the TV may switch its picture mode once more for the movie, which adds a few seconds."))
     ' --- v1.7.1 SPEED (SP6-3): opt-in, default Off; one key for this Roku (Playback.mkvStreamOn) ---
-    out.push(rHead("Large Files"))
-    out.push(rSwitch("mkvStream", "Start Large MKV Files as a Stream", Prefs.flagOn("mkvStream", false)))
-    out.push(rNote("On: an MKV file above 30 Mbit/s (e.g. a 4K remux) is repackaged by the server into a stream, with the video and audio copied, not converted. It may start faster on some Rokus; seeking far takes a second or two longer and Dolby Vision is dropped. Off plays the file directly. For all profiles on this Roku."))
+    out.push(rHead("MKV Files"))
+    out.push(rSwitch("mkvStream", "Start MKV Files as a Stream", Prefs.flagOn("mkvStream", false)))
+    out.push(rNote("On: the server repackages MKV files into a stream, with the video and audio copied, not converted. On some Rokus an MKV waits several seconds before it starts; this can make it start much faster. Seeking far takes a second or two longer and Dolby Vision is dropped. Off plays the file directly. For all profiles on this Roku."))
     ' --- end v1.7.1 SPEED ---
 end sub
 

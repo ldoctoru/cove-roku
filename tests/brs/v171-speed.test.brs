@@ -1,4 +1,4 @@
-' v1.7.1 SPEED: film start diagnostics (SP6-1) and Start Large MKV Files as a Stream (SP6-3), source/Playback.bs
+' v1.7.1 SPEED: film start diagnostics (SP6-1) and Start MKV Files as a Stream (SP6-3), source/Playback.bs
 
 function sp_src(container as string, bitrate as dynamic) as object
     return {
@@ -61,11 +61,11 @@ end sub
 sub test_wantsMkvStream()
     t_eq(Playback_wantsMkvStream(sp_src("mkv", 62000000), true), true, "a 62 Mbit/s MKV with the setting on")
     t_eq(Playback_wantsMkvStream(sp_src("mkv", 62000000), false), false, "the setting off (default): direct play as before")
-    t_eq(Playback_wantsMkvStream(sp_src("mkv", 10000000), true), false, "a 10 Mbit/s MKV stays direct")
-    t_eq(Playback_wantsMkvStream(sp_src("mkv", 30000000), true), false, "exactly 30 Mbit/s stays direct")
+    t_eq(Playback_wantsMkvStream(sp_src("mkv", 7000000), true), true, "a 7 Mbit/s MKV too (every MKV since v1.7.1)")
+    t_eq(Playback_wantsMkvStream(sp_src("mkv", 7000000), false), false, "a 7 Mbit/s MKV, setting off: direct")
     t_eq(Playback_wantsMkvStream(sp_src("matroska,webm", 62000000), true), true, "matroska counts as MKV")
     t_eq(Playback_wantsMkvStream(sp_src("mp4", 62000000), true), false, "an MP4 stays direct")
-    t_eq(Playback_wantsMkvStream(sp_src("mkv", invalid), true), false, "an unknown bitrate stays direct")
+    t_eq(Playback_wantsMkvStream(sp_src("mkv", invalid), true), true, "an MKV of unknown bitrate too")
     t_eq(Playback_wantsMkvStream(invalid, true), false, "no source")
 end sub
 

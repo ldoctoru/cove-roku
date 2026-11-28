@@ -655,12 +655,12 @@ sub start(startSeconds as float, forceTranscode as boolean)
     showLoading(5, m.loadNote)
     ' (a change while "Starting...": the earlier request is superseded, only its conversion still needs ending)
     if m.playTask <> invalid then orphanPlayTask(m.playTask)
-    ' (v1.7.1 SP6-3) Settings → Playback → Start Large MKV Files as a Stream: an MKV above 30 Mbit/s goes
+    ' (v1.7.1 SP6-3) Settings → Playback → Start MKV Files as a Stream: an MKV file goes
     ' through the server's remux (HLS, video and audio copied), as for another audio track
     src = Playback.sourceOf(m.info, Util.toText(m.opts.sourceId))
     m.opts.remux = not forceTranscode and Playback.wantsMkvStream(src, Playback.mkvStreamOn())
     if m.opts.remux
-        Log.line("Cove: play remux (mkv " + Playback.startMbit(Playback.sourceBitrate(src)) + " Mbit/s > 30 Mbit/s, setting on)")
+        Log.line("Cove: play remux (mkv " + Playback.startMbit(Playback.sourceBitrate(src)) + " Mbit/s, Start MKV Files as a Stream on)")
         startMark("forced remux (setting)")
     end if
     m.playTask = createObject("roSGNode", "PlayTask")
