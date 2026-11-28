@@ -18,6 +18,9 @@
              bar), and the entry chosen there, opened as if chosen in Home's own sidebar -->
         <field id="navItems" type="array" />
         <field id="navOpen" type="string" alwaysNotify="true" onChange="onNavOpen" />
+        <!-- (v1.7.1 CR-1) set by MainScene.detachScreen when this Home leaves the stack: the m.global observer,
+             timers and tasks are released, so the replaced Home can be freed -->
+        <field id="released" type="boolean" onChange="onReleased" />
     </interface>
     <children>
         <!-- backdrop: two layers that crossfade -->

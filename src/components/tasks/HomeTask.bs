@@ -31,6 +31,8 @@ sub work()
             if m.delivered and not m.top.authFailed then loadBanner(m.top.libraries)
             ' (v1.7 NAV M-6) Because You Watched, put in place among the rows on screen
             if m.delivered and not m.top.authFailed and m.because <> invalid then loadBecause()
+            ' (v1.7.1 NV6-1) Because You Watched is no longer among the rows: the rows Home carried over go
+            if m.delivered and not m.top.authFailed and m.because = invalid and m.top.becauseAge >= 0 then dropBecauseRows()
         end if
     catch e
         where = ""
@@ -570,21 +572,61 @@ sub insertLateRows(shown as object)
         titles[shown.getChild(i).title] = true
     end for
     at = 0
+    firstAt = -1
+    added = 0
     for each p in m.pendingRows
         if p.spec <> invalid and p.spec.done and p.upcoming and not titles.doesExist(p.title)
             one = createObject("roSGNode", "ContentNode")
             addUpcomingRow(one, p.list, p.preset)
             if one.getChildCount() > 0
+                ' (v1.7.1 NV6-1) a row queued after Because You Watched goes after the Because rows Home carried
+                ' over from the last load
+                if m.because <> invalid and not m.because.before.doesExist(p.title)
+                    while at < shown.getChildCount() and isBecauseRow(shown.getChild(at))
+                        at = at + 1
+                    end while
+                end if
                 row = one.getChild(0)
                 one.removeChild(row)
                 shown.insertChild(row, at)
+                if firstAt < 0 then firstAt = at
+                added = added + 1
                 at = at + 1
             end if
         else if titles.doesExist(p.title)
             at = at + 1
+            ' (the carried-over Because rows right after it count too)
+            while at < shown.getChildCount() and isBecauseRow(shown.getChild(at)) and m.because <> invalid and m.because.before.doesExist(p.title)
+                at = at + 1
+            end while
         end if
     end for
+    ' (v1.7.1 NV6-1) Home keeps the focused row when Upcoming goes in above it
+    if firstAt < 0 then firstAt = 0
+    m.top.lateRows = { at: firstAt, n: added, removed: 0 }
 end sub
+
+sub dropBecauseRows()
+    shown = m.top.content
+    if shown = invalid then return
+    at = -1
+    gone = 0
+    for k = shown.getChildCount() - 1 to 0 step -1
+        if isBecauseRow(shown.getChild(k))
+            shown.removeChildIndex(k)
+            at = k
+            gone = gone + 1
+        end if
+    end for
+    if gone = 0 then return
+    Log.line("Cove: home because rows dropped (" + Util.toText(gone) + ")")
+    m.top.lateRows = { at: at, n: 0, removed: gone }
+    m.top.rowsAdded = m.top.rowsAdded + 1
+end sub
+
+function isBecauseRow(row as dynamic) as boolean
+    return row <> invalid and row.hasField("because") and row.because = true
+end function
 
 ' ---------------------------------------------------------------- v1.6 HOME
 
@@ -656,13 +698,34 @@ sub loadBecause()
     f = Items.fields()
     pq = HomeLayout.playedQuery()
     m.pendingRows = []
-    queueRow("rec", getList(HomeLayout.recommendationsPath(uid, f), ""), true)
-    queueRow("played", getList("/Users/" + uid + "/Items?" + pq, "/Items?userId=" + uid + "&" + pq), true)
-    fetchQueued(true)
-    if m.top.authFailed then return
-    rows = HomeLayout.becauseFromRecommendations(m.pendingRows[0].list, want)
+    ' (v1.7.1 NV6-13) a reload with the Because rows carried over: only the played list first; the rows stay
+    ' as they are while they are fresh and the last title watched is the same
+    age = m.top.becauseAge
+    if age >= 0 and age < 600
+        queueRow("played", getList("/Users/" + uid + "/Items?" + pq, "/Items?userId=" + uid + "&" + pq), true)
+        fetchQueued(true)
+        if m.top.authFailed then return
+        played = m.pendingRows[0].list
+        if HomeLayout.becauseStillFresh(age, firstIdOf(played), Util.toText(m.top.becausePlayedId))
+            Log.line("Cove: home because kept (" + Util.toText(age) + " s old, same last watched) " + Util.toText(stopwatch.totalMilliseconds()) + " ms")
+            m.pendingRows = []
+            return
+        end if
+        m.pendingRows = []
+        queueRow("rec", getList(HomeLayout.recommendationsPath(uid, f), ""), true)
+        fetchQueued(true)
+        if m.top.authFailed then return
+        recList = m.pendingRows[0].list
+    else
+        queueRow("rec", getList(HomeLayout.recommendationsPath(uid, f), ""), true)
+        queueRow("played", getList("/Users/" + uid + "/Items?" + pq, "/Items?userId=" + uid + "&" + pq), true)
+        fetchQueued(true)
+        if m.top.authFailed then return
+        recList = m.pendingRows[0].list
+        played = m.pendingRows[1].list
+    end if
+    rows = HomeLayout.becauseFromRecommendations(recList, want)
     fromRec = rows.count()
-    played = m.pendingRows[1].list
     used = {}
     for each r in rows
         used[LCase(r.name)] = true
@@ -690,22 +753,64 @@ sub loadBecause()
     end if
     one = createObject("roSGNode", "ContentNode")
     for each r in rows
-        if one.getChildCount() < want then addRow(one, HomeLayout.becauseTitle(r.name), r.items, false, invalid)
+        if one.getChildCount() < want
+            had = one.getChildCount()
+            addRow(one, HomeLayout.becauseTitle(r.name), r.items, false, invalid)
+            ' (v1.7.1 NV6-1) marked, so a reload can carry the row over and this task find it again
+            if one.getChildCount() > had then one.getChild(had).addFields({ because: true })
+        end if
     end for
     n = one.getChildCount()
     Log.line("Cove: home because " + Util.toText(n) + " rows (" + Util.toText(fromRec) + " from recommendations, " + Util.toText(rows.count() - fromRec) + " from similar) " + Util.toText(stopwatch.totalMilliseconds()) + " ms")
     shown = m.top.content
-    if n = 0 or shown = invalid then return
-    titles = []
+    if shown = invalid then return
+    ' (v1.7.1 NV6-1) the Because rows Home carried over from the last load
+    kept = []
     for i = 0 to shown.getChildCount() - 1
-        titles.push(shown.getChild(i).title)
+        c = shown.getChild(i)
+        if c.hasField("because") and c.because = true then kept.push(i)
     end for
-    at = HomeLayout.lateRowIndex(titles, m.because.before)
+    if n = 0 and kept.count() = 0 then return
+    playedId = firstIdOf(played)
+    if kept.count() = n
+        ' the same number of rows: refreshed in place (no row moves, the focus stays)
+        for i = 0 to n - 1
+            src = one.getChild(i)
+            dst = shown.getChild(kept[i])
+            dst.title = src.title
+            cards = src.getChildren(-1, 0)
+            src.removeChildrenIndex(src.getChildCount(), 0)
+            dst.removeChildrenIndex(dst.getChildCount(), 0)
+            dst.appendChildren(cards)
+        end for
+        Log.line("Cove: home because rows refreshed in place (" + Util.toText(n) + ")")
+        m.top.lateRows = { at: kept[0], n: n, removed: n, because: true, playedId: playedId }
+        m.top.rowsAdded = m.top.rowsAdded + 1
+        return
+    end if
+    at = -1
+    for k = kept.count() - 1 to 0 step -1
+        shown.removeChildIndex(kept[k])
+        at = kept[k]
+    end for
+    if at < 0
+        titles = []
+        for i = 0 to shown.getChildCount() - 1
+            titles.push(shown.getChild(i).title)
+        end for
+        at = HomeLayout.lateRowIndex(titles, m.because.before)
+    end if
     for i = 0 to n - 1
         row = one.getChild(0)
         one.removeChild(row)
         shown.insertChild(row, at + i)
     end for
-    m.top.lateRows = { at: at, n: n }
+    m.top.lateRows = { at: at, n: n, removed: kept.count(), because: true, playedId: playedId }
     m.top.rowsAdded = m.top.rowsAdded + 1
 end sub
+
+' (v1.7.1 NV6-13) The id of the first title of a list ("" when none)
+function firstIdOf(list as dynamic) as string
+    if type(list) <> "roArray" or list.count() = 0 or not Util.isAA(list[0]) then return ""
+    return Util.toText(list[0].Id)
+end function

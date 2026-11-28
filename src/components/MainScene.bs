@@ -255,6 +255,8 @@ sub detachScreen(s as dynamic)
     if s = invalid then return
     ' (v1.5.1) the missing-art scan / refresh stops with its page
     if s.screenId = "missingArt" then s.closed = true
+    ' (v1.7.1 CR-1 / NV6-3) a page that observes m.global (Home's New count) lets go of it, so it can be freed
+    if s.hasField("released") and s.released <> true then s.released = true
     ' (SC5-2) any pop of a player (Back bubbling up, a dropped top, a reset) ends it like Back: video stopped,
     ' stop report, transcode ended (close() runs once, so a player that already finished is unchanged)
     if s.screenId = "player" and s.stopNow <> true
@@ -463,6 +465,11 @@ sub showHome(server as object)
     ' (C2-1: a limited profile locks the server list; any other profile on Home unlocks it)
     m.lock = invalid
     noteLock(server)
+    ' (v1.7.1 CR-1) the Home being replaced lets go of the New count first (it would rebuild its old menu and
+    ' hand it to the scene sidebar for a moment)
+    for each old in m.stack
+        if Util.toText(old.screenId) = "home" and old.hasField("released") then old.released = true
+    end for
     ' (v1.7 LIVE M-3) this profile's New count, before its Home builds the menu
     m.global.noticesCount = noticesCountNow(server)
     h = createObject("roSGNode", "HomeScreen")
@@ -470,8 +477,17 @@ sub showHome(server as object)
     h.observeField("action", "onHomeAction")
     ' (v1.7 NAV M-4) this Home's sidebar entries feed the sidebar of the other top-level pages
     m.sideNav.items = []
+    m.sideNavSig = ""
     h.observeField("navItems", "onHomeNavItems")
     reset(h)
+    ' (v1.7.1 CR-10 / NV6-16) Home built its menu in init(), before the observer above: take that first list
+    ' now, so the other pages have the sidebar even while Home's rows are slow or Home shows an error
+    seed = h.navItems
+    if type(seed) = "roArray" and seed.count() > 0
+        m.sideNav.items = seed
+        m.sideNavSig = formatJson(seed)
+        syncSideNav()
+    end if
     h.server = server
     Clock.startupMark("HomeScreen pushed")
     m.homeReady = true
@@ -2131,6 +2147,7 @@ end sub
 sub initSideNav()
     m.sideNav = m.top.findNode("sideNav")
     m.sideNavLog = ""
+    m.sideNavSig = ""
     ' (set here, not in the XML: an XML value paints while the scene's children are made, before init() has put
     ' the theme on m.global, and SideBar.paint crashed on m.global.theme)
     m.sideNav.compact = true
@@ -2144,6 +2161,10 @@ sub onHomeNavItems(ev as object)
     if m.stack.count() = 0 or not m.stack[0].isSameNode(ev.getRoSGNode()) then return
     items = ev.getData()
     if type(items) <> "roArray" then items = []
+    ' (v1.7.1 NV6-15) the same entries again (the Now Playing badge or New count unchanged): no repaint
+    sig = formatJson(items)
+    if sig = Util.toText(m.sideNavSig) then return
+    m.sideNavSig = sig
     m.sideNav.items = items
     syncSideNav()
 end sub
