@@ -83,9 +83,140 @@ namespace Live
         return secs
     end function
 
-    ' Connection attempts in a row that never opened before Cove gives up for the session (polling as before)
+    ' Connection attempts in a row that never opened before Cove says it is polling meanwhile (it keeps retrying)
     function gaveUp(failures as integer) as boolean
         return failures >= 3
+    end function
+
+    ' --- v1.7.1 LIVE (LV-1): never off for good ---
+    ' Seconds before reconnect attempt n (0-based): 2, 4, 8, 16, 32, then 60 five times, then every 5 minutes
+    function retrySecs(attempt as integer) as integer
+        if attempt < 5 then return Live.backoffSecs(attempt)
+        if attempt < 10 then return 60
+        return 300
+    end function
+
+    ' --- v1.7.1 LIVE (LV-9): a connection that opens and drops at once is a failure ---
+    ' After a connection ends: { attempt, failures } for the next round. openMs = how long it stayed open (-1 =
+    ' never opened). Open 30 s or more: a fresh start; under 10 s (or never): one more failure; in between: as is.
+    function afterClose(openMs as integer, attempt as integer, failures as integer) as object
+        if openMs >= 30000 then return { attempt: 0, failures: 0 }
+        if openMs < 10000 then return { attempt: attempt, failures: failures + 1 }
+        return { attempt: attempt, failures: failures }
+    end function
+
+    ' --- v1.7.1 LIVE (LV-2): a half-open socket is closed and opened again ---
+    ' true when nothing came back for too long: twice the keep-alive interval (+5 s) once the server has answered a
+    ' Ping / KeepAlive on this connection, 10 minutes when it never answers them (Emby may not echo KeepAlive)
+    function isSilent(silentMs as integer, keepEvery as integer, answers as boolean) as boolean
+        if answers then return silentMs > 2 * keepEvery + 5000
+        return silentMs > 600000
+    end function
+
+    ' --- v1.7.1 LIVE (LV-8 / CR-4): progress reports from another device don't reload the pages ---
+    ' One UserDataList entry as the facts the pages show: watched, favourite, and where the progress is
+    ' (0 = not started or under 5 %, 1 = in progress, 2 = 90 % or more)
+    function userDataKey(u as dynamic) as string
+        if not Util.isAA(u) then return ""
+        p = "p0"
+        if Util.flag(u, "Played") then p = "p1"
+        f = "f0"
+        if Util.flag(u, "IsFavorite") then f = "f1"
+        b = 0
+        if Util.field(u, "PlayedPercentage") <> invalid
+            pct = Util.toNumber(u.PlayedPercentage)
+            if pct >= 90
+                b = 2
+            else if pct >= 5
+                b = 1
+            end if
+        else if Util.toNumber(u.PlaybackPositionTicks) > 0
+            b = 1
+        end if
+        return p + f + "b" + b.toStr()
+    end function
+
+    ' UserDataChanged → the ids whose watched / favourite / progress step changed since the last message (seen:
+    ' id → key, updated here, at most 300 ids). An id not seen before counts as changed.
+    function userDataChanges(data as dynamic, userId as string, seen as object) as object
+        out = []
+        if not Util.isAA(data) then return out
+        uid = Util.toText(data.UserId)
+        if uid <> "" and userId <> "" and LCase(uid) <> LCase(userId) then return out
+        list = data.UserDataList
+        if type(list) <> "roArray" then return out
+        taken = {}
+        for each u in list
+            id = Util.toText(Util.field(u, "ItemId"))
+            if id <> "" and not taken.doesExist(id)
+                taken[id] = true
+                k = Live.userDataKey(u)
+                if not seen.doesExist(id) or Util.toText(seen[id]) <> k
+                    if out.count() < 100 then out.push(id)
+                end if
+                if seen.doesExist(id) or seen.count() < 300 then seen[id] = k
+            end if
+        end for
+        return out
+    end function
+
+    ' The 3 s wait after a user-data change restarts with each new change, but never past 10 s after the first
+    function debounceFire(firstAgoSecs as integer) as boolean
+        return firstAgoSecs >= 10
+    end function
+
+    ' What a user-data push does to the page on top: { act, wait }
+    '   sid: the top page; ownAgo: seconds since Cove itself changed something (✓, ♡, playback); loadedAgo: since the
+    '   top page last loaded (Home) or was refreshed live; liveAgo: since the last live Home reload; blocked: the
+    '   scene sidebar, a dialog or the page's own menu / picker is open.
+    '   act: "none" (player, or Cove's own change coming back), "recent" (just loaded), "later" (try again in wait
+    '   seconds), "defer" (stale only: it reloads when the focus returns), "home", "details", "page", "flag"
+    function userDataPlan(sid as string, ownAgo as integer, loadedAgo as integer, liveAgo as integer, blocked as boolean) as object
+        if sid = "player" then return { act: "none", wait: 0 }
+        if ownAgo >= 0 and ownAgo < 15 then return { act: "none", wait: 0 }
+        if sid = "home"
+            if loadedAgo >= 0 and loadedAgo < 10 then return { act: "recent", wait: 0 }
+            ' (at most one live Home reload a minute)
+            if liveAgo >= 0 and liveAgo < 60 then return { act: "later", wait: 60 - liveAgo }
+            return { act: "home", wait: 0 }
+        end if
+        if sid = "details"
+            if loadedAgo >= 0 and loadedAgo < 5 then return { act: "recent", wait: 0 }
+            return { act: "details", wait: 0 }
+        end if
+        if sid = "library" or sid = "favorites" or sid = "seeall" or sid = "notices"
+            if blocked then return { act: "defer", wait: 0 }
+            if loadedAgo >= 0 and loadedAgo < 30 then return { act: "later", wait: 30 - loadedAgo }
+            return { act: "page", wait: 0 }
+        end if
+        return { act: "flag", wait: 0 }
+    end function
+
+    ' --- v1.7.1 LIVE (LV-16): the registry is written only when something changed (or once an hour) ---
+    function entryChanged(old as dynamic, entry as object) as boolean
+        if not Util.isAA(old) then return true
+        if Util.toText(old.n) <> Util.toText(entry.n) then return true
+        if formatJson(Live.listOrEmpty(old.s)) <> formatJson(Live.listOrEmpty(entry.s)) then return true
+        if formatJson(Live.listOrEmpty(old.u)) <> formatJson(Live.listOrEmpty(entry.u)) then return true
+        return Util.toNumber(entry.c) - Util.toNumber(old.c) >= 3600
+    end function
+
+    function listOrEmpty(v as dynamic) as object
+        if type(v) = "roArray" then return v
+        return []
+    end function
+
+    ' --- v1.7.1 LIVE (CR-5): Now Playing keeps its cards while only the positions move ---
+    ' The cards' identity for a session list: "item|user|device" per card, in card order
+    function sessionKeysOf(list as object) as string
+        parts = []
+        for each s in list
+            if Util.isAA(s)
+                it = Util.field(s, "NowPlayingItem")
+                parts.push(Util.toText(Util.field(it, "Id")) + "|" + Util.toText(s.UserName) + "|" + Util.toText(s.DeviceName) + "|" + Util.toText(s.Client))
+            end if
+        end for
+        return Util.join(parts, ",")
     end function
 
     ' ForceKeepAlive's Data is the server's timeout in seconds: Cove answers every half of it (at least 5 s,
@@ -225,7 +356,8 @@ namespace Live
     ' The newest items (newest first) against the profile's entry: { fresh (items added since the last look, not
     ' started, real titles, episodes and films), entry (the new high-water mark), baseline (true = first look, or
     ' the last one was more than 3 days ago: nothing is announced) }.
-    ' entry = { k, n (newest DateCreated, to the second), s (ids added at exactly n), u (unread ids), c (seconds) }
+    ' entry = { k, n (newest DateCreated, to the second), s (ids added at exactly n, first 8 characters), u (unread
+    ' ids), c (seconds) }
     function freshItems(entry as dynamic, latest as object, key as string, atSecs as integer) as object
         newest = ""
         for each it in latest
@@ -242,7 +374,7 @@ namespace Live
             mark = Util.toText(entry.n)
             if type(entry.s) = "roArray"
                 for each id in entry.s
-                    seenAt[Util.toText(id)] = true
+                    seenAt[Util.toText(id).left(8)] = true
                 end for
             end if
             taken = {}
@@ -250,7 +382,7 @@ namespace Live
                 id = Util.toText(Util.field(it, "Id"))
                 d = Live.dateKeyOf(Util.field(it, "DateCreated"))
                 t = Util.toText(Util.field(it, "Type"))
-                isNew = d > mark or (d = mark and not seenAt.doesExist(id))
+                isNew = d > mark or (d = mark and not seenAt.doesExist(id.left(8)))
                 if id <> "" and d <> "" and isNew and not taken.doesExist(id) and (t = "Episode" or t = "Movie") and not Live.isStarted(it) and not Live.isPlaceholderName(Util.field(it, "Name"))
                     taken[id] = true
                     fresh.push(it)
@@ -266,8 +398,9 @@ namespace Live
                 atTop.push(id)
             end for
         end if
+        ' (v1.7.1 LV-10: the ids at the mark are kept as their first 8 characters, so 6 profiles fit)
         for each it in latest
-            id = Util.toText(Util.field(it, "Id"))
+            id = Util.toText(Util.field(it, "Id")).left(8)
             if id <> "" and Live.dateKeyOf(Util.field(it, "DateCreated")) = peak and atTop.count() < 6
                 dup = false
                 for each x in atTop

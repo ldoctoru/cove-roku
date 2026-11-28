@@ -3364,7 +3364,10 @@ sub onLiveRefresh()
         m.nextUpPending = true
         loadNextUp()
         reloadSeasonCounts()
+        ' (v1.7.1 LV-6) the shown season's cards too (ticks, progress bars); the rows keep the focus
+        if m.seasonIndex >= 0 then loadEpisodes(m.seasonIndex)
     end if
+    if Util.toText(m.item.Type) = "BoxSet" then loadBoxItems()
 end sub
 
 ' ---------------------------------------------------------------- v1.7 DIAG (M-7 theme songs)

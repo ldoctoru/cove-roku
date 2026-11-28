@@ -45,9 +45,15 @@ function readStore() as object
     return v
 end function
 
-' (at most 3 profiles, 15 unread ids and 6 ids at the mark each: ~2 KB at worst with Jellyfin's 32-character ids)
-sub writeStore(store as object, entry as object)
-    Util.writeText(storeKey(), formatJson(Live.withEntry(store, entry, 3)))
+' (v1.7.1 LV-10: at most 6 profiles, 15 unread ids and 6 short ids at the mark each: ~4 KB at worst with
+' Jellyfin's 32-character ids). (v1.7.1 LV-3) The entry is put into the store as it is NOW (read again right
+' before the write); (LV-16) nothing is written when the entry is unchanged, and a refused write is logged.
+sub writeEntry(entry as object)
+    store = readStore()
+    if not Live.entryChanged(Live.entryOf(store, Util.toText(entry.k)), entry) then return
+    text = formatJson(Live.withEntry(store, entry, 6))
+    Util.writeText(storeKey(), text)
+    if Util.readText(storeKey()) <> text then Log.line("Cove: notices not saved (registry full?), " + Util.toText(text.len()) + " chars")
 end sub
 
 function nowSecs() as integer
@@ -73,8 +79,7 @@ sub checkNew(srv as object, out as object)
         if Util.isAA(it) then found.push(it)
     end for
     key = Live.noticeKey(out.serverId, out.userId)
-    store = readStore()
-    d = Live.freshItems(Live.entryOf(store, key), found, key, nowSecs())
+    d = Live.freshItems(Live.entryOf(readStore(), key), found, key, nowSecs())
     fresh = d.fresh
     ' (the profile's rating limit, unrated episodes by their series' rating)
     if fresh.count() > 0 then fresh = Ratings.keepChecked(srv, fresh)
@@ -88,8 +93,11 @@ sub checkNew(srv as object, out as object)
         newIds.push(Util.toText(it.Id))
         notes.push(Live.noticeOf(it))
     end for
+    ' (v1.7.1 LV-3) the unread list as it is now (a read mark may have come meanwhile), plus the new ones
+    now = Live.entryOf(readStore(), key)
+    if Util.isAA(now) then d.entry.u = Live.listOrEmpty(now.u)
     d.entry.u = Live.mergeUnread(d.entry.u, newIds, 15)
-    writeStore(store, d.entry)
+    writeEntry(d.entry)
     out.unread = d.entry.u.count()
     out.fresh = notes
     out.baseline = d.baseline
@@ -140,13 +148,13 @@ end function
 sub unreadRows(srv as object, out as object)
     spent = createObject("roTimespan")
     key = Live.noticeKey(out.serverId, out.userId)
-    store = readStore()
-    entry = Live.entryOf(store, key)
+    entry = Live.entryOf(readStore(), key)
     ids = []
     if Util.isAA(entry) and type(entry.u) = "roArray" then ids = entry.u
     root = createObject("roSGNode", "ContentNode")
-    out.rows = root
+    ' (v1.7.1 LV-4: rows only with a good answer; a failure comes back with error and no rows)
     if ids.count() = 0
+        out.rows = root
         m.top.result = out
         return
     end if
@@ -184,25 +192,39 @@ sub unreadRows(srv as object, out as object)
         end if
         row.appendChild(Items.node(srv, it, true))
     end for
-    ' (the ones gone, watched or above the limit leave the unread list)
-    if kept.count() <> ids.count()
-        entry.u = kept
-        writeStore(store, entry)
-    end if
+    ' (the ones gone, watched or above the limit leave the unread list: taken out of the list as it is now)
     out.unread = kept.count()
+    if kept.count() <> ids.count()
+        keep = {}
+        for each id in kept
+            keep[id] = true
+        end for
+        gone = {}
+        for each id in ids
+            if not keep.doesExist(Util.toText(id)) then gone[Util.toText(id)] = true
+        end for
+        now = Live.entryOf(readStore(), key)
+        if Util.isAA(now)
+            remain = []
+            for each id in Live.listOrEmpty(now.u)
+                if not gone.doesExist(Util.toText(id)) then remain.push(id)
+            end for
+            now.u = remain
+            writeEntry(now)
+            out.unread = remain.count()
+        end if
+    end if
+    out.rows = root
     m.top.result = out
 end sub
 
 ' (v1.7, Liviu) a title opened from New leaves the unread list
 sub markOneRead(out as object, itemId as string)
     key = Live.noticeKey(out.serverId, out.userId)
-    store = readStore()
-    entry = Live.entryOf(store, key)
+    entry = Live.entryOf(readStore(), key)
     if Util.isAA(entry)
-        before = 0
-        if type(entry.u) = "roArray" then before = entry.u.count()
         entry.u = Live.withoutId(entry.u, itemId)
-        if entry.u.count() <> before then writeStore(store, entry)
+        writeEntry(entry)
         out.unread = entry.u.count()
     end if
     Log.line("Cove: notices read " + itemId + ", " + Util.toText(out.unread) + " unread")
@@ -211,11 +233,10 @@ end sub
 
 sub markAllRead(out as object)
     key = Live.noticeKey(out.serverId, out.userId)
-    store = readStore()
-    entry = Live.entryOf(store, key)
+    entry = Live.entryOf(readStore(), key)
     if Util.isAA(entry)
         entry.u = []
-        writeStore(store, entry)
+        writeEntry(entry)
     end if
     Log.line("Cove: notices marked all as read")
     out.unread = 0

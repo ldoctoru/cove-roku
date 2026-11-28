@@ -11,6 +11,10 @@
         <field id="server" type="assocarray" onChange="loadList" />
         <field id="action" type="assocarray" alwaysNotify="true" />
         <field id="stale" type="boolean" value="false" />
+        <!-- (v1.7.1 LV-3) the list and the read marks run through MainScene's one-at-a-time NoticesTask queue:
+             ask = { op: "list" | "read" | "readOne", gen, itemId }, answered in answer (the task's result + gen) -->
+        <field id="ask" type="assocarray" alwaysNotify="true" />
+        <field id="answer" type="assocarray" alwaysNotify="true" onChange="onAnswer" />
     </interface>
     <children>
         <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="64" translation="[96,48]" />

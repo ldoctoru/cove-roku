@@ -2,6 +2,7 @@ import "pkg:/source/Util.bs"
 import "pkg:/source/QuickPlay.bs"
 import "pkg:/source/Speak.bs"
 import "pkg:/source/Toasts.bs"
+import "pkg:/source/Log.bs"
 
 sub init()
     m.rows = m.top.findNode("rows")
@@ -14,7 +15,6 @@ sub init()
     ' (the list may get focus before anything loaded: never leave it without content)
     m.rows.content = createObject("roSGNode", "ContentNode")
     m.inBar = false
-    m.task = invalid
     m.gen = 0
     ' Audio Guide: Cove says the cards with the row's name
     Speak.mute([m.rows, m.barKeys])
@@ -30,35 +30,37 @@ sub loadList()
     runTask("list")
 end sub
 
+' (v1.7.1 LV-3) MainScene runs it after any NoticesTask before it (one writer of newMedia at a time)
 sub runTask(op as string)
-    if m.task <> invalid then m.task.unobserveField("result")
     m.gen = m.gen + 1
-    t = createObject("roSGNode", "NoticesTask")
-    t.server = m.top.server
-    t.op = op
-    t.reason = "screen"
-    t.addFields({ gen: m.gen })
-    t.observeField("result", "onResult")
-    m.task = t
-    t.control = "RUN"
+    m.top.ask = { op: op, gen: m.gen, itemId: "" }
 end sub
 
-sub onResult(ev as object)
-    t = ev.getRoSGNode()
-    r = ev.getData()
-    if m.top.server = invalid or t.gen <> m.gen then return
+sub onAnswer()
+    r = m.top.answer
+    if not Util.isAA(r) or m.top.server = invalid then return
     ' (a late answer for another server or profile)
     if Util.toText(r.serverId) <> Util.toText(m.top.server.id) or Util.toText(r.userId) <> Util.toText(m.top.server.userId) then return
-    m.task = invalid
+    if r.op = "readOne"
+        onReadOne(r)
+        return
+    end if
+    if Util.toNumber(r.gen) <> m.gen then return
+    ' (v1.7.1 LV-4) a failed list keeps the cards shown and says why, instead of "You're all caught up"
+    if Util.toText(r.error) <> ""
+        Log.line("Cove: notices " + Util.toText(r.op) + " failed on the New page")
+        if r.op = "read" then Toasts.notify("Couldn't mark as read", "")
+        if m.rows.content = invalid or m.rows.content.getChildCount() = 0
+            m.status.text = "Couldn't load what's new. " + Util.toText(r.error)
+            m.status.visible = true
+            m.top.findNode("hint").visible = false
+        end if
+        return
+    end if
     if m.global.hasField("noticesCount") then m.global.noticesCount = Util.toNumber(r.unread)
     if r.op = "read"
         Toasts.notify("Marked all as read", "check")
         showRows(createObject("roSGNode", "ContentNode"))
-        return
-    end if
-    if Util.toText(r.error) <> "" and r.rows = invalid
-        m.status.text = "Couldn't load what's new. " + Util.toText(r.error)
-        m.status.visible = true
         return
     end if
     rows = r.rows
@@ -125,21 +127,11 @@ end sub
 ' the page is shown again, and the New count follows the answer
 sub markRead(itemId as string)
     if itemId = "" or m.top.server = invalid then return
-    t = createObject("roSGNode", "NoticesTask")
-    t.server = m.top.server
-    t.op = "readOne"
-    t.itemId = itemId
-    t.reason = "opened"
-    t.observeField("result", "onReadOne")
-    m.readTask = t
-    t.control = "RUN"
+    m.top.ask = { op: "readOne", gen: 0, itemId: itemId }
 end sub
 
-sub onReadOne(ev as object)
-    r = ev.getData()
-    m.readTask = invalid
-    if m.top.server = invalid or not Util.isAA(r) then return
-    if Util.toText(r.serverId) <> Util.toText(m.top.server.id) or Util.toText(r.userId) <> Util.toText(m.top.server.userId) then return
+sub onReadOne(r as object)
+    if Util.toText(r.error) <> "" then return
     if m.global.hasField("noticesCount") then m.global.noticesCount = Util.toNumber(r.unread)
 end sub
 

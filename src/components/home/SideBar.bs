@@ -57,7 +57,12 @@ sub speakEntry(prefix as string)
     end for
     text = Util.toText(its[m.index].label)
     b = Util.toNumber(its[m.index].badge)
-    if b > 0 then text = text + ", " + Int(b).toStr() + " playing"
+    ' (v1.7.1 CR-8) the New entry's number is new titles, not sessions
+    if b > 0 and its[m.index].id = "new"
+        text = text + ", " + Int(b).toStr() + " new"
+    else if b > 0
+        text = text + ", " + Int(b).toStr() + " playing"
+    end if
     if its[m.index].id = m.top.current then text = text + ", current page"
     Speak.say(prefix + text + Speak.position(at, n))
 end sub
