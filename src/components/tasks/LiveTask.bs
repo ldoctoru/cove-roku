@@ -20,6 +20,7 @@ sub work()
         Log.line("Cove: live failed: " + Util.redact(Util.toText(e.message) + where))
         m.top.liveState = "failed"
     end try
+    Log.flush()
 end sub
 
 ' Connects, reads, reconnects, until MainScene sends "close". (v1.7.1 LV-1) It never stops for good: after 3
@@ -112,6 +113,7 @@ end function
 function waitOrClose(ms as integer) as boolean
     spent = createObject("roTimespan")
     while spent.totalMilliseconds() < ms
+        Log.flush()
         msg = wait(500, m.port)
         mt = type(msg)
         if mt = "roSGNodeEvent"
@@ -150,6 +152,7 @@ function openAndRead(ws as object, url as string, attempt as integer) as integer
     m.answers = false
     sessionsOn = false
     while true
+        Log.flush()
         msg = wait(1000, m.port)
         mt = type(msg)
         if mt = "roWebSocketEvent"

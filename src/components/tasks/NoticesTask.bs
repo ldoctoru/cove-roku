@@ -33,6 +33,8 @@ sub work()
         base.error = Util.toText(e.message)
         m.top.result = base
     end try
+    ' (v1.7.1 combine) the batched log lines of this run reach Diagnostics now
+    Log.flush()
 end sub
 
 function storeKey() as string
