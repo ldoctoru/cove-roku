@@ -134,7 +134,7 @@ namespace Playback
         else
             q = q + "&SubtitleStreamIndex=-1"
         end if
-        noDirect = forceTranscode or (opts.burn and opts.sub >= 0) or (opts.audio >= 0 and opts.audio <> opts.defaultAudio)
+        noDirect = noDirectOf(forceTranscode, opts)
         if noDirect then q = q + "&EnableDirectPlay=false"
         if forceTranscode then q = q + "&EnableDirectStream=false&AllowVideoStreamCopy=false"
         return q
@@ -158,7 +158,7 @@ namespace Playback
         base = Util.toText(server.url)
         key = tokenParam(server)
         container = LCase(Util.toText(src.Container))
-        noDirect = forceTranscode or (opts.burn and opts.sub >= 0) or (opts.audio >= 0 and opts.audio <> opts.defaultAudio)
+        noDirect = noDirectOf(forceTranscode, opts)
         if not noDirect and Util.flag(src, "SupportsDirectPlay") and container <> ""
             fmt = "mp4"
             if container.instr("mkv") >= 0 or container.instr("matroska") >= 0 then fmt = "mkv"
@@ -224,6 +224,182 @@ namespace Playback
         if urlBitrate <> invalid and urlBitrate > 0 and urlBitrate < cap then return Int(urlBitrate)
         return cap
     end function
+
+    ' The file itself can't be played: a forced conversion, a burned-in subtitle, another audio track than the
+    ' file's default, or (v1.7.1 SP6-3) a large MKV started as a stream (opts.remux, Settings → Playback)
+    function noDirectOf(forceTranscode as boolean, opts as object) as boolean
+        if forceTranscode or Util.flag(opts, "remux") then return true
+        return (opts.burn and opts.sub >= 0) or (opts.audio >= 0 and opts.audio <> opts.defaultAudio)
+    end function
+
+    ' ---------------------------------------------------------------- v1.7.1 SPEED (SP6-1, SP6-3)
+
+    ' (SP6-3) Settings → Playback → Start Large MKV Files as a Stream (default Off; one key for this Roku)
+    function mkvStreamOn() as boolean
+        return Prefs.flagOn("mkvStream", false)
+    end function
+
+    ' (SP6-3) the bitrate above which a large MKV is started as a stream: 30 Mbit/s (4K remuxes are 50-80)
+    function mkvStreamMinBitrate() as integer
+        return 30000000
+    end function
+
+    ' The MediaSources entry with this Id in an item / PlaybackInfo JSON, else the first one, else invalid
+    function sourceOf(info as dynamic, sourceId as string) as dynamic
+        if not Util.isAA(info) or type(info.MediaSources) <> "roArray" or info.MediaSources.count() = 0 then return invalid
+        for each cand in info.MediaSources
+            if sourceId <> "" and Util.isAA(cand) and Util.toText(cand.Id) = sourceId then return cand
+        end for
+        first = info.MediaSources[0]
+        if Util.isAA(first) then return first
+        return invalid
+    end function
+
+    ' A source's bitrate in bit/s: its Bitrate, else Size × 8 / run time; 0 when unknown
+    function sourceBitrate(src as dynamic) as integer
+        if not Util.isAA(src) then return 0
+        b = Util.toNumber(src.Bitrate)
+        if b > 0 then return Int(b)
+        bytes = Util.toNumber(src.Size)
+        runSecs = seconds(src.RunTimeTicks)
+        if bytes > 0 and runSecs > 0 then return Int(bytes * 8.0 / runSecs)
+        return 0
+    end function
+
+    ' (SP6-3) start this source as a stream (the server repackages it into HLS, video and audio copied)?
+    ' Only with the setting on, for an MKV file above mkvStreamMinBitrate (an unknown bitrate: no)
+    function wantsMkvStream(src as dynamic, settingOn as boolean) as boolean
+        if not settingOn or not Util.isAA(src) then return false
+        c = LCase(Util.toText(src.Container))
+        if c.instr("mkv") < 0 and c.instr("matroska") < 0 then return false
+        return sourceBitrate(src) > mkvStreamMinBitrate()
+    end function
+
+    ' (SP6-1) A number with at most 3 decimals ("23.976", "24", "0.5"); "?" when missing
+    function startDec(v as dynamic) as string
+        if v = invalid then return "?"
+        n = Util.toNumber(v)
+        if n < 0 then return "-" + startDec(-n)
+        k = Int(n * 1000 + 0.5)
+        whole = k \ 1000
+        frac = k mod 1000
+        if frac = 0 then return whole.toStr()
+        f = Right("00" + frac.toStr(), 3)
+        while f.len() > 0 and f.mid(f.len() - 1) = "0"
+            f = f.mid(0, f.len() - 1)
+        end while
+        return whole.toStr() + "." + f
+    end function
+
+    ' (SP6-1) bit/s → whole Mbit/s text ("62"); "?" when unknown
+    function startMbit(bps as dynamic) as string
+        n = Util.toNumber(bps)
+        if n <= 0 then return "?"
+        return Int((n + 500000) / 1000000).toStr()
+    end function
+
+    ' (SP6-1) The file's facts for "Cove: player start <ms> content set ...":
+    ' "mkv DirectPlay hevc 3840x2160 HDR 10 23.976 fps 62 Mbit/s audio eac3 6ch tracks a3 s14 resume 0 s"
+    ' (a stream format other than the container is added in brackets: "mkv DirectStream (hls) ...")
+    function startFacts(src as dynamic, streamFormat as string, method as string, audioIndex as integer, resumeSecs as float) as string
+        if not Util.isAA(src) then return "? " + method + " (no source facts) resume " + Int(resumeSecs).toStr() + " s"
+        container = LCase(Util.toText(src.Container))
+        if container = "" then container = "?"
+        out = container + " " + method
+        if streamFormat <> "" and container.instr(streamFormat) < 0 then out = out + " (" + streamFormat + ")"
+        vid = invalid
+        aud = invalid
+        firstAud = invalid
+        na = 0
+        ns = 0
+        if type(src.MediaStreams) = "roArray"
+            for each st in src.MediaStreams
+                if Util.isAA(st)
+                    kind = Util.toText(st.Type)
+                    if kind = "Video" and vid = invalid then vid = st
+                    if kind = "Audio"
+                        na = na + 1
+                        if firstAud = invalid then firstAud = st
+                        if audioIndex >= 0 and Util.toNumber(st.Index) = audioIndex then aud = st
+                        if audioIndex < 0 and aud = invalid and Util.flag(st, "IsDefault") then aud = st
+                    end if
+                    if kind = "Subtitle" then ns = ns + 1
+                end if
+            end for
+        end if
+        if aud = invalid then aud = firstAud
+        if vid <> invalid
+            out = out + " " + LCase(Util.toText(vid.Codec)) + " " + Util.toText(Util.toNumber(vid.Width)) + "x" + Util.toText(Util.toNumber(vid.Height))
+            vr = Util.toText(vid.VideoRangeType)
+            if vr = "" or LCase(vr) = "unknown" then vr = Util.toText(vid.VideoRange)
+            if vr = "" then vr = "?"
+            out = out + " " + vr
+            fps = vid.RealFrameRate
+            if Util.toNumber(fps) <= 0 then fps = vid.AverageFrameRate
+            if Util.toNumber(fps) <= 0 then fps = invalid
+            out = out + " " + startDec(fps) + " fps"
+        else
+            out = out + " no video"
+        end if
+        out = out + " " + startMbit(sourceBitrate(src)) + " Mbit/s"
+        if aud <> invalid
+            out = out + " audio " + LCase(Util.toText(aud.Codec)) + " " + Util.toText(Util.toNumber(aud.Channels)) + "ch"
+        else
+            out = out + " audio none"
+        end if
+        out = out + " tracks a" + na.toStr() + " s" + ns.toStr() + " resume " + Int(resumeSecs).toStr() + " s"
+        return out
+    end function
+
+    ' (SP6-1) roDeviceInfo.GetConnectionInfo() → "WiFiConnection 802.11ac signal -52 expected 180"
+    ' (expectedThroughput printed as the Roku gives it)
+    function startNet(ci as dynamic) as string
+        if not Util.isAA(ci) then return "unknown"
+        out = Util.toText(ci.type)
+        if out = "" then out = "?"
+        if Util.toText(ci.protocol) <> "" then out = out + " " + Util.toText(ci.protocol)
+        if ci.signal <> invalid then out = out + " signal " + Util.toText(ci.signal)
+        if ci.expectedThroughput <> invalid then out = out + " expected " + Util.toText(ci.expectedThroughput)
+        return out
+    end function
+
+    ' (SP6-1) Video timeToStartStreaming + playStartInfo →
+    ' "1.5 s · total 7.9 · prebuf 5.2 from 0.3 · manifest 0"
+    function startPlayInfo(psi as dynamic, timeToStart as dynamic) as string
+        out = startDec(timeToStart) + " s"
+        if not Util.isAA(psi) or psi.count() = 0 then return out + " · no playStartInfo"
+        out = out + " · total " + startDec(psi.total_dur) + " · prebuf " + startDec(psi.prebuf_dur) + " from " + startDec(psi.prebuf_start) + " · manifest " + startDec(psi.manifest_dur)
+        if Util.toNumber(psi.drm_load_dur) > 0 or Util.toNumber(psi.drm_lic_acq_dur) > 0 then out = out + " · drm " + startDec(psi.drm_load_dur) + " + " + startDec(psi.drm_lic_acq_dur)
+        return out
+    end function
+
+    ' (SP6-1) Video streamInfo + videoFormat / audioFormat → "62000000 measured 140000000 · decodes hevc eac3"
+    ' (bit/s as the Roku gives them)
+    function startStreamInfo(si as dynamic, videoFormat as dynamic, audioFormat as dynamic) as string
+        out = "?"
+        if Util.isAA(si)
+            out = Util.toText(si.streamBitrate)
+            if out = "" then out = "?"
+            meas = Util.toText(si.measuredBitrate)
+            if meas = "" then meas = "?"
+            out = out + " measured " + meas
+        end if
+        vf = Util.toText(videoFormat)
+        if vf = "" then vf = "?"
+        af = Util.toText(audioFormat)
+        if af = "" then af = "?"
+        return out + " · decodes " + vf + " " + af
+    end function
+
+    ' (SP6-1) the 10 % step a buffer percentage is in (0, 10 ... 100)
+    function startBufStep(pct as dynamic) as integer
+        n = Int(Util.toNumber(pct))
+        if n < 0 then n = 0
+        if n > 100 then n = 100
+        return (n \ 10) * 10
+    end function
+
+    ' ---------------------------------------------------------------- end v1.7.1 SPEED
 
     ' (v1.3.1 E-5) The real play method of a stream, as the servers count it (Cove for macOS PlayMethod.guess):
     ' DirectPlay = the file itself (static=true); Transcode = the URL forbids a video or audio copy, burns a
